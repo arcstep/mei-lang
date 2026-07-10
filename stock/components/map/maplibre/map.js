@@ -1251,6 +1251,35 @@ if (!customElements.get(TAG)) {
       }
     }
 
+    /** 运行时按 MapLibre filter 表达式裁剪已注册业务层（Thunder 事件/切片）。 */
+    setLayerFeatureFilter(layerId, filterExpr, registry = this._layerRegistry) {
+      const entry = registry?.[layerId];
+      if (!entry || !this.map) return false;
+      const filter = Array.isArray(filterExpr) ? filterExpr : null;
+      for (const mapLayerId of entry.mapLayerIds) {
+        if (this.map.getLayer(mapLayerId)) {
+          this.map.setFilter(mapLayerId, filter);
+        }
+      }
+      return true;
+    }
+
+    setLayerPaint(layerId, paintProps, registry = this._layerRegistry) {
+      const entry = registry?.[layerId];
+      if (!entry || !this.map || !paintProps || typeof paintProps !== "object") return false;
+      for (const mapLayerId of entry.mapLayerIds) {
+        if (!this.map.getLayer(mapLayerId)) continue;
+        for (const [key, value] of Object.entries(paintProps)) {
+          try {
+            this.map.setPaintProperty(mapLayerId, key, value);
+          } catch (_) {
+            /* ignore unsupported paint on this map layer type */
+          }
+        }
+      }
+      return true;
+    }
+
     async addLayerSpec(layerSpec, props, registry = this._layerRegistry) {
       const layerId = String(layerSpec.id || "layer").trim();
       const joinKey = resolveLayerJoinKey(layerSpec);
@@ -1293,10 +1322,16 @@ if (!customElements.get(TAG)) {
 
       if (type === "point") {
         const fillLayerId = `fill-${layerId}`;
-        const circleColor = style.circleColor || style.circle_color || "#f472b6";
+        const circleColorExpr =
+          style.circleColorExpr ||
+          style.circle_color_expr ||
+          style.circleColor ||
+          style.circle_color ||
+          "#f472b6";
         const circleRadius = Number(style.circleRadius ?? style.circle_radius ?? 5);
         const circleStrokeColor = style.circleStrokeColor || style.circle_stroke_color || "#fce7f3";
         const circleStrokeWidth = Number(style.circleStrokeWidth ?? style.circle_stroke_width ?? 1);
+        const layerFilter = layerSpec.filter || layerSpec.mapFilter || null;
         const pointData = enrichGeoJsonWithLayerMetrics(geojson, {
           joinKey,
           valueMap,
@@ -1305,17 +1340,23 @@ if (!customElements.get(TAG)) {
         });
         this.map.getSource(sourceId).setData(pointData);
         if (!this.map.getLayer(fillLayerId)) {
-          this.map.addLayer({
+          const layerDef = {
             id: fillLayerId,
             type: "circle",
             source: sourceId,
             paint: {
-              "circle-color": circleColor,
+              "circle-color": circleColorExpr,
               "circle-radius": circleRadius,
               "circle-stroke-color": circleStrokeColor,
               "circle-stroke-width": circleStrokeWidth,
             },
-          });
+          };
+          if (Array.isArray(layerFilter)) {
+            layerDef.filter = layerFilter;
+          }
+          this.map.addLayer(layerDef);
+        } else if (Array.isArray(layerFilter)) {
+          this.map.setFilter(fillLayerId, layerFilter);
         }
         mapLayerIds.push(fillLayerId);
         this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style);
@@ -1405,15 +1446,20 @@ if (!customElements.get(TAG)) {
         ? ["coalesce", ["to-number", ["get", extrusionHeightProperty]], extrusionHeight || 8]
         : extrusionHeight;
       const useExtrusion = Boolean(extrusionHeightProperty) || extrusionHeight > 0;
+      const polygonFilter = layerSpec.filter || layerSpec.mapFilter || null;
       const dataWithColors = {
         type: "FeatureCollection",
         features: (geojson.features || []).map((feature) => {
           const { code } = resolveFeatureJoinKey(feature.properties, joinKey);
           const value = valueMap[normalizeJoinCode(code)];
+          const props = feature?.properties && typeof feature.properties === "object" ? feature.properties : {};
+          const featureFill =
+            props.__fill || props.fill || props.fillColor || props.fill_color || "";
           const color =
-            value != null && choroplethOn
+            featureFill ||
+            (value != null && choroplethOn
               ? valueToColor(value, min, max, colors)
-              : fillColor;
+              : fillColor);
           const enriched = enrichFeatureWithLayerMetrics(feature, {
             joinKey,
             valueMap,
@@ -1425,6 +1471,7 @@ if (!customElements.get(TAG)) {
             properties: {
               ...enriched.properties,
               __fill: color,
+              __line: props.line || props.lineColor || props.line_color || "",
             },
           };
         }),
@@ -1433,7 +1480,7 @@ if (!customElements.get(TAG)) {
 
       if (!outlineOnly) {
         if (useExtrusion && !this.map.getLayer(extrusionId)) {
-          this.map.addLayer({
+          const extrusionDef = {
             id: extrusionId,
             type: "fill-extrusion",
             source: sourceId,
@@ -1447,10 +1494,14 @@ if (!customElements.get(TAG)) {
                   : 0.68,
               "fill-extrusion-base": 0,
             },
-          });
+          };
+          if (Array.isArray(polygonFilter)) {
+            extrusionDef.filter = polygonFilter;
+          }
+          this.map.addLayer(extrusionDef);
           mapLayerIds.push(extrusionId);
         } else if (!this.map.getLayer(fillId)) {
-          this.map.addLayer({
+          const fillDef = {
             id: fillId,
             type: "fill",
             source: sourceId,
@@ -1461,25 +1512,34 @@ if (!customElements.get(TAG)) {
                   ? Number(fillOpacityRaw)
                   : 0.45,
             },
-          });
+          };
+          if (Array.isArray(polygonFilter)) {
+            fillDef.filter = polygonFilter;
+          }
+          this.map.addLayer(fillDef);
           mapLayerIds.push(fillId);
         }
       }
       if (!this.map.getLayer(lineId)) {
-        this.map.addLayer({
+        const defaultLine = mapLibrePaintColor(
+          style.lineColor || style.line_color || color("chart_2"),
+          "chart_2",
+          "#38bdf8",
+        );
+        const lineDef = {
           id: lineId,
           type: "line",
           source: sourceId,
           paint: {
-            "line-color": mapLibrePaintColor(
-              style.lineColor || style.line_color || color("chart_2"),
-              "chart_2",
-              "#38bdf8",
-            ),
+            "line-color": ["coalesce", ["get", "__line"], defaultLine],
             "line-width": style.lineWidth ?? 1.2,
             "line-opacity": style.lineOpacity ?? style.line_opacity ?? 1,
           },
-        });
+        };
+        if (Array.isArray(polygonFilter)) {
+          lineDef.filter = polygonFilter;
+        }
+        this.map.addLayer(lineDef);
         mapLayerIds.push(lineId);
       }
       if (!outlineOnly) {

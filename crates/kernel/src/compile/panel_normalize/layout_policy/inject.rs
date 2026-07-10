@@ -24,9 +24,11 @@ pub(crate) fn default_layout_head_body(head_track: Option<String>) -> LayoutDecl
         layout_type: "grid".to_string(),
         direction: None,
         columns: Some(vec!["1fr".to_string()]),
+        // body 必须用 minmax(0, 1fr)：裸 1fr ≡ minmax(auto, 1fr)，
+        // Fill-down 内容会把 section 撑破后被 overflow:hidden 裁切。
         rows: Some(vec![
             head_track.unwrap_or_else(|| "auto".to_string()),
-            "1fr".to_string(),
+            "minmax(0, 1fr)".to_string(),
         ]),
         areas: Some(vec![
             vec![TITLE_ZONE.to_string()],

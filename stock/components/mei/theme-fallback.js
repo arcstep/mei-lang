@@ -16,7 +16,14 @@ export const THEME_FALLBACK_COLORS = {
   chart_2: "#38bdf8",
   chart_3: "#0ea5e9",
   chart_5: "#62beeb",
+  tone_blue: "#38bdf8",
+  tone_cyan: "#67e8f9",
+  tone_green: "#4ade80",
   tone_orange: "#fb923c",
+  tone_red: "#f87171",
+  tone_slate: "#cbd5e1",
+  tone_violet: "#c4b5fd",
+  tone_yellow: "#facc15",
 };
 
 export const THEME_FALLBACK_FONTS = {

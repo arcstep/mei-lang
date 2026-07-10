@@ -433,6 +433,42 @@ function findTableRowInEventPath(event, rowClass) {
   );
 }
 
+function tableRowActivationMode(props) {
+  const raw = String(
+    props?.row_activation_mode ?? props?.rowActivationMode ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  return raw === "dblclick" ? "dblclick" : "click";
+}
+
+function rowStatusIsActive(row) {
+  if (!row || typeof row !== "object") return false;
+  const status = String(row.status ?? row.event_status ?? "").trim().toLowerCase();
+  if (status === "active" || status === "live" || status === "进行中") return true;
+  if (row.active === true || row.is_active === true || row.isActive === true) return true;
+  return false;
+}
+
+function resolveDefaultSelectedRowIndex(rows, props) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return -1;
+  const preferredId = String(
+    props?.default_selected_row_id ??
+      props?.defaultSelectedRowId ??
+      props?.selected_row_id ??
+      props?.selectedRowId ??
+      "",
+  ).trim();
+  if (preferredId) {
+    const byId = list.findIndex((row) => String(row?.id ?? "").trim() === preferredId);
+    if (byId >= 0) return byId;
+  }
+  const activeIdx = list.findIndex((row) => rowStatusIsActive(row));
+  if (activeIdx >= 0) return activeIdx;
+  return 0;
+}
+
 function eventPathIntersectsSelector(event, selector) {
   return eventComposedPath(event).some(
     (node) => node instanceof HTMLElement && Boolean(node.closest?.(selector)),
@@ -504,7 +540,9 @@ export class MeiCockpitDataTable extends HTMLElement {
     this._queryStateId = queryStateIdOf(this._props);
     if (tableRowSelectionMode(this._props) === "single") {
       if (!Number.isFinite(this._selectedRowIndex) || this._selectedRowIndex < 0) {
-        this._selectedRowIndex = 0;
+        const initialRows = rowsFromMetricShape(this._props.dataset);
+        const preferred = resolveDefaultSelectedRowIndex(initialRows, this._props);
+        this._selectedRowIndex = preferred >= 0 ? preferred : 0;
       }
     }
     this._sharedFilters = getQueryState(this._queryStateId).filters || {};
@@ -575,6 +613,10 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (!this._rowSelectBound) {
       this._rowSelectBound = true;
       this.addEventListener("click", (event) => this.onRowSelectClick(event));
+    }
+    if (!this._rowActivateBound) {
+      this._rowActivateBound = true;
+      this.addEventListener("dblclick", (event) => this.onRowActivateDblclick(event));
     }
     this.bindCarouselHover();
     this.render();
@@ -865,46 +907,82 @@ export class MeiCockpitDataTable extends HTMLElement {
     emitTableRowDrilldown(this, detail);
   }
 
+  emitRowActivation(row, rowIndex, reason = "select") {
+    if (!row) return;
+    emitTableRowSelect(this, {
+      row,
+      rowIndex,
+      query_state_id: String(this._queryStateId || "").trim(),
+      activation: reason,
+    });
+    const eventId = String(row.id ?? row.event_id ?? "").trim();
+    if (eventId && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("mei:thunder-event-activate", {
+          bubbles: true,
+          composed: true,
+          detail: {
+            eventId,
+            row,
+            rowIndex,
+            reason,
+            source: "cockpit.data-table",
+          },
+        }),
+      );
+    }
+  }
+
   maybeAutoSelectPreviewRow() {
     const selectionMode = tableRowSelectionMode(this._props || {});
     if (selectionMode !== "single") {
       return;
     }
-    const autoSelect =
+    if (this._state?.loading) {
+      return;
+    }
+    const pageRows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    const allRows = Array.isArray(this._allRows) && this._allRows.length > 0 ? this._allRows : pageRows;
+    const autoSelectDefault =
+      this._props?.autoSelectDefaultRow === true ||
+      this._props?.auto_select_default_row === true ||
       this._props?.autoSelectFirstRow === true ||
       this._props?.auto_select_first_row === true ||
       this._props?.autoSelectSingleRow === true ||
       this._props?.auto_select_single_row === true;
-    if (!autoSelect) {
+    if (!autoSelectDefault) {
       return;
     }
-    if (this._state?.loading) {
+    if (allRows.length === 0) {
       return;
     }
-    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
-    if (rows.length !== 1) {
+    const preferred = resolveDefaultSelectedRowIndex(allRows, this._props);
+    if (preferred < 0) {
       return;
     }
+    const row = allRows[preferred];
     const signature = JSON.stringify({
       queryStateId: this._queryStateId || "",
-      row: rows[0],
+      id: row?.id ?? preferred,
     });
     if (this._autoSelectSignature === signature) {
       return;
     }
     this._autoSelectSignature = signature;
-    this._selectedRowIndex = 0;
+    // 分页时选中索引相对当前页；默认事件通常在首页。
+    const pageIndex = pageRows.findIndex((item) => item === row || String(item?.id ?? "") === String(row?.id ?? ""));
+    this._selectedRowIndex = pageIndex >= 0 ? pageIndex : preferred;
     this.render();
-    emitTableRowSelect(this, {
-      row: rows[0],
-      rowIndex: 0,
-      query_state_id: String(this._queryStateId || "").trim(),
-    });
+    this.emitRowActivation(row, preferred, "auto");
   }
 
   onRowSelectClick(event) {
     const selectionMode = tableRowSelectionMode(this._props || {});
     if (selectionMode !== "single") {
+      return;
+    }
+    if (tableRowActivationMode(this._props || {}) === "dblclick") {
+      // 双击激活模式：单击不切换选中，也不广播。
       return;
     }
     const rowEl = findTableRowInEventPath(event, "selectable-row");
@@ -922,11 +1000,34 @@ export class MeiCockpitDataTable extends HTMLElement {
     }
     this._selectedRowIndex = index;
     this.render();
-    emitTableRowSelect(this, {
-      row,
-      rowIndex: index,
-      query_state_id: String(this._queryStateId || "").trim(),
-    });
+    this.emitRowActivation(row, index, "click");
+  }
+
+  onRowActivateDblclick(event) {
+    const selectionMode = tableRowSelectionMode(this._props || {});
+    if (selectionMode !== "single") {
+      return;
+    }
+    if (tableRowActivationMode(this._props || {}) !== "dblclick") {
+      return;
+    }
+    const rowEl = findTableRowInEventPath(event, "selectable-row");
+    if (!(rowEl instanceof HTMLElement)) {
+      return;
+    }
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
+      return;
+    }
+    const index = Number(rowEl.dataset.rowIndex);
+    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    const row = Number.isFinite(index) && index >= 0 ? rows[index] : null;
+    if (!row) {
+      return;
+    }
+    event.preventDefault();
+    this._selectedRowIndex = index;
+    this.render();
+    this.emitRowActivation(row, index, "dblclick");
   }
 
   bindCellPreviewEvents() {
@@ -1050,12 +1151,14 @@ export class MeiCockpitDataTable extends HTMLElement {
             )}</span>`;
           })
           .join("");
+        const activeEvent = rowStatusIsActive(row);
         const rowClass = [
           "tr",
           ri % 2 === 1 ? "zebra" : "",
           drilldownEnabled ? "drilldown-row" : "",
           selectableRows ? "selectable-row" : "",
           selectableRows && ri === this._selectedRowIndex ? "is-selected" : "",
+          activeEvent ? "is-active-event" : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -1200,6 +1303,18 @@ export class MeiCockpitDataTable extends HTMLElement {
         .tr.is-selected {
           background: ${color("table_row_hover")};
           box-shadow: ${themeShadow("table_row_hover", "inset 0 0 0 1px rgba(56, 189, 248, 0.55)")};
+        }
+        /* 进行中：事件名/时间红字；级别 tag 仍走 tone-*，不被 inherit 冲掉 */
+        .tr.is-active-event .td-cell {
+          color: ${color("tone_red")};
+          font-weight: 600;
+        }
+        .tr.is-active-event .td-cell .cell-inner {
+          color: inherit;
+          font-weight: 600;
+        }
+        .tr.is-active-event .td-cell .cell-tag {
+          font-weight: 600;
         }
         .tr:hover {
           background: ${color("table_row_selected")};

@@ -407,6 +407,31 @@
     return Number.isInteger(value) ? `${value}fr` : `${value}fr`;
   }
 
+  /** 裸 `Nfr`/`1fr` ≡ minmax(auto, Nfr)，Fill-down 内容会撑破轨道；统一收成 minmax(0, …)。 */
+  function hardenFrTracks(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return raw;
+    return raw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((track) => {
+        if (/^minmax\(/i.test(track)) return track;
+        if (/^[\d.]+fr$/i.test(track)) return `minmax(0, ${track})`;
+        return track;
+      })
+      .join(" ");
+  }
+
+  function hardenNodeGridRows(node) {
+    if (!(node instanceof HTMLElement)) return;
+    const current = String(node.style.gridTemplateRows || "").trim();
+    if (!current) return;
+    const next = hardenFrTracks(current);
+    if (next && next !== current) {
+      node.style.gridTemplateRows = next;
+    }
+  }
+
   function parseHostProps(node) {
     if (!(node instanceof HTMLElement)) return {};
     const raw = String(node.getAttribute("data-props") || "").trim();
@@ -2189,7 +2214,27 @@
         section.style.minHeight = "0";
         section.style.minWidth = "0";
         section.style.overflow = "hidden";
+        hardenNodeGridRows(section);
+        section
+          .querySelectorAll(
+            ':scope > [data-preview-scope$="/content_zone"], :scope > [data-preview-scope$="/body"], :scope > .mei-compose-slot, :scope > .preview-card',
+          )
+          .forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            el.style.minHeight = "0";
+            el.style.maxHeight = "100%";
+            el.style.overflow = "hidden";
+            hardenNodeGridRows(el);
+            const host = el.querySelector(":scope > .component-host, :scope > .panel-body-cell > .component-host");
+            if (host instanceof HTMLElement) {
+              host.style.minHeight = "0";
+              host.style.maxHeight = "100%";
+              host.style.height = "100%";
+              host.style.overflow = "hidden";
+            }
+          });
       });
+      hardenNodeGridRows(rail);
     });
   }
 
@@ -2203,6 +2248,8 @@
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
+    // layout budget 可能再次写入裸 `1fr`；预算后再 harden 一次。
+    applyRailRegionSectionLayouts(root);
     normalizeMetricCompoundSections(root);
     clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
@@ -2333,7 +2380,7 @@
         section.style.margin = "0";
         section.style.gap = "2px";
         section.style.borderRadius = "0";
-        section.style.gridTemplateRows = "auto 1fr";
+        section.style.gridTemplateRows = "auto minmax(0, 1fr)";
         section.style.gridTemplateAreas = '"title" "body"';
         section.style.border = "1px solid rgba(56, 160, 240, 0.32)";
         section.style.minHeight = "0";
