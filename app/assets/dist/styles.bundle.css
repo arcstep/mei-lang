@@ -3297,6 +3297,37 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   height: 100%;
   overflow: auto;
 }
+/* Analytics T2：head + structured body 两行铺满；勿留第三行空轨（默认 panel 是 auto auto 1fr） */
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-overlay-body--structured {
+  min-height: 0;
+  overflow: hidden;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-structured-shell,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-structured-layout {
+  height: 100%;
+  overflow: hidden;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-shell-zone,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-shell-zone--container,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-shell-surface {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-shell-host {
+  overflow: hidden;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-id="detail"]
+  .access-drilldown-shell-host,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
+  .access-drilldown-shell-host {
+  overflow: auto;
+}
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-host,
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] {
   overflow: visible;
@@ -3310,6 +3341,16 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-host {
   padding: 0;
   overflow: visible;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"],
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
+  .access-drilldown-shell-surface,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
+  .access-drilldown-shell-host {
+  overflow: auto;
 }
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] mei-dataset-filter-bar {
   display: block;

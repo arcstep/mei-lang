@@ -1,4 +1,8 @@
-# 分析型二级看板壳：左过滤 + 右上图表（1~3）+ 下明细；布局由宿主 overlay 消费 projection_slots.layout_zone。
+# 分析型二级看板壳：左过滤 + 右上图表（1~3）+ 下明细。
+# 布局由宿主 overlay 消费 projection_slots.layout_zone；间距对齐 0332 space_1。
+# 金样作者路径见 mini-data T2（plane → region → section → page_instance + analytics_frame）。
+
+use template "cockpit/layout-defaults" as ui
 
 scene(
     id = "analytics_drilldown_page",
@@ -25,42 +29,40 @@ frame(
         columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
         rows = ["minmax(0, 1fr)"],
         areas = [["filter", "main"]],
-        gap = "12px",
-        padding = "12px",
+        gap = ui.frame_gap(),
+        padding = ui.frame_padding(),
     ),
     panels = [
-panel(
-    id = "filter",
-    area = "filter",
-    slot = { "kind": "filter", "source": "filter_schema" },
-    blocks = [],
-),
-panel(
-    id = "main",
-    area = "main",
-    layout = grid(
-        columns = ["1fr"],
-        rows = ["auto", "minmax(0, 1fr)"],
-        areas = [["chart"], ["detail"]],
-        gap = "12px",
-    ),
-    slot = { "kind": "container" },
-    blocks = [
         panel(
-            id = "chart",
-            area = "chart",
-            slot = { "kind": "slots", "accepts": ["chart"], "max": 3 },
+            id = "filter",
+            area = "filter",
+            slot = { "kind": "filter", "source": "filter_schema" },
             blocks = [],
         ),
         panel(
-            id = "detail",
-            area = "detail",
-            slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
-            blocks = [],
+            id = "main",
+            area = "main",
+            layout = grid(
+                columns = ["1fr"],
+                rows = ["minmax(0, 2fr)", "minmax(0, 3fr)"],
+                areas = [["chart"], ["detail"]],
+                gap = ui.frame_gap(),
+            ),
+            slot = { "kind": "container" },
+            blocks = [
+                panel(
+                    id = "chart",
+                    area = "chart",
+                    slot = { "kind": "slots", "accepts": ["chart"], "max": 3 },
+                    blocks = [],
+                ),
+                panel(
+                    id = "detail",
+                    area = "detail",
+                    slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
+                    blocks = [],
+                ),
+            ],
         ),
-    ],
-),
     ],
 )
-
-

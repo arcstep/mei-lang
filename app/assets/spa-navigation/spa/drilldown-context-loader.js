@@ -46,13 +46,17 @@
   }
 
   function resolveDrilldownRevision() {
-    const refs = global.__mei?.scene_manifest_refs;
+    // Prefer content-sensitive revisions so same-workset rebuilds bust sessionStorage
+    // (compile_epoch alone can stay stable while projection_assembly gap/padding changes).
+    const mei = global.__mei || {};
+    const clientRev = String(mei.client_revision || mei.clientRevision || "").trim();
+    if (clientRev) return clientRev;
+    const refs = mei.scene_manifest_refs;
     const fromRefs = String(
       refs?.registry_revision || refs?.registryRevision || refs?.revision || "",
     ).trim();
     if (fromRefs) return fromRefs;
-    return String(global.__mei?.compile_epoch || global.__mei?.bootstrap_compile_epoch || "")
-      .trim();
+    return String(mei.compile_epoch || mei.bootstrap_compile_epoch || "").trim();
   }
 
   function ensureDrilldownScriptElement() {
@@ -127,28 +131,35 @@
     const sceneId = resolveDrilldownSceneId(ctx);
     if (!appId) return null;
     const revision = resolveDrilldownRevision();
+    const artifactUrl =
+      readDrilldownMeta("mei-drilldown-artifact-url") ||
+      `/api/host/scene-drilldown-context?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
+    // Network-first: same-workset rebuilds can keep compile_epoch stable while
+    // projection_assembly shell gap/padding changes; sessionStorage must not win.
+    try {
+      const response = await fetch(artifactUrl, {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        const payloadText = JSON.stringify(payload);
+        writeSessionDrilldown(appId, sceneId, revision, payloadText);
+        injectDrilldownPayload(payloadText);
+        global.__meiDrilldownSource = "scene_drilldown_api";
+        return payload;
+      }
+    } catch (_) {
+      /* fall through to sessionStorage */
+    }
     const cached = readSessionDrilldown(appId, sceneId, revision);
     if (cached) {
       injectDrilldownPayload(cached);
       global.__meiDrilldownSource = "session_storage";
       return JSON.parse(cached);
     }
-    const artifactUrl =
-      readDrilldownMeta("mei-drilldown-artifact-url") ||
-      `/api/host/scene-drilldown-context?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
-    const response = await fetch(artifactUrl, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`scene drilldown context failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    const payloadText = JSON.stringify(payload);
-    writeSessionDrilldown(appId, sceneId, revision, payloadText);
-    injectDrilldownPayload(payloadText);
-    global.__meiDrilldownSource = "scene_drilldown_api";
-    return payload;
+    throw new Error(`scene drilldown context failed for ${appId}/${sceneId}`);
   }
 
   boot.isDrilldownRevisionOnly = isDrilldownRevisionOnly;

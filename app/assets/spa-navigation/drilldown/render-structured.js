@@ -42,12 +42,32 @@
     node.style.padding = nonEmptyString(layout?.padding);
   }
 
+  /** Analytics T2：锁住 region/section 等价配额，禁止内容后加载撑开壳。 */
+  function lockAnalyticsShellFill(node, { scrollable = false } = {}) {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.minHeight = "0";
+    node.style.minWidth = "0";
+    node.style.height = "100%";
+    node.style.boxSizing = "border-box";
+    node.style.overflow = scrollable ? "auto" : "hidden";
+  }
+
   function ensureStructuredDrilldownZoneHosts(root, sceneShell) {
     const layoutHost = root.querySelector('[data-drilldown-structured-layout="true"]');
     if (!(layoutHost instanceof HTMLElement) || !sceneShell) return null;
     layoutHost.replaceChildren();
     layoutHost.dataset.shellLayoutMode = String(sceneShell.layoutMode || "");
     applySceneShellLayout(layoutHost, sceneShell.layout);
+    const analyticsLock = String(sceneShell.layoutMode || "") === "analytics";
+    if (analyticsLock) {
+      lockAnalyticsShellFill(layoutHost);
+      const shell = layoutHost.closest(".access-drilldown-structured-shell");
+      if (shell instanceof HTMLElement) {
+        shell.style.minHeight = "0";
+        shell.style.flex = "1";
+        shell.style.overflow = "hidden";
+      }
+    }
     const zoneHosts = {};
     const zones = Array.isArray(sceneShell.zones) ? sceneShell.zones : [];
     const childrenByParent = new Map();
@@ -65,9 +85,15 @@
       if (zone.area) {
         wrapper.style.gridArea = zone.area;
       }
+      if (analyticsLock) {
+        lockAnalyticsShellFill(wrapper);
+      }
       if (zone.role === "container") {
         wrapper.classList.add("access-drilldown-shell-zone--container");
         applySceneShellLayout(wrapper, zone.layout);
+        if (analyticsLock) {
+          lockAnalyticsShellFill(wrapper);
+        }
       } else {
         const host =
           zone.role === "filter" || zone.role === "tab_bar"
@@ -80,6 +106,13 @@
               })();
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
+        if (analyticsLock) {
+          const scrollable = zone.id === "detail" || zone.role === "filter";
+          lockAnalyticsShellFill(host, { scrollable });
+          if (host !== wrapper) {
+            lockAnalyticsShellFill(wrapper);
+          }
+        }
         zoneHosts[zone.id] = host;
       }
       const children = childrenByParent.get(zone.id) || [];

@@ -36,6 +36,14 @@ template area_margin():
 template area_padding():
     LAYOUT_SPACE_1
 
+# T2 page_instance frame（analytics_frame 等）：与 plane/area 同单位。
+# frame 是 overlay 内 shell zones，不是第二套布局语法；间距仍走 space_1。
+template frame_padding():
+    LAYOUT_SPACE_1
+
+template frame_gap():
+    LAYOUT_SPACE_1
+
 template bg_panel_glow():
     "linear-gradient(180deg, rgba(32, 96, 168, 0.72) 0%, rgba(14, 48, 92, 0.88) 100%)"
 
