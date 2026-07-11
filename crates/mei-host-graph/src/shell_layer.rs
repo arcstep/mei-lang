@@ -30,6 +30,7 @@ pub fn is_placeholder_shell_document(doc: &ShellLayerDocument) -> bool {
 
 pub fn store_shell_layer_document(
     app_id: &str,
+    scene_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
@@ -38,6 +39,7 @@ pub fn store_shell_layer_document(
 ) {
     let cache_key = shell_cache_key(
         app_id,
+        scene_id,
         route_mode,
         tab,
         chrome,
@@ -70,18 +72,20 @@ pub fn build_shell_layer_document(route_mode: &str, tab: &str, chrome: &str) -> 
 
 pub fn ensure_shell_layer_cached(
     app_id: &str,
+    scene_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
     auth_sig: Option<u64>,
 ) -> (ShellLayerDocument, bool) {
-    ensure_shell_layer_rendered(app_id, route_mode, tab, chrome, auth_sig, || {
+    ensure_shell_layer_rendered(app_id, scene_id, route_mode, tab, chrome, auth_sig, || {
         build_shell_layer_document(route_mode, tab, chrome)
     })
 }
 
 pub fn ensure_shell_layer_rendered<F>(
     app_id: &str,
+    scene_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
@@ -93,6 +97,7 @@ where
 {
     let cache_key = shell_cache_key(
         app_id,
+        scene_id,
         route_mode,
         tab,
         chrome,
@@ -121,10 +126,11 @@ where
 
 pub fn shell_layer_json(
     app_id: &str,
+    scene_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
 ) -> serde_json::Value {
-    let (doc, _) = ensure_shell_layer_cached(app_id, route_mode, tab, chrome, None);
+    let (doc, _) = ensure_shell_layer_cached(app_id, scene_id, route_mode, tab, chrome, None);
     json!(doc)
 }

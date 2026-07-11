@@ -1,10 +1,18 @@
 import { test, expect } from "@playwright/test";
 
+/**
+ * LEGACY: three-surface (app/layout/prototype) switch e2e.
+ * Access is stage-only navigation now — see docs/mei-lang-v2/03-ui/0334-stage-scene-presentation-and-presenter-freeze.md
+ * and 0523 (2.2.9). Prefer stage-switch coverage under /apps/{id}/{stage} when rewritten.
+ */
 const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "pretty-panels";
 const COLD_START_TREE_TIMEOUT_MS = Number(process.env.MEI_E2E_TREE_TIMEOUT_MS || 15000);
+const SKIP_REASON =
+  "skipped: Access is stage-only (0334); layout/prototype surfaces removed on host-shell";
 
 test.describe("unified view surface switch", () => {
   test("F5 app surface keeps host topbar chrome", async ({ page }) => {
+    test.skip(true, SKIP_REASON);
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     await page.goto(`${base}/apps/${APP_ID}/view?surface=app`);
@@ -33,6 +41,7 @@ test.describe("unified view surface switch", () => {
   });
 
   test("F5 layout surface shows structure tree within 3s", async ({ page }) => {
+    test.skip(true, SKIP_REASON);
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     await page.goto(`${base}/apps/${APP_ID}/view?surface=layout`);
@@ -52,6 +61,7 @@ test.describe("unified view surface switch", () => {
   });
 
   test("app layout prototype round-trip without document fetch", async ({ page }) => {
+    test.skip(true, SKIP_REASON);
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const docFetches = [];
@@ -106,6 +116,7 @@ test.describe("unified view surface switch", () => {
   });
 
   test("client bundles expose view assembly modules", async ({ page }) => {
+    test.skip(true, SKIP_REASON);
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     await page.goto(`${base}/apps/${APP_ID}/view?surface=layout`);

@@ -13,7 +13,7 @@ use serde_json::json;
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
 use crate::landing::discover_workspace_apps;
 use crate::pages::AppQuery;
-use crate::review_axes::resolve_page_render_axes;
+use crate::review_axes::resolve_page_render_axes_for_stage;
 use crate::scene_manifest::{
     ensure_manifest_index, manifest_for_surface, materialize_layers_for_request,
     resolve_route_mode_from_surface, SceneChromeHostContext,
@@ -320,7 +320,18 @@ pub async fn api_host_view_revision(
     };
     let (workspace_root, axes) = {
         let guard = state.read().expect("state lock");
-        let axes = resolve_page_render_axes(
+        let stage_kind = match mei_host_graph::assemble_scope_from_registry(
+            guard.ctx.workspace_root.as_path(),
+            app_id,
+            scene_id.as_str(),
+        ) {
+            Ok(Some(outcome)) => crate::review_axes::StageKind::from_scene_routes(
+                &outcome.compiled.scene_routes,
+                scene_id.as_str(),
+            ),
+            _ => crate::review_axes::StageKind::Scene,
+        };
+        let axes = resolve_page_render_axes_for_stage(
             &guard,
             &AppQuery {
                 data_mode: query.data_mode.clone(),
@@ -328,6 +339,7 @@ pub async fn api_host_view_revision(
                 ..Default::default()
             },
             route_mode,
+            stage_kind,
         );
         (guard.ctx.workspace_root.clone(), axes)
     };

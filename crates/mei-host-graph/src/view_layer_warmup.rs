@@ -178,42 +178,37 @@ pub fn warm_manifest_index_for_scope(
     let manifest_revision_digest = manifest_revision_digest(&semantic_manifest, None);
 
     let mut surfaces = Vec::new();
-    for route_mode in ["app", "layout", "prototype"] {
-        let tab = if route_mode == "layout" {
-            "preview"
-        } else {
-            "scene"
-        };
-        let shell_layer_name = format!("shell.{route_mode}");
-        let layers = semantic_layers_from_refs(&semantic_layer_refs);
-        let compose_defaults = ComposeRequest {
-            route_mode: Some(route_mode.to_string()),
-            tab: Some(tab.to_string()),
-            chrome: Some("full".to_string()),
-            review_projection: Some(default_review_projection(route_mode)),
-            data_mode: Some(data_mode.slug().to_string()),
-            focus: None,
-            scope: None,
-        };
-        let surface_manifest = SceneViewManifest {
-            schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
-            app_id: app_id.to_string(),
-            scene_id: scene_id.to_string(),
-            semantic_core: semantic_core.clone(),
-            revision_digest: manifest_revision_digest.clone(),
-            layers,
-            compose_defaults: Some(compose_defaults.clone()),
-            surface_revision_digest: None,
-        };
-        let surface_revision_digest = surface_revision_digest_from_manifest(&surface_manifest);
-        surfaces.push(SurfaceManifestSlice {
-            route_mode: route_mode.to_string(),
-            shell_layer_name,
-            surface_revision_digest: surface_revision_digest.unwrap_or_default(),
-            compose_defaults,
-            shell_layer_ref: BTreeMap::new(),
-        });
-    }
+    let route_mode = "app";
+    let tab = "scene";
+    let shell_layer_name = format!("shell.{route_mode}");
+    let layers = semantic_layers_from_refs(&semantic_layer_refs);
+    let compose_defaults = ComposeRequest {
+        route_mode: Some(route_mode.to_string()),
+        tab: Some(tab.to_string()),
+        chrome: Some("full".to_string()),
+        review_projection: Some(default_review_projection(route_mode)),
+        data_mode: Some(data_mode.slug().to_string()),
+        focus: None,
+        scope: None,
+    };
+    let surface_manifest = SceneViewManifest {
+        schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
+        app_id: app_id.to_string(),
+        scene_id: scene_id.to_string(),
+        semantic_core: semantic_core.clone(),
+        revision_digest: manifest_revision_digest.clone(),
+        layers,
+        compose_defaults: Some(compose_defaults.clone()),
+        surface_revision_digest: None,
+    };
+    let surface_revision_digest = surface_revision_digest_from_manifest(&surface_manifest);
+    surfaces.push(SurfaceManifestSlice {
+        route_mode: route_mode.to_string(),
+        shell_layer_name,
+        surface_revision_digest: surface_revision_digest.unwrap_or_default(),
+        compose_defaults,
+        shell_layer_ref: BTreeMap::new(),
+    });
 
     let index = ManifestIndexDocument {
         schema_version: MANIFEST_INDEX_SCHEMA.to_string(),
@@ -232,12 +227,8 @@ pub fn warm_manifest_index_for_scope(
     Ok(index)
 }
 
-fn default_review_projection(route_mode: &str) -> String {
-    match route_mode {
-        "layout" => "plane_region".to_string(),
-        "prototype" => "live_full".to_string(),
-        _ => "live_full".to_string(),
-    }
+fn default_review_projection(_route_mode: &str) -> String {
+    "live_full".to_string()
 }
 
 pub fn warm_manifest_index_for_app(

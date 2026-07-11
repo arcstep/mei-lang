@@ -128,10 +128,6 @@ fn package_root() -> PathBuf {
         .to_path_buf()
 }
 
-pub fn host_asset_version_stamp() -> String {
-    host_asset_version()
-}
-
 fn host_asset_version() -> String {
     let dist_root = package_root().join("app/assets/dist");
     let newest_stamp = [

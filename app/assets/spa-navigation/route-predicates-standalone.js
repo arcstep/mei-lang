@@ -93,6 +93,7 @@
   }
 
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
+    // Access stage URLs always resolve to app (layout/prototype only via legacy path detection).
     if (isAccessStageRoute(pathname)) return "app";
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";

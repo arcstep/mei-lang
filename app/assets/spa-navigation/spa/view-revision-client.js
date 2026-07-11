@@ -54,38 +54,39 @@
     return refs;
   }
 
-  function defaultReviewProjectionForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section_slot";
-    if (slug === "prototype") return "static_full";
+  function defaultReviewProjectionForSurface(_surface) {
+    // Legacy layout/prototype map to app defaults; prefer manifest compose_defaults.
     return "live_full";
   }
 
-  function defaultDataModeForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout" || slug === "prototype") return "static";
+  function defaultDataModeForSurface(_surface) {
     return "eval";
   }
 
   function buildComposeRequest(ctx) {
-    const resolveSurface =
-      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
-      ((value) => String(value || "app").trim().toLowerCase() || "app");
+    const payload = ctx || {};
+    const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface ||
-      ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
-    const surface = resolveSurface(ctx.surface || ctx.mode || "app");
-    const tab = String(ctx.tab || "").trim() || defaultTab(surface);
-    const reviewFromCtx = String(ctx.review_projection || ctx.reviewProjection || "").trim();
-    const dataFromCtx = String(ctx.data_mode || ctx.dataMode || "").trim();
+      boot.sceneManifestLoader?.defaultTabForSurface || (() => "scene");
+    const tab = String(payload.tab || "").trim() || defaultTab("app");
+    const reviewFromCtx = String(
+      payload.review_projection || payload.reviewProjection || "",
+    ).trim();
+    const dataFromCtx = String(payload.data_mode || payload.dataMode || "").trim();
     return {
-      route_mode: surface,
+      route_mode: "app",
       tab,
-      chrome: String(ctx.chrome || "").trim(),
-      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
-      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
-      focus: String(ctx.focus || "").trim(),
-      scope: String(ctx.scope || "").trim(),
+      chrome: String(payload.chrome || refsDefaults?.chrome || "").trim(),
+      review_projection:
+        reviewFromCtx ||
+        String(refsDefaults?.review_projection || "").trim() ||
+        defaultReviewProjectionForSurface("app"),
+      data_mode:
+        dataFromCtx ||
+        String(refsDefaults?.data_mode || "").trim() ||
+        defaultDataModeForSurface("app"),
+      focus: String(payload.focus || refsDefaults?.focus || "").trim(),
+      scope: String(payload.scope || refsDefaults?.scope || "").trim(),
     };
   }
 
@@ -93,6 +94,7 @@
     return (
       response?.compose_defaults ||
       response?.manifest?.compose_defaults ||
+      globalThis.__mei?.scene_manifest_refs?.compose_defaults ||
       buildComposeRequest(ctx)
     );
   }
@@ -102,13 +104,10 @@
     if (!isViewRevisionEnabled()) {
       return { ready: false, status: ViewRevisionOutcome.REFETCH, disabled: true };
     }
-    const resolveSurface =
-      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
-      ((value) => String(value || "app").trim().toLowerCase() || "app");
     const params = new URLSearchParams({
       app_id: ctx.app_id || ctx.appId || "",
       scene: ctx.scene_id || ctx.sceneId || "home",
-      surface: resolveSurface(ctx.surface || ctx.mode || "app"),
+      surface: "app",
     });
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));

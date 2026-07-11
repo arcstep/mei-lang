@@ -124,15 +124,13 @@
 
   function resolveComposeKeyCtx(ctx) {
     const payload = ctx || {};
-    const tab = String(payload.tab || "").trim();
-    if (tab) return payload;
-    const surface = String(payload.surface || payload.mode || payload.route_mode || "app")
-      .trim()
-      .toLowerCase();
+    // Stage-only Access: surface key is always app.
+    const withSurface = { ...payload, surface: "app", mode: "app", route_mode: "app" };
+    const tab = String(withSurface.tab || "").trim();
+    if (tab) return withSurface;
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
-      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
-    return { ...payload, tab: defaultTab };
+      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
+    return { ...withSurface, tab: defaultTab };
   }
 
   function viewRevisionStoreKey(ctx) {
@@ -228,35 +226,51 @@
     return "";
   }
 
-  function defaultReviewProjectionForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section_slot";
-    if (slug === "prototype") return "static_full";
+  function defaultReviewProjectionForSurface(_surface) {
+    // Legacy layout/prototype map to app/stage defaults; stage_kind fork lives in manifest.
     return "live_full";
   }
 
-  function defaultDataModeForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout" || slug === "prototype") return "static";
+  function defaultDataModeForSurface(_surface) {
     return "eval";
   }
 
   function composeDefaultsForSurface(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
-    const surface = String(resolved.surface || resolved.mode || "app").trim().toLowerCase();
+    const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
+    if (refsDefaults && typeof refsDefaults === "object") {
+      return {
+        route_mode: "app",
+        tab: String(resolved.tab || refsDefaults.tab || "scene").trim() || "scene",
+        chrome: resolved.chrome || refsDefaults.chrome || "",
+        review_projection: String(
+          resolved.review_projection ||
+            resolved.reviewProjection ||
+            refsDefaults.review_projection ||
+            defaultReviewProjectionForSurface("app"),
+        ).trim(),
+        data_mode: String(
+          resolved.data_mode ||
+            resolved.dataMode ||
+            refsDefaults.data_mode ||
+            defaultDataModeForSurface("app"),
+        ).trim(),
+        focus: resolved.focus || refsDefaults.focus || "",
+        scope: resolved.scope || refsDefaults.scope || "",
+      };
+    }
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
-      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
     const reviewFromCtx = String(
       resolved.review_projection || resolved.reviewProjection || "",
     ).trim();
     const dataFromCtx = String(resolved.data_mode || resolved.dataMode || "").trim();
     return {
-      route_mode: surface,
+      route_mode: "app",
       tab: String(resolved.tab || "").trim() || defaultTab,
       chrome: resolved.chrome || "",
-      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
-      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface("app"),
+      data_mode: dataFromCtx || defaultDataModeForSurface("app"),
       focus: resolved.focus || "",
       scope: resolved.scope || "",
     };
@@ -281,15 +295,13 @@
   }
 
   function replaceSurfaceManifestSlice(manifest, ctx) {
-    const surface = String(ctx?.surface || ctx?.mode || "app").trim().toLowerCase();
     const compose =
       typeof boot.viewRevisionClient?.buildComposeRequest === "function"
-        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        ? boot.viewRevisionClient.buildComposeRequest({ ...(ctx || {}), surface: "app", mode: "app" })
         : composeDefaultsForSurface(ctx);
     const layers = {};
-    const shellKey = `shell.${surface}`;
-    const shellLayer = manifest?.layers?.[shellKey];
-    if (shellLayer) layers[shellKey] = shellLayer;
+    const shellLayer = manifest?.layers?.["shell.app"];
+    if (shellLayer) layers["shell.app"] = shellLayer;
     return { layers, compose_defaults: compose };
   }
 

@@ -436,6 +436,7 @@ pub fn layout_overlay_session_cache_key(
 
 pub fn shell_cache_key(
     app_id: &str,
+    scene_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
@@ -444,6 +445,7 @@ pub fn shell_cache_key(
 ) -> String {
     json!({
         "app_id": app_id,
+        "scene_id": scene_id,
         "artifact": format!("shell.{route_mode}"),
         "tab": tab,
         "chrome": chrome,
@@ -490,7 +492,7 @@ pub fn semantic_revision_digest(
     format!("{:016x}", hasher.finish())
 }
 
-/// Digest over shell layer + tab/chrome/route compose axes.
+/// Digest over shell layer + stage + tab/chrome/route compose axes.
 pub fn surface_revision_digest_from_manifest(manifest: &SceneViewManifest) -> Option<String> {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -501,11 +503,13 @@ pub fn surface_revision_digest_from_manifest(manifest: &SceneViewManifest) -> Op
         .map(|(_, value)| value.clone());
     let compose = manifest.compose_defaults.as_ref();
     let payload = json!({
+        "scene_id": manifest.scene_id,
         "shell": shell_layer,
         "route_mode": compose.and_then(|value| value.route_mode.as_deref()),
         "tab": compose.and_then(|value| value.tab.as_deref()),
         "chrome": compose.and_then(|value| value.chrome.as_deref()),
         "review_projection": compose.and_then(|value| value.review_projection.as_deref()),
+        "data_mode": compose.and_then(|value| value.data_mode.as_deref()),
     });
     let raw = serde_json::to_string(&payload).unwrap_or_default();
     if raw == "null" || raw == "{}" {

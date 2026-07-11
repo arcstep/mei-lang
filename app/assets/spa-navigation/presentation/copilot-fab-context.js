@@ -76,28 +76,26 @@
   }
 
   function resolveStageKind() {
-    const path = String(window.location.pathname || "");
     const mei = window.__mei;
     const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
+    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
-    const kind = String(route?.kind || "").trim().toLowerCase();
-    if (kind === "presentation" || kind === "scene") return kind;
-    const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
-    if (target.includes("/presentation/")) return "presentation";
+    if (route) {
+      const kind = String(route?.kind || "").trim().toLowerCase();
+      if (kind === "presentation" || kind === "scene") return kind;
+      const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
+      if (target.includes("/presentation/")) return "presentation";
+      return "scene";
+    }
+    const path = String(window.location.pathname || "");
+    if (/\/presentation\//.test(path)) return "presentation";
     const targetFile = String(
       document.querySelector("[data-target-file]")?.getAttribute("data-target-file") || "",
     )
       .replace(/\\/g, "/")
       .toLowerCase();
     if (targetFile.includes("/presentation/")) return "presentation";
-    // Thin-shell HTML may hardcode data-mei-stage-kind="scene"; prefer route/path.
-    if (/\/presentation\//.test(path)) return "presentation";
-    const root = floatingRoot();
-    const fromDom = String(root?.getAttribute("data-mei-stage-kind") || "")
-      .trim()
-      .toLowerCase();
-    if (fromDom === "presentation" || fromDom === "scene") return fromDom;
     return "scene";
   }
 

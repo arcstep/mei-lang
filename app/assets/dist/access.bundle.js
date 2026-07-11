@@ -96,6 +96,7 @@
   }
 
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
+    // Access stage URLs always resolve to app (layout/prototype only via legacy path detection).
     if (isAccessStageRoute(pathname)) return "app";
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";
@@ -10543,28 +10544,26 @@
   }
 
   function resolveStageKind() {
-    const path = String(window.location.pathname || "");
     const mei = window.__mei;
     const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
+    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
-    const kind = String(route?.kind || "").trim().toLowerCase();
-    if (kind === "presentation" || kind === "scene") return kind;
-    const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
-    if (target.includes("/presentation/")) return "presentation";
+    if (route) {
+      const kind = String(route?.kind || "").trim().toLowerCase();
+      if (kind === "presentation" || kind === "scene") return kind;
+      const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
+      if (target.includes("/presentation/")) return "presentation";
+      return "scene";
+    }
+    const path = String(window.location.pathname || "");
+    if (/\/presentation\//.test(path)) return "presentation";
     const targetFile = String(
       document.querySelector("[data-target-file]")?.getAttribute("data-target-file") || "",
     )
       .replace(/\\/g, "/")
       .toLowerCase();
     if (targetFile.includes("/presentation/")) return "presentation";
-    // Thin-shell HTML may hardcode data-mei-stage-kind="scene"; prefer route/path.
-    if (/\/presentation\//.test(path)) return "presentation";
-    const root = floatingRoot();
-    const fromDom = String(root?.getAttribute("data-mei-stage-kind") || "")
-      .trim()
-      .toLowerCase();
-    if (fromDom === "presentation" || fromDom === "scene") return fromDom;
     return "scene";
   }
 
@@ -26494,28 +26493,26 @@
   }
 
   function resolveStageKind() {
-    const path = String(window.location.pathname || "");
     const mei = window.__mei;
     const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
+    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
-    const kind = String(route?.kind || "").trim().toLowerCase();
-    if (kind === "presentation" || kind === "scene") return kind;
-    const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
-    if (target.includes("/presentation/")) return "presentation";
+    if (route) {
+      const kind = String(route?.kind || "").trim().toLowerCase();
+      if (kind === "presentation" || kind === "scene") return kind;
+      const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
+      if (target.includes("/presentation/")) return "presentation";
+      return "scene";
+    }
+    const path = String(window.location.pathname || "");
+    if (/\/presentation\//.test(path)) return "presentation";
     const targetFile = String(
       document.querySelector("[data-target-file]")?.getAttribute("data-target-file") || "",
     )
       .replace(/\\/g, "/")
       .toLowerCase();
     if (targetFile.includes("/presentation/")) return "presentation";
-    // Thin-shell HTML may hardcode data-mei-stage-kind="scene"; prefer route/path.
-    if (/\/presentation\//.test(path)) return "presentation";
-    const root = floatingRoot();
-    const fromDom = String(root?.getAttribute("data-mei-stage-kind") || "")
-      .trim()
-      .toLowerCase();
-    if (fromDom === "presentation" || fromDom === "scene") return fromDom;
     return "scene";
   }
 
@@ -30266,15 +30263,13 @@
 
   function resolveComposeKeyCtx(ctx) {
     const payload = ctx || {};
-    const tab = String(payload.tab || "").trim();
-    if (tab) return payload;
-    const surface = String(payload.surface || payload.mode || payload.route_mode || "app")
-      .trim()
-      .toLowerCase();
+    // Stage-only Access: surface key is always app.
+    const withSurface = { ...payload, surface: "app", mode: "app", route_mode: "app" };
+    const tab = String(withSurface.tab || "").trim();
+    if (tab) return withSurface;
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
-      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
-    return { ...payload, tab: defaultTab };
+      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
+    return { ...withSurface, tab: defaultTab };
   }
 
   function viewRevisionStoreKey(ctx) {
@@ -30370,35 +30365,51 @@
     return "";
   }
 
-  function defaultReviewProjectionForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section_slot";
-    if (slug === "prototype") return "static_full";
+  function defaultReviewProjectionForSurface(_surface) {
+    // Legacy layout/prototype map to app/stage defaults; stage_kind fork lives in manifest.
     return "live_full";
   }
 
-  function defaultDataModeForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout" || slug === "prototype") return "static";
+  function defaultDataModeForSurface(_surface) {
     return "eval";
   }
 
   function composeDefaultsForSurface(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
-    const surface = String(resolved.surface || resolved.mode || "app").trim().toLowerCase();
+    const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
+    if (refsDefaults && typeof refsDefaults === "object") {
+      return {
+        route_mode: "app",
+        tab: String(resolved.tab || refsDefaults.tab || "scene").trim() || "scene",
+        chrome: resolved.chrome || refsDefaults.chrome || "",
+        review_projection: String(
+          resolved.review_projection ||
+            resolved.reviewProjection ||
+            refsDefaults.review_projection ||
+            defaultReviewProjectionForSurface("app"),
+        ).trim(),
+        data_mode: String(
+          resolved.data_mode ||
+            resolved.dataMode ||
+            refsDefaults.data_mode ||
+            defaultDataModeForSurface("app"),
+        ).trim(),
+        focus: resolved.focus || refsDefaults.focus || "",
+        scope: resolved.scope || refsDefaults.scope || "",
+      };
+    }
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
-      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
     const reviewFromCtx = String(
       resolved.review_projection || resolved.reviewProjection || "",
     ).trim();
     const dataFromCtx = String(resolved.data_mode || resolved.dataMode || "").trim();
     return {
-      route_mode: surface,
+      route_mode: "app",
       tab: String(resolved.tab || "").trim() || defaultTab,
       chrome: resolved.chrome || "",
-      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
-      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface("app"),
+      data_mode: dataFromCtx || defaultDataModeForSurface("app"),
       focus: resolved.focus || "",
       scope: resolved.scope || "",
     };
@@ -30423,15 +30434,13 @@
   }
 
   function replaceSurfaceManifestSlice(manifest, ctx) {
-    const surface = String(ctx?.surface || ctx?.mode || "app").trim().toLowerCase();
     const compose =
       typeof boot.viewRevisionClient?.buildComposeRequest === "function"
-        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        ? boot.viewRevisionClient.buildComposeRequest({ ...(ctx || {}), surface: "app", mode: "app" })
         : composeDefaultsForSurface(ctx);
     const layers = {};
-    const shellKey = `shell.${surface}`;
-    const shellLayer = manifest?.layers?.[shellKey];
-    if (shellLayer) layers[shellKey] = shellLayer;
+    const shellLayer = manifest?.layers?.["shell.app"];
+    if (shellLayer) layers["shell.app"] = shellLayer;
     return { layers, compose_defaults: compose };
   }
 
@@ -32162,38 +32171,39 @@
     return refs;
   }
 
-  function defaultReviewProjectionForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section_slot";
-    if (slug === "prototype") return "static_full";
+  function defaultReviewProjectionForSurface(_surface) {
+    // Legacy layout/prototype map to app defaults; prefer manifest compose_defaults.
     return "live_full";
   }
 
-  function defaultDataModeForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout" || slug === "prototype") return "static";
+  function defaultDataModeForSurface(_surface) {
     return "eval";
   }
 
   function buildComposeRequest(ctx) {
-    const resolveSurface =
-      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
-      ((value) => String(value || "app").trim().toLowerCase() || "app");
+    const payload = ctx || {};
+    const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface ||
-      ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
-    const surface = resolveSurface(ctx.surface || ctx.mode || "app");
-    const tab = String(ctx.tab || "").trim() || defaultTab(surface);
-    const reviewFromCtx = String(ctx.review_projection || ctx.reviewProjection || "").trim();
-    const dataFromCtx = String(ctx.data_mode || ctx.dataMode || "").trim();
+      boot.sceneManifestLoader?.defaultTabForSurface || (() => "scene");
+    const tab = String(payload.tab || "").trim() || defaultTab("app");
+    const reviewFromCtx = String(
+      payload.review_projection || payload.reviewProjection || "",
+    ).trim();
+    const dataFromCtx = String(payload.data_mode || payload.dataMode || "").trim();
     return {
-      route_mode: surface,
+      route_mode: "app",
       tab,
-      chrome: String(ctx.chrome || "").trim(),
-      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
-      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
-      focus: String(ctx.focus || "").trim(),
-      scope: String(ctx.scope || "").trim(),
+      chrome: String(payload.chrome || refsDefaults?.chrome || "").trim(),
+      review_projection:
+        reviewFromCtx ||
+        String(refsDefaults?.review_projection || "").trim() ||
+        defaultReviewProjectionForSurface("app"),
+      data_mode:
+        dataFromCtx ||
+        String(refsDefaults?.data_mode || "").trim() ||
+        defaultDataModeForSurface("app"),
+      focus: String(payload.focus || refsDefaults?.focus || "").trim(),
+      scope: String(payload.scope || refsDefaults?.scope || "").trim(),
     };
   }
 
@@ -32201,6 +32211,7 @@
     return (
       response?.compose_defaults ||
       response?.manifest?.compose_defaults ||
+      globalThis.__mei?.scene_manifest_refs?.compose_defaults ||
       buildComposeRequest(ctx)
     );
   }
@@ -32210,13 +32221,10 @@
     if (!isViewRevisionEnabled()) {
       return { ready: false, status: ViewRevisionOutcome.REFETCH, disabled: true };
     }
-    const resolveSurface =
-      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
-      ((value) => String(value || "app").trim().toLowerCase() || "app");
     const params = new URLSearchParams({
       app_id: ctx.app_id || ctx.appId || "",
       scene: ctx.scene_id || ctx.sceneId || "home",
-      surface: resolveSurface(ctx.surface || ctx.mode || "app"),
+      surface: "app",
     });
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));
@@ -33224,25 +33232,11 @@
     return nodes.length > 0;
   }
 
-  function pickManifestShellLayer(surface) {
+  function pickManifestShellLayer(_surface) {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return null;
-    const slug = String(surface || "app").trim().toLowerCase();
-    const bySurface = {
-      app: layers["shell.app"],
-      layout: layers["shell.layout"],
-      prototype: layers["shell.prototype"],
-      build: layers["shell.build"],
-      run: layers["shell.run"],
-    };
-    return (
-      bySurface[slug] ||
-      layers[`shell.${slug}`] ||
-      layers["shell.layout"] ||
-      layers["shell.prototype"] ||
-      layers["shell.app"] ||
-      null
-    );
+    // Stage-only Access: only shell.app is materialized.
+    return layers["shell.app"] || null;
   }
 
   function isPlaceholderShellDoc(doc) {
@@ -33254,15 +33248,9 @@
 
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
-    const surface =
-      typeof boot.parseViewContext === "function"
-        ? String(boot.parseViewContext(global.location.href)?.surface || "app")
-            .trim()
-            .toLowerCase()
-        : "app";
     let doc = extractLayerDocument(shellLayer);
     if (isPlaceholderShellDoc(doc)) {
-      const manifestDoc = extractLayerDocument(pickManifestShellLayer(surface));
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
       if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
         doc = manifestDoc;
       }
@@ -33329,25 +33317,10 @@
     return "app";
   }
 
-  function pickShellLayer(layers, composeAxes) {
+  function pickShellLayer(layers, _composeAxes) {
     if (!layers || typeof layers !== "object") return null;
-    const surface = surfaceSlugFromComposeAxes(composeAxes);
-    const bySurface = {
-      app: layers["shell.app"],
-      layout: layers["shell.layout"],
-      prototype: layers["shell.prototype"],
-      build: layers["shell.build"],
-      run: layers["shell.run"],
-    };
-    return (
-      bySurface[surface] ||
-      layers["shell.build"] ||
-      layers["shell.layout"] ||
-      layers["shell.prototype"] ||
-      layers["shell.app"] ||
-      layers["shell.run"] ||
-      null
-    );
+    // Stage-only Access: only shell.app is materialized.
+    return layers["shell.app"] || null;
   }
 
   function recomposeFromLayerStore(appId, composeAxes) {
@@ -40770,13 +40743,13 @@
 
 /* ===== spa-navigation/spa/surface-navigation.js ===== */
 /**
- * Unified /apps/{id}/view surface switching — same cold_start assembly as F5.
+ * Surface navigation stubs — Stage-only Access no longer switches layout/prototype panels.
+ * Exports remain so navigation.js / view-assembly-coordinator imports stay safe.
  */
 (function initSurfaceNavigation(global) {
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-  const surfacePreviewSnapshots = new Map();
 
   function isUnifiedViewPathname(pathname) {
     const segments = String(pathname || "")
@@ -40785,200 +40758,52 @@
     return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
   }
 
-  function surfaceSlugFromContext(ctx) {
-    return String(ctx?.surface || ctx?.mode || "app")
-      .trim()
-      .toLowerCase();
-  }
-
-  function isWorkspaceSurface(slug) {
-    return slug === "layout" || slug === "prototype";
-  }
-
-  function workspacePreviewRoot() {
-    return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
-  }
-
-  function appPreviewRoot() {
-    return global.document?.getElementById?.("mei-compose-root");
-  }
-
-  function previewRootForSurface(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "app") return appPreviewRoot();
-    if (isWorkspaceSurface(slug)) return workspacePreviewRoot();
-    return null;
-  }
-
-  function previewHasMarkers(root) {
-    if (!(root instanceof HTMLElement)) return false;
-    return !!root.querySelector(
-      "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted, [data-mei-compose-materialized]",
-    );
-  }
-
-  function captureSurfacePreviewSnapshot(surface) {
-    const slug = String(surface || "").trim().toLowerCase();
-    if (!slug) return;
-    const el = previewRootForSurface(slug);
-    if (!(el instanceof HTMLElement) || !previewHasMarkers(el)) return;
-    surfacePreviewSnapshots.set(slug, el.innerHTML);
-  }
-
-  function restoreSurfacePreviewSnapshot(surface) {
-    const slug = String(surface || "").trim().toLowerCase();
-    const el = previewRootForSurface(slug);
-    if (!(el instanceof HTMLElement)) return false;
-    if (previewHasMarkers(el)) return true;
-    const html = surfacePreviewSnapshots.get(slug);
-    if (!html) return false;
-    el.innerHTML = html;
-    el.removeAttribute("data-mei-compose-materialized");
-    return true;
-  }
-
-  function stashWorkspacePreviewSnapshot() {
-    captureSurfacePreviewSnapshot("layout");
-    captureSurfacePreviewSnapshot("prototype");
-  }
-
-  function restoreWorkspacePreviewSnapshot() {
-    const surface = String(
-      global.document?.body?.getAttribute("data-surface") || "layout",
-    )
-      .trim()
-      .toLowerCase();
-    return restoreSurfacePreviewSnapshot(isWorkspaceSurface(surface) ? surface : "layout");
-  }
-
-  function stashAppPreviewSnapshot() {
-    captureSurfacePreviewSnapshot("app");
-  }
-
-  function restoreAppPreviewSnapshot() {
-    return restoreSurfacePreviewSnapshot("app");
-  }
-
-  function switchSurfacePanel(surface, options) {
-    const opts = options || {};
-    const slug = String(surface || "app").trim().toLowerCase();
-    const previousSlug = String(
-      global.document?.body?.getAttribute("data-surface") ||
-        global.document?.body?.getAttribute("data-mei-view") ||
-        "app",
-    )
-      .trim()
-      .toLowerCase();
-    if (previousSlug !== slug) {
-      captureSurfacePreviewSnapshot(previousSlug);
-    }
+  /** No-op: dual-panel #mei-surface-workspace switching removed. */
+  function switchSurfacePanel(surface, _options) {
+    const slug = "app";
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
-    const showWorkspace = isWorkspaceSurface(slug);
     if (appPanel instanceof HTMLElement) {
-      appPanel.hidden = showWorkspace;
-      appPanel.classList.toggle("hidden", showWorkspace);
+      appPanel.hidden = false;
+      appPanel.classList.remove("hidden");
     }
     if (workspacePanel instanceof HTMLElement) {
-      workspacePanel.hidden = !showWorkspace;
-      workspacePanel.classList.toggle("hidden", !showWorkspace);
+      workspacePanel.hidden = true;
+      workspacePanel.classList.add("hidden");
     }
     if (global.document?.body instanceof HTMLElement) {
       global.document.body.setAttribute("data-surface", slug);
       global.document.body.setAttribute("data-mei-view", slug);
-      if (slug === "prototype") {
-        global.document.body.setAttribute("data-mei-prototype", "true");
-        global.document.body.setAttribute("data-data-mode", "static");
-      } else {
-        global.document.body.removeAttribute("data-mei-prototype");
-        if (slug === "layout") {
-          global.document.body.setAttribute("data-data-mode", "static");
-        } else {
-          global.document.body.removeAttribute("data-data-mode");
-        }
-      }
+      global.document.body.removeAttribute("data-mei-prototype");
+      global.document.body.removeAttribute("data-data-mode");
     }
-    if (!opts.skipPreviewRestore) {
-      restoreSurfacePreviewSnapshot(slug);
-    }
-    if (showWorkspace) {
-      if (typeof boot.installManageTabs === "function") {
-        boot.installManageTabs();
-      }
-      if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-        globalThis.MeiBuildTreePersist.refresh();
-      }
-    }
+    void surface;
+  }
+
+  function captureSurfacePreviewSnapshot(_surface) {}
+
+  function restoreSurfacePreviewSnapshot(_surface) {
+    return false;
+  }
+
+  function stashWorkspacePreviewSnapshot() {}
+
+  function stashAppPreviewSnapshot() {}
+
+  function restoreAppPreviewSnapshot() {
+    return false;
   }
 
   function syncTopbarActiveState(_surface) {
     // 应用/布局/原型顶栏入口已移除；舞台切换由 stage-switcher 承担。
   }
 
-  function isSameAppViewHost(current, next) {
-    if (!current || !next) return false;
-    const currentApp = String(current.app_id || current.appId || "").trim();
-    const nextApp = String(next.app_id || next.appId || "").trim();
-    if (!currentApp || currentApp !== nextApp) return false;
-    try {
-      const curPath = new URL(current.url || global.location.href, global.location.href).pathname;
-      const nextPath = new URL(next.url || global.location.href, global.location.href).pathname;
-      return isUnifiedViewPathname(curPath) && isUnifiedViewPathname(nextPath);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function isSurfaceOnlyNavigation(current, next) {
-    if (!isSameAppViewHost(current, next)) return false;
-    try {
-      const curUrl = new URL(current.url || global.location.href, global.location.href);
-      const nextUrl = new URL(next.url || global.location.href, global.location.href);
-      if (curUrl.pathname !== nextUrl.pathname) return false;
-      if (surfaceSlugFromContext(current) === surfaceSlugFromContext(next)) {
-        return false;
-      }
-      const keys = ["scene", "chrome"];
-      return keys.every((key) => curUrl.searchParams.get(key) === nextUrl.searchParams.get(key));
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function recordSurfaceVisit(url, surface) {
-    if (typeof boot.finalizeLoadSession !== "function" || typeof boot.getActiveLoadSession !== "function") {
-      return;
-    }
-    const session = boot.getActiveLoadSession();
-    if (!session || session.finalized) return;
-    session.label = `surface:${surface}`;
-    session.path = url;
-    session.url = url;
-    session.surface = surface;
-    session.kind = session.kind || "navigation";
-  }
-
-  async function navigateSurface(url, replaceHistory, navigationId) {
-    if (typeof boot.parseViewContext !== "function") return false;
-    const nextCtx = boot.parseViewContext(url);
-    const currentCtx = boot.parseViewContext(global.location.href);
-    if (!nextCtx || !isSurfaceOnlyNavigation(currentCtx, nextCtx)) {
-      return false;
-    }
-    const surface = surfaceSlugFromContext(nextCtx);
-    const canonicalUrl =
-      typeof boot.canonicalizeViewUrl === "function"
-        ? boot.canonicalizeViewUrl(url)
-        : url;
-
-    recordSurfaceVisit(canonicalUrl, surface);
-
-    if (replaceHistory) {
-      global.location.replace(canonicalUrl);
-    } else {
-      global.location.assign(canonicalUrl);
-    }
-    return true;
+  /**
+   * No-op: surface-only SPA switching removed. Return false so callers fall through
+   * to normal stage navigation.
+   */
+  async function navigateSurface(_url, _replaceHistory, _navigationId) {
+    return false;
   }
 
   boot.isUnifiedViewPathname = isUnifiedViewPathname;
@@ -40992,15 +40817,13 @@
   boot.navigateSurface = navigateSurface;
 
   function initViewSurfacePanelFromLocation() {
-    if (typeof boot.parseViewContext !== "function") return;
-    const ctx = boot.parseViewContext(global.location.href);
-    if (!ctx) return;
     try {
       const path = new URL(global.location.href).pathname;
-      if (isUnifiedViewPathname(path)) {
-        const surface = surfaceSlugFromContext(ctx);
-        switchSurfacePanel(surface);
-        syncTopbarActiveState(surface);
+      const isStage =
+        typeof global.isAccessStageRoute === "function" && global.isAccessStageRoute(path);
+      if (isUnifiedViewPathname(path) || isStage) {
+        switchSurfacePanel("app");
+        syncTopbarActiveState("app");
       }
     } catch (_) {
       /* ignore */
