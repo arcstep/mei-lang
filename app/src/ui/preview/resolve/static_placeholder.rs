@@ -9,7 +9,9 @@ pub const STATIC_METRIC_LABEL_FALLBACK: &str = "指标名";
 pub const STATIC_METRIC_UNIT_FALLBACK: &str = "单位";
 
 pub fn is_static_data_mode(data_mode: Option<&str>) -> bool {
-    data_mode.map(str::trim).is_some_and(|mode| mode.eq_ignore_ascii_case("static"))
+    data_mode
+        .map(str::trim)
+        .is_some_and(|mode| mode.eq_ignore_ascii_case("static"))
 }
 
 pub fn static_metric_placeholder(contract: &MetricContract, metric_id: &str) -> Value {
@@ -186,11 +188,12 @@ pub fn inject_static_chart_data(props: &mut Value) {
     };
     let mapping = map.get("mapping").cloned();
     let rows = static_chart_rows(mapping.as_ref(), 4);
-    let data = map
-        .entry("data".to_string())
-        .or_insert_with(|| json!({}));
+    let data = map.entry("data".to_string()).or_insert_with(|| json!({}));
     if let Some(data_map) = data.as_object_mut() {
-        data_map.insert("rows".to_string(), Value::Array(rows.into_iter().map(Value::Object).collect()));
+        data_map.insert(
+            "rows".to_string(),
+            Value::Array(rows.into_iter().map(Value::Object).collect()),
+        );
         data_map.insert(
             "__mei_data_origin".to_string(),
             Value::String(STATIC_DATA_ORIGIN.to_string()),

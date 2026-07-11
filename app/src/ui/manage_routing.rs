@@ -305,10 +305,7 @@ pub(crate) fn access_scene_route_suffix(
     if let Some(mode) = data_mode.map(str::trim).filter(|s| !s.is_empty()) {
         q.push(format!("data_mode={}", encode_query_value(mode)));
     }
-    if let Some(projection) = review_projection
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(projection) = review_projection.map(str::trim).filter(|s| !s.is_empty()) {
         q.push(format!(
             "review_projection={}",
             encode_query_value(projection)

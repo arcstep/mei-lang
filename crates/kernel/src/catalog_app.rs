@@ -10,8 +10,8 @@ use walkdir::WalkDir;
 
 use crate::compile::preview_target_relative_to_app;
 use crate::mei_config::{
-    is_stock_catalog_app, is_stock_catalog_app_for_root, resolve_app_root,
-    resolve_templates_root, stock_catalog_app_config, stock_path_excluded, StockCatalogKind,
+    is_stock_catalog_app, is_stock_catalog_app_for_root, resolve_app_root, resolve_templates_root,
+    stock_catalog_app_config, stock_path_excluded, StockCatalogKind,
 };
 use crate::model::{BuildNodeId, CompiledApp, CompiledSceneRoute};
 use crate::workspace::load_component_assets;
@@ -118,7 +118,10 @@ pub enum StockCatalogRouteKind {
 }
 
 pub fn stock_catalog_app_root(source_root: &Path) -> PathBuf {
-    resolve_app_root(source_root, stock_catalog_app_config(source_root).id.as_str())
+    resolve_app_root(
+        source_root,
+        stock_catalog_app_config(source_root).id.as_str(),
+    )
 }
 
 pub fn collect_stock_catalog_routes(source_root: &Path) -> Result<Vec<StockCatalogRouteEntry>> {
@@ -128,7 +131,12 @@ pub fn collect_stock_catalog_routes(source_root: &Path) -> Result<Vec<StockCatal
 
     let assets = load_component_assets(source_root)?;
     for asset in assets.values() {
-        let Some(workspace_preview) = asset.preview_mei.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        let Some(workspace_preview) = asset
+            .preview_mei
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
             continue;
         };
         let Some(target_rel) = preview_target_relative_to_app(&stub, workspace_preview) else {
@@ -174,7 +182,8 @@ pub fn collect_stock_catalog_routes(source_root: &Path) -> Result<Vec<StockCatal
                 .filter(|p| !p.is_empty())
                 .unwrap_or_else(|| "stock/templates".to_string());
             let workspace_path = format!("{templates_prefix}/{rel}");
-            let Some(target_rel) = preview_target_relative_to_app(&stub, workspace_path.as_str()) else {
+            let Some(target_rel) = preview_target_relative_to_app(&stub, workspace_path.as_str())
+            else {
                 continue;
             };
             if !mei_file_contains_scene(catalog_root.as_path(), target_rel.as_str())? {
@@ -199,8 +208,7 @@ pub fn collect_stock_catalog_routes(source_root: &Path) -> Result<Vec<StockCatal
 }
 
 fn catalog_app_stub_compiled(app_root: &Path) -> CompiledApp {
-    let source_root =
-        crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
+    let source_root = crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
     let app_id = stock_catalog_app_config(source_root.as_path()).id;
     CompiledApp {
         app_id: app_id.clone(),
@@ -263,7 +271,9 @@ pub fn render_stock_catalog_main_mei(
         .first()
         .map(|route| route.route_id.as_str())
         .unwrap_or("home");
-    let mut out = String::from("# GENERATED — do not edit; run `mei-toolchain workspace stock catalog-app sync`\n\n");
+    let mut out = String::from(
+        "# GENERATED — do not edit; run `mei-toolchain workspace stock catalog-app sync`\n\n",
+    );
     out.push_str(&format!(
         "app(\n    id = \"{app_id}\",\n    title = \"{title}\",\n    default_scene = \"{default_scene}\",\n)\n\n"
     ));
@@ -366,8 +376,8 @@ app_add_scene(
             return;
         }
         let node = BuildNodeId::scene("analytics-drilldown-board");
-        let target =
-            catalog_preview_target_for_build_node(app_root.as_path(), &node).expect("preview target");
+        let target = catalog_preview_target_for_build_node(app_root.as_path(), &node)
+            .expect("preview target");
         assert_eq!(
             target,
             "../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"
@@ -396,7 +406,8 @@ app_add_scene(
             r#"{"schemaVersion":2,"stock":{"catalogApp":{"id":"_stock-catalog","title":"Stock Catalog","buildOnly":true}}}"#,
         )
         .expect("write workspace.json");
-        let rendered = render_stock_catalog_main_mei(root.as_path(), routes.as_slice()).expect("render");
+        let rendered =
+            render_stock_catalog_main_mei(root.as_path(), routes.as_slice()).expect("render");
         assert!(rendered.contains("app_add_scene("));
         assert!(rendered.contains("id = \"chart.pie\""));
         assert!(rendered.contains("chart.pie.mei"));

@@ -7,10 +7,11 @@ pub(crate) use std::sync::Arc;
 pub(crate) use std::time::{Instant, UNIX_EPOCH};
 
 pub(crate) use anyhow;
-pub(crate) use mei_lang_kernel::{
-    compile_app_with_options, compile_app_with_options_and_revision, resolve_app_root, CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
-};
 pub(crate) use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
+pub(crate) use mei_lang_kernel::{
+    compile_app_with_options, compile_app_with_options_and_revision, resolve_app_root,
+    CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
+};
 
 pub(crate) use crate::artifact_store::{
     compiled_app_manifest_identity, read_artifact_manifest, read_json_artifact,
@@ -19,9 +20,9 @@ pub(crate) use crate::artifact_store::{
 pub(crate) use crate::types::WorldScope;
 
 pub(crate) use super::access_slim::{
-    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, slim_compiled_app_for_access,
-    strip_loaded_compiled_app_for_access,
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled,
+    slim_compiled_app_for_access, strip_loaded_compiled_app_for_access,
 };
 
-pub(crate) use super::types::*;
 pub(crate) use super::singleflight::env_flag_enabled;
+pub(crate) use super::types::*;

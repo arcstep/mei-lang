@@ -1,6 +1,9 @@
 use super::constants::*;
 
-use super::{is_font_scale_key, is_forbidden_shell_color_key, is_literal_color, is_literal_font_size, is_literal_font_size_value, is_literal_gradient, push_diagnostic};
+use super::{
+    is_font_scale_key, is_forbidden_shell_color_key, is_literal_color, is_literal_font_size,
+    is_literal_font_size_value, is_literal_gradient, push_diagnostic,
+};
 
 use serde_json::Value;
 
@@ -393,4 +396,3 @@ pub(super) fn validate_required_shell_theme_tokens(
         }
     }
 }
-

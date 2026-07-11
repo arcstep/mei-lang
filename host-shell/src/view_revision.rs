@@ -94,7 +94,10 @@ fn surface_revision_digest(manifest: &mei_host_graph::SceneViewManifest) -> Opti
     mei_host_graph::surface_revision_digest_from_manifest(manifest)
 }
 
-fn compose_from_query(query: &ViewRevisionQuery, route_mode: UiRouteMode) -> mei_host_graph::ComposeRequest {
+fn compose_from_query(
+    query: &ViewRevisionQuery,
+    route_mode: UiRouteMode,
+) -> mei_host_graph::ComposeRequest {
     mei_host_graph::ComposeRequest {
         route_mode: Some(route_mode.slug().to_string()),
         tab: query.tab.clone(),
@@ -130,9 +133,8 @@ pub(crate) fn resolve_view_revision_for_surface(
         hits,
         chrome_host,
     )?;
-    let manifest = manifest_for_surface(&index, route_mode).ok_or_else(|| {
-        anyhow::anyhow!("manifest index missing surface {}", route_mode.slug())
-    })?;
+    let manifest = manifest_for_surface(&index, route_mode)
+        .ok_or_else(|| anyhow::anyhow!("manifest index missing surface {}", route_mode.slug()))?;
     let surface_digest = surface_revision_digest(&manifest);
     let mut response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
         manifest: manifest.clone(),
@@ -147,10 +149,7 @@ pub(crate) fn resolve_view_revision_for_surface(
     if response.status == mei_host_graph::ViewRevisionStatus::Refetch
         && !response.changed_layers.is_empty()
     {
-        let inline_layer_names = bootstrap_inline_layer_names(
-            &response.changed_layers,
-            route_mode,
-        );
+        let inline_layer_names = bootstrap_inline_layer_names(&response.changed_layers, route_mode);
         if !inline_layer_names.is_empty() {
             let inline = materialize_layers_for_request(
                 workspace_root,
@@ -184,10 +183,7 @@ fn layer_matches_bootstrap_prefix(layer_name: &str, prefix: &str) -> bool {
     layer_name.starts_with(&format!("{prefix}:"))
 }
 
-fn bootstrap_inline_layer_names(
-    changed_layers: &[String],
-    route_mode: UiRouteMode,
-) -> Vec<String> {
+fn bootstrap_inline_layer_names(changed_layers: &[String], route_mode: UiRouteMode) -> Vec<String> {
     const BOOTSTRAP_PREFIXES: &[&str] = &[
         "structure.full",
         "runtime.plans",
@@ -212,7 +208,8 @@ fn bootstrap_inline_layer_names(
         names = changed_layers.to_vec();
     } else {
         for name in changed_layers {
-            if name.starts_with("eval.slot_group.") && !names.iter().any(|existing| existing == name)
+            if name.starts_with("eval.slot_group.")
+                && !names.iter().any(|existing| existing == name)
             {
                 names.push(name.clone());
             }
@@ -241,26 +238,30 @@ mod bootstrap_inline_tests {
             changed_layers.push(format!("shell.extra-{idx}"));
         }
         let names = bootstrap_inline_layer_names(&changed_layers, UiRouteMode::App);
-        assert!(names.iter().any(|name| name == "eval.slot_group.scene:default"));
-        assert!(names.iter().any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/head"));
-        assert!(
-            names
-                .iter()
-                .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/supervision-stats")
-        );
+        assert!(names
+            .iter()
+            .any(|name| name == "eval.slot_group.scene:default"));
+        assert!(names
+            .iter()
+            .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/head"));
+        assert!(names
+            .iter()
+            .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/supervision-stats"));
     }
 }
 
-fn apply_view_revision_headers(response: &mut Response, revision: &mei_host_graph::ViewRevisionResponse) {
+fn apply_view_revision_headers(
+    response: &mut Response,
+    revision: &mei_host_graph::ViewRevisionResponse,
+) {
     let status = match revision.status {
         mei_host_graph::ViewRevisionStatus::Refetch => "refetch",
         mei_host_graph::ViewRevisionStatus::AssembleLocal => "assemble_local",
     };
     if let Ok(value) = HeaderValue::from_str(status) {
-        response.headers_mut().insert(
-            HeaderName::from_static("x-mei-view-revision-status"),
-            value,
-        );
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-view-revision-status"), value);
     }
     let assemble_local = revision.status == mei_host_graph::ViewRevisionStatus::AssembleLocal;
     if let Ok(value) = HeaderValue::from_str(if assemble_local { "1" } else { "0" }) {

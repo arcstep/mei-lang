@@ -182,4 +182,3 @@ fn normalize_no_head_without_title() {
     assert!(!panel_resolved_has_head(&panels[0]));
     assert!(!blocks_touch_slot(&panels[0].blocks, TITLE_ZONE));
 }
-

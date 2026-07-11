@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use mei_host_graph::assemble_scope_from_registry;
-use mei_lang_kernel::{
-    compile_scene_from_build_node, BuildNodeId, CompiledApp,
-};
+use mei_lang_kernel::{compile_scene_from_build_node, BuildNodeId, CompiledApp};
 
 #[derive(Debug, Clone)]
 pub struct EnrichedAssembleOutcome {

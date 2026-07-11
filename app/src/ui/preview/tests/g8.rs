@@ -177,4 +177,3 @@ fn frame_stage_style_fluid_height_relaxes_fr_grid_rows() {
     assert!(style.contains("grid-template-rows:auto auto;"));
     assert!(!style.contains("minmax(360px, 1fr)"));
 }
-

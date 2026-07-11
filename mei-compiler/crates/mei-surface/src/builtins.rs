@@ -5,12 +5,15 @@ use crate::value::{clean_object, empty_object, optional, ObjectMap, Value};
 
 pub fn app(args: &CallArgs) -> Result<Value, String> {
     let mut map = keyword_map(args)?;
-    let id =  take_string(&mut map, "id").ok_or_else(|| "app requires `id`".to_string())?;
+    let id = take_string(&mut map, "id").ok_or_else(|| "app requires `id`".to_string())?;
     Ok(Value::Object(clean_object(vec![
         ("kind", Value::string("app")),
         ("id", id),
         ("title", optional(take_string(&mut map, "title"))),
-        ("default_scene", optional(take_string(&mut map, "default_scene"))),
+        (
+            "default_scene",
+            optional(take_string(&mut map, "default_scene")),
+        ),
         ("scene", optional(take_value(&mut map, "scene"))),
     ])))
 }
@@ -123,8 +126,14 @@ pub fn panel_decl(args: &CallArgs) -> Result<Value, String> {
         ("area", optional(area)),
         ("layout", optional(take_value(&mut map, "layout"))),
         ("data_ref", optional(take_value(&mut map, "data_ref"))),
-        ("props", take_value(&mut map, "props").unwrap_or_else(empty_object)),
-        ("slot", take_value(&mut map, "slot").unwrap_or_else(empty_object)),
+        (
+            "props",
+            take_value(&mut map, "props").unwrap_or_else(empty_object),
+        ),
+        (
+            "slot",
+            take_value(&mut map, "slot").unwrap_or_else(empty_object),
+        ),
         (
             "head_props",
             take_value(&mut map, "head_props").unwrap_or_else(empty_object),
@@ -204,14 +213,38 @@ pub struct SurfaceDescriptor {
 
 pub fn surface_descriptors() -> Vec<SurfaceDescriptor> {
     vec![
-        SurfaceDescriptor { name: "app", detail: "application root declaration" },
-        SurfaceDescriptor { name: "scene", detail: "scene shell declaration" },
-        SurfaceDescriptor { name: "world", detail: "world resources declaration" },
-        SurfaceDescriptor { name: "frame", detail: "frame layout declaration" },
-        SurfaceDescriptor { name: "panel_decl", detail: "panel block container" },
-        SurfaceDescriptor { name: "scene_ref", detail: "scene reference helper" },
-        SurfaceDescriptor { name: "flex", detail: "flex layout value" },
-        SurfaceDescriptor { name: "markdown", detail: "doc.markdown block" },
+        SurfaceDescriptor {
+            name: "app",
+            detail: "application root declaration",
+        },
+        SurfaceDescriptor {
+            name: "scene",
+            detail: "scene shell declaration",
+        },
+        SurfaceDescriptor {
+            name: "world",
+            detail: "world resources declaration",
+        },
+        SurfaceDescriptor {
+            name: "frame",
+            detail: "frame layout declaration",
+        },
+        SurfaceDescriptor {
+            name: "panel_decl",
+            detail: "panel block container",
+        },
+        SurfaceDescriptor {
+            name: "scene_ref",
+            detail: "scene reference helper",
+        },
+        SurfaceDescriptor {
+            name: "flex",
+            detail: "flex layout value",
+        },
+        SurfaceDescriptor {
+            name: "markdown",
+            detail: "doc.markdown block",
+        },
     ]
 }
 

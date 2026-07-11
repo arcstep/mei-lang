@@ -1,5 +1,3 @@
-
-
 pub(crate) const TOKEN_DEFINITION_ROOTS: &[&str] = &["tokens", "font"];
 
 pub(crate) const COLOR_REF_KEYS: &[&str] = &["color"];
@@ -51,4 +49,3 @@ pub(crate) const REQUIRED_COLOR_KEYS_COCKPIT: &[&str] = &[
     "chart_5",
     "chart_6",
 ];
-

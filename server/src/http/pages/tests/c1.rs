@@ -368,4 +368,3 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
 
     let _ = fs::remove_dir_all(&root);
 }
-

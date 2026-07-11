@@ -5,8 +5,8 @@ use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_data_generation, CompiledApp, RuntimeConfig,
 };
 
-use crate::metric_hydrate::collect_dataset_ids_from_metric_defs;
 use crate::metric_cache_key::lookup_compiled_dataset_view;
+use crate::metric_hydrate::collect_dataset_ids_from_metric_defs;
 use crate::metric_response_cache::{
     metric_response_prebuild_query_tail, metric_response_prebuild_shared_key,
 };

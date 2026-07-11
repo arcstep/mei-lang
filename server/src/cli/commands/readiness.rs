@@ -9,7 +9,9 @@ use crate::readiness::reachability;
 
 pub fn readiness_command(args: ReadinessArgs) -> Result<()> {
     match args.command {
-        super::super::args::ReadinessCommand::Check(check_args) => readiness_check_command(check_args),
+        super::super::args::ReadinessCommand::Check(check_args) => {
+            readiness_check_command(check_args)
+        }
     }
 }
 

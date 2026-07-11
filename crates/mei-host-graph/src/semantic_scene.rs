@@ -107,12 +107,8 @@ pub fn assemble_semantic_scene(
             }
             let mut plane_children = Vec::new();
             for region in grid_regions {
-                let region_payload = build_plane_grid_region_payload(
-                    &region,
-                    &tier,
-                    plane_id.as_str(),
-                    ctx,
-                )?;
+                let region_payload =
+                    build_plane_grid_region_payload(&region, &tier, plane_id.as_str(), ctx)?;
                 let counter = tier_counters.entry(tier.clone()).or_insert(0);
                 let panel_ctx = ctx.with_assembly_stack_order(*counter);
                 let lowered = lower_panel_payload(
@@ -237,7 +233,10 @@ fn build_panel_payload(
     copy_if_present(args, &mut payload, "head_props");
     copy_if_present(args, &mut payload, "body_props");
     if let Some(chrome_role) = string_field_map(args, &["chrome_role"]) {
-        payload.insert("chrome_role".to_string(), Value::String(chrome_role.to_string()));
+        payload.insert(
+            "chrome_role".to_string(),
+            Value::String(chrome_role.to_string()),
+        );
     }
     let mut props = args
         .and_then(|map| map.get("props"))
@@ -247,7 +246,10 @@ fn build_panel_payload(
     props.insert("__mei_ui_role".to_string(), Value::String(role.to_string()));
     props.insert("__mei_tier".to_string(), Value::String(tier.to_string()));
     if let Some(plane_id) = plane_id {
-        props.insert("__mei_plane_id".to_string(), Value::String(plane_id.to_string()));
+        props.insert(
+            "__mei_plane_id".to_string(),
+            Value::String(plane_id.to_string()),
+        );
     }
     if let Some(chrome_role) = string_field_map(args, &["chrome_role"]) {
         props.insert(
@@ -293,27 +295,17 @@ fn build_panel_payload(
                 }
                 for section in child_nodes(value, &["sections"], "section_ref", ctx)? {
                     blocks.push(panel_call(build_panel_payload(
-                        &section,
-                        "section",
-                        tier,
-                        plane_id,
-                        ctx,
+                        &section, "section", tier, plane_id, ctx,
                     )?));
                 }
                 if blocks.is_empty() && !region_allows_empty_sections(args) {
-                    anyhow::bail!(
-                        "region `{id}` must declare at least one section_ref child"
-                    );
+                    anyhow::bail!("region `{id}` must declare at least one section_ref child");
                 }
             }
             "section" => {
                 for content in child_nodes(value, &["contents", "content"], "", ctx)? {
                     blocks.push(panel_call(build_panel_payload(
-                        &content,
-                        "content",
-                        tier,
-                        plane_id,
-                        ctx,
+                        &content, "content", tier, plane_id, ctx,
                     )?));
                 }
                 if blocks.is_empty() {
@@ -404,9 +396,13 @@ fn resolve_semantic_nodes(
     let mut out = Vec::new();
     for value in values {
         if !expected_ref.is_empty() && v2_ref_name(&value) == Some(expected_ref) {
-            let ref_key = v2_ref_arg0(&value)
-                .with_context(|| format!("{expected_ref} missing arg0"))?;
-            out.push(load_semantic_fragment_payload(ctx, ref_key.as_str(), expected_ref)?);
+            let ref_key =
+                v2_ref_arg0(&value).with_context(|| format!("{expected_ref} missing arg0"))?;
+            out.push(load_semantic_fragment_payload(
+                ctx,
+                ref_key.as_str(),
+                expected_ref,
+            )?);
         } else {
             out.push(value);
         }
@@ -450,9 +446,7 @@ fn load_semantic_fragment_payload(
         .and_then(Value::as_str)
         .unwrap_or_default();
     if kind != expected_kind {
-        anyhow::bail!(
-            "semantic ref `{normalized}` expected `{expected_kind}`, got `{kind}`"
-        );
+        anyhow::bail!("semantic ref `{normalized}` expected `{expected_kind}`, got `{kind}`");
     }
     Ok(artifact.get("payload").cloned().unwrap_or(Value::Null))
 }
@@ -542,9 +536,7 @@ fn collect_payload_index(
     ctx: &PanelLowerContext<'_>,
 ) {
     let payload = if payload.get("__call").and_then(Value::as_str) == Some("content_panel") {
-        payload
-            .get("__args")
-            .unwrap_or(payload)
+        payload.get("__args").unwrap_or(payload)
     } else {
         payload
     };
@@ -700,10 +692,7 @@ fn build_plane_grid_panel(
         head: None,
         area: None,
         layout: plane_grid.and_then(lower_layout),
-        blocks: children
-            .into_iter()
-            .map(UiTreeNode::Panel)
-            .collect(),
+        blocks: children.into_iter().map(UiTreeNode::Panel).collect(),
         slot: None,
         props: json!({
             "__mei_ui_role": "plane",

@@ -1,6 +1,12 @@
 use std::fs;
 use std::path::Path;
 
+use crate::build_info::workspace_descriptor;
+use crate::landing::{
+    app_has_prebuilt_access_entry, discover_workspace_apps, enrich_discovered_apps,
+};
+use crate::state::SharedState;
+use crate::workspace_page::render_workspace_shell_page;
 use axum::{
     extract::{Extension, State},
     response::{Html, IntoResponse, Response},
@@ -13,10 +19,6 @@ use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
 use mei_lang_kernel::{
     resolve_app_root, resolve_workspace_app_build_generations, WorkspaceAppMeta,
 };
-use crate::build_info::workspace_descriptor;
-use crate::landing::{app_has_prebuilt_access_entry, discover_workspace_apps, enrich_discovered_apps};
-use crate::state::SharedState;
-use crate::workspace_page::render_workspace_shell_page;
 
 fn list_app_env_versions(app_root: &Path) -> Vec<String> {
     let env_root = app_root.join("env");

@@ -4,8 +4,9 @@ use std::time::Instant;
 
 use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
-    client_bootstrap_scope_allowed, collect_eval_frontier, linked_t2_page_pack_scopes, record_slot_failed, record_slots_from_descriptors,
-    write_client_bootstrap, MrgRegistryWriter, WarmupTier,
+    client_bootstrap_scope_allowed, collect_eval_frontier, linked_t2_page_pack_scopes,
+    record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
+    WarmupTier,
 };
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
@@ -221,8 +222,11 @@ pub fn run_warmup_targets_with_tier(
         client_tier_ms = client_started.elapsed().as_millis() as u64;
         if client_manifest_written {
             for scope in &client_manifest_scopes {
-                let status =
-                    mei_host_graph::bootstrap_embed_status(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope.as_str());
+                let status = mei_host_graph::bootstrap_embed_status(
+                    ctx.workspace_root.as_path(),
+                    ctx.app_id.as_str(),
+                    scope.as_str(),
+                );
                 tracing::info!(
                     app_id = %ctx.app_id,
                     scope = %scope,
@@ -267,12 +271,8 @@ fn expand_targets_for_client_neighbors(
         return Ok(targets.to_vec());
     }
     let root_scope = targets[0].scope_key.as_str();
-    let pack_scopes = linked_t2_page_pack_scopes(
-        ctx,
-        root_scope,
-        cfg.neighbor_hops,
-        cfg.max_neighbor_scopes,
-    )?;
+    let pack_scopes =
+        linked_t2_page_pack_scopes(ctx, root_scope, cfg.neighbor_hops, cfg.max_neighbor_scopes)?;
     let mut expanded = targets.to_vec();
     let mut known: BTreeSet<String> = expanded.iter().map(|t| t.scope_key.clone()).collect();
     for scope in pack_scopes {

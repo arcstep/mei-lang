@@ -9,11 +9,11 @@ use mei_host_graph::{
     ScopeRoute,
 };
 use mei_lang_kernel::{
-    load_cache_generation, resolve_active_build_identity, resolve_app_build_root,
-    resolve_app_build_generation_from_current, resolve_app_data_snapshot_root,
-    resolve_app_eval_cache_root, resolve_app_root, resolve_runtime_warmup_manifest,
-    ReachabilityTreeNode, ReachabilityTreeRoot, PREBUILD_COMPILE_INDEX_REL,
-    PREBUILD_LAST_BUILD_SUMMARY_REL,
+    load_cache_generation, resolve_active_build_identity,
+    resolve_app_build_generation_from_current, resolve_app_build_root,
+    resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_root,
+    resolve_runtime_warmup_manifest, ReachabilityTreeNode, ReachabilityTreeRoot,
+    PREBUILD_COMPILE_INDEX_REL, PREBUILD_LAST_BUILD_SUMMARY_REL,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -119,8 +119,13 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
         .count();
 
     let slot_values = build_slot_values(&mrg);
-    let scope_summaries =
-        build_scope_summaries(app_id, &route_entries, &slot_values, access_ready, warmup_ready);
+    let scope_summaries = build_scope_summaries(
+        app_id,
+        &route_entries,
+        &slot_values,
+        access_ready,
+        warmup_ready,
+    );
     let scope_values = scope_summaries
         .iter()
         .map(|scope| scope_summary_to_json(workspace, app_id, scope, access_ready, warmup_ready))
@@ -134,10 +139,22 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
         .find(|scope| scope.scope_key == default_scope)
         .cloned();
 
-    let ready_slots = scope_summaries.iter().map(|scope| scope.ready_slots).sum::<usize>();
-    let stale_slots = scope_summaries.iter().map(|scope| scope.stale_slots).sum::<usize>();
-    let failed_slots = scope_summaries.iter().map(|scope| scope.failed_slots).sum::<usize>();
-    let dirty_slot_count = scope_summaries.iter().map(|scope| scope.dirty_slots).sum::<usize>();
+    let ready_slots = scope_summaries
+        .iter()
+        .map(|scope| scope.ready_slots)
+        .sum::<usize>();
+    let stale_slots = scope_summaries
+        .iter()
+        .map(|scope| scope.stale_slots)
+        .sum::<usize>();
+    let failed_slots = scope_summaries
+        .iter()
+        .map(|scope| scope.failed_slots)
+        .sum::<usize>();
+    let dirty_slot_count = scope_summaries
+        .iter()
+        .map(|scope| scope.dirty_slots)
+        .sum::<usize>();
     let dirty_scopes = scope_summaries
         .iter()
         .filter(|scope| scope.dirty_slots > 0)
@@ -203,12 +220,10 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
     let content_store = scan_content_store(app_root.as_path());
     let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
 
-    let eval_pack_embed = mei_host_graph::bootstrap_embed_status(workspace, app_id, default_scope.as_str());
-    let delivery_class_counts = mei_host_graph::delivery_class_counts_for_scope(
-        workspace,
-        app_id,
-        default_scope.as_str(),
-    );
+    let eval_pack_embed =
+        mei_host_graph::bootstrap_embed_status(workspace, app_id, default_scope.as_str());
+    let delivery_class_counts =
+        mei_host_graph::delivery_class_counts_for_scope(workspace, app_id, default_scope.as_str());
     let warmup_last_run = mei_host_graph::warmup_last_run_json(app_root.as_path());
     let eval_pack = json!({
         "warmupLastRun": warmup_last_run,
@@ -451,9 +466,15 @@ fn build_slot_values(registry: &MrgRegistry) -> Vec<Value> {
             if let Some(map) = value.as_object_mut() {
                 map.insert(
                     "nodeId".to_string(),
-                    json!(slot_node_id(slot.slot_id.node.key.as_str(), slot.slot_id.scope_key.as_str())),
+                    json!(slot_node_id(
+                        slot.slot_id.node.key.as_str(),
+                        slot.slot_id.scope_key.as_str()
+                    )),
                 );
-                map.insert("scopeKey".to_string(), json!(slot.slot_id.scope_key.clone()));
+                map.insert(
+                    "scopeKey".to_string(),
+                    json!(slot.slot_id.scope_key.clone()),
+                );
                 map.insert("nodeKey".to_string(), json!(slot.slot_id.node.key.clone()));
                 map.insert("nodeKind".to_string(), json!(slot.slot_id.node.kind.slug()));
             }
@@ -508,7 +529,11 @@ fn build_scope_summaries(
                 summary.workset_ids.insert(workset_id.to_string());
             }
         }
-        match slot.get("state").and_then(Value::as_str).unwrap_or("unknown") {
+        match slot
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+        {
             "ready" => summary.ready_slots += 1,
             "stale" => {
                 summary.stale_slots += 1;
@@ -527,16 +552,14 @@ fn build_scope_summaries(
             summary.route_duplicate_count = summary.route_count - 1;
         }
         if summary.access_url.is_none() {
-            summary.access_url = Some(format!(
-                "/apps/app/{}/scene/{}",
-                app_id,
-                summary.scope_key
-            ));
+            summary.access_url = Some(format!("/apps/app/{}/scene/{}", app_id, summary.scope_key));
         }
         if !access_ready {
             summary.dirty_slots = summary.dirty_slots.max(summary.slot_count);
         } else if !warmup_ready && summary.slot_count > 0 {
-            summary.dirty_slots = summary.dirty_slots.max(summary.slot_count.saturating_sub(summary.ready_slots));
+            summary.dirty_slots = summary
+                .dirty_slots
+                .max(summary.slot_count.saturating_sub(summary.ready_slots));
         }
     }
     summaries.into_values().collect()
@@ -550,7 +573,8 @@ fn scope_summary_to_json(
     warmup_ready: bool,
 ) -> Value {
     let blockers = scope_blockers(scope, access_ready, warmup_ready);
-    let bootstrap_embed = mei_host_graph::bootstrap_embed_status(workspace, app_id, scope.scope_key.as_str());
+    let bootstrap_embed =
+        mei_host_graph::bootstrap_embed_status(workspace, app_id, scope.scope_key.as_str());
     json!({
         "nodeId": format!("scope:{}", scope.scope_key),
         "scopeKey": scope.scope_key,
@@ -922,10 +946,14 @@ fn build_alerts(
 ) -> Vec<String> {
     let mut alerts = Vec::new();
     if duplicate_routes > 0 {
-        alerts.push(format!("入口重复：发现 {duplicate_routes} 个 scope 拥有多条 route。"));
+        alerts.push(format!(
+            "入口重复：发现 {duplicate_routes} 个 scope 拥有多条 route。"
+        ));
     }
     if orphan_urls > 0 {
-        alerts.push(format!("入口缺失 URL：{orphan_urls} 条 route 没有有效访问地址。"));
+        alerts.push(format!(
+            "入口缺失 URL：{orphan_urls} 条 route 没有有效访问地址。"
+        ));
     }
     if stale_ratio > 0.10 {
         alerts.push(format!(
@@ -934,7 +962,9 @@ fn build_alerts(
         ));
     }
     if failed_slots > 0 {
-        alerts.push(format!("存在 {failed_slots} 个 failed slot，建议结合 block/layer CLI 排障。"));
+        alerts.push(format!(
+            "存在 {failed_slots} 个 failed slot，建议结合 block/layer CLI 排障。"
+        ));
     }
     if dirty_slots > 0 {
         alerts.push(format!("当前仍有 {dirty_slots} 个 dirty slot 未完成物化。"));

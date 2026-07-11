@@ -25,9 +25,7 @@ fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
 }
 
 fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
-    panels
-        .iter()
-        .find_map(|panel| find_panel(panel, id))
+    panels.iter().find_map(|panel| find_panel(panel, id))
 }
 
 #[test]

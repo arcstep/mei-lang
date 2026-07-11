@@ -1,10 +1,7 @@
-use super::super::{
-    build_analysis_graph,
-};
+use super::super::build_analysis_graph;
 use crate::model::{SemanticEdgeKind, SemanticNodeKind};
 use serde_json::json;
 use std::collections::BTreeMap;
-
 
 #[test]
 fn build_analysis_graph_emits_tabular_sources_and_lineage_edges() {
@@ -91,4 +88,3 @@ fn build_analysis_graph_adds_lineage_from_metric_values() {
             && edge.semantic_kind() == SemanticEdgeKind::Lineage
     }));
 }
-

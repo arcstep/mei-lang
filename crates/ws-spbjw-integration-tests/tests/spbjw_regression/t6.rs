@@ -100,9 +100,7 @@ fn spbjw_home_resolves_imported_typical_cases_dataset_selector() {
         .resources
         .iter()
         .filter(|resource| {
-            resource
-                .id
-                .contains("typical_cases")
+            resource.id.contains("typical_cases")
                 || resource
                     .dataset
                     .as_ref()
@@ -139,16 +137,14 @@ fn spbjw_typical_cases_board_resolves_namespaced_dataset_selector() {
     )
     .expect("compile typical cases board preview");
     let namespaced = "scenes/09-监督典型案例.mei::typical_cases";
-    let resource = locate_dataset_resource(&compiled, namespaced)
-        .unwrap_or_else(|error| {
-            let resource_ids: Vec<_> = compiled
-                .resources
-                .iter()
-                .filter(|resource| resource.dataset.is_some())
-                .map(|resource| resource.id.as_str())
-                .collect();
-            panic!("locate {namespaced}: {error}; resources={resource_ids:?}")
-        });
+    let resource = locate_dataset_resource(&compiled, namespaced).unwrap_or_else(|error| {
+        let resource_ids: Vec<_> = compiled
+            .resources
+            .iter()
+            .filter(|resource| resource.dataset.is_some())
+            .map(|resource| resource.id.as_str())
+            .collect();
+        panic!("locate {namespaced}: {error}; resources={resource_ids:?}")
+    });
     assert_eq!(resource.id, "typical_cases");
 }
-

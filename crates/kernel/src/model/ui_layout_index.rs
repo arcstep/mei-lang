@@ -158,7 +158,10 @@ impl UiLayoutIndex {
             // `issue_body`); otherwise client compose never receives the 2×N grid.
             let role_ok = matches!(
                 node.role,
-                UiScopeRole::Section | UiScopeRole::Slot | UiScopeRole::Region | UiScopeRole::Content
+                UiScopeRole::Section
+                    | UiScopeRole::Slot
+                    | UiScopeRole::Region
+                    | UiScopeRole::Content
             );
             if !role_ok {
                 continue;

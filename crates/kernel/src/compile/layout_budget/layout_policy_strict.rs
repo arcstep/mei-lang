@@ -2,7 +2,7 @@ use crate::compile::layout_budget::{
     materialize_fill_section_derived_heights, resolve_layout_budgets,
     validate_layout_budget_policy_with_options, LayoutBudgetValidateOptions,
 };
-use crate::model::{Diagnostic, LayoutDecl, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, LayoutDecl, Severity, UiNodeDecl, UiTreeNode};
 use serde_json::{json, Value};
 
 fn empty_panel(id: &str) -> UiNodeDecl {
@@ -106,10 +106,15 @@ fn section_with_body(id: &str, body: UiNodeDecl, extra_props: serde_json::Value)
 fn strict_fill_options() -> LayoutBudgetValidateOptions {
     LayoutBudgetValidateOptions {
         strict_t1_fill_down: true,
+        strict_t2_fill_down: true,
     }
 }
 
-fn resolve_with_strict(panels: &mut [UiNodeDecl], diagnostics: &mut Vec<Diagnostic>, source_path: &str) {
+fn resolve_with_strict(
+    panels: &mut [UiNodeDecl],
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
     validate_layout_budget_policy_with_options(
         panels,
         diagnostics,
@@ -261,10 +266,7 @@ fn layout_policy_region_overflow_emits_error() {
         "__mei_ui_role": "region",
         "viewport": {"design_height": 200},
     });
-    region.blocks = vec![
-        UiTreeNode::Panel(sec_a),
-        UiTreeNode::Panel(sec_b),
-    ];
+    region.blocks = vec![UiTreeNode::Panel(sec_a), UiTreeNode::Panel(sec_b)];
     let mut panels = vec![region];
     let mut diagnostics = Vec::new();
     resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
@@ -329,9 +331,7 @@ fn layout_policy_fill_down_compliant_tree_emits_no_errors() {
     let derived = enforcement
         .props
         .as_object()
-        .and_then(|m: &serde_json::Map<String, Value>| {
-            m.get("__mei_section_derived_height_px")
-        })
+        .and_then(|m: &serde_json::Map<String, Value>| m.get("__mei_section_derived_height_px"))
         .and_then(Value::as_f64)
         .expect("fill section derived height");
     assert!(
@@ -381,6 +381,46 @@ fn layout_policy_body_not_fill_on_t1_section_emits_error() {
     let mut diagnostics = Vec::new();
     resolve_with_strict(&mut panels, &mut diagnostics, "test.mei");
     assert_has_code(&diagnostics, "layout_policy_body_not_fill");
+}
+
+#[test]
+fn layout_policy_t2_fill_down_requires_explicit_opt_out() {
+    let mut body = empty_panel("drilldown-content");
+    body.props = json!({
+        "__mei_ui_role": "content",
+        "__mei_tier": "t2",
+    });
+    let section = section_with_body(
+        "drilldown",
+        body,
+        json!({
+            "__mei_ui_role": "section",
+            "__mei_tier": "t2",
+        }),
+    );
+
+    let mut strict_panels = vec![section.clone()];
+    let mut strict_diagnostics = Vec::new();
+    resolve_with_strict(&mut strict_panels, &mut strict_diagnostics, "strict-t2.mei");
+    assert_has_code(&strict_diagnostics, "layout_policy_body_not_fill");
+
+    let mut opted_out_panels = vec![section];
+    let mut opted_out_diagnostics = Vec::new();
+    validate_layout_budget_policy_with_options(
+        &mut opted_out_panels,
+        &mut opted_out_diagnostics,
+        "content-driven-t2.mei",
+        &LayoutBudgetValidateOptions {
+            strict_t1_fill_down: true,
+            strict_t2_fill_down: false,
+        },
+    );
+    assert!(
+        !opted_out_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "layout_policy_body_not_fill"),
+        "explicit T2 opt-out should disable fill-down errors: {opted_out_diagnostics:?}"
+    );
 }
 
 #[test]
@@ -482,7 +522,10 @@ fn materialize_fill_section_derived_heights_stamps_fill_section() {
         .props
         .get("__mei_section_derived_height_px")
         .and_then(Value::as_f64);
-    assert!(derived.is_some(), "expected derived height, diagnostics={diagnostics:?}");
+    assert!(
+        derived.is_some(),
+        "expected derived height, diagnostics={diagnostics:?}"
+    );
 }
 
 fn find_panel_by_id_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {

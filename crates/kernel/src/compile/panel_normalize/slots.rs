@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::compile::entry_payload::clone_merge::deep_merge_json;
-use crate::model::{BlockDecl, Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{BlockDecl, Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 
 use super::constants::TITLE_ZONE;
 use super::nodes::{blocks_touch_slot, ensure_node_area, node_area};

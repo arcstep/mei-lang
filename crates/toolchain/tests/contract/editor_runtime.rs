@@ -64,9 +64,15 @@ fn scaffold_editor_runtime_tooling_writes_cursor_files() {
     assert!(root.join(".cursor/rules/meilang-authoring.mdc").is_file());
     assert!(root.join(".vscode/settings.json").is_file());
     assert!(root.join(".trae/mcp.json").is_file());
-    assert!(root.join("runtime/platform/tooling/codex/mcp.json").is_file());
-    assert!(root.join("runtime/platform/tooling/claude-code/mcp.json").is_file());
-    assert!(root.join("runtime/platform/tooling/opencode/mcp.json").is_file());
+    assert!(root
+        .join("runtime/platform/tooling/codex/mcp.json")
+        .is_file());
+    assert!(root
+        .join("runtime/platform/tooling/claude-code/mcp.json")
+        .is_file());
+    assert!(root
+        .join("runtime/platform/tooling/opencode/mcp.json")
+        .is_file());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -103,9 +109,15 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(manifest["bundle_id"]
         .as_str()
         .is_some_and(|value| value.starts_with("mei-lang-")));
-    assert!(root.join("runtime/platform/catalog/capability-catalog.json").is_file());
-    assert!(root.join("runtime/platform/catalog/author-surface.json").is_file());
-    assert!(root.join("runtime/platform/catalog/access-surface.json").is_file());
+    assert!(root
+        .join("runtime/platform/catalog/capability-catalog.json")
+        .is_file());
+    assert!(root
+        .join("runtime/platform/catalog/author-surface.json")
+        .is_file());
+    assert!(root
+        .join("runtime/platform/catalog/access-surface.json")
+        .is_file());
     assert!(root.join("runtime/platform/profiles/author.md").is_file());
     assert!(root.join("runtime/platform/profiles/access.md").is_file());
     assert_eq!(manifest["artifacts"]["mei_toolchain"], "bin/mei-toolchain");
@@ -117,8 +129,12 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
             .is_some_and(|value| !value.contains('/')),
         "manifest provenance must avoid machine-local absolute paths"
     );
-    assert!(root.join("runtime/platform/skills/meilang-author/SKILL.md").is_file());
-    assert!(root.join("runtime/platform/skills/meilang-access/SKILL.md").is_file());
+    assert!(root
+        .join("runtime/platform/skills/meilang-author/SKILL.md")
+        .is_file());
+    assert!(root
+        .join("runtime/platform/skills/meilang-access/SKILL.md")
+        .is_file());
     assert!(root.join("toolchain/bin/mei-toolchain").is_file());
     assert!(root.join("toolchain/bin/mei-lsp").is_file());
     assert!(root.join("toolchain/bin/mei-host-web").is_file());
@@ -127,7 +143,9 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(root.join("deploy/start.sh").is_file());
     assert!(root.join("deploy/prebuild.sh").is_file());
     assert!(root.join("deploy/build-promote.sh").is_file());
-    assert!(!root.join("runtime/platform/catalog/editor-surface.json").exists());
+    assert!(!root
+        .join("runtime/platform/catalog/editor-surface.json")
+        .exists());
     for rel in [
         "runtime/platform/editor-runtime.json",
         "runtime/platform/knowledge/author-runtime.json",
@@ -339,4 +357,3 @@ fn workspace_bootstrap_cli_installs_runtime_for_new_source_workspace() {
     );
     let _ = fs::remove_dir_all(root);
 }
-

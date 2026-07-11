@@ -8,7 +8,9 @@ use mei_host_core::HostContext;
 use mei_lang_app::UiRouteMode;
 
 use crate::managed_plug::ManagedPlugDsPool;
-use crate::review_axes::{access_readiness_requires_bootstrap, access_readiness_requires_plug_ds, PageRenderAxes};
+use crate::review_axes::{
+    access_readiness_requires_bootstrap, access_readiness_requires_plug_ds, PageRenderAxes,
+};
 use crate::state::{SharedState, ShellState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,11 +181,7 @@ pub(crate) fn build_access_ready_banner_lines(
         );
         lines.push(format_app_access_line(app_id.as_str(), &probe));
     }
-    warn_empty_client_bootstrap_packs(
-        shell.ctx.workspace_root.as_path(),
-        app_ids,
-        scene_id,
-    );
+    warn_empty_client_bootstrap_packs(shell.ctx.workspace_root.as_path(), app_ids, scene_id);
     lines.push("all listed apps ready — access pages may be served".to_string());
     lines
 }
@@ -213,11 +211,9 @@ fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: 
         auth_account: None,
     };
     for app_id in app_ids {
-        if let Err(err) = mei_host_graph::warm_manifest_index_for_app(
-            workspace_root,
-            app_id.as_str(),
-            scene_id,
-        ) {
+        if let Err(err) =
+            mei_host_graph::warm_manifest_index_for_app(workspace_root, app_id.as_str(), scene_id)
+        {
             tracing::warn!(
                 target: "mei.startup",
                 app_id = %app_id,
@@ -320,8 +316,7 @@ pub(crate) fn evaluate_access_readiness(
     }
     if route_mode.is_access_like() {
         if access_readiness_requires_bootstrap(axes) {
-            let bootstrap =
-                mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
+            let bootstrap = mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
             if !bootstrap.allowed {
                 return AccessReadiness {
                     ready: false,
@@ -329,9 +324,7 @@ pub(crate) fn evaluate_access_readiness(
                 };
             }
         }
-        if access_readiness_requires_plug_ds(axes)
-            && shell.plug_ds_endpoint_for(app_id).is_none()
-        {
+        if access_readiness_requires_plug_ds(axes) && shell.plug_ds_endpoint_for(app_id).is_none() {
             return AccessReadiness {
                 ready: false,
                 reason: "plug_ds",
@@ -473,7 +466,9 @@ async fn run_background_startup_inner(
     set_startup_phase(&shell, StartupPhase::WaitingArtifacts);
     let default_ctx = HostContext::new(plan.workspace.clone(), plan.default_app_id.clone());
     if defer_warmup_to_prebuild() {
-        tracing::info!("deferring import/warmup to background prebuild; host will wait and only start plug-ds");
+        tracing::info!(
+            "deferring import/warmup to background prebuild; host will wait and only start plug-ds"
+        );
         wait_for_workspace_import(
             &shell,
             plan.workspace.as_path(),
@@ -639,8 +634,7 @@ async fn wait_for_prebuild_warmup(
 ) -> anyhow::Result<()> {
     set_startup_phase(shell, StartupPhase::PrimingCache);
     if let Ok(mut guard) = shell.write() {
-        guard.startup_detail =
-            Some("正在等待各 app 完成指标预热与 client-bootstrap…".to_string());
+        guard.startup_detail = Some("正在等待各 app 完成指标预热与 client-bootstrap…".to_string());
     }
     let wait_app_ids: Vec<String> = if plan.app_ids.is_empty() {
         vec![plan.default_app_id.clone()]
@@ -657,12 +651,7 @@ async fn wait_for_prebuild_warmup(
         }
         {
             let guard = shell.read().expect("state lock");
-            log_newly_ready_apps(
-                &guard,
-                wait_app_ids.as_slice(),
-                "home",
-                &mut logged_ready,
-            );
+            log_newly_ready_apps(&guard, wait_app_ids.as_slice(), "home", &mut logged_ready);
             if all_apps_access_ready(&guard, wait_app_ids.as_slice(), "home") {
                 prime_view_layer_artifacts(&guard, wait_app_ids.as_slice(), "home");
                 warn_empty_client_bootstrap_packs(
@@ -756,13 +745,13 @@ pub(crate) fn try_ensure_app_registry_materialized(
 }
 
 fn try_ensure_registry_materialized(ctx: &HostContext) -> anyhow::Result<()> {
-    let mcg_path = mei_host_graph::mcg_registry_path(
-        ctx.workspace_root.as_path(),
-        ctx.app_id.as_str(),
-    );
+    let mcg_path =
+        mei_host_graph::mcg_registry_path(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     if mcg_path.is_file() {
-        let registry =
-            mei_host_graph::McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+        let registry = mei_host_graph::McgRegistryWriter::load(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+        );
         if !registry.nodes.is_empty() {
             return Ok(());
         }
@@ -826,22 +815,22 @@ mod tests {
         .expect("workspace.json");
         let apps_dir = workspace.join("apps");
         for app_id in ["data-demo", "mini-park"] {
-            std::fs::create_dir_all(apps_dir.join(app_id).join("env/WS-20260628.0/build/registry"))
-                .expect("registry dir");
+            std::fs::create_dir_all(
+                apps_dir
+                    .join(app_id)
+                    .join("env/WS-20260628.0/build/registry"),
+            )
+            .expect("registry dir");
             std::fs::write(
                 apps_dir.join(app_id).join("app.config.json"),
                 format!(r#"{{"schemaVersion":1,"app":{{"id":"{app_id}"}}}}"#),
             )
             .expect("app config");
-            std::os::unix::fs::symlink(
-                "WS-20260628.0",
-                apps_dir.join(app_id).join("env/current"),
-            )
-            .expect("env/current");
+            std::os::unix::fs::symlink("WS-20260628.0", apps_dir.join(app_id).join("env/current"))
+                .expect("env/current");
         }
         std::fs::write(
-            apps_dir
-                .join("data-demo/env/WS-20260628.0/build/registry/mcg-registry.json"),
+            apps_dir.join("data-demo/env/WS-20260628.0/build/registry/mcg-registry.json"),
             r#"{
   "schemaVersion": "mei-mcg-registry-v2",
   "appId": "data-demo",
@@ -859,8 +848,7 @@ mod tests {
         )
         .expect("data-demo mcg");
         std::fs::write(
-            apps_dir
-                .join("mini-park/env/WS-20260628.0/build/registry/mcg-registry.json"),
+            apps_dir.join("mini-park/env/WS-20260628.0/build/registry/mcg-registry.json"),
             r#"{
   "schemaVersion": "mei-mcg-registry-v2",
   "appId": "mini-park",
@@ -899,7 +887,10 @@ mod tests {
             UiRouteMode::App,
             PageRenderAxes::default(),
         );
-        assert!(!mini_park.ready, "mini-park without nodes must not be ready");
+        assert!(
+            !mini_park.ready,
+            "mini-park without nodes must not be ready"
+        );
         assert_eq!(mini_park.reason, "importing");
         assert!(
             all_apps_access_ready(&shell, &[String::from("data-demo")], "home"),

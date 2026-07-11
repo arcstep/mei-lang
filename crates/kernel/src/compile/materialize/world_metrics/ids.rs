@@ -4,9 +4,6 @@ use serde_json::Value;
 
 use crate::model::MetricContract;
 
-
-
-
 pub const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
 pub(crate) fn imported_world_metrics_resource_id(relative_path: &str) -> String {

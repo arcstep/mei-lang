@@ -92,12 +92,13 @@ fn spbjw_live_ops_theme_overlay_overrides_compile_snapshot_without_recompile() {
     );
 }
 
-
 #[test]
 fn spbjw_disk_config_font_28px_in_viewport_style() {
     use mei_lang_app::scene_viewport_theme_style;
     use mei_lang_kernel::{load_mei_config_for_app, CompileOptions};
-    use ws_spbjw_integration_tests::{source_root, zhifa_app_root, compile_app_from_root_with_options};
+    use ws_spbjw_integration_tests::{
+        compile_app_from_root_with_options, source_root, zhifa_app_root,
+    };
 
     let source_root = source_root();
     let app_root = zhifa_app_root();
@@ -109,9 +110,19 @@ fn spbjw_disk_config_font_28px_in_viewport_style() {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
         },
-    ).expect("compile");
+    )
+    .expect("compile");
     let with_live = scene_viewport_theme_style(&compiled, Some(&config));
     let auto_load = scene_viewport_theme_style(&compiled, None);
-    assert!(with_live.contains("--mei-font-2:28px"), "live: {}", &with_live[..with_live.len().min(800)]);
-    assert!(auto_load.contains("--mei-font-2:28px"), "auto app_root={}: {}", compiled.app_root, &auto_load[..auto_load.len().min(800)]);
+    assert!(
+        with_live.contains("--mei-font-2:28px"),
+        "live: {}",
+        &with_live[..with_live.len().min(800)]
+    );
+    assert!(
+        auto_load.contains("--mei-font-2:28px"),
+        "auto app_root={}: {}",
+        compiled.app_root,
+        &auto_load[..auto_load.len().min(800)]
+    );
 }

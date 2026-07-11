@@ -51,14 +51,12 @@ fn find_panel<'a>(
         if panel.id == target {
             return Some(panel);
         }
-        if let Some(found) = panel
-            .blocks
-            .iter()
-            .find_map(|node| match node {
-                mei_lang_kernel::UiTreeNode::Panel(child) => find_panel(std::slice::from_ref(child), target),
-                _ => None,
-            })
-        {
+        if let Some(found) = panel.blocks.iter().find_map(|node| match node {
+            mei_lang_kernel::UiTreeNode::Panel(child) => {
+                find_panel(std::slice::from_ref(child), target)
+            }
+            _ => None,
+        }) {
             return Some(found);
         }
     }
@@ -150,7 +148,9 @@ fn supervision_mini_warning_head_exports_head_chrome() {
     assert_eq!(head_chrome["caret"]["enabled"], true);
     let cell_style = head_chrome["cell_style"].as_str().unwrap_or("");
     assert!(
-        cell_style.contains("linear-gradient") || cell_style.contains("panel_title_bar") || cell_style.contains("url("),
+        cell_style.contains("linear-gradient")
+            || cell_style.contains("panel_title_bar")
+            || cell_style.contains("url("),
         "expected resolved panel_title_bar gradient/image in cell_style: {cell_style}"
     );
 }
@@ -203,7 +203,10 @@ fn supervision_mini_enforcement_objects_panel_has_slot_frame_background() {
         .expect("scene contract")
         .panels;
     let objects = find_panel(panels, "enforcement_objects").expect("enforcement_objects panel");
-    let bg = objects.props.get("background").expect("background on shell");
+    let bg = objects
+        .props
+        .get("background")
+        .expect("background on shell");
     let bg_json = serde_json::to_string(bg).unwrap_or_default();
     assert!(
         bg_json.contains("metric-bg-target"),
@@ -233,9 +236,7 @@ fn supervision_mini_enforcement_compound_metric_exports_panel_shell_background()
         .into_iter()
         .find(|doc| {
             doc.slots.values().any(|slot| {
-                slot.get("content_kind")
-                    .and_then(|value| value.as_str())
-                    == Some("compound-metric")
+                slot.get("content_kind").and_then(|value| value.as_str()) == Some("compound-metric")
             })
         })
         .expect("compound-metric eval slot group");
@@ -243,9 +244,7 @@ fn supervision_mini_enforcement_compound_metric_exports_panel_shell_background()
         .slots
         .values()
         .find(|slot| {
-            slot.get("content_kind")
-                .and_then(|value| value.as_str())
-                == Some("compound-metric")
+            slot.get("content_kind").and_then(|value| value.as_str()) == Some("compound-metric")
         })
         .expect("compound-metric slot");
     let panel_shell = compound_slot
@@ -340,7 +339,9 @@ fn supervision_mini_triptych_metric_exports_slot_frame_panel_shell() {
             if !scope.contains("supervision_triptych_first") {
                 return None;
             }
-            slot.get("panel_shell").cloned().map(|shell| (scope.clone(), shell))
+            slot.get("panel_shell")
+                .cloned()
+                .map(|shell| (scope.clone(), shell))
         })
     });
     let (scope, shell) = first_shell.expect("panel_shell on supervision_triptych_first*");

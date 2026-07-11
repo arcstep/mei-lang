@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
+use super::types::*;
+use crate::http::compile_cache::{RuntimeArtifactPolicy, RuntimeAssemblyPolicy, RuntimeEvalPolicy};
 use crate::http::pages::metric_api::assembly::{
     MetricQueryGroupRequest, MetricQueryGroupResponse, MetricQueryRequest,
 };
-use crate::http::compile_cache::{
-    RuntimeArtifactPolicy, RuntimeAssemblyPolicy, RuntimeEvalPolicy,
-};
 use crate::AppError;
 use axum::http::StatusCode;
-use super::types::*;
 
 pub(super) fn normalize_metric_query_groups(
     request: &MetricQueryRequest,
@@ -56,7 +54,9 @@ pub(super) fn requested_metric_ids_label(metric_ids: &[String]) -> String {
     }
 }
 
-pub(super) fn merge_metric_query_groups(groups: &[MetricQueryGroupRequest]) -> Vec<MergedMetricGroupRequest> {
+pub(super) fn merge_metric_query_groups(
+    groups: &[MetricQueryGroupRequest],
+) -> Vec<MergedMetricGroupRequest> {
     let mut merged = BTreeMap::<String, MergedMetricGroupRequest>::new();
     for (index, group) in groups.iter().enumerate() {
         let entry =

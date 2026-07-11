@@ -57,9 +57,9 @@ pub fn canonical_tier(raw: &str) -> Result<&'static str, String> {
         "basemap" => Err(
             "tier \"basemap\" is deprecated; use tier \"t0\" (Tier-0 basemap stage)".to_string(),
         ),
-        "chrome" => Err(
-            "tier \"chrome\" is deprecated; use tier \"t1\" (Tier-1 chrome board)".to_string(),
-        ),
+        "chrome" => {
+            Err("tier \"chrome\" is deprecated; use tier \"t1\" (Tier-1 chrome board)".to_string())
+        }
         "overlay" => Err(
             "tier \"overlay\" is deprecated; use tier \"t2\" (Tier-2 board workspace)".to_string(),
         ),
@@ -98,10 +98,7 @@ pub fn tier_regular_base(tier: &str) -> i64 {
 }
 
 /// Resolve author `stack_order` (0–99). `assembly_fallback` used when field is absent.
-pub fn resolve_stack_order(
-    explicit: Option<u8>,
-    assembly_fallback: u8,
-) -> Result<u8, String> {
+pub fn resolve_stack_order(explicit: Option<u8>, assembly_fallback: u8) -> Result<u8, String> {
     let order = explicit.unwrap_or(assembly_fallback);
     if order > STACK_ORDER_MAX {
         return Err(format!(
@@ -215,8 +212,14 @@ mod tests {
     fn compute_panel_z_index_uses_tier_and_assembly_order() {
         assert_eq!(compute_panel_z_index(TIER_T0, None, 0), 1);
         assert_eq!(compute_panel_z_index(TIER_T0, None, 2), 3);
-        assert_eq!(compute_panel_z_index(TIER_T1, Some("header"), 0), Z_T1_HEADER);
-        assert_eq!(compute_panel_z_index(TIER_T1, Some("rail"), 1), Z_T1_RAIL + 1);
+        assert_eq!(
+            compute_panel_z_index(TIER_T1, Some("header"), 0),
+            Z_T1_HEADER
+        );
+        assert_eq!(
+            compute_panel_z_index(TIER_T1, Some("rail"), 1),
+            Z_T1_RAIL + 1
+        );
         assert_eq!(
             compute_panel_z_index(TIER_T1, Some("stage_aperture"), 0),
             Z_T1_STAGE_APERTURE
@@ -238,14 +241,8 @@ mod tests {
 
     #[test]
     fn compute_panel_z_index_uses_assembly_stack_order_for_t0() {
-        assert_eq!(
-            compute_panel_z_index(TIER_T0, None, 0),
-            Z_T0_DEFAULT
-        );
-        assert_eq!(
-            compute_panel_z_index(TIER_T0, None, 2),
-            Z_T0_DEFAULT + 2
-        );
+        assert_eq!(compute_panel_z_index(TIER_T0, None, 0), Z_T0_DEFAULT);
+        assert_eq!(compute_panel_z_index(TIER_T0, None, 2), Z_T0_DEFAULT + 2);
     }
 
     #[test]

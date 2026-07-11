@@ -7,7 +7,7 @@ use crate::compile::panel_normalize::{
     seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
     seed_metric_slot_vertical_align_defaults_from_base,
 };
-use crate::model::{Diagnostic, UiNodeDecl, Severity};
+use crate::model::{Diagnostic, Severity, UiNodeDecl};
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
 use super::super::super::normalize::normalize_ui_nodes;

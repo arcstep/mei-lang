@@ -11,13 +11,15 @@ use mei_lang_kernel::resolve_app_root;
 use crate::http::observation::CompileObservation;
 use crate::{AppError, AppState};
 
-use crate::http::compile_cache::{RuntimeAccessPolicies, RuntimeArtifactPolicy, access_import_required};
+use super::support::*;
+use super::types::*;
+use crate::http::compile_cache::{
+    access_import_required, RuntimeAccessPolicies, RuntimeArtifactPolicy,
+};
 use crate::http::datasets::{
     map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
     query_state_from_request,
-    table_contract::{
-        apply_table_request_fields, enrich_table_result,
-    },
+    table_contract::{apply_table_request_fields, enrich_table_result},
     DatasetQueryOptions,
 };
 use crate::http::pages::components::resolve_components_root;
@@ -26,8 +28,6 @@ use crate::http::pages::scene_qualified::{
     strict_dataset_query_mode_contract, strict_runtime_query_contract, strict_scene_query_coords,
 };
 use crate::http::pages::util::elapsed_ms;
-use super::support::*;
-use super::types::*;
 
 pub async fn dataset_query_api(
     State(state): State<AppState>,
@@ -304,4 +304,3 @@ pub async fn dataset_query_api(
         query_state_echo: result.query_state_echo,
     }))
 }
-

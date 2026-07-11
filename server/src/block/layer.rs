@@ -7,9 +7,7 @@ use mei_lang_toolchain::resolve_components_root;
 use crate::graph::load_mrg_registry;
 use crate::graph::observability::{run_graph_inspect, run_graph_status};
 use crate::graph::types::MaterialState;
-use crate::prebuild::{
-    ensure_compile_scope, PrebuildMode, PrebuildScopeProfile,
-};
+use crate::prebuild::{ensure_compile_scope, PrebuildMode, PrebuildScopeProfile};
 
 use super::compile::block_compile;
 use super::id::parse_block_id;
@@ -50,31 +48,21 @@ pub fn layer_compile(
                         if !options.continue_on_error {
                             return Err(error);
                         }
-                        results.push(super::types::BlockResult::err(
-                            block_id,
-                            "compile",
-                            &error,
-                        ));
+                        results.push(super::types::BlockResult::err(block_id, "compile", &error));
                     }
                 }
                 return Ok(results);
             }
-            let plan = crate::prebuild::build_prebuild_manifest_plan(app, PrebuildScopeProfile::Full);
+            let plan =
+                crate::prebuild::build_prebuild_manifest_plan(app, PrebuildScopeProfile::Full);
             let continue_on_error = options.continue_on_error;
-            for scope in plan
-                .hot_scopes
-                .iter()
-                .chain(plan.deferred_scopes.iter())
-            {
+            for scope in plan.hot_scopes.iter().chain(plan.deferred_scopes.iter()) {
                 if scope.requested_target_file.is_none() {
                     continue;
                 }
                 let block_id = BlockId {
                     kind: crate::graph::types::GraphNodeKind::ScenePayload,
-                    key: scope
-                        .requested_target_file
-                        .clone()
-                        .unwrap_or_default(),
+                    key: scope.requested_target_file.clone().unwrap_or_default(),
                     scope_key: scope.requested_scene_id.clone(),
                 };
                 match ensure_compile_scope(
@@ -104,11 +92,7 @@ pub fn layer_compile(
                         if !continue_on_error {
                             return Err(error);
                         }
-                        results.push(super::types::BlockResult::err(
-                            block_id,
-                            "compile",
-                            &error,
-                        ));
+                        results.push(super::types::BlockResult::err(block_id, "compile", &error));
                     }
                 }
             }
@@ -134,7 +118,9 @@ pub fn layer_compile(
             )?;
             Ok(Vec::new())
         }
-        BlockLayer::L2 => Err(anyhow!("layer compile L2 not implemented; use graph migrate")),
+        BlockLayer::L2 => Err(anyhow!(
+            "layer compile L2 not implemented; use graph migrate"
+        )),
     }
 }
 

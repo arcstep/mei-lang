@@ -1,9 +1,6 @@
-
 use mei_lang_kernel::RuntimeState;
 
-use crate::types::{
-    ResourceQueryToolSpec, WorldRuntimeBundle,
-};
+use crate::types::{ResourceQueryToolSpec, WorldRuntimeBundle};
 
 use super::super::bundle::normalize_path;
 pub fn recent_trace_messages(state: &RuntimeState, trace_limit: usize) -> Vec<String> {
@@ -110,4 +107,3 @@ pub(super) fn build_prompt_catalog_lines(
     }
     lines
 }
-

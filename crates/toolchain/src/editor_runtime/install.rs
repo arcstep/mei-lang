@@ -285,6 +285,8 @@ pub(crate) fn render_workspace_runtime_warmup_manifest_json(target_root: &Path) 
         .context("serialize workspace warmup manifest")
 }
 
-pub(crate) fn build_workspace_runtime_warmup_manifest(target_root: &Path) -> Result<RuntimeWarmupManifest> {
+pub(crate) fn build_workspace_runtime_warmup_manifest(
+    target_root: &Path,
+) -> Result<RuntimeWarmupManifest> {
     build_runtime_warmup_manifest(target_root)
 }

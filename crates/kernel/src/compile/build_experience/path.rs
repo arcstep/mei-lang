@@ -1,10 +1,10 @@
-use super::{block_label, find_block_in_panel, find_panel_by_path, panel_label, projection_label, scene_label, split_block_key, split_file_symbol, split_panel_key, split_projection_key, split_world_explain_key};
-
-
-
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest,
+use super::{
+    block_label, find_block_in_panel, find_panel_by_path, panel_label, projection_label,
+    scene_label, split_block_key, split_file_symbol, split_panel_key, split_projection_key,
+    split_world_explain_key,
 };
+
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest};
 
 /// Human-readable breadcrumb segments for build overview / agent export.
 pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
@@ -99,10 +99,12 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
                     entry.template_key.clone(),
                     entry.template_file.clone(),
                 ];
-                if let Some(anchor) = crate::compile::build_template_index::template_primary_consumer(
-                    compiled,
-                    entry.template_key.as_str(),
-                ) {
+                if let Some(anchor) =
+                    crate::compile::build_template_index::template_primary_consumer(
+                        compiled,
+                        entry.template_key.as_str(),
+                    )
+                {
                     rows.push(format!(
                         "→ {} / {} / {}",
                         anchor.scene_id, anchor.panel_path, anchor.label
@@ -116,4 +118,3 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
         _ => vec![node.encode()],
     }
 }
-

@@ -56,10 +56,8 @@ pub async fn api_ops_theme_layout_overlay_get(
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.clone();
     let app_ctx = guard.host_ctx_for_app(app_id);
-    let config = load_mei_config_for_app(
-        app_ctx.app_root().as_path(),
-        Some(workspace_root.as_path()),
-    );
+    let config =
+        load_mei_config_for_app(app_ctx.app_root().as_path(), Some(workspace_root.as_path()));
     let theme_id = resolve_scene_theme_id(&config);
     let persisted_layout = config
         .ops
@@ -126,12 +124,8 @@ pub async fn api_ops_theme_layout_apply_post(
             .into_response();
     };
     let app_root = resolve_app_root(workspace_root.as_path(), app_id);
-    let config_path =
-        resolve_mei_config_path(app_root.as_path(), Some(workspace_root.as_path()));
-    let config = load_mei_config_for_app(
-        app_root.as_path(),
-        Some(workspace_root.as_path()),
-    );
+    let config_path = resolve_mei_config_path(app_root.as_path(), Some(workspace_root.as_path()));
+    let config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root.as_path()));
     let theme_id = resolve_scene_theme_id(&config);
     let existing_theme = config
         .ops

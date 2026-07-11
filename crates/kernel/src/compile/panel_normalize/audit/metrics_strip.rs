@@ -1,4 +1,4 @@
-use crate::model::{Diagnostic, LayoutDecl, UiNodeDecl, Severity};
+use crate::model::{Diagnostic, LayoutDecl, Severity, UiNodeDecl};
 
 use super::super::constants::{
     COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_CARD_GAP_TARGET, COCKPIT_PANEL_PADDING_MAX,

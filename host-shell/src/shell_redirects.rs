@@ -40,10 +40,7 @@ pub async fn redirect_host_runtime(uri: OriginalUri) -> Response {
     redirect_with_query("/runtime", &uri.0)
 }
 
-pub async fn redirect_apps_upload(
-    Path(app_id): Path<String>,
-    uri: OriginalUri,
-) -> Response {
+pub async fn redirect_apps_upload(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
     let mut target = format!("/upload?app={}", encode_query_component(app_id.trim()));
     if let Some(query) = uri.0.query() {
         if !query.is_empty() {
@@ -54,10 +51,7 @@ pub async fn redirect_apps_upload(
     Redirect::permanent(target.as_str()).into_response()
 }
 
-pub async fn redirect_apps_config(
-    Path(app_id): Path<String>,
-    uri: OriginalUri,
-) -> Response {
+pub async fn redirect_apps_config(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
     let mut target = format!("/config?app={}", encode_query_component(app_id.trim()));
     if let Some(query) = uri.0.query() {
         if !query.is_empty() {
@@ -68,10 +62,7 @@ pub async fn redirect_apps_config(
     Redirect::permanent(target.as_str()).into_response()
 }
 
-pub async fn redirect_apps_runtime(
-    Path(app_id): Path<String>,
-    uri: OriginalUri,
-) -> Response {
+pub async fn redirect_apps_runtime(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
     let mut target = format!("/runtime?app={}", encode_query_component(app_id.trim()));
     if let Some(query) = uri.0.query() {
         if !query.is_empty() {
@@ -145,10 +136,7 @@ pub async fn redirect_apps_surface_to_view(
     Redirect::permanent(target.as_str()).into_response()
 }
 
-pub async fn redirect_apps_app_to_view(
-    Path(app_id): Path<String>,
-    uri: OriginalUri,
-) -> Response {
+pub async fn redirect_apps_app_to_view(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
     redirect_apps_surface_to_view(Path((app_id, "app".to_string())), uri).await
 }
 

@@ -10,7 +10,9 @@ use mei_lang_kernel::{
     RuntimeMetricEvalScope,
 };
 
-use super::agg_result_cache::{agg_result_cache_key, lookup_agg_result_cache, store_agg_result_cache};
+use super::agg_result_cache::{
+    agg_result_cache_key, lookup_agg_result_cache, store_agg_result_cache,
+};
 use super::eval_artifact::{
     eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
@@ -132,7 +134,9 @@ fn standalone_capsule_local_dataset(
         return false;
     }
     capsule_paths.iter().any(|capsule_path| {
-        capsule_path_aliases(capsule_path).into_iter().any(|alias| alias == target)
+        capsule_path_aliases(capsule_path)
+            .into_iter()
+            .any(|alias| alias == target)
     })
 }
 
@@ -148,7 +152,9 @@ fn insert_dataset_aliases(
     }
     for token in [resource_id, dataset.id.as_str()] {
         if let Some(local) = local_dataset_id_from_namespaced_token(token) {
-            datasets.entry(local.to_string()).or_insert_with(|| dataset.clone());
+            datasets
+                .entry(local.to_string())
+                .or_insert_with(|| dataset.clone());
         }
     }
 }

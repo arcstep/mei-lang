@@ -156,11 +156,7 @@ pub(crate) fn projection_handle_outcome(
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
-    crate::graph::mcg::assemble::apply_scope_to_compiled_app(
-        &mut stub,
-        scene,
-        target,
-    );
+    crate::graph::mcg::assemble::apply_scope_to_compiled_app(&mut stub, scene, target);
     if let Some(diag) = diagnostics {
         diag.mcg_assemble_only_count.fetch_add(1, Ordering::Relaxed);
         diag.compile_target_overlay_reuse_hits
@@ -188,16 +184,14 @@ pub(crate) fn shrink_outcome_to_handle(
     if outcome.handle_only {
         return;
     }
-    let assembly_handle = source_root
-        .zip(app_id)
-        .map(|(root, id)| {
-            crate::graph::mcg::handle::PageInstanceHandle::from_mcg_registry(
-                root,
-                id,
-                outcome.compiled.as_ref(),
-                outcome.compile_revision.as_str(),
-            )
-        });
+    let assembly_handle = source_root.zip(app_id).map(|(root, id)| {
+        crate::graph::mcg::handle::PageInstanceHandle::from_mcg_registry(
+            root,
+            id,
+            outcome.compiled.as_ref(),
+            outcome.compile_revision.as_str(),
+        )
+    });
     let stub = CompiledApp {
         app_id: outcome.compiled.app_id.clone(),
         title: String::new(),
@@ -320,7 +314,12 @@ pub(crate) fn compiled_default_target_file(compiled: &CompiledApp) -> Option<&st
         .scene_routes
         .iter()
         .find(|route| route.is_default)
-        .or_else(|| compiled.scene_routes.iter().find(|route| route.scene_id.trim() == "home"))
+        .or_else(|| {
+            compiled
+                .scene_routes
+                .iter()
+                .find(|route| route.scene_id.trim() == "home")
+        })
         .map(|route| route.target_file.trim())
         .filter(|target| !target.is_empty())
 }
@@ -360,4 +359,3 @@ pub(crate) fn compile_outcome_matches_scope(scope: &CompileScope, compiled: &Com
     }
     true
 }
-

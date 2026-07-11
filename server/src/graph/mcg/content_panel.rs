@@ -131,7 +131,7 @@ pub fn partial_assemble_panel_merge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::{UiNodeDecl, SceneContract, SceneDecl};
+    use mei_lang_kernel::{SceneContract, SceneDecl, UiNodeDecl};
 
     #[test]
     fn extract_content_panel_from_scene() {

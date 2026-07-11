@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::model::{
-    LayoutDecl, UiNodeDecl, PanelSlotDecl, UiTreeNode,
-};
+use crate::model::{LayoutDecl, PanelSlotDecl, UiNodeDecl, UiTreeNode};
 
 pub(super) fn collect_top_level_layout_areas(layout: &Value) -> BTreeSet<String> {
     let mut allowed = BTreeSet::new();
@@ -349,4 +347,3 @@ pub(super) fn layout_decl_to_value(layout: &LayoutDecl) -> Value {
     }
     Value::Object(out)
 }
-

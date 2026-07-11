@@ -5,10 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::compile::entry_payload::CompiledScenePayload;
-use crate::model::{
-    ComponentAsset, Diagnostic, LoadedResource, SceneContract,
-    Severity,
-};
+use crate::model::{ComponentAsset, Diagnostic, LoadedResource, SceneContract, Severity};
 
 use super::super::super::catalog::DatasetCatalogFilter;
 use super::super::super::decl_file_cache::decl_file_cache_metrics_snapshot;
@@ -256,7 +253,10 @@ pub(super) fn insert_scene_projection_assembly_entry(
         assembly.insert("accepts".to_string(), contract.scene.params.clone());
     }
     if !contract.scene.capabilities.is_null() {
-        assembly.insert("capabilities".to_string(), contract.scene.capabilities.clone());
+        assembly.insert(
+            "capabilities".to_string(),
+            contract.scene.capabilities.clone(),
+        );
     }
     if let Some(frame) = contract.frame.as_ref() {
         assembly.insert(
@@ -333,4 +333,3 @@ pub(super) fn insert_hydrated_link_projection_assembly_entry(
     );
     scene_projection_assembly_by_id.insert(scene_id.to_string(), Value::Object(assembly));
 }
-

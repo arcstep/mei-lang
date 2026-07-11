@@ -27,9 +27,6 @@ fn review_projection_parse_and_depth() {
         ReviewProjection::parse("plane_region_section"),
         Some(ReviewProjection::PlaneRegionSection)
     );
-    assert_eq!(
-        ReviewProjection::Plane.max_ui_role_depth(),
-        Some("plane")
-    );
+    assert_eq!(ReviewProjection::Plane.max_ui_role_depth(), Some("plane"));
     assert!(ReviewProjection::LiveFull.max_ui_role_depth().is_none());
 }

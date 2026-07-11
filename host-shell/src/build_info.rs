@@ -38,11 +38,9 @@ fn version_display(workspace_root: &Path) -> VersionDisplayIdentity {
 }
 
 pub fn workspace_descriptor(workspace_root: &Path) -> Value {
-    let identity = resolve_active_build_identity_with_hint(
-        workspace_root,
-        Some(meilang_version_hint()),
-    )
-    .unwrap_or_else(|err| panic!("{err}"));
+    let identity =
+        resolve_active_build_identity_with_hint(workspace_root, Some(meilang_version_hint()))
+            .unwrap_or_else(|err| panic!("{err}"));
     let display = version_display(workspace_root);
     let links = read_links_state(workspace_root).ok();
     let app_ids: Vec<String> = discover_apps(workspace_root)
@@ -50,12 +48,10 @@ pub fn workspace_descriptor(workspace_root: &Path) -> Value {
         .into_iter()
         .map(|app| app.id)
         .collect();
-    let current_by_app = resolve_workspace_app_build_generations(workspace_root, &app_ids)
-        .unwrap_or_default();
-    let display_label = resolve_build_footer_label_with_hint(
-        workspace_root,
-        Some(meilang_version_hint()),
-    );
+    let current_by_app =
+        resolve_workspace_app_build_generations(workspace_root, &app_ids).unwrap_or_default();
+    let display_label =
+        resolve_build_footer_label_with_hint(workspace_root, Some(meilang_version_hint()));
     json!({
         "meilangVersion": display.meilang_version,
         "buildGeneration": display.build_generation,
@@ -113,8 +109,10 @@ pub fn statusbar_version_label(workspace_root: &Path) -> String {
 
 /// Terminal banner line: `mei-host-shell {build} · MeiLang x.y.z · Build WS-…`
 pub fn host_version_banner_line(workspace_root: &Path) -> String {
-    let footer =
-        mei_lang_kernel::resolve_build_footer_label_with_hint(workspace_root, Some(meilang_version_hint()));
+    let footer = mei_lang_kernel::resolve_build_footer_label_with_hint(
+        workspace_root,
+        Some(meilang_version_hint()),
+    );
     format!("mei-host-shell {BUILD_VERSION} · {footer}")
 }
 
@@ -197,14 +195,15 @@ pub fn fill_host_compliance_placeholders(mut html: String, workspace_root: &Path
 }
 
 pub fn fill_page_shell_placeholders(html: String, workspace_root: &Path) -> String {
-    fill_host_compliance_placeholders(fill_host_build_placeholders(html, workspace_root), workspace_root)
+    fill_host_compliance_placeholders(
+        fill_host_build_placeholders(html, workspace_root),
+        workspace_root,
+    )
 }
 
 pub fn log_host_identity(workspace_root: Option<&Path>, event: &str) {
     let display_label = workspace_root
-        .map(|root| {
-            resolve_build_footer_label_with_hint(root, Some(meilang_version_hint()))
-        })
+        .map(|root| resolve_build_footer_label_with_hint(root, Some(meilang_version_hint())))
         .unwrap_or_else(|| "workspace=n/a".to_string());
     tracing::info!(
         event = event,
@@ -238,10 +237,7 @@ pub fn print_cli_version(workspace_root: Option<&Path>, json_output: bool) -> an
         if let Some(build_generation) = workspace.get("buildGeneration").and_then(Value::as_str) {
             println!("workspace.build_generation={build_generation}");
         }
-        if let Some(ws_ver) = workspace
-            .get("workspace_version")
-            .and_then(Value::as_str)
-        {
+        if let Some(ws_ver) = workspace.get("workspace_version").and_then(Value::as_str) {
             println!("workspace.version={ws_ver}");
         }
         if let Some(env) = workspace.get("env") {

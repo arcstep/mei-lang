@@ -324,9 +324,9 @@ pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse 
         input.client_manifest_digest.as_deref(),
         manifest_revision_digest.as_str(),
     );
-    let surface_ok = server_surface_digest.as_deref().is_some_and(|server| {
-        digest_matches(input.client_surface_digest.as_deref(), server)
-    });
+    let surface_ok = server_surface_digest
+        .as_deref()
+        .is_some_and(|server| digest_matches(input.client_surface_digest.as_deref(), server));
 
     if manifest_ok && surface_ok {
         return ViewRevisionResponse {
@@ -419,7 +419,11 @@ pub fn layout_overlay_persisted_cache_key(layout_policy_revision: &str) -> Strin
     .to_string()
 }
 
-pub fn layout_overlay_session_cache_key(app_id: &str, draft_session: &str, draft_digest: &str) -> String {
+pub fn layout_overlay_session_cache_key(
+    app_id: &str,
+    draft_session: &str,
+    draft_digest: &str,
+) -> String {
     json!({
         "artifact": LAYOUT_OVERLAY_KIND,
         "surface": "session",
@@ -449,12 +453,18 @@ pub fn shell_cache_key(
     .to_string()
 }
 
-pub fn manifest_revision_digest(manifest: &SceneViewManifest, draft_digest: Option<&str>) -> String {
+pub fn manifest_revision_digest(
+    manifest: &SceneViewManifest,
+    draft_digest: Option<&str>,
+) -> String {
     semantic_revision_digest(manifest, draft_digest)
 }
 
 /// Digest over semantic layers only (excludes shell.* and view-only compose axes).
-pub fn semantic_revision_digest(manifest: &SceneViewManifest, draft_digest: Option<&str>) -> String {
+pub fn semantic_revision_digest(
+    manifest: &SceneViewManifest,
+    draft_digest: Option<&str>,
+) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut semantic_layers = std::collections::BTreeMap::new();
@@ -602,25 +612,21 @@ pub fn build_semantic_core_for_scene(
 ) -> SemanticCacheCore {
     let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, app_id);
     let registry_revision = registry.registry_revision.trim().to_string();
-    let client_revision = crate::mrg::client_bootstrap::read_client_bootstrap(
-        workspace_root,
-        app_id,
-        scene_id,
-    )
-    .map(|manifest| manifest.client_revision)
-    .filter(|value| !value.trim().is_empty())
-    .unwrap_or_else(|| crate::mrg::client_bootstrap::NO_CLIENT_BOOTSTRAP_REVISION.to_string());
+    let client_revision =
+        crate::mrg::client_bootstrap::read_client_bootstrap(workspace_root, app_id, scene_id)
+            .map(|manifest| manifest.client_revision)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                crate::mrg::client_bootstrap::NO_CLIENT_BOOTSTRAP_REVISION.to_string()
+            });
     let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
     let data_generation =
         mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
-    let compile_epoch = crate::mrg::client_bootstrap::read_client_bootstrap(
-        workspace_root,
-        app_id,
-        scene_id,
-    )
-    .map(|manifest| manifest.workset_id)
-    .filter(|value| !value.trim().is_empty())
-    .unwrap_or_else(|| client_revision.clone());
+    let compile_epoch =
+        crate::mrg::client_bootstrap::read_client_bootstrap(workspace_root, app_id, scene_id)
+            .map(|manifest| manifest.workset_id)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| client_revision.clone());
     build_semantic_cache_core(
         app_id,
         scene_id,

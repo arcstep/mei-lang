@@ -11,9 +11,8 @@ fn workspace_init_does_not_install_runtime_assets() {
             .as_millis()
     ));
     fs::create_dir_all(&root).expect("create init root");
-    let profile_root =
-        init_workspace_profile(&root, "profile-a", Some("test"), &package_root())
-            .expect("init profile");
+    let profile_root = init_workspace_profile(&root, "profile-a", Some("test"), &package_root())
+        .expect("init profile");
     assert!(
         !profile_root.join("runtime/platform/version.json").exists(),
         "workspace init must not install runtime metadata"
@@ -130,4 +129,3 @@ fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
     );
     let _ = fs::remove_dir_all(parent);
 }
-

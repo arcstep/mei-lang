@@ -1,5 +1,3 @@
-
-
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
 
 use super::{ReachabilityTreeNode, ReachabilityTreeRoot};
@@ -207,4 +205,3 @@ pub(crate) fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
             .collect(),
     }
 }
-

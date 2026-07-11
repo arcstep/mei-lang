@@ -12,7 +12,9 @@ use crate::content_store::{put_if_absent, read_payload_json};
 use crate::layer_store::{store_layer, take_layer};
 use crate::semantic_cache::SemanticCacheCore;
 use crate::types::PayloadRef;
-use crate::view_artifact::{ComposeRequest, LayerRef, SceneViewManifest, SCENE_VIEW_MANIFEST_SCHEMA};
+use crate::view_artifact::{
+    ComposeRequest, LayerRef, SceneViewManifest, SCENE_VIEW_MANIFEST_SCHEMA,
+};
 
 pub const MANIFEST_INDEX_KIND: &str = "manifest_index";
 pub const MANIFEST_INDEX_SCHEMA: &str = "manifest-index-v1";

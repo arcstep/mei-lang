@@ -147,4 +147,3 @@ fn compile_spbjw_home_embedded_map_world_metrics_materialized() {
         );
     }
 }
-

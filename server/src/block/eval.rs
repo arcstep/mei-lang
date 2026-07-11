@@ -11,8 +11,8 @@ use crate::graph::types::GraphNodeKind;
 use crate::graph::{hydrate_compiled_for_prebuild_eval, load_mrg_registry};
 use crate::prebuild::{
     collect_required_xlsx_sources, ensure_compile_scope, ensure_request_artifacts_for_compiled,
-    publish_required_data_snapshots, verify_required_xlsx_sources, CompileScope,
-    CoverageState, PrebuildCoverageReport, PrebuildMode, SharedCompileOutcome,
+    publish_required_data_snapshots, verify_required_xlsx_sources, CompileScope, CoverageState,
+    PrebuildCoverageReport, PrebuildMode, SharedCompileOutcome,
 };
 use mei_lang_kernel::RuntimeWarmupApp;
 
@@ -157,11 +157,7 @@ fn ensure_snapshots_for_outcome(
     };
     let required_xlsx =
         collect_required_xlsx_sources(&warmup_app, std::iter::once(&*outcome.compiled));
-    publish_required_data_snapshots(
-        source_root,
-        app_id,
-        required_xlsx.iter().cloned().collect(),
-    )?;
+    publish_required_data_snapshots(source_root, app_id, required_xlsx.iter().cloned().collect())?;
     verify_required_xlsx_sources(app_root, &required_xlsx)
 }
 

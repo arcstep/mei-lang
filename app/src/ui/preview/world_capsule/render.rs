@@ -1,13 +1,11 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{
-    CompiledApp, MetricShape,
-};
+use mei_lang_kernel::{CompiledApp, MetricShape};
 
-use crate::ui::preview::PreviewRuntimeContext;
 use crate::ui::manage_routing::WorldSemanticQuery;
+use crate::ui::preview::PreviewRuntimeContext;
 
-use super::lookup::*;
 use super::dataset::*;
+use super::lookup::*;
 
 pub(crate) fn world_capsule_semantic_preview(
     compiled: &CompiledApp,
@@ -110,4 +108,3 @@ pub(crate) fn world_capsule_semantic_preview(
     };
     Some(preview)
 }
-

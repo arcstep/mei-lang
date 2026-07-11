@@ -14,7 +14,10 @@ use super::super::theme::resolve_shared_refs;
 use super::drilldown::resolve_metric_drilldown_meta;
 use super::drilldown::MetricDrilldownMeta;
 use super::host_ssr_payload::{dataset_for_host_ssr, metric_for_host_ssr};
-use super::refs::{normalize_v2_metric_ref, resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
+use super::refs::{
+    normalize_v2_metric_ref, resolve_data_ref, resolve_metric_ref, resolve_rows_expr,
+    with_runtime_ref,
+};
 use super::static_placeholder::{
     inject_static_chart_data, is_static_data_mode, static_dataset_placeholder,
     static_metric_fallback, static_metric_placeholder, strip_static_eval_patch,
@@ -131,8 +134,9 @@ impl RuntimeSceneAnchor {
             if let Some(scene_id) = route_scene_id(&catalog_scene_routes_from_app_root(app_root)) {
                 anchor.scene_id = scene_id;
             }
-        } else if let Some(fallback) =
-            fallback_scene_id.map(str::trim).filter(|value| !value.is_empty())
+        } else if let Some(fallback) = fallback_scene_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
         {
             if anchor.scene_id == "default" {
                 anchor.scene_id = fallback.to_string();
@@ -250,10 +254,8 @@ pub(crate) fn attach_host_meta(
                 .data_generation,
             ),
         );
-        let config = load_mei_config_for_app(
-            std::path::Path::new(compiled.app_root.as_str()),
-            None,
-        );
+        let config =
+            load_mei_config_for_app(std::path::Path::new(compiled.app_root.as_str()), None);
         host_meta.insert(
             "client_query_cache".to_string(),
             json!({
@@ -269,10 +271,7 @@ pub(crate) fn attach_host_meta(
         if !options.host_ssr_slim_payload {
             host_meta.insert(
                 "runtime_capabilities".to_string(),
-                host_runtime_capabilities_value(
-                    app_path,
-                    options.data_mode.as_deref(),
-                ),
+                host_runtime_capabilities_value(app_path, options.data_mode.as_deref()),
             );
         }
         if let Some(mode) = options.data_mode.as_deref() {
@@ -336,16 +335,10 @@ fn resolve_metric_value_for_mode(
     host_ssr_slim_payload: bool,
     data_mode: Option<&str>,
 ) -> Option<Value> {
-    let (metric, dataset_id) =
-        resolve_metric_ref(map, resources, compiled, resource_index)?;
+    let (metric, dataset_id) = resolve_metric_ref(map, resources, compiled, resource_index)?;
     let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
-    let drilldown = resolve_metric_drilldown_meta(
-        resources,
-        &dataset_id,
-        metric_id,
-        compiled,
-        resource_index,
-    );
+    let drilldown =
+        resolve_metric_drilldown_meta(resources, &dataset_id, metric_id, compiled, resource_index);
     let payload = if is_static_data_mode(data_mode) {
         static_metric_placeholder(&metric, metric_id)
     } else if host_ssr_slim_payload {
@@ -355,12 +348,7 @@ fn resolve_metric_value_for_mode(
     };
     Some(with_runtime_ref(
         payload,
-        scene_anchor.runtime_ref_extra(
-            "metric",
-            &dataset_id,
-            Some(metric_id),
-            drilldown.as_ref(),
-        ),
+        scene_anchor.runtime_ref_extra("metric", &dataset_id, Some(metric_id), drilldown.as_ref()),
     ))
 }
 
@@ -449,9 +437,7 @@ fn resolve_value_in_context(
                 }
                 if is_static_data_mode(data_mode) {
                     return static_metric_fallback(
-                        map.get("id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("metric"),
+                        map.get("id").and_then(Value::as_str).unwrap_or("metric"),
                     );
                 }
                 return Value::Null;
@@ -470,9 +456,7 @@ fn resolve_value_in_context(
                 }
                 if is_static_data_mode(data_mode) {
                     return static_metric_fallback(
-                        map.get("id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("metric"),
+                        map.get("id").and_then(Value::as_str).unwrap_or("metric"),
                     );
                 }
                 return Value::Null;

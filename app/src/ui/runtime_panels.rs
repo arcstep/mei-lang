@@ -1,5 +1,7 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BuildExecScope, BuildNodeId, BuildNodeKind, BuildViewTab, ReachabilityTreeNode};
+use mei_lang_kernel::{
+    BuildExecScope, BuildNodeId, BuildNodeKind, BuildViewTab, ReachabilityTreeNode,
+};
 
 use super::manage_routing::{build_node_href, runtime_node_href};
 use super::runtime_snapshot_view::RuntimeSnapshotView;
@@ -17,9 +19,7 @@ pub(crate) fn runtime_overview_panel(
         .map(|node| node.node_id.clone())
         .unwrap_or_else(|| active_node_id.to_string());
     let kind = selected.map(|node| node.kind.clone()).unwrap_or_default();
-    let badges = selected
-        .map(|node| node.badges.clone())
-        .unwrap_or_default();
+    let badges = selected.map(|node| node.badges.clone()).unwrap_or_default();
     let build_cross_link = mcg_build_href_for_runtime_node(app_path, active_node_id);
     view! {
         <section class="build-overview build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 mei-text-body">
@@ -74,10 +74,12 @@ fn runtime_layer_metrics_grid(
     snapshot: &RuntimeSnapshotView,
     selected: Option<&ReachabilityTreeNode>,
 ) -> AnyView {
-    let tree_nodes = snapshot.roots.iter().map(|root| root.children.len()).sum::<usize>();
-    let selected_id = selected
-        .map(|node| node.node_id.as_str())
-        .unwrap_or("-");
+    let tree_nodes = snapshot
+        .roots
+        .iter()
+        .map(|root| root.children.len())
+        .sum::<usize>();
+    let selected_id = selected.map(|node| node.node_id.as_str()).unwrap_or("-");
     let host = &snapshot.host;
     let prebuild = &snapshot.prebuild;
     let diag = &snapshot.diagnostics;
@@ -251,15 +253,23 @@ fn mcg_build_href_for_runtime_node(app_path: &str, runtime_node_id: &str) -> Opt
 }
 
 fn bool_label(value: bool) -> String {
-    if value { "true".to_string() } else { "false".to_string() }
+    if value {
+        "true".to_string()
+    } else {
+        "false".to_string()
+    }
 }
 
 fn ms_label(value: Option<u64>) -> String {
-    value.map(|ms| format!("{ms}ms")).unwrap_or_else(|| "-".to_string())
+    value
+        .map(|ms| format!("{ms}ms"))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn bytes_label(value: Option<u64>) -> String {
-    value.map(format_bytes_human).unwrap_or_else(|| "-".to_string())
+    value
+        .map(format_bytes_human)
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn gate_count(host: Option<usize>, sweep: usize) -> String {

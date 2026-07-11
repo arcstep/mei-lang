@@ -96,7 +96,11 @@ pub(crate) fn mark_job_failed(
     tracing::warn!(mode = ?mode, %error, "host build job failed");
 }
 
-pub(crate) fn begin_job(mode: PrebuildMode, app_filter: Option<&str>, origin: &str) -> Result<String> {
+pub(crate) fn begin_job(
+    mode: PrebuildMode,
+    app_filter: Option<&str>,
+    origin: &str,
+) -> Result<String> {
     with_registry(|registry| {
         if registry.active_job.is_some() {
             return Err(anyhow!("host build job is already running"));
@@ -158,4 +162,3 @@ pub(crate) fn run_prebuild_job_sync_inner(
         },
     )
 }
-

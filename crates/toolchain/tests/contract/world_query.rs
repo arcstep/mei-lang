@@ -68,4 +68,3 @@ fn runtime_sim_step_returns_scene_view_and_html() {
     assert!(!result.html.is_empty());
     assert!(!result.scene_view.scene_id.is_empty());
 }
-

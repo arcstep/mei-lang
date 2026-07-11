@@ -126,10 +126,7 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
 }
 
 /// Scene CSS variables for a theme id using live `ops.themes` overlay (no compile artifact).
-pub fn scene_theme_style_for_theme_id(
-    theme_id: &str,
-    live_config: Option<&MeiConfig>,
-) -> String {
+pub fn scene_theme_style_for_theme_id(theme_id: &str, live_config: Option<&MeiConfig>) -> String {
     let theme_id = theme_id.trim();
     let contract = SceneContract {
         scene: SceneDecl {

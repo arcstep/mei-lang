@@ -81,8 +81,8 @@ fn mcg_kind_label(kind: &str) -> String {
 }
 
 pub fn build_mcg_tree_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
-    let path = resolve_app_registry_root(&resolve_app_root(source_root, app_id))
-        .join("mcg-registry.json");
+    let path =
+        resolve_app_registry_root(&resolve_app_root(source_root, app_id)).join("mcg-registry.json");
     let nodes = fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str::<McgRegistryFile>(&raw).ok())
@@ -91,16 +91,10 @@ pub fn build_mcg_tree_root(source_root: &Path, app_id: &str) -> ReachabilityTree
 
     let mut grouped: BTreeMap<String, Vec<McgNodeFile>> = BTreeMap::new();
     for node in nodes {
-        grouped
-            .entry(node.id.kind.slug())
-            .or_default()
-            .push(node);
+        grouped.entry(node.id.kind.slug()).or_default().push(node);
     }
 
-    let mut kind_order: Vec<String> = MCG_KIND_ORDER
-        .iter()
-        .map(|kind| kind.to_string())
-        .collect();
+    let mut kind_order: Vec<String> = MCG_KIND_ORDER.iter().map(|kind| kind.to_string()).collect();
     for kind in grouped.keys() {
         if !kind_order.iter().any(|entry| entry == kind) {
             kind_order.push(kind.clone());

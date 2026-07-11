@@ -1,13 +1,10 @@
 use super::{scene_shell_contract_from_scene_contract, synthesize_scene_first_board_payload};
 
-
 use serde_json::{Map, Value};
 
-use crate::model::{
-    Diagnostic, SceneContract, Severity,
-};
 use super::super::metric::expand_page_instance;
 use super::super::metric::parse_metric_ref_id;
+use crate::model::{Diagnostic, SceneContract, Severity};
 
 /// Manage/build 预览：用 scene `examples[0].params` 展开 projection_slots，供无 caller 时装配 filter/chart/detail。
 pub(crate) fn enrich_scene_projection_assembly_preview(

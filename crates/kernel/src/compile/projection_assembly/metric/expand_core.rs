@@ -1,4 +1,7 @@
-use super::{build_analytics_filter_schema, expand_board_analytics_slots, expand_board_list_preview_slots, expand_board_zoned_slots, lookup_metric_contract, parse_metric_ref_id};
+use super::{
+    build_analytics_filter_schema, expand_board_analytics_slots, expand_board_list_preview_slots,
+    expand_board_zoned_slots, lookup_metric_contract, parse_metric_ref_id,
+};
 
 use serde_json::{Map, Value};
 
@@ -186,7 +189,10 @@ fn scene_zone_accepts_component(zone: &Map<String, Value>, component: &str) -> b
         .unwrap_or(false)
 }
 
-pub(super) fn first_slot_zone_for_component(shell: &Map<String, Value>, component: &str) -> Option<String> {
+pub(super) fn first_slot_zone_for_component(
+    shell: &Map<String, Value>,
+    component: &str,
+) -> Option<String> {
     scene_shell_zones(shell)
         .into_iter()
         .find(|zone| {
@@ -307,4 +313,3 @@ fn resolve_board_filters_rowset_dataset_id(filters: Option<&Value>) -> Option<St
         .filter(|s| !s.is_empty())
         .map(str::to_string)
 }
-

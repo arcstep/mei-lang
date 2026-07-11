@@ -5,18 +5,24 @@ use mei_lang_kernel::{resolve_app_root, CompiledApp};
 use serde_json::Value;
 
 use crate::graph::bridge::export_bridge;
+use crate::graph::content_store::{APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, SCENE_PAYLOAD};
 use crate::graph::feature::graph_registry_dedup_enabled;
+use crate::graph::mcg::app_skeleton::{
+    app_skeleton_revision, load_app_skeleton_artifact, persist_app_skeleton_artifact,
+};
 use crate::graph::mcg::assemble::{
     assemble_page_instance, page_instance_revision, AssemblyInputRecord, PageInstanceInputs,
 };
-use crate::graph::content_store::{APP_SKELETON, METRIC_DEF_BUNDLE, SCENE_PAYLOAD, CONTENT_PANEL};
+use crate::graph::mcg::content_panel::{
+    extract_content_panels, partial_assemble_panel_merge, persist_content_panels,
+};
 use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, persist_metric_def_bundle, DatasetRuntimePayloadView,
     MetricDefBundleRecord, METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA,
 };
-use crate::graph::mcg::app_skeleton::{app_skeleton_revision, load_app_skeleton_artifact, persist_app_skeleton_artifact};
-use crate::graph::mcg::content_panel::{extract_content_panels, partial_assemble_panel_merge, persist_content_panels};
-use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
+use crate::graph::mcg::registry::{
+    AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter,
+};
 use crate::graph::mcg::scene_payload::{
     load_scene_payload_artifact, persist_scene_payload_artifact, scene_payload_revision,
 };
@@ -62,14 +68,11 @@ pub fn update_mcg_after_compile(
     let previous_scene_rev = registry.node_revision("scene_payload", target_file.as_str());
 
     let bundles = extract_metric_def_bundles(compiled, dataset_runtime_payloads);
-    let compiled_for_payload = if bundles
-        .iter()
-        .all(|(owner_id, bundle)| {
-            previous_bundles
-                .get(owner_id)
-                .is_some_and(|prev| prev == &bundle.revision)
-        })
-        && previous_scene_rev.is_some()
+    let compiled_for_payload = if bundles.iter().all(|(owner_id, bundle)| {
+        previous_bundles
+            .get(owner_id)
+            .is_some_and(|prev| prev == &bundle.revision)
+    }) && previous_scene_rev.is_some()
     {
         panel_only_scene_payload_compiled(
             app_root.as_path(),
@@ -119,9 +122,10 @@ pub fn update_mcg_after_compile(
             target_file.as_str(),
             &compiled.scene_projection_assembly_by_id,
         ) {
-            for node in
-                super::projection_assembly::projection_assembly_mcg_nodes(target_file.as_str(), &hashes)
-            {
+            for node in super::projection_assembly::projection_assembly_mcg_nodes(
+                target_file.as_str(),
+                &hashes,
+            ) {
                 registry.upsert_node(node);
             }
         }
@@ -140,9 +144,7 @@ pub fn update_mcg_after_compile(
             .map(|payload| payload.content_hash.as_str())
             .filter(|hash| !hash.is_empty())
         {
-            if let Ok(Some(existing_sk)) =
-                load_app_skeleton_artifact(app_root.as_path(), hash)
-            {
+            if let Ok(Some(existing_sk)) = load_app_skeleton_artifact(app_root.as_path(), hash) {
                 let mut donor = CompiledApp {
                     app_id: app_id.to_string(),
                     title: String::new(),
@@ -164,7 +166,7 @@ pub fn update_mcg_after_compile(
                     build_experience_index: Default::default(),
                     build_t2_page_index: Default::default(),
                     build_template_index: Default::default(),
-        ui_layout_index: Default::default(),
+                    ui_layout_index: Default::default(),
                 };
                 super::app_skeleton::merge_app_skeleton_into_compiled(&mut donor, &existing_sk);
                 crate::graph::integration::merge_compiled_runtime_catalog(
@@ -312,7 +314,8 @@ pub fn update_mcg_after_compile(
     let changed_owners = changed_bundle_owners(&previous_bundles, &outcome.bundle_revisions);
     let scene_only = scene_changed && changed_owners.is_empty();
     let mut mrg = MrgRegistryWriter::load(source_root, app_id);
-    let invalidation = apply_mcg_invalidation(&mut mrg, &bridge, scene_only, changed_owners.as_slice());
+    let invalidation =
+        apply_mcg_invalidation(&mut mrg, &bridge, scene_only, changed_owners.as_slice());
     if invalidation.scene_only_skip {
         tracing::debug!(app_id = %app_id, "MRG invalidation skipped (scene-only bump)");
     }

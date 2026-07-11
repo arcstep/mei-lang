@@ -267,7 +267,8 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
             .delimited_by(just('[').padded(), just(']').padded())
             .map(V2Expr::List);
         let dict_key = choice((string_parser(), identifier_parser()));
-        let dict = dict_key.clone()
+        let dict = dict_key
+            .clone()
             .then_ignore(just(':').padded())
             .then(expr.clone().padded())
             .padded()
@@ -313,7 +314,8 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
                     V2Expr::VarRef(s) => s == "default",
                     _ => false,
                 });
-                let default_body = default.and_then(|idx| cases.get(idx).map(|(_, body)| body.clone()));
+                let default_body =
+                    default.and_then(|idx| cases.get(idx).map(|(_, body)| body.clone()));
                 let filtered_cases: Vec<_> = cases
                     .into_iter()
                     .enumerate()
@@ -345,20 +347,18 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
         with_members
             .clone()
             .then(
-                choice((
-                    just('+').to(BinOp::Add),
-                    just('|').to(BinOp::Merge),
-                ))
-                .padded()
-                .then(primary.clone())
-                .repeated(),
+                choice((just('+').to(BinOp::Add), just('|').to(BinOp::Merge)))
+                    .padded()
+                    .then(primary.clone())
+                    .repeated(),
             )
             .map(|(left, rest)| {
-                rest.into_iter().fold(left, |acc, (op, right)| V2Expr::BinOp {
-                    op,
-                    left: Box::new(acc),
-                    right: Box::new(right),
-                })
+                rest.into_iter()
+                    .fold(left, |acc, (op, right)| V2Expr::BinOp {
+                        op,
+                        left: Box::new(acc),
+                        right: Box::new(right),
+                    })
             })
     })
 }
@@ -393,11 +393,7 @@ fn template_decl_parser(
         .then(template_params_parser(expr.clone()))
         .then_ignore(just(':').padded())
         .then(expr.padded())
-        .map(|((name, params), body)| V2Item::TemplateDecl {
-            name,
-            params,
-            body,
-        })
+        .map(|((name, params), body)| V2Item::TemplateDecl { name, params, body })
         .padded()
 }
 
@@ -420,7 +416,10 @@ fn top_level_parser(
             if V2_TOP_LEVEL_CONSTRUCTORS.contains(&name.as_str()) {
                 Ok(V2Item::TopLevel { name, args })
             } else {
-                Err(Simple::custom(span, format!("unknown top-level constructor `{name}`")))
+                Err(Simple::custom(
+                    span,
+                    format!("unknown top-level constructor `{name}`"),
+                ))
             }
         })
         .padded()
@@ -444,6 +443,31 @@ fn v2_source_file_parser() -> impl Parser<char, V2SourceFile, Error = Simple<cha
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_metric_card_with_surface() {
+        let src2 = r#"
+metric_card(id = "demo", surface = "solid", source = {"label": "A", "value": "1", "unit": "x"})
+"#;
+        let file = parse_v2_source(src2).expect("parse");
+        let item = &file.items[0];
+        match item {
+            V2Item::TopLevel { name, args, .. } => {
+                assert_eq!(name, "metric_card");
+                let surface = args
+                    .keywords
+                    .iter()
+                    .find(|(k, _)| k == "surface")
+                    .map(|(_, v)| v)
+                    .expect("surface");
+                match surface {
+                    V2Expr::String(s) => assert_eq!(s, "solid"),
+                    other => panic!("expected String, got {other:?}"),
+                }
+            }
+            _ => panic!("expected top-level"),
+        }
+    }
 
     #[test]
     fn parses_v2_app_skeleton() {
@@ -514,8 +538,14 @@ template slot_metric_card(id = "y"):
             "../../../../../../workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-left-rail/s-enforcement/content.mei"
         );
         let file = parse_v2_source(source).expect("parse enforcement content.mei");
-        assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
-        assert!(file.items.iter().any(|item| matches!(item, V2Item::TopLevel { name, .. } if name == "content_panel")));
+        assert!(file
+            .items
+            .iter()
+            .any(|item| matches!(item, V2Item::UseTemplate { .. })));
+        assert!(file
+            .items
+            .iter()
+            .any(|item| matches!(item, V2Item::TopLevel { name, .. } if name == "content_panel")));
     }
 
     #[test]
@@ -524,8 +554,14 @@ template slot_metric_card(id = "y"):
             "../../../../../../workspaces/ws-demo-v2/stock/templates/cockpit/metric-card.mei"
         );
         let file = parse_v2_source(source).expect("parse cockpit metric-card.mei");
-        assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
-        assert!(!file.items.is_empty(), "metric gallery should produce AST items");
+        assert!(file
+            .items
+            .iter()
+            .any(|item| matches!(item, V2Item::UseTemplate { .. })));
+        assert!(
+            !file.items.is_empty(),
+            "metric gallery should produce AST items"
+        );
     }
 
     #[test]
@@ -534,8 +570,14 @@ template slot_metric_card(id = "y"):
             "../../../../../../workspaces/ws-demo-v2/stock/authoring/examples/frame-layout-advanced.mei"
         );
         let file = parse_v2_source(source).expect("parse frame-layout-advanced.mei");
-        assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
-        assert!(!file.items.is_empty(), "authoring example should produce AST items");
+        assert!(file
+            .items
+            .iter()
+            .any(|item| matches!(item, V2Item::UseTemplate { .. })));
+        assert!(
+            !file.items.is_empty(),
+            "authoring example should produce AST items"
+        );
     }
 }
 

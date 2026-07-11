@@ -1,10 +1,7 @@
-use super::super::{
-    analysis_closure_metric_ids, build_analysis_graph,
-};
+use super::super::{analysis_closure_metric_ids, build_analysis_graph};
 use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind};
 use serde_json::json;
 use std::collections::BTreeMap;
-
 
 #[test]
 fn analysis_closure_metric_ids_walks_scoped_metric_children() {

@@ -26,12 +26,7 @@ impl ThemeResolveContext {
             .as_ref()
             .and_then(|contract| contract.scene.theme.clone())
             .unwrap_or_else(|| "cockpit".to_string());
-        mei_config
-            .ops
-            .themes
-            .get(&theme_id)
-            .cloned()
-            .map(Self::new)
+        mei_config.ops.themes.get(&theme_id).cloned().map(Self::new)
     }
 
     fn theme_object(&self) -> Option<&serde_json::Map<String, Value>> {
@@ -261,7 +256,10 @@ fn heading_variant(head_props: &Value) -> String {
 }
 
 fn heading_classes(variant: &str, compact: bool) -> Vec<String> {
-    let mut classes = vec!["panel-heading".to_string(), format!("panel-heading-{variant}")];
+    let mut classes = vec![
+        "panel-heading".to_string(),
+        format!("panel-heading-{variant}"),
+    ];
     if compact {
         classes.push("panel-heading-compact".to_string());
     }
@@ -420,10 +418,7 @@ fn flatten_panel_props_merge(props: &Value) -> Value {
     if props.get("__binop").and_then(Value::as_str) != Some("Merge") {
         return props.clone();
     }
-    let mut merged = props
-        .get("left")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let mut merged = props.get("left").cloned().unwrap_or_else(|| json!({}));
     if let Some(right) = props.get("right") {
         if let (Some(base), Some(overlay)) = (merged.as_object_mut(), right.as_object()) {
             for (key, value) in overlay {

@@ -92,11 +92,7 @@ pub fn scene_bundle_enabled_for_app(app_root: &Path, scene_id: &str) -> bool {
     allowlist.is_empty() || allowlist.iter().any(|item| item == scene_id)
 }
 
-pub fn should_build_scene_bundle(
-    app_root: &Path,
-    route_mode: UiRouteMode,
-    scene_id: &str,
-) -> bool {
+pub fn should_build_scene_bundle(app_root: &Path, route_mode: UiRouteMode, scene_id: &str) -> bool {
     route_mode.is_access_like() && scene_bundle_enabled_for_app(app_root, scene_id)
 }
 
@@ -183,17 +179,11 @@ pub fn scene_bundle_public_url(app_id: &str, scene_id: &str, revision: &str) -> 
     format!("/workspace-components/bundles/{app_id}/{scene_id}.{revision}.js")
 }
 
-pub fn resolve_scene_bundle_cache_path(
-    app_root: &Path,
-    scene_id: &str,
-    revision: &str,
-) -> PathBuf {
+pub fn resolve_scene_bundle_cache_path(app_root: &Path, scene_id: &str, revision: &str) -> PathBuf {
     scene_bundle_cache_dir(app_root).join(format!("{scene_id}.{revision}.js"))
 }
 
-pub fn parse_scene_bundle_request_path(
-    request_path: &str,
-) -> Option<(String, String, String)> {
+pub fn parse_scene_bundle_request_path(request_path: &str) -> Option<(String, String, String)> {
     let normalized = request_path.trim().trim_start_matches('/');
     let rest = normalized.strip_prefix("bundles/")?;
     let (app_id, file_name) = rest.rsplit_once('/')?;
@@ -306,11 +296,10 @@ pub fn schedule_scene_component_bundle_build(
         );
         match result {
             Ok(()) => {
-                let cleared =
-                    crate::access_page_cache::clear_legacy_page_render_cache_for_app(
-                        workspace_root.as_path(),
-                        app_id.as_str(),
-                    );
+                let cleared = crate::access_page_cache::clear_legacy_page_render_cache_for_app(
+                    workspace_root.as_path(),
+                    app_id.as_str(),
+                );
                 info!(
                     app_id = %app_id,
                     scene_id = %scene_id,

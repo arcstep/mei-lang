@@ -228,7 +228,13 @@ mod tests {
     fn plane_region_section_slot_parses_and_caps_at_slot() {
         let projection = ReviewProjection::parse("plane_region_section_slot").expect("parse");
         assert_eq!(projection.max_ui_role_depth(), Some("slot"));
-        assert!(ui_role_within_max_depth("slot", projection.max_ui_role_depth()));
-        assert!(!ui_role_within_max_depth("content", projection.max_ui_role_depth()));
+        assert!(ui_role_within_max_depth(
+            "slot",
+            projection.max_ui_role_depth()
+        ));
+        assert!(!ui_role_within_max_depth(
+            "content",
+            projection.max_ui_role_depth()
+        ));
     }
 }

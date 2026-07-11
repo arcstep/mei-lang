@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 use crate::mei_config::types::{APP_BUILD_STORE_REL, APP_VAR_STORE_REL};
+use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
 use super::build_generation::{
     format_version_footer_full, format_version_footer_short, is_build_generation_tag,
@@ -38,7 +38,10 @@ pub struct CleanEnvReport {
     pub dry_run: bool,
 }
 
-pub fn migrate_build_var_store_to_env(_source_root: &Path, app_root: &Path) -> Result<MigrateEnvReport> {
+pub fn migrate_build_var_store_to_env(
+    _source_root: &Path,
+    app_root: &Path,
+) -> Result<MigrateEnvReport> {
     let mut report = MigrateEnvReport::default();
     let build_store = app_root.join(APP_BUILD_STORE_REL);
     if build_store.is_dir() {
@@ -112,7 +115,10 @@ fn cleanup_legacy_app_store_dirs(app_root: &Path) -> Result<Vec<String>> {
     Ok(removed)
 }
 
-pub fn migrate_apps_to_env_layout(source_root: &Path, app_ids: &[String]) -> Result<Vec<(String, MigrateEnvReport)>> {
+pub fn migrate_apps_to_env_layout(
+    source_root: &Path,
+    app_ids: &[String],
+) -> Result<Vec<(String, MigrateEnvReport)>> {
     let mut out = Vec::new();
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id);

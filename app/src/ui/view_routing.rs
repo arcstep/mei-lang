@@ -48,15 +48,7 @@ pub fn workspace_surface_href(
     pack: Option<&str>,
 ) -> String {
     view_href(
-        app_path,
-        surface,
-        None,
-        file,
-        tab,
-        node,
-        None,
-        catalog,
-        pack,
+        app_path, surface, None, file, tab, node, None, catalog, pack,
     )
 }
 
@@ -69,7 +61,15 @@ pub fn layout_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> Str
 }
 
 pub fn prototype_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> String {
-    workspace_surface_href(app_path, UiRouteMode::Prototype, file, tab, None, None, None)
+    workspace_surface_href(
+        app_path,
+        UiRouteMode::Prototype,
+        file,
+        tab,
+        None,
+        None,
+        None,
+    )
 }
 
 #[allow(dead_code)]
@@ -92,7 +92,15 @@ pub fn build_href_with_catalog_and_axis(
     pack: Option<&str>,
     _axis: &BuildAxisHrefPreset,
 ) -> String {
-    workspace_surface_href(app_path, UiRouteMode::Layout, file, tab, None, catalog, pack)
+    workspace_surface_href(
+        app_path,
+        UiRouteMode::Layout,
+        file,
+        tab,
+        None,
+        catalog,
+        pack,
+    )
 }
 
 pub fn runtime_href(app_path: &str, node: Option<&str>, tab: Option<&str>) -> String {
@@ -192,13 +200,33 @@ pub fn cross_app_href(
     if catalog.is_some() || pack.is_some() {
         return match view {
             UiRouteMode::Runtime => runtime_href_with_catalog(app_path, None, None, catalog, pack),
-            UiRouteMode::Prototype => {
-                workspace_surface_href(app_path, UiRouteMode::Prototype, None, None, None, catalog, pack)
-            }
-            UiRouteMode::Layout => {
-                workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack)
-            }
-            _ => workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack),
+            UiRouteMode::Prototype => workspace_surface_href(
+                app_path,
+                UiRouteMode::Prototype,
+                None,
+                None,
+                None,
+                catalog,
+                pack,
+            ),
+            UiRouteMode::Layout => workspace_surface_href(
+                app_path,
+                UiRouteMode::Layout,
+                None,
+                None,
+                None,
+                catalog,
+                pack,
+            ),
+            _ => workspace_surface_href(
+                app_path,
+                UiRouteMode::Layout,
+                None,
+                None,
+                None,
+                catalog,
+                pack,
+            ),
         };
     }
     match view {

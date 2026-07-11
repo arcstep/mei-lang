@@ -2,7 +2,10 @@ use super::*;
 
 #[test]
 fn prebuild_dataframe_page_sizes_default_single_collect_all() {
-    assert_eq!(prebuild_dataframe_page_sizes(), &[PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE]);
+    assert_eq!(
+        prebuild_dataframe_page_sizes(),
+        &[PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE]
+    );
     let options = prebuild_dataframe_query_options(PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE);
     assert!(options.collect_all);
     assert_eq!(options.page_size, PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE);
@@ -269,6 +272,10 @@ fn filter_hot_only_discovered_keeps_hot_scenes_and_target_only() {
         },
     ]);
     assert_eq!(filtered.len(), 2);
-    assert!(filtered.iter().any(|scope| scope.key() == "home|scenes/home.mei"));
-    assert!(filtered.iter().any(|scope| scope.key() == "|scenes/focus.mei"));
+    assert!(filtered
+        .iter()
+        .any(|scope| scope.key() == "home|scenes/home.mei"));
+    assert!(filtered
+        .iter()
+        .any(|scope| scope.key() == "|scenes/focus.mei"));
 }

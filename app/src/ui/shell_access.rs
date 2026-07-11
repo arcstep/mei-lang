@@ -209,12 +209,8 @@ pub fn render_access_shell_chrome_html(
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
         .unwrap_or(compiled.active_target_file.as_str());
-    let topbar_access_scene = access_scene_for_topbar(
-        route_mode,
-        compiled,
-        selected_scene,
-        file_target,
-    );
+    let topbar_access_scene =
+        access_scene_for_topbar(route_mode, compiled, selected_scene, file_target);
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let topbar = topbar_view(
         apps,

@@ -50,14 +50,16 @@ fn runtime_scene_anchor_prefers_matching_route_scene_id() {
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "chart.radar".to_string(),
             frame_id: None,
-            target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei".to_string(),
+            target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei"
+                .to_string(),
             kind: "file_ref".to_string(),
             title: None,
             is_default: false,
             access_export: true,
         }],
         active_scene: Some("home".to_string()),
-        active_target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei".to_string(),
+        active_target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei"
+            .to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
@@ -124,8 +126,16 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
             .host_ssr_slim_payload
     );
     assert!(
-        !build_preview_runtime_context(&compiled, UiRouteMode::Config, None, None, None, None, None)
-            .host_ssr_slim_payload
+        !build_preview_runtime_context(
+            &compiled,
+            UiRouteMode::Config,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
+        .host_ssr_slim_payload
     );
     assert!(
         build_preview_runtime_context(
@@ -296,4 +306,3 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         Some("home")
     );
 }
-

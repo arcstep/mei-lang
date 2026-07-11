@@ -52,9 +52,8 @@ pub fn invalidate_stale_eval_artifacts(
         if eval_root.exists() {
             report.removed_artifact_files = count_files_recursively(&eval_root);
             report.removed_bytes = dir_tree_bytes(&eval_root);
-            fs::remove_dir_all(&eval_root).with_context(|| {
-                format!("remove eval-cache root {}", eval_root.display())
-            })?;
+            fs::remove_dir_all(&eval_root)
+                .with_context(|| format!("remove eval-cache root {}", eval_root.display()))?;
         }
         clear_all_client_bootstraps(app_root, &mut report)?;
         return Ok(report);
@@ -79,7 +78,10 @@ pub fn invalidate_stale_eval_artifacts(
                 fs::remove_file(&path)?;
                 continue;
             };
-            if plan.allowed_response_cache_keys.contains(cache_key.as_str()) {
+            if plan
+                .allowed_response_cache_keys
+                .contains(cache_key.as_str())
+            {
                 report.retained_artifact_files += 1;
                 continue;
             }
@@ -110,9 +112,9 @@ fn clear_all_client_bootstraps(
     if !bootstrap_root.is_dir() {
         return Ok(());
     }
-    for entry in fs::read_dir(&bootstrap_root).with_context(|| {
-        format!("read client-bootstrap dir {}", bootstrap_root.display())
-    })? {
+    for entry in fs::read_dir(&bootstrap_root)
+        .with_context(|| format!("read client-bootstrap dir {}", bootstrap_root.display()))?
+    {
         let entry = entry?;
         if entry.path().is_file() {
             report.cleared_bootstrap_scopes += 1;
@@ -186,7 +188,8 @@ mod tests {
             r#"{"response_cache_key":"k1","schema_version":"mei-metric-response-result-artifact-v1"}"#,
         )
         .expect("write");
-        let bootstrap_root = mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap");
+        let bootstrap_root =
+            mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap");
         fs::create_dir_all(&bootstrap_root).expect("mkdir bootstrap");
         fs::write(bootstrap_root.join("home.json"), "{}").expect("write bootstrap");
         let report = invalidate_stale_eval_artifacts(

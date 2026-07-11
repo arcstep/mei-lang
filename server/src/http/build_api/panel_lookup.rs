@@ -40,9 +40,11 @@ pub fn find_content_panel_node<'a>(
     scene_id: &str,
 ) -> Option<&'a McgNodeRecord> {
     for key in content_panel_lookup_keys(panel_key, scene_id) {
-        if let Some(node) = registry.nodes.iter().find(|node| {
-            node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key
-        }) {
+        if let Some(node) = registry
+            .nodes
+            .iter()
+            .find(|node| node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key)
+        {
             return Some(node);
         }
     }

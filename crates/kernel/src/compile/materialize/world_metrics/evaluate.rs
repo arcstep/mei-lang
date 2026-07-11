@@ -5,9 +5,10 @@ use serde_json::Value;
 
 use crate::model::{DatasetView, LoadedResource, MetricContract};
 
-
 use super::super::analysis_graph::expand_runtime_metric_defs;
-use super::super::eval_plan::{build_eval_plan, execute_eval_plan, EvalPlan, RuntimeMetricEvalReport};
+use super::super::eval_plan::{
+    build_eval_plan, execute_eval_plan, EvalPlan, RuntimeMetricEvalReport,
+};
 use super::super::metric_packs::{
     materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
 };

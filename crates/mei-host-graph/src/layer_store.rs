@@ -33,12 +33,7 @@ pub fn take_layer(cache_key: &str) -> Option<Vec<u8>> {
     cache.get(cache_key).map(|entry| entry.bytes.clone())
 }
 
-pub fn store_layer(
-    cache_key: String,
-    artifact_id: &str,
-    content_hash: &str,
-    bytes: &[u8],
-) {
+pub fn store_layer(cache_key: String, artifact_id: &str, content_hash: &str, bytes: &[u8]) {
     let Ok(mut cache) = memory_store().lock() else {
         return;
     };

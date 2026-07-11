@@ -22,10 +22,9 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
             coverage.metric_dataframe_artifacts_ready += 1;
             return Ok(());
         }
-        if let (Some(source_root), Some(stored_app_id)) = (
-            state.source_root.as_deref(),
-            state.app_id.as_deref(),
-        ) {
+        if let (Some(source_root), Some(stored_app_id)) =
+            (state.source_root.as_deref(), state.app_id.as_deref())
+        {
             let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
             let scope_key = crate::graph::mrg_eval_scope_key(
                 plan.scene_id.as_str(),
@@ -151,7 +150,8 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
-    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &plan.artifact_key)? {
+    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &plan.artifact_key)?
+    {
         state.store_metric_dataframe_exact(&plan.artifact_key, &result);
         state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
         materialize_metric_dataframe_sibling_aliases(
@@ -239,12 +239,14 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
     let result = match result {
         Ok(result) => result,
         Err(error) => {
-            state.metric_dataframe_jobs.finish(&plan.shared_artifact_key, false);
+            state
+                .metric_dataframe_jobs
+                .finish(&plan.shared_artifact_key, false);
             if let (Some(source_root), Some(app_id)) =
                 (state.source_root.as_deref(), state.app_id.as_deref())
             {
-                let bundle_revision = current_dataframe_bundle_revision(plan, &mcg_revisions)
-                    .unwrap_or_default();
+                let bundle_revision =
+                    current_dataframe_bundle_revision(plan, &mcg_revisions).unwrap_or_default();
                 let scope_key = crate::graph::mrg_eval_scope_key(
                     plan.scene_id.as_str(),
                     plan.scene_path.as_deref(),
@@ -315,15 +317,13 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
         state,
     )?;
     coverage.metric_dataframe_artifacts_built += 1;
-    if let (Some(source_root), Some(stored_app_id)) = (
-        state.source_root.as_deref(),
-        state.app_id.as_deref(),
-    ) {
-        let bundle_revision = current_dataframe_bundle_revision(plan, &mcg_revisions).unwrap_or_default();
-        let scope_key = crate::graph::mrg_eval_scope_key(
-            plan.scene_id.as_str(),
-            plan.scene_path.as_deref(),
-        );
+    if let (Some(source_root), Some(stored_app_id)) =
+        (state.source_root.as_deref(), state.app_id.as_deref())
+    {
+        let bundle_revision =
+            current_dataframe_bundle_revision(plan, &mcg_revisions).unwrap_or_default();
+        let scope_key =
+            crate::graph::mrg_eval_scope_key(plan.scene_id.as_str(), plan.scene_path.as_deref());
         crate::graph::record_prebuild_dataframe_slot(
             source_root,
             stored_app_id,
@@ -350,7 +350,8 @@ pub(crate) fn ensure_metric_dataframe_artifact(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    let Some(plan) = plan_dataframe_artifact(app_root, outcome, resource, metric_id, page_size)? else {
+    let Some(plan) = plan_dataframe_artifact(app_root, outcome, resource, metric_id, page_size)?
+    else {
         return Ok(());
     };
     ensure_metric_dataframe_artifact_for_plan(app_root, outcome, &plan, mode, coverage, state)
@@ -371,4 +372,3 @@ pub(crate) fn prebuild_metric_dataframe_shared_key(
         serde_json::to_string(&query.filters).unwrap_or_else(|_| "{}".to_string()),
     )
 }
-

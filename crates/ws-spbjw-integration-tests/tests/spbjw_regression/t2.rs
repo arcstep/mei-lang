@@ -106,4 +106,3 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
         compiled.diagnostics
     );
 }
-

@@ -1,9 +1,12 @@
-use super::{child_metric_local_id, explain_needs_tabular_source, extract_primary_scalar_rowset, rewrite_explain_scope, scoped_child_metric_id, support_role_for_item, INFERRED_SCALAR_ROWSET_LOCAL_ID};
+use super::{
+    child_metric_local_id, explain_needs_tabular_source, extract_primary_scalar_rowset,
+    rewrite_explain_scope, scoped_child_metric_id, support_role_for_item,
+    INFERRED_SCALAR_ROWSET_LOCAL_ID,
+};
 
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
-
 
 pub(crate) fn expand_metric_def(metric_id: &str, raw: &Value, out: &mut BTreeMap<String, Value>) {
     let Some(map) = raw.as_object() else {

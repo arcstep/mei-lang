@@ -23,18 +23,22 @@ pub async fn api_build_graph_mcg(
     State(state): State<AppState>,
     Query(params): Query<GraphAppQuery>,
 ) -> impl IntoResponse {
-    graph_read_response(state.source_root.as_path(), params.app_id.as_str(), |root, app_id| {
-        McgRegistryWriter::load(root, app_id)
-    })
+    graph_read_response(
+        state.source_root.as_path(),
+        params.app_id.as_str(),
+        |root, app_id| McgRegistryWriter::load(root, app_id),
+    )
 }
 
 pub async fn api_build_graph_mrg(
     State(state): State<AppState>,
     Query(params): Query<GraphAppQuery>,
 ) -> impl IntoResponse {
-    graph_read_response(state.source_root.as_path(), params.app_id.as_str(), |root, app_id| {
-        MrgRegistryWriter::load(root, app_id)
-    })
+    graph_read_response(
+        state.source_root.as_path(),
+        params.app_id.as_str(),
+        |root, app_id| MrgRegistryWriter::load(root, app_id),
+    )
 }
 
 pub async fn api_build_graph_bridge(

@@ -131,16 +131,16 @@ fn emit_scope_gate_sweep_progress(
     if checked != total && checked % every != 0 {
         return;
     }
-        tracing::info!(
-            target: "mei.startup",
-            checked,
-            total,
-            l2_miss = summary.l2_miss,
-            l3_fail = summary.l3_fail,
-            l4_stale = summary.l4_stale,
-            elapsed_secs = elapsed.as_secs(),
-            "scope gate manifest sweep in progress"
-        );
+    tracing::info!(
+        target: "mei.startup",
+        checked,
+        total,
+        l2_miss = summary.l2_miss,
+        l3_fail = summary.l3_fail,
+        l4_stale = summary.l4_stale,
+        elapsed_secs = elapsed.as_secs(),
+        "scope gate manifest sweep in progress"
+    );
     crate::prebuild::prebuild_emit_notice(format!(
         "scope gate sweep {checked}/{total} ({:.0}s) | L2={} L3={} L4={}",
         elapsed.as_secs_f64(),
@@ -325,7 +325,10 @@ fn incomplete_gate_detail(
     "access prerequisites incomplete".to_string()
 }
 
-pub(crate) fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut HostAppReadinessState) {
+pub(crate) fn apply_success_app_report(
+    app_report: &PrebuildAppReport,
+    app_state: &mut HostAppReadinessState,
+) {
     app_state.last_error = None;
     app_state.warnings = app_report
         .warnings
@@ -383,9 +386,9 @@ pub(crate) fn status_from_report(
         .map(|app| app.warnings.len())
         .sum::<usize>();
     let failed_app_count = report.failed_apps.len();
-    let shell_ready = crate::readiness::reachability::shell_ready_for_access_entry(
-        Path::new(&report.source_root),
-    );
+    let shell_ready = crate::readiness::reachability::shell_ready_for_access_entry(Path::new(
+        &report.source_root,
+    ));
     let access_artifacts_ready = failed_app_count == 0 && shell_ready;
     let artifacts_ready = report.ok && access_artifacts_ready;
     let compile_ms: u64 = report
@@ -580,7 +583,8 @@ pub(crate) fn status_from_report(
         } else {
             "ACCESS READY!"
         };
-        let ready_detail = if gate_refresh == ScopeGateRefreshMode::LandingOnly && !scope_gate_ready {
+        let ready_detail = if gate_refresh == ScopeGateRefreshMode::LandingOnly && !scope_gate_ready
+        {
             "landing gate ok; full manifest sweep running in background".to_string()
         } else if !scope_gate_ready {
             format!(
@@ -597,11 +601,14 @@ pub(crate) fn status_from_report(
             compile_ms,
             warmup_ms,
         );
-        crate::prebuild::prebuild_emit_success_banner(ready_title, &[
-            wall_summary.as_str(),
-            "host entry: /host",
-            ready_detail.as_str(),
-        ]);
+        crate::prebuild::prebuild_emit_success_banner(
+            ready_title,
+            &[
+                wall_summary.as_str(),
+                "host entry: /host",
+                ready_detail.as_str(),
+            ],
+        );
         tracing::info!(
             total_wall_ms = report.total_wall_ms,
             compile_ms,
@@ -618,8 +625,10 @@ pub(crate) fn status_from_report(
             .default_app_id
             .as_deref()
             .map(|app_id| {
-                let gate =
-                    crate::readiness::scope_gate::resolve_default_app_access_gate(source_root, app_id);
+                let gate = crate::readiness::scope_gate::resolve_default_app_access_gate(
+                    source_root,
+                    app_id,
+                );
                 format!(
                     "  defaultApp `{app_id}`: {}",
                     crate::readiness::scope_gate::format_landing_gate_summary(&gate)
@@ -717,8 +726,7 @@ pub(crate) fn preload_metric_response_indices_for_workspace(source_root: &Path) 
         return;
     };
     for app in manifest.apps {
-        let mrg_slots =
-            crate::graph::mrg::slots::mrg_slot_count(source_root, app.app_id.as_str());
+        let mrg_slots = crate::graph::mrg::slots::mrg_slot_count(source_root, app.app_id.as_str());
         tracing::info!(
             app_id = %app.app_id,
             mrg_slot_count = mrg_slots,
@@ -852,4 +860,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 }
-

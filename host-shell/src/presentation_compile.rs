@@ -202,9 +202,11 @@ fn validate_string_array_field(
         ));
         return false;
     };
-    let all_strings = items
-        .iter()
-        .all(|item| item.as_str().map(str::trim).is_some_and(|value| !value.is_empty()));
+    let all_strings = items.iter().all(|item| {
+        item.as_str()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+    });
     if !all_strings {
         diagnostics.push(world_contract_diagnostic(
             "world_targets_invalid_string_array",
@@ -242,9 +244,9 @@ fn validate_number_field(
 }
 
 fn is_coordinate_pair(value: &Value) -> bool {
-    value.as_array().is_some_and(|items| {
-        items.len() == 2 && items.iter().all(|item| item.as_f64().is_some())
-    })
+    value
+        .as_array()
+        .is_some_and(|items| items.len() == 2 && items.iter().all(|item| item.as_f64().is_some()))
 }
 
 fn validate_center_field(
@@ -280,9 +282,9 @@ fn validate_bounds_field(
     let Some(value) = value else {
         return false;
     };
-    let valid = value.as_array().is_some_and(|items| {
-        items.len() == 2 && items.iter().all(is_coordinate_pair)
-    });
+    let valid = value
+        .as_array()
+        .is_some_and(|items| items.len() == 2 && items.iter().all(is_coordinate_pair));
     if valid {
         return true;
     }
@@ -371,7 +373,14 @@ fn validate_world_targets_config(
             };
             let mut has_known_fields = false;
             let group_field_names: &[&str] = if is_world_view_stage(stage) {
-                &["shapeIds", "hotspotIds", "layerIds", "layers", "meshIds", "meshes"]
+                &[
+                    "shapeIds",
+                    "hotspotIds",
+                    "layerIds",
+                    "layers",
+                    "meshIds",
+                    "meshes",
+                ]
             } else {
                 &["shapeIds", "hotspotIds", "layerIds", "layers"]
             };
@@ -516,13 +525,15 @@ fn validate_world_targets_config(
                 }
                 if preset_obj.contains_key("cutaway") {
                     has_known_fields = true;
-                    if !preset_obj.get("cutaway").map(Value::is_object).unwrap_or(false) {
+                    if !preset_obj
+                        .get("cutaway")
+                        .map(Value::is_object)
+                        .unwrap_or(false)
+                    {
                         diagnostics.push(world_contract_diagnostic(
                             "world_targets_invalid_camera_preset",
                             stage,
-                            format!(
-                                "`worldTargets.cameraPresets.{preset_id}.cutaway` 必须是对象"
-                            ),
+                            format!("`worldTargets.cameraPresets.{preset_id}.cutaway` 必须是对象"),
                             Some("cameraPreset"),
                             Some(preset_id),
                         ));
@@ -694,10 +705,7 @@ fn collect_world_stage_contracts_from_nodes(
                             &["cameraPreset", "camera_preset"],
                         )
                         .or_else(|| {
-                            read_string_from_value(
-                                &panel.props,
-                                &["cameraPreset", "camera_preset"],
-                            )
+                            read_string_from_value(&panel.props, &["cameraPreset", "camera_preset"])
                         }),
                         targets: WorldTargetsIndex::default(),
                     };
@@ -818,7 +826,10 @@ fn resolve_world_action_target(
     }
 }
 
-fn world_stage_matches_target(stage: &WorldStageContract, target: &ResolvedWorldActionTarget) -> bool {
+fn world_stage_matches_target(
+    stage: &WorldStageContract,
+    target: &ResolvedWorldActionTarget,
+) -> bool {
     if let Some(panel_id) = target.panel_id.as_deref() {
         if panel_id != stage.panel_id {
             return false;
@@ -911,9 +922,7 @@ fn validate_world_action_contract(
         {
             diagnostics.push(diagnostic(
                 "world_targets_unknown_entity",
-                format!(
-                    "`{action_type}` 引用了不存在的 entity `{entity_id}`"
-                ),
+                format!("`{action_type}` 引用了不存在的 entity `{entity_id}`"),
                 step_id,
                 Some("entity"),
                 Some(entity_id),
@@ -921,7 +930,10 @@ fn validate_world_action_contract(
         }
     }
     if let Some(group_id) = target.group_id.as_deref() {
-        if !matches.iter().any(|stage| stage.targets.groups.contains(group_id)) {
+        if !matches
+            .iter()
+            .any(|stage| stage.targets.groups.contains(group_id))
+        {
             diagnostics.push(diagnostic(
                 "world_targets_unknown_group",
                 format!("`{action_type}` 引用了不存在的 group `{group_id}`"),
@@ -938,9 +950,7 @@ fn validate_world_action_contract(
         {
             diagnostics.push(diagnostic(
                 "world_targets_unknown_camera_preset",
-                format!(
-                    "`{action_type}` 引用了不存在的 cameraPreset `{camera_preset}`"
-                ),
+                format!("`{action_type}` 引用了不存在的 cameraPreset `{camera_preset}`"),
                 step_id,
                 Some("cameraPreset"),
                 Some(camera_preset),
@@ -951,17 +961,18 @@ fn validate_world_action_contract(
 }
 
 fn compile_script_path(package_root: &Path) -> std::path::PathBuf {
-    package_root.join("scripts").join("compile-presentation.mjs")
+    package_root
+        .join("scripts")
+        .join("compile-presentation.mjs")
 }
 
-fn compile_manifest_via_node(
-    package_root: &Path,
-    source: &str,
-    options: &Value,
-) -> Result<Value> {
+fn compile_manifest_via_node(package_root: &Path, source: &str, options: &Value) -> Result<Value> {
     let script = compile_script_path(package_root);
     if !script.is_file() {
-        anyhow::bail!("presentation compile script not found: {}", script.display());
+        anyhow::bail!(
+            "presentation compile script not found: {}",
+            script.display()
+        );
     }
     let payload = json!({
         "source": source,
@@ -1084,7 +1095,10 @@ fn is_presentation_image_asset_path(rel: &str) -> bool {
         || lower.ends_with(".gif")
 }
 
-fn collect_metric_ids_from_resources(resources: &[mei_lang_kernel::LoadedResource], surfaces: &mut PresentationSurfaceIndex) {
+fn collect_metric_ids_from_resources(
+    resources: &[mei_lang_kernel::LoadedResource],
+    surfaces: &mut PresentationSurfaceIndex,
+) {
     for resource in resources {
         if let Some(dataset) = resource.dataset.as_ref() {
             for metric_id in dataset.metrics.keys() {
@@ -1129,8 +1143,11 @@ fn build_surface_index(
     );
     surfaces.images = collect_asset_stems(app_root.as_path());
     surfaces.image_assets = collect_asset_urls(app_root.as_path());
-    if let Some(outcome) = mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
-        .with_context(|| format!("failed to assemble app `{app_id}` for presentation validation"))?
+    if let Some(outcome) =
+        mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
+            .with_context(|| {
+                format!("failed to assemble app `{app_id}` for presentation validation")
+            })?
     {
         collect_pages_from_routes(&outcome.compiled.scene_routes, &mut surfaces);
         collect_metric_ids_from_resources(&outcome.compiled.resources, &mut surfaces);
@@ -1143,9 +1160,10 @@ fn build_surface_index(
                 let viewpoint_id = viewpoint_id.trim();
                 if !viewpoint_id.is_empty() {
                     if let Some(viewpoint_value) = viewpoints.get(viewpoint_id) {
-                        surfaces
-                            .viewpoints
-                            .insert(viewpoint_id.to_string(), viewpoint_entry_from_value(viewpoint_value));
+                        surfaces.viewpoints.insert(
+                            viewpoint_id.to_string(),
+                            viewpoint_entry_from_value(viewpoint_value),
+                        );
                     }
                 }
             }
@@ -1159,11 +1177,12 @@ fn build_surface_index(
         }
         return Ok(surfaces);
     }
-    let compiled = compile_app_from_root(workspace_root, app_root.as_path()).with_context(|| {
-        format!(
+    let compiled =
+        compile_app_from_root(workspace_root, app_root.as_path()).with_context(|| {
+            format!(
             "failed to compile app `{app_id}` for presentation validation (no prebuilt registry)"
         )
-    })?;
+        })?;
     collect_pages_from_routes(&compiled.scene_routes, &mut surfaces);
     collect_metric_ids_from_resources(&compiled.resources, &mut surfaces);
     Ok(surfaces)
@@ -1201,7 +1220,10 @@ fn step_actions(step: &Map<String, Value>) -> Vec<Value> {
 fn validate_manifest_refs(
     manifest: &Value,
     surfaces: &PresentationSurfaceIndex,
-) -> (Vec<PresentationCompileDiagnostic>, Vec<PresentationCompileDiagnostic>) {
+) -> (
+    Vec<PresentationCompileDiagnostic>,
+    Vec<PresentationCompileDiagnostic>,
+) {
     let mut diagnostics = surfaces.diagnostics.clone();
     let warnings = surfaces.warnings.clone();
     let Some(steps) = manifest.get("steps").and_then(Value::as_array) else {
@@ -1229,19 +1251,15 @@ fn validate_manifest_refs(
                 .unwrap_or("")
                 .trim();
             match action_type {
-                "highlight"
-                | "focus"
-                | "camera_move"
-                | "focus_entity"
-                | "show_group"
-                | "hide_group"
-                | "enter_world_view"
-                | "exit_world_view"
-                | "cutaway_toggle" => {
-                    if let Some(viewpoint_id) =
-                        action_map.get("viewpoint").and_then(Value::as_str).map(str::trim)
+                "highlight" | "focus" | "camera_move" | "focus_entity" | "show_group"
+                | "hide_group" | "enter_world_view" | "exit_world_view" | "cutaway_toggle" => {
+                    if let Some(viewpoint_id) = action_map
+                        .get("viewpoint")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
                     {
-                        if !viewpoint_id.is_empty() && !surfaces.viewpoints.contains_key(viewpoint_id)
+                        if !viewpoint_id.is_empty()
+                            && !surfaces.viewpoints.contains_key(viewpoint_id)
                         {
                             diagnostics.push(diagnostic(
                                 "unknown_viewpoint",
@@ -1252,9 +1270,10 @@ fn validate_manifest_refs(
                             ));
                         }
                     }
-                    let viewpoint_entry = read_string_from_map(action_map, &["viewpoint", "viewpointId"])
-                        .as_deref()
-                        .and_then(|viewpoint_id| surfaces.viewpoints.get(viewpoint_id));
+                    let viewpoint_entry =
+                        read_string_from_map(action_map, &["viewpoint", "viewpointId"])
+                            .as_deref()
+                            .and_then(|viewpoint_id| surfaces.viewpoints.get(viewpoint_id));
                     diagnostics.extend(validate_world_action_contract(
                         surfaces,
                         action_type,
@@ -1263,8 +1282,10 @@ fn validate_manifest_refs(
                     ));
                 }
                 "open_t2_page" => {
-                    if let Some(page_scene_id) =
-                        action_map.get("pageSceneId").and_then(Value::as_str).map(str::trim)
+                    if let Some(page_scene_id) = action_map
+                        .get("pageSceneId")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
                     {
                         if !page_scene_id.is_empty() && !surfaces.pages.contains(page_scene_id) {
                             diagnostics.push(diagnostic(
@@ -1300,8 +1321,16 @@ fn validate_manifest_refs(
                 let Some(embed_map) = embed.as_object() else {
                     continue;
                 };
-                let kind = embed_map.get("kind").and_then(Value::as_str).unwrap_or("").trim();
-                let ref_id = embed_map.get("ref").and_then(Value::as_str).unwrap_or("").trim();
+                let kind = embed_map
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                let ref_id = embed_map
+                    .get("ref")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
                 if ref_id.is_empty() {
                     continue;
                 }

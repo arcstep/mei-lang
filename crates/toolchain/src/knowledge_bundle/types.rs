@@ -70,4 +70,3 @@ pub(crate) fn package_root_hint(package_root: &Path) -> String {
         format!("package-layout:{leaf}")
     }
 }
-

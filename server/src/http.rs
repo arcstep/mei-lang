@@ -1,5 +1,6 @@
 pub(crate) mod agent_api;
 pub mod auth_api;
+pub(crate) mod authoring_api;
 pub(crate) mod build_api;
 mod build_preview;
 mod compile_cache;
@@ -11,9 +12,9 @@ pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
 pub mod projection_api;
-pub(crate) mod runtime_snapshot;
 pub(crate) mod request_trace;
 mod runtime_cache;
+pub(crate) mod runtime_snapshot;
 pub mod scene_api;
 pub(crate) mod scene_bundle;
 pub(crate) mod startup_run;
@@ -52,8 +53,14 @@ pub fn router() -> Router<AppState> {
         .route("/api/host/ready", get(host_api::api_host_ready))
         .route("/api/host/readiness", get(host_api::api_host_readiness))
         .route("/api/host/diagnostics", get(host_api::api_host_diagnostics))
-        .route("/api/host/graph/status", get(host_api::api_host_graph_status))
-        .route("/api/host/graph/doctor", get(host_api::api_host_graph_doctor))
+        .route(
+            "/api/host/graph/status",
+            get(host_api::api_host_graph_status),
+        )
+        .route(
+            "/api/host/graph/doctor",
+            get(host_api::api_host_graph_doctor),
+        )
         .route("/api/host/heartbeat", get(host_api::api_host_heartbeat))
         .route("/api/host/build", post(host_api::api_host_build))
         .route(
@@ -144,6 +151,18 @@ pub fn router() -> Router<AppState> {
             post(ops_api::ops_theme_layout_apply_post),
         )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
+        .route(
+            "/api/authoring/:app_id/structure",
+            get(authoring_api::authoring_structure_get),
+        )
+        .route(
+            "/api/authoring/:app_id/scaffold",
+            post(authoring_api::authoring_scaffold),
+        )
+        .route(
+            "/api/authoring/:app_id/remove-node",
+            post(authoring_api::authoring_remove_node),
+        )
         .route(
             "/api/upload/init/*app_id",
             post(upload_api::upload_chunk_init_post).layer(DefaultBodyLimit::max(256 * 1024)),

@@ -1,4 +1,6 @@
-use super::{build_explain_slots, build_root_metric_slot, lookup_metric_contract, parse_metric_ref_id};
+use super::{
+    build_explain_slots, build_root_metric_slot, lookup_metric_contract, parse_metric_ref_id,
+};
 
 use serde_json::{Map, Value};
 
@@ -44,4 +46,3 @@ pub(crate) fn expand_drilldown_tabs(
 
     Some(slots)
 }
-

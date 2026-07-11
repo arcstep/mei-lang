@@ -16823,7 +16823,15 @@
     if (!Array.isArray(areas) || areas.length === 0) return "";
     return areas
       .filter((row) => Array.isArray(row) && row.length > 0)
-      .map((row) => `"${row.map((entry) => String(entry || "").trim() || ".").join(" ")}"`)
+      .map((row) =>
+        `"${row
+          .map((entry) => {
+            const token = String(entry || "").trim();
+            // MeiLang `_` empty cell → CSS null cell `.`
+            return !token || token === "_" ? "." : token;
+          })
+          .join(" ")}"`,
+      )
       .join(" ");
   }
 
@@ -30106,13 +30114,11 @@
       if (useKey !== "mei.text") return true;
       const props = mount?.props && typeof mount.props === "object" ? mount.props : {};
       if (String(props.metric_role || props.metricRole || "").trim()) return true;
-      // Authored plain-text leaves (`…/area/mei.text`) carry string content and
-      // must not be dropped — metric_role is only required inside metric cards.
-      const scope = String(scopeKey || "").trim().toLowerCase();
-      if (scope.endsWith("/mei.text") && !isDuplicateMetricCardLeafScope(scope)) {
-        return typeof props.content === "string" && props.content.trim().length > 0;
-      }
-      return false;
+      // Authored plain-text leaves carry string content (metric cards use object
+      // content + metric_role). Keep them under classic `…/area/mei.text` scopes
+      // and duplicate-segment leaves like `…/chart/chart`.
+      if (isDuplicateMetricCardLeafScope(scopeKey)) return false;
+      return typeof props.content === "string" && props.content.trim().length > 0;
     });
   }
 
@@ -35700,6 +35706,18 @@
       });
   }
 
+  /** MeiLang `_` empty cells → CSS null-cell `.` (non-contiguous `_` invalidates the property). */
+  function cssGridTemplateAreas(areas) {
+    return String(areas || "")
+      .replace(/(^|[\s"'])_(?=[\s"']|$)/g, "$1.")
+      .trim();
+  }
+
+  function isCssNullGridArea(area) {
+    const token = String(area || "").trim();
+    return !token || token === "_" || token === ".";
+  }
+
   function applyGridBudgetToNode(node, entry) {
     if (!(node instanceof HTMLElement) || !entry || typeof entry !== "object") return;
     const cols = entry.grid_template_columns ?? entry.gridTemplateColumns;
@@ -35728,8 +35746,9 @@
       node.dataset.manifestGridRows = String(rows);
     }
     if (areas) {
-      node.style.gridTemplateAreas = String(areas);
-      node.dataset.manifestGridAreas = String(areas);
+      const cssAreas = cssGridTemplateAreas(areas);
+      node.style.gridTemplateAreas = cssAreas;
+      node.dataset.manifestGridAreas = cssAreas;
     }
     if (gap != null && gap !== "") {
       const gapText = String(gap).endsWith("px") ? String(gap) : `${gap}px`;
@@ -35738,9 +35757,10 @@
     }
     if (Array.isArray(slotAreas) && slotAreas.length > 0) {
       const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+      const placedAreas = [];
       slotAreas.forEach((areaName) => {
         const area = String(areaName || "").trim();
-        if (!area) return;
+        if (isCssNullGridArea(area)) return;
         const child =
           (scope
             ? node.querySelector(`[data-preview-scope="${CSS.escape(`${scope}/${area}`)}"]`)
@@ -35754,8 +35774,11 @@
           child.style.gridArea = area;
           child.dataset.manifestGridArea = area;
         }
+        placedAreas.push(area);
       });
-      node.dataset.manifestSlotAreas = slotAreas.join(",");
+      if (placedAreas.length > 0) {
+        node.dataset.manifestSlotAreas = placedAreas.join(",");
+      }
     }
   }
 

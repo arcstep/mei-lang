@@ -1,5 +1,3 @@
-
-
 pub const APP_CONFIG_FILENAME: &str = "app.config.json";
 /// App 级配置文件名（v2：`apps/{id}/app.config.json`）。
 pub const MEI_CONFIG_FILENAME: &str = APP_CONFIG_FILENAME;
@@ -33,7 +31,8 @@ pub const WORKSPACE_RUNTIME_CACHE_REL: &str = "deploy/runtime/cache";
 pub const WORKSPACE_LOCAL_DIR_REL: &str = "deploy/runtime";
 pub const WORKSPACE_HOSTS_DIR_REL: &str = "deploy/runtime/hosts";
 pub const WORKSPACE_AUTH_DIR_REL: &str = "deploy/runtime/hosts";
-pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str = "deploy/runtime/platform/warmup-manifest.json";
+pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str =
+    "deploy/runtime/platform/warmup-manifest.json";
 pub const AUTH_JOURNAL_REL_PATH: &str = "deploy/runtime/hosts/auth-journal.json";
 pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = ".mei/local/auth/auth-journal.json";
 pub const PRE_LOCAL_AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
@@ -45,7 +44,8 @@ pub const WORKSPACE_SNAPSHOT_GIT_REL: &str = "deploy/runtime/agent/snapshot/git"
 pub const LEGACY_WORKSPACE_RUNTIME_DIR_REL: &str = "runtime";
 pub const LEGACY_WORKSPACE_PLATFORM_DIR_REL: &str = "runtime/platform";
 pub const LEGACY_WORKSPACE_HOSTS_DIR_REL: &str = "runtime/hosts";
-pub const LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str = "runtime/platform/warmup-manifest.json";
+pub const LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str =
+    "runtime/platform/warmup-manifest.json";
 pub const LEGACY_WORKSPACE_SNAPSHOT_DIR_REL: &str = ".mei/local/agent/snapshot";
 pub const LEGACY_WORKSPACE_SNAPSHOT_GIT_REL: &str = ".mei/local/agent/snapshot/git";
 pub const DEFAULT_HOST_STATE_ID: &str = "default";
@@ -65,4 +65,3 @@ pub const OPS_OBJECT_KINDS: &[&str] = &[
     "mapspec_ref",
     "ops_param_ref",
 ];
-

@@ -1,6 +1,8 @@
 use super::prelude::*;
 
-pub fn migrate_workspace_stock_paths(source_root: &Path) -> Result<MigrateWorkspaceStockPathsReport> {
+pub fn migrate_workspace_stock_paths(
+    source_root: &Path,
+) -> Result<MigrateWorkspaceStockPathsReport> {
     let legacy_stock = source_root.join(LEGACY_STOCK_DIR);
     let stock_root = resolve_stock_root(source_root);
     let mut renamed_legacy_stock = false;
@@ -25,9 +27,9 @@ pub fn migrate_workspace_stock_paths(source_root: &Path) -> Result<MigrateWorksp
     let examples_dir = resolve_authoring_root(source_root).join("examples");
     let mut updated_example_files = Vec::new();
     if examples_dir.is_dir() {
-        for entry in fs::read_dir(&examples_dir).with_context(|| {
-            format!("read authoring examples dir {}", examples_dir.display())
-        })? {
+        for entry in fs::read_dir(&examples_dir)
+            .with_context(|| format!("read authoring examples dir {}", examples_dir.display()))?
+        {
             let entry = entry?;
             let path = entry.path();
             if !path.is_file() {

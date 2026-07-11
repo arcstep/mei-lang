@@ -1,4 +1,4 @@
-use super::{tab_visible_for_node};
+use super::tab_visible_for_node;
 
 use super::{BuildNodeId, BuildNodeKind, BuildViewTab};
 

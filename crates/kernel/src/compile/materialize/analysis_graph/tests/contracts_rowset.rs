@@ -1,9 +1,6 @@
-use super::super::{
-    build_analysis_contracts, expand_runtime_metric_defs,
-};
+use super::super::{build_analysis_contracts, expand_runtime_metric_defs};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-
 
 #[test]
 fn build_analysis_contracts_infers_detail_from_scalar_rowset_without_explain_dataframe() {
@@ -227,4 +224,3 @@ fn build_analysis_contracts_reads_metric_level_note_and_basis_refs() {
         Some(false)
     );
 }
-

@@ -332,6 +332,78 @@ fn normalize_emits_layout_eval_for_unknown_block_area() {
     assert!(diagnostics
         .iter()
         .any(|diag| diag.code == "layout_eval_unknown_block_area"));
+    assert!(diagnostics.iter().any(|diag| {
+        diag.code == "layout_eval_unknown_block_area" && diag.severity == Severity::Error
+    }));
+    assert!(diagnostics
+        .iter()
+        .any(|diag| diag.code == "layout_eval_orphan_area"));
+}
+
+#[test]
+fn normalize_rejects_unassigned_orphan_and_duplicate_areas() {
+    let block = |id: &str, area: Option<&str>| {
+        UiTreeNode::Block(BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: Some(id.to_string()),
+            title: None,
+            area: area.map(str::to_string),
+            props: json!({"content": id}),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })
+    };
+    let mut panels = vec![UiNodeDecl {
+        slot: None,
+        kind: "panel".to_string(),
+        id: "invalid_areas".to_string(),
+        title: None,
+        head: None,
+        area: Some("auto".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string(), "1fr".to_string()]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec!["a".to_string(), "b".to_string()]]),
+            gap: None,
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            block("first", Some("a")),
+            block("second", Some("a")),
+            block("loose", None),
+        ],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    for code in [
+        "layout_eval_unassigned_area",
+        "layout_eval_orphan_area",
+        "layout_eval_duplicate_area_conflict",
+    ] {
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diag| { diag.code == code && diag.severity == Severity::Error }),
+            "missing Error diagnostic `{code}`"
+        );
+    }
 }
 
 #[test]
@@ -492,4 +564,3 @@ fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
         .iter()
         .any(|diag| { diag.code == "layout_eval_metric_stack_desc_overlap_risk" }));
 }
-

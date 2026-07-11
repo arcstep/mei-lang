@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use mei_lang_app::{
-    page_body_theme_style, render_workspace_page, HostAccountView,
-    TopbarMenuContext, WorkspaceShellNav,
+    page_body_theme_style, render_workspace_page, HostAccountView, TopbarMenuContext,
+    WorkspaceShellNav,
 };
 use mei_lang_kernel::{load_workspace_config, WorkspaceAppMeta};
 

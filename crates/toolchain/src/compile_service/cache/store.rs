@@ -12,7 +12,10 @@ pub(crate) fn compiled_app_artifact_scope(options: &CompileOptions) -> WorldScop
     }
 }
 
-pub(crate) fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &CompiledApp) -> bool {
+pub(crate) fn artifact_matches_compile_scene_request(
+    options: &CompileOptions,
+    compiled: &CompiledApp,
+) -> bool {
     let requested_target = options
         .preview_target
         .as_deref()
@@ -62,7 +65,10 @@ pub(crate) fn normalized_scope_target(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-pub(crate) fn list_compiled_app_scopes_for_target(app_root: &Path, target_file: &str) -> Vec<WorldScope> {
+pub(crate) fn list_compiled_app_scopes_for_target(
+    app_root: &Path,
+    target_file: &str,
+) -> Vec<WorldScope> {
     let target_file = target_file.trim();
     if target_file.is_empty() {
         return Vec::new();

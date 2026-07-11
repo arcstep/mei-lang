@@ -81,10 +81,7 @@ fn extract_frame_viewport_meta(compiled: &CompiledApp) -> Option<FrameViewportMe
     let design_width = read_viewport_u32(source, &["design_width", "designWidth"]);
     let design_height = read_viewport_u32(source, &["design_height", "designHeight"]);
     let scale_mode = read_viewport_str(source, &["scale_mode", "scaleMode"]);
-    let overflow_mode = read_viewport_str(
-        source,
-        &["overflow_mode", "overflowMode", "overflow"],
-    );
+    let overflow_mode = read_viewport_str(source, &["overflow_mode", "overflowMode", "overflow"]);
     let aspect_ratio = read_viewport_str(source, &["aspect_ratio", "aspectRatio"]);
     Some(FrameViewportMeta {
         design_width: design_width.or(Some(1920)),
@@ -101,14 +98,8 @@ fn extract_frame_viewport_meta(compiled: &CompiledApp) -> Option<FrameViewportMe
 /// Map metric template / content_kind labels to component `use_key` for client compose.
 fn content_kind_to_use_key(kind: &str) -> String {
     match kind.trim().to_ascii_lowercase().as_str() {
-        "stack"
-        | "solid_stack"
-        | "solid-stack"
-        | "narrow_stack"
-        | "stack_desc"
-        | "stack_progress"
-        | "icon_left"
-        | "solid_row" => "metric-card".to_string(),
+        "stack" | "solid_stack" | "solid-stack" | "narrow_stack" | "stack_desc"
+        | "stack_progress" | "icon_left" | "solid_row" => "metric-card".to_string(),
         other => other.to_string(),
     }
 }
@@ -149,7 +140,13 @@ fn enrich_structure_bindings(document: &mut StructureFullDocument) {
     for idx in 0..document.nodes.len() {
         let node_id = document.nodes[idx].node_id.clone();
         let mut keys = BTreeSet::new();
-        collect_descendant_use_keys(&node_id, &children_by_parent, &node_index, document, &mut keys);
+        collect_descendant_use_keys(
+            &node_id,
+            &children_by_parent,
+            &node_index,
+            document,
+            &mut keys,
+        );
         if !keys.is_empty() {
             document.nodes[idx].use_keys = keys.into_iter().collect();
         }
@@ -223,9 +220,7 @@ pub fn structure_full_from_compiled(
     Ok((document, pref, cache_key))
 }
 
-pub fn build_structure_index_document(
-    document: &StructureFullDocument,
-) -> serde_json::Value {
+pub fn build_structure_index_document(document: &StructureFullDocument) -> serde_json::Value {
     let mut by_scope = std::collections::BTreeMap::new();
     for node in &document.nodes {
         by_scope.insert(node.preview_scope.clone(), node.node_id.clone());
@@ -344,7 +339,8 @@ mod tests {
         index.nodes.insert(
             "ui-scope:home/home/T1/right_rail/items/supervision_items_card".to_string(),
             UiScopeNode {
-                node_id: "ui-scope:home/home/T1/right_rail/items/supervision_items_card".to_string(),
+                node_id: "ui-scope:home/home/T1/right_rail/items/supervision_items_card"
+                    .to_string(),
                 role: UiScopeRole::Content,
                 label: "supervision_items_card".to_string(),
                 scope_path: vec![],
@@ -426,7 +422,8 @@ mod tests {
     #[test]
     fn viewport_structure_node_only_matches_map_viewport_anchor() {
         let node = StructureFullNode {
-            node_id: "ui-scope:home/home/T1/t1/map_stage/aperture/map-interaction-surface".to_string(),
+            node_id: "ui-scope:home/home/T1/t1/map_stage/aperture/map-interaction-surface"
+                .to_string(),
             ui_role: "content".to_string(),
             preview_scope: "t1/map_stage/aperture/map-interaction-surface".to_string(),
             label: "viewport:map_interaction_surface".to_string(),

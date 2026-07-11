@@ -136,4 +136,3 @@ pub struct DiagnosticsSummaryArgs {
     #[arg(long)]
     pub json: bool,
 }
-

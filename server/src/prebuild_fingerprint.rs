@@ -83,11 +83,7 @@ pub fn bump_scoped_prebuild_timestamp(source_root: &Path, app_id: &str) -> Resul
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(stored.last_ok_at_ms);
-    if !stored
-        .succeeded_apps
-        .iter()
-        .any(|entry| entry == app_id)
-    {
+    if !stored.succeeded_apps.iter().any(|entry| entry == app_id) {
         stored.succeeded_apps.push(app_id.to_string());
         stored.succeeded_apps.sort();
         stored.succeeded_apps.dedup();
@@ -113,9 +109,18 @@ pub fn compute_prebuild_inputs_fingerprint(source_root: &Path) -> Result<String>
         )?;
         parts.push(format!("compile_revision={token}"));
         if crate::graph::feature::graph_registry_enabled() {
-            parts.push(crate::graph::app_graph_fingerprint(source_root, app.app_id.as_str()));
-            let mcg = crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app.app_id.as_str());
-            let mrg = crate::graph::mrg::registry::MrgRegistryWriter::load(source_root, app.app_id.as_str());
+            parts.push(crate::graph::app_graph_fingerprint(
+                source_root,
+                app.app_id.as_str(),
+            ));
+            let mcg = crate::graph::mcg::registry::McgRegistryWriter::load(
+                source_root,
+                app.app_id.as_str(),
+            );
+            let mrg = crate::graph::mrg::registry::MrgRegistryWriter::load(
+                source_root,
+                app.app_id.as_str(),
+            );
             parts.push(format!("mcg_rev={}", mcg.registry_revision));
             parts.push(format!("mrg_rev={}", mrg.registry_revision));
         }
@@ -123,7 +128,9 @@ pub fn compute_prebuild_inputs_fingerprint(source_root: &Path) -> Result<String>
     Ok(stable_hash(parts.join("\n").as_str()))
 }
 
-pub fn try_match_prebuild_fingerprint(source_root: &Path) -> Result<Option<PrebuildFingerprintMatch>> {
+pub fn try_match_prebuild_fingerprint(
+    source_root: &Path,
+) -> Result<Option<PrebuildFingerprintMatch>> {
     let Some(stored) = load_prebuild_state(source_root)? else {
         return Ok(None);
     };

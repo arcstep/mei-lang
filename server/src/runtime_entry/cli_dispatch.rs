@@ -133,7 +133,11 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
     if matches!(cli.command, Command::Serve(_)) {
         tracing_subscriber::registry()
             .with(env_filter)
-            .with(tracing_subscriber::fmt::layer().with_target(false).compact())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(false)
+                    .compact(),
+            )
             .with(crate::http::host_log::HostLogLayer)
             .init();
     } else {

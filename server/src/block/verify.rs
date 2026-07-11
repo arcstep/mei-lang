@@ -54,18 +54,16 @@ pub fn block_verify(source_root: &Path, app_id: &str, block_id: &BlockId) -> Res
                 .ok_or_else(|| {
                     anyhow!("MCG metric_def_bundle node missing for `{}`", block_id.key)
                 })?;
-            let pref = node.payload_ref.as_ref().ok_or_else(|| {
-                anyhow!("metric_def_bundle `{}` has no payloadRef", block_id.key)
-            })?;
+            let pref = node
+                .payload_ref
+                .as_ref()
+                .ok_or_else(|| anyhow!("metric_def_bundle `{}` has no payloadRef", block_id.key))?;
             let bundle = load_metric_def_bundle(app_root.as_path(), pref.content_hash.as_str())?;
             if bundle.is_none() {
                 return Ok(BlockResult::err(
                     block_id.clone(),
                     "verify",
-                    &anyhow!(
-                        "metric_def_bundle CAS missing hash={}",
-                        pref.content_hash
-                    ),
+                    &anyhow!("metric_def_bundle CAS missing hash={}", pref.content_hash),
                 ));
             }
             Ok(BlockResult::ok(block_id.clone(), "verify"))
@@ -77,7 +75,9 @@ pub fn block_verify(source_root: &Path, app_id: &str, block_id: &BlockId) -> Res
             let slot = mrg
                 .slots
                 .iter()
-                .find(|slot| slot.slot_id.node.key == block_id.key && slot.slot_id.scope_key == scope_key)
+                .find(|slot| {
+                    slot.slot_id.node.key == block_id.key && slot.slot_id.scope_key == scope_key
+                })
                 .ok_or_else(|| {
                     anyhow!(
                         "MRG slot missing key=`{}` scopeKey=`{scope_key}`",
@@ -105,11 +105,7 @@ pub fn block_verify(source_root: &Path, app_id: &str, block_id: &BlockId) -> Res
     }
 }
 
-pub fn layer_verify(
-    source_root: &Path,
-    app_id: &str,
-    layer: &str,
-) -> Result<LayerVerifyReport> {
+pub fn layer_verify(source_root: &Path, app_id: &str, layer: &str) -> Result<LayerVerifyReport> {
     let layer = layer.trim().to_ascii_lowercase();
     let mut alerts = Vec::new();
     match layer.as_str() {
@@ -165,10 +161,7 @@ fn verify_mcg_layer(
         alerts.push(LayerVerifyAlert {
             layer: "L3".to_string(),
             block_id: format!("{}:{}", node.id.kind.slug(), node.id.key),
-            message: format!(
-                "CAS missing kind={} hash={}",
-                pref.kind, pref.content_hash
-            ),
+            message: format!("CAS missing kind={} hash={}", pref.kind, pref.content_hash),
         });
     }
     verify_bridge_exports(source_root, app_id, alerts);
@@ -176,11 +169,7 @@ fn verify_mcg_layer(
     Ok(())
 }
 
-fn verify_bridge_exports(
-    source_root: &Path,
-    app_id: &str,
-    alerts: &mut Vec<LayerVerifyAlert>,
-) {
+fn verify_bridge_exports(source_root: &Path, app_id: &str, alerts: &mut Vec<LayerVerifyAlert>) {
     let Some(bridge) = BridgeWriter::load(source_root, app_id) else {
         alerts.push(LayerVerifyAlert {
             layer: "L3".to_string(),
@@ -191,9 +180,10 @@ fn verify_bridge_exports(
     };
     let mcg = McgRegistryWriter::load(source_root, app_id);
     for export in &bridge.exports {
-        let mcg_present = mcg.nodes.iter().any(|node| {
-            node.id.kind == export.mcg_node.kind && node.id.key == export.mcg_node.key
-        });
+        let mcg_present = mcg
+            .nodes
+            .iter()
+            .any(|node| node.id.kind == export.mcg_node.kind && node.id.key == export.mcg_node.key);
         if !mcg_present {
             alerts.push(LayerVerifyAlert {
                 layer: "L3".to_string(),
@@ -223,10 +213,9 @@ fn verify_page_instance_inputs(
             let input_present = mcg.nodes.iter().any(|candidate| {
                 candidate.id.kind.slug() == input.kind.as_str()
                     && candidate.id.key == input.key
-                    && candidate
-                        .payload_ref
-                        .as_ref()
-                        .is_some_and(|pref| payload_ref_exists(app_root, pref, candidate.id.key.as_str()))
+                    && candidate.payload_ref.as_ref().is_some_and(|pref| {
+                        payload_ref_exists(app_root, pref, candidate.id.key.as_str())
+                    })
             });
             if !input_present {
                 alerts.push(LayerVerifyAlert {
@@ -242,7 +231,11 @@ fn verify_page_instance_inputs(
     }
 }
 
-fn payload_ref_exists(app_root: &Path, pref: &crate::graph::types::PayloadRef, node_key: &str) -> bool {
+fn payload_ref_exists(
+    app_root: &Path,
+    pref: &crate::graph::types::PayloadRef,
+    node_key: &str,
+) -> bool {
     if resolve_payload_ref(app_root, pref).is_some() {
         return true;
     }
@@ -277,8 +270,7 @@ fn verify_data_source_block(
             &anyhow!("data snapshot import manifest missing"),
         ));
     };
-    let Ok(manifest) =
-        serde_json::from_str::<mei_lang_kernel::DataSnapshotImportManifest>(&raw)
+    let Ok(manifest) = serde_json::from_str::<mei_lang_kernel::DataSnapshotImportManifest>(&raw)
     else {
         return Ok(BlockResult::err(
             block_id.clone(),
@@ -349,10 +341,7 @@ fn verify_mrg_layer(
                             "material_slot:{}@{}",
                             slot.slot_id.node.key, slot.slot_id.scope_key
                         ),
-                        message: format!(
-                            "Ready slot CAS missing hash={}",
-                            pref.content_hash
-                        ),
+                        message: format!("Ready slot CAS missing hash={}", pref.content_hash),
                     });
                 }
             }

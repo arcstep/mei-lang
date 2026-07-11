@@ -1,6 +1,8 @@
 use crate::model::{LayoutDecl, UiNodeDecl};
 
-use super::super::constants::{PolicySpacing, METRIC_COMPOUND_BOTTOM_MAX, CONTENT_ZONE, TITLE_ZONE};
+use super::super::constants::{
+    PolicySpacing, CONTENT_ZONE, METRIC_COMPOUND_BOTTOM_MAX, TITLE_ZONE,
+};
 use super::super::nodes::{
     node_is_metric_card_like, node_is_metrics_2_1_item_like, panel_head_height_track, set_node_area,
 };

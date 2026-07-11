@@ -5,10 +5,7 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{
-    ComponentExportDecl, EntityDecl,
-    PanelExportDecl, ResourceDecl,
-};
+use crate::model::{ComponentExportDecl, EntityDecl, PanelExportDecl, ResourceDecl};
 
 use super::super::decl_file_cache::evaluate_mei_file_cached;
 

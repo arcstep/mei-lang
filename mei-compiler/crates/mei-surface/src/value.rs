@@ -73,7 +73,12 @@ pub fn optional(value: Option<Value>) -> Value {
 }
 
 pub fn clean_object(pairs: Vec<(&str, Value)>) -> ObjectMap {
-    without_empty(Value::object(pairs).as_object().cloned().unwrap_or_default())
+    without_empty(
+        Value::object(pairs)
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+    )
 }
 
 impl Value {

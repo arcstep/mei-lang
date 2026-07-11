@@ -424,4 +424,3 @@ fn emit_prebuild_optimization_compact(
         );
     }
 }
-

@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::model::{
-    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode,
-};
+use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode};
 
 pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
     crate::compile::build_experience::preview_target_from_build_node_with_app(node, None)
@@ -44,9 +42,7 @@ pub fn build_preview_panel_scope(compiled: &CompiledApp, node: &BuildNodeId) -> 
             let contract = compiled.scene_contract.as_ref()?;
             let scene_id = contract.scene.id.as_str();
             for panel in &contract.panels {
-                if let Some(panel_path) =
-                    panel_path_for_use_key(panel, None, node.key.as_str())
-                {
+                if let Some(panel_path) = panel_path_for_use_key(panel, None, node.key.as_str()) {
                     return Some(format!("{scene_id}/{panel_path}"));
                 }
             }

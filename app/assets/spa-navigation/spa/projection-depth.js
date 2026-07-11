@@ -108,6 +108,18 @@
       });
   }
 
+  /** MeiLang `_` empty cells → CSS null-cell `.` (non-contiguous `_` invalidates the property). */
+  function cssGridTemplateAreas(areas) {
+    return String(areas || "")
+      .replace(/(^|[\s"'])_(?=[\s"']|$)/g, "$1.")
+      .trim();
+  }
+
+  function isCssNullGridArea(area) {
+    const token = String(area || "").trim();
+    return !token || token === "_" || token === ".";
+  }
+
   function applyGridBudgetToNode(node, entry) {
     if (!(node instanceof HTMLElement) || !entry || typeof entry !== "object") return;
     const cols = entry.grid_template_columns ?? entry.gridTemplateColumns;
@@ -136,8 +148,9 @@
       node.dataset.manifestGridRows = String(rows);
     }
     if (areas) {
-      node.style.gridTemplateAreas = String(areas);
-      node.dataset.manifestGridAreas = String(areas);
+      const cssAreas = cssGridTemplateAreas(areas);
+      node.style.gridTemplateAreas = cssAreas;
+      node.dataset.manifestGridAreas = cssAreas;
     }
     if (gap != null && gap !== "") {
       const gapText = String(gap).endsWith("px") ? String(gap) : `${gap}px`;
@@ -146,9 +159,10 @@
     }
     if (Array.isArray(slotAreas) && slotAreas.length > 0) {
       const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+      const placedAreas = [];
       slotAreas.forEach((areaName) => {
         const area = String(areaName || "").trim();
-        if (!area) return;
+        if (isCssNullGridArea(area)) return;
         const child =
           (scope
             ? node.querySelector(`[data-preview-scope="${CSS.escape(`${scope}/${area}`)}"]`)
@@ -162,8 +176,11 @@
           child.style.gridArea = area;
           child.dataset.manifestGridArea = area;
         }
+        placedAreas.push(area);
       });
-      node.dataset.manifestSlotAreas = slotAreas.join(",");
+      if (placedAreas.length > 0) {
+        node.dataset.manifestSlotAreas = placedAreas.join(",");
+      }
     }
   }
 

@@ -1,8 +1,8 @@
 use mei_host_graph::{McgRegistryWriter, MrgRegistryWriter};
 use mei_lang_kernel::{
-    build_experience_path, build_overview_backing, experience_layout_hint,
-    experience_mount_chain, format_experience_path, format_ui_scope_agent_context,
-    BuildNodeContext, BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor,
+    build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
+    format_experience_path, format_ui_scope_agent_context, BuildNodeContext, BuildNodeId,
+    BuildNodeKind, CompiledApp, ProvenanceAnchor,
 };
 
 pub(super) fn append_ux_sections(
@@ -228,10 +228,7 @@ pub(super) fn append_registry_graph_sections(
         for slot in registry.slots.iter().take(24) {
             md.push_str(&format!(
                 "- `{}@{}` state=`{:?}` revision=`{}`\n",
-                slot.slot_id.node.key,
-                slot.slot_id.scope_key,
-                slot.state,
-                slot.slot_revision
+                slot.slot_id.node.key, slot.slot_id.scope_key, slot.state, slot.slot_revision
             ));
         }
         md.push('\n');

@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::compile::backing_refs_from_block_props;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::model::{
-    T2PageFileEntry, T2PageSlotEntry, BuildT2PageIndex, BuildNodeId, SceneContract, WorkspaceNode,
+    BuildNodeId, BuildT2PageIndex, SceneContract, T2PageFileEntry, T2PageSlotEntry, WorkspaceNode,
 };
 
 pub struct BuildT2PageIndexResult {

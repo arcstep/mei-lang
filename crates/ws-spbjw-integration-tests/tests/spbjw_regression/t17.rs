@@ -102,7 +102,9 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
 
 #[test]
 fn spbjw_enforcement_items_count_rowset_matches_metric_value() {
-    use mei_lang_datasets::{evaluate_runtime_metrics, query_metric_dataframe, DatasetQueryOptions};
+    use mei_lang_datasets::{
+        evaluate_runtime_metrics, query_metric_dataframe, DatasetQueryOptions,
+    };
 
     let source_root = source_root();
     let app_root = zhifa_app_root();
@@ -162,4 +164,3 @@ fn spbjw_enforcement_items_count_rowset_matches_metric_value() {
         "enforcement_items_count rowset total should match metric value"
     );
 }
-

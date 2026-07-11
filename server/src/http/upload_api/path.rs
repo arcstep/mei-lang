@@ -8,7 +8,6 @@ use mei_lang_kernel::load_mei_config_for_app;
 
 use crate::{AppError, AppState};
 
-
 use super::types::{self, *};
 
 pub(super) fn resolve_upload_root(state: &AppState, app_id: &str) -> Result<PathBuf, AppError> {
@@ -85,7 +84,10 @@ pub(super) fn resolve_upload_target(upload_root: &Path, rel: &str) -> Result<Pat
     Ok(resolved)
 }
 
-pub(super) fn resolve_existing_upload_file(upload_root: &Path, rel: &str) -> Result<PathBuf, AppError> {
+pub(super) fn resolve_existing_upload_file(
+    upload_root: &Path,
+    rel: &str,
+) -> Result<PathBuf, AppError> {
     let rel = sanitize_upload_rel(rel)?;
     let canonical_root = canonical_upload_root(upload_root)?;
     let canonical_file = canonical_root
@@ -101,7 +103,10 @@ pub(super) fn resolve_existing_upload_file(upload_root: &Path, rel: &str) -> Res
     Ok(canonical_file)
 }
 
-pub(super) fn build_upload_rel(upload_dir: Option<&str>, file_name: &str) -> Result<String, AppError> {
+pub(super) fn build_upload_rel(
+    upload_dir: Option<&str>,
+    file_name: &str,
+) -> Result<String, AppError> {
     let clean_file_name = sanitize_upload_rel(file_name)?;
     if let Some(dir) = upload_dir {
         let clean_dir = sanitize_upload_rel(dir)?;
@@ -121,7 +126,10 @@ pub(super) fn file_name_from_upload_rel(rel: &str) -> Result<String, AppError> {
         .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "invalid upload file name"))
 }
 
-pub(super) fn build_move_target_rel(from_rel: &str, to_dir: Option<&str>) -> Result<String, AppError> {
+pub(super) fn build_move_target_rel(
+    from_rel: &str,
+    to_dir: Option<&str>,
+) -> Result<String, AppError> {
     let file_name = file_name_from_upload_rel(from_rel)?;
     let target_dir = to_dir.map(str::trim).filter(|value| !value.is_empty());
     build_upload_rel(target_dir, &file_name)
@@ -140,7 +148,10 @@ pub(super) fn upload_chunk_sessions_root(upload_root: &Path) -> PathBuf {
     upload_root.join(".mei-upload-sessions")
 }
 
-pub(super) fn upload_chunk_session_dir(upload_root: &Path, upload_id: &str) -> Result<PathBuf, AppError> {
+pub(super) fn upload_chunk_session_dir(
+    upload_root: &Path,
+    upload_id: &str,
+) -> Result<PathBuf, AppError> {
     let upload_id = sanitize_upload_id(upload_id)?;
     Ok(upload_chunk_sessions_root(upload_root).join(upload_id))
 }
@@ -196,7 +207,9 @@ pub(super) fn write_chunk_session_meta(
         .map_err(|error| AppError::msg(format!("write upload session failed: {error}")))
 }
 
-pub(super) fn read_chunk_session_meta(session_dir: &Path) -> Result<UploadChunkSessionMeta, AppError> {
+pub(super) fn read_chunk_session_meta(
+    session_dir: &Path,
+) -> Result<UploadChunkSessionMeta, AppError> {
     let bytes = fs::read(upload_chunk_meta_path(session_dir))
         .map_err(|error| AppError::msg(format!("read upload session failed: {error}")))?;
     serde_json::from_slice::<UploadChunkSessionMeta>(&bytes)
@@ -232,4 +245,3 @@ pub(super) fn expected_chunk_len(meta: &UploadChunkSessionMeta, index: usize) ->
     let end = std::cmp::min(start + chunk_size, meta.size_bytes);
     end.saturating_sub(start) as usize
 }
-

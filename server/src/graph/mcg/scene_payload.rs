@@ -41,7 +41,10 @@ pub fn scene_payload_revision(target_file: &str, dependency_fingerprint: &str) -
     )
 }
 
-pub fn scene_payload_slim_value_from_compiled(compiled: &CompiledApp, omit_projection_map: bool) -> Value {
+pub fn scene_payload_slim_value_from_compiled(
+    compiled: &CompiledApp,
+    omit_projection_map: bool,
+) -> Value {
     let projection = if omit_projection_map {
         BTreeMap::new()
     } else {
@@ -75,13 +78,22 @@ pub fn scene_payload_is_full_compiled_payload(payload: &Value) -> bool {
 }
 
 pub fn merge_slim_scene_payload_into_compiled(compiled: &mut CompiledApp, payload: &Value) {
-    if let Ok(target) = serde_json::from_value(payload.get("activeTargetFile").cloned().unwrap_or(Value::Null)) {
+    if let Ok(target) = serde_json::from_value(
+        payload
+            .get("activeTargetFile")
+            .cloned()
+            .unwrap_or(Value::Null),
+    ) {
         compiled.active_target_file = target;
     }
-    if let Ok(scene) = serde_json::from_value(payload.get("activeScene").cloned().unwrap_or(Value::Null)) {
+    if let Ok(scene) =
+        serde_json::from_value(payload.get("activeScene").cloned().unwrap_or(Value::Null))
+    {
         compiled.active_scene = scene;
     }
-    if let Ok(contract) = serde_json::from_value(payload.get("sceneContract").cloned().unwrap_or(Value::Null)) {
+    if let Ok(contract) =
+        serde_json::from_value(payload.get("sceneContract").cloned().unwrap_or(Value::Null))
+    {
         compiled.scene_contract = contract;
     }
     if let Ok(nav) = serde_json::from_value(
@@ -124,7 +136,9 @@ pub fn merge_slim_scene_payload_into_compiled(compiled: &mut CompiledApp, payloa
     ) {
         compiled.component_assets = assets;
     }
-    if let Ok(diags) = serde_json::from_value(payload.get("diagnostics").cloned().unwrap_or(Value::Null)) {
+    if let Ok(diags) =
+        serde_json::from_value(payload.get("diagnostics").cloned().unwrap_or(Value::Null))
+    {
         compiled.diagnostics = diags;
     }
 }
@@ -176,7 +190,8 @@ pub fn scene_payload_is_assemblable(compiled: &CompiledApp) -> bool {
     if compiled.scene_contract.is_some() {
         return true;
     }
-    if !compiled.scene_bindings_by_id.is_empty() || !compiled.scene_projection_assembly_by_id.is_empty()
+    if !compiled.scene_bindings_by_id.is_empty()
+        || !compiled.scene_projection_assembly_by_id.is_empty()
     {
         return true;
     }
@@ -219,7 +234,10 @@ pub fn load_scene_payload_artifact(
     expected_revision: Option<&str>,
     content_hash: Option<&str>,
 ) -> anyhow::Result<Option<ScenePayloadArtifact>> {
-    if let Some(hash) = content_hash.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(hash) = content_hash
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if let Some(path) = content_store::get(app_root, SCENE_PAYLOAD, hash) {
             if let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&path)? {
                 if artifact_matches_target(&artifact, target_file, expected_revision) {

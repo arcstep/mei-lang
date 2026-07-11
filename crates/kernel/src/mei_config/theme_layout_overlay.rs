@@ -34,7 +34,10 @@ pub fn theme_layout_overlay_keys(layout: &Value) -> BTreeMap<String, Value> {
     out
 }
 
-pub fn merge_theme_layout_overlay(persisted: Option<&Value>, draft: Option<&Value>) -> Option<Value> {
+pub fn merge_theme_layout_overlay(
+    persisted: Option<&Value>,
+    draft: Option<&Value>,
+) -> Option<Value> {
     match (persisted, draft) {
         (None, None) => None,
         (Some(p), None) => Some(p.clone()),
@@ -44,10 +47,7 @@ pub fn merge_theme_layout_overlay(persisted: Option<&Value>, draft: Option<&Valu
             if let (Some(out), Some(draft_obj)) = (merged.as_object_mut(), d.as_object()) {
                 for (k, v) in draft_obj {
                     if let (Some(existing), Some(patch)) = (out.get(k), v.as_object()) {
-                        let mut scope = existing
-                            .as_object()
-                            .cloned()
-                            .unwrap_or_default();
+                        let mut scope = existing.as_object().cloned().unwrap_or_default();
                         for (pk, pv) in patch {
                             scope.insert(pk.clone(), pv.clone());
                         }
@@ -75,8 +75,10 @@ pub fn merge_theme_layout_draft_into_theme(theme: &Value, layout_draft: &Value) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mei_config::types::{
+        AppEntryConfig, AppFeaturesConfig, AppPathsConfig, MeiConfig, OpsConfig,
+    };
     use serde_json::json;
-    use crate::mei_config::types::{AppEntryConfig, AppFeaturesConfig, AppPathsConfig, MeiConfig, OpsConfig};
     use std::collections::BTreeMap;
 
     #[test]
@@ -126,10 +128,7 @@ mod tests {
         });
         let merged = merge_theme_layout_overlay(Some(&persisted), Some(&draft)).expect("merged");
         let scope = merged.get("home/T1/left_rail").expect("scope");
-        assert_eq!(
-            scope.get("sectionRows"),
-            Some(&json!(["1fr", "2fr"]))
-        );
+        assert_eq!(scope.get("sectionRows"), Some(&json!(["1fr", "2fr"])));
         assert_eq!(scope.get("gap"), Some(&json!("12px")));
     }
 }

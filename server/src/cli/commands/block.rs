@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 
 use crate::block::{
-    block_list, parse_block_id, parse_material_states, block_compile_hint, layer_verify_hint,
+    block_compile_hint, block_list, layer_verify_hint, parse_block_id, parse_material_states,
     BlockOrchestrator,
 };
-use crate::prebuild::CompileScope;
 use crate::cli::args::{BlockArgs, BlockCommand};
 use crate::cli::util::{
     print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg,
 };
+use crate::prebuild::CompileScope;
 
 pub fn block_command(args: BlockArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
@@ -40,7 +40,9 @@ pub fn block_command(args: BlockArgs) -> Result<()> {
                     .workspace
                     .as_deref()
                     .map(|value| format!("--workspace {value}"))
-                    .unwrap_or_else(|| format!("--source-root {}", compile_args.source_root.display()));
+                    .unwrap_or_else(|| {
+                        format!("--source-root {}", compile_args.source_root.display())
+                    });
                 eprintln!(
                     "block compile failed: {}\n{}",
                     block_id.stable_key(),
@@ -172,8 +174,11 @@ pub fn block_command(args: BlockArgs) -> Result<()> {
             )?;
             let source_root = resolve_cli_source_root(&package_root, &raw)?;
             let states = parse_material_states(list_args.state.as_str());
-            let report =
-                block_list(source_root.as_path(), list_args.app_id.as_str(), states.as_slice())?;
+            let report = block_list(
+                source_root.as_path(),
+                list_args.app_id.as_str(),
+                states.as_slice(),
+            )?;
             if list_args.json {
                 print_json_output(&report, true)?;
             } else {

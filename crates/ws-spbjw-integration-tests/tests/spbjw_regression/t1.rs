@@ -109,4 +109,3 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
         "expected enterprise_complaints dataset on administrative_inspection scene"
     );
 }
-

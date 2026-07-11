@@ -83,7 +83,12 @@ impl UiRouteMode {
     pub fn is_topbar_product_tab(self) -> bool {
         matches!(
             self,
-            Self::App | Self::Layout | Self::Prototype | Self::Config | Self::Upload | Self::Runtime
+            Self::App
+                | Self::Layout
+                | Self::Prototype
+                | Self::Config
+                | Self::Upload
+                | Self::Runtime
         )
     }
 

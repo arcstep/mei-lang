@@ -165,8 +165,8 @@ async fn host_scoped_light_page(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if let Some(response) = crate::light_pages::try_render_light_page(
-        crate::light_pages::LightPageContext {
+    if let Some(response) =
+        crate::light_pages::try_render_light_page(crate::light_pages::LightPageContext {
             workspace_root: workspace_root.as_path(),
             _package_root: package_root.as_path(),
             route_mode,
@@ -178,8 +178,8 @@ async fn host_scoped_light_page(
             request_file: query.page.file.as_deref(),
             auth_enabled,
             account_view: account_view.as_ref(),
-        },
-    ) {
+        })
+    {
         return response;
     }
     (
@@ -255,10 +255,7 @@ pub async fn host_runtime_observation_page(
         principal,
         uri,
         headers,
-        AxumPath((
-            UiRouteMode::Runtime.slug().to_string(),
-            app.id.clone(),
-        )),
+        AxumPath((UiRouteMode::Runtime.slug().to_string(), app.id.clone())),
         Query(query.page.clone()),
     )
     .await

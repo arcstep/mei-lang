@@ -266,5 +266,4 @@ pub fn clear_compiled_app_artifacts_for_app(source_root: &Path, app_id: &str) ->
 
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
     kernel_resolve_components_root(source_root)
-
 }

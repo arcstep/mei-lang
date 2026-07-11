@@ -1,13 +1,10 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    resolve_dataset_resource_id, CompiledApp,
-    MetricContract, WorldSemanticMetric,
+    resolve_dataset_resource_id, CompiledApp, MetricContract, WorldSemanticMetric,
 };
 use serde_json::Value;
 
-use crate::ui::preview::resolve::{
-    metric_for_host_ssr, with_runtime_ref,
-};
+use crate::ui::preview::resolve::{metric_for_host_ssr, with_runtime_ref};
 use crate::ui::preview::PreviewRuntimeContext;
 
 use super::lookup::*;
@@ -221,4 +218,3 @@ pub(super) fn metric_table_preview(
     }
     .into_any()
 }
-

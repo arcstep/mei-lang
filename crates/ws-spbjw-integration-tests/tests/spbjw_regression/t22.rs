@@ -322,4 +322,3 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         assert_calendar_field_is_date_only(row, "预警时间");
     }
 }
-

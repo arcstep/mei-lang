@@ -5,8 +5,8 @@ use std::path::Path;
 
 use mei_host_core::EvalSlotDescriptor;
 use mei_host_graph::{
-    bootstrap_embed_status, build_client_bootstrap_head_fragment,
-    record_slots_from_descriptors, write_client_bootstrap,
+    bootstrap_embed_status, build_client_bootstrap_head_fragment, record_slots_from_descriptors,
+    write_client_bootstrap,
 };
 use mei_lang_kernel::{MetricContract, MetricShape};
 

@@ -415,4 +415,3 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
 
     let _ = fs::remove_dir_all(&root);
 }
-

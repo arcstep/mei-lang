@@ -76,7 +76,8 @@ pub fn eval_metrics_with_slots(
     let result_artifact_candidate =
         default_result_artifact_scope(&request.query_state, &request.filter_intents);
 
-    if let Some(cached) = take_cached_metric_response(cache_key.as_str(), &requested, request_all_metrics)
+    if let Some(cached) =
+        take_cached_metric_response(cache_key.as_str(), &requested, request_all_metrics)
     {
         return Ok(build_outcome_from_cached(
             request,
@@ -103,8 +104,12 @@ pub fn eval_metrics_with_slots(
                     .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
             };
             if artifact_covers_request {
-                populate_l1_from_loaded_metric_artifact(std::slice::from_ref(&cache_key), &artifact);
-                let query_perf = BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
+                populate_l1_from_loaded_metric_artifact(
+                    std::slice::from_ref(&cache_key),
+                    &artifact,
+                );
+                let query_perf =
+                    BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
                 let metrics = project_requested_metrics(
                     request.owner_resource_id.as_str(),
                     &request.metric_ids,

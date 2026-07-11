@@ -1,4 +1,8 @@
-use super::{build_scene_projection_maps, build_target_scene_contracts, ensure_build_tree_entry_scene_assemblies, ensure_world_capsule_preview_components, hydrate_board_capsules_from_file_tree, push_route_and_graph_diagnostics};
+use super::{
+    build_scene_projection_maps, build_target_scene_contracts,
+    ensure_build_tree_entry_scene_assemblies, ensure_world_capsule_preview_components,
+    hydrate_board_capsules_from_file_tree, push_route_and_graph_diagnostics,
+};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -8,10 +12,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::model::{
-    CompiledApp, ComponentAsset, Diagnostic,
-    Severity, WorldSemanticFileIndex,
-};
+use crate::model::{CompiledApp, ComponentAsset, Diagnostic, Severity, WorldSemanticFileIndex};
 use crate::workspace::source_tree;
 
 use super::super::super::dependency_graph::DependencyGraph;
@@ -321,4 +322,3 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
     crate::compile::canonicalize_compiled_app_source_paths(&mut compiled);
     Ok(compiled)
 }
-

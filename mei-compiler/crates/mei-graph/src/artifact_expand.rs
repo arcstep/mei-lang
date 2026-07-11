@@ -26,18 +26,12 @@ pub fn expr_to_json(expr: &V2Expr) -> Result<JsonValue, ExpandError> {
             JsonValue::String(name.clone()),
         )]))),
         V2Expr::BinOp { op, left, right } => Ok(JsonValue::Object(Map::from_iter([
-            (
-                "__binop".to_string(),
-                JsonValue::String(format!("{op:?}")),
-            ),
+            ("__binop".to_string(), JsonValue::String(format!("{op:?}"))),
             ("left".to_string(), expr_to_json(left)?),
             ("right".to_string(), expr_to_json(right)?),
         ]))),
         V2Expr::List(items) => Ok(JsonValue::Array(
-            items
-                .iter()
-                .map(expr_to_json)
-                .collect::<Result<_, _>>()?,
+            items.iter().map(expr_to_json).collect::<Result<_, _>>()?,
         )),
         V2Expr::Dict(entries) => {
             let mut map = Map::new();
@@ -48,10 +42,7 @@ pub fn expr_to_json(expr: &V2Expr) -> Result<JsonValue, ExpandError> {
         }
         V2Expr::Call { path, args } => {
             let mut map = Map::new();
-            map.insert(
-                "__call".to_string(),
-                JsonValue::String(path.join(".")),
-            );
+            map.insert("__call".to_string(), JsonValue::String(path.join(".")));
             map.insert("__args".to_string(), call_args_to_json(args)?);
             Ok(JsonValue::Object(map))
         }
@@ -78,10 +69,7 @@ pub fn json_to_expr(value: &JsonValue) -> Result<V2Expr, ExpandError> {
         JsonValue::Bool(b) => Ok(V2Expr::Bool(*b)),
         JsonValue::Null => Ok(V2Expr::None),
         JsonValue::Array(items) => Ok(V2Expr::List(
-            items
-                .iter()
-                .map(json_to_expr)
-                .collect::<Result<_, _>>()?,
+            items.iter().map(json_to_expr).collect::<Result<_, _>>()?,
         )),
         JsonValue::Object(map) => {
             if let Some(name) = map.get("__var").and_then(JsonValue::as_str) {
@@ -98,9 +86,7 @@ pub fn json_to_expr(value: &JsonValue) -> Result<V2Expr, ExpandError> {
                     "Add" => BinOp::Add,
                     "Merge" => BinOp::Merge,
                     other => {
-                        return Err(ExpandError::Expand(format!(
-                            "unsupported binop `{other}`"
-                        )))
+                        return Err(ExpandError::Expand(format!("unsupported binop `{other}`")))
                     }
                 };
                 return Ok(V2Expr::BinOp {
@@ -163,7 +149,10 @@ fn json_to_call_args(value: &JsonValue) -> Result<CallArgs, ExpandError> {
     let mut positional = Vec::new();
     let mut keywords = Vec::new();
     for (key, child) in map {
-        if let Some(idx) = key.strip_prefix("arg").and_then(|s| s.parse::<usize>().ok()) {
+        if let Some(idx) = key
+            .strip_prefix("arg")
+            .and_then(|s| s.parse::<usize>().ok())
+        {
             if idx == positional.len() {
                 positional.push(json_to_expr(child)?);
             } else {

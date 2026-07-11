@@ -7,7 +7,9 @@ pub async fn api_host_ready() -> impl IntoResponse {
 }
 
 pub async fn api_host_readiness(State(state): State<AppState>) -> impl IntoResponse {
-    Json(registry_snapshot_with_scope_gate(Some(state.source_root.as_path())))
+    Json(registry_snapshot_with_scope_gate(Some(
+        state.source_root.as_path(),
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,10 +58,8 @@ pub async fn api_host_graph_status(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<HostGraphQuery>,
 ) -> impl IntoResponse {
-    let report = crate::graph::run_graph_status(
-        state.source_root.as_path(),
-        query.app_id.as_deref(),
-    );
+    let report =
+        crate::graph::run_graph_status(state.source_root.as_path(), query.app_id.as_deref());
     Json(report)
 }
 

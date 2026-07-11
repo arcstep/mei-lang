@@ -563,4 +563,3 @@ pub struct AuthUserConfig {
     #[serde(default)]
     pub disabled: bool,
 }
-

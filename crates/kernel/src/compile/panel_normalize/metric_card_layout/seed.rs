@@ -72,7 +72,10 @@ fn metric_v_align_defaults_from_shell_props(card: &UiNodeDecl) -> BTreeMap<Strin
 
 /// `metric_card(base=..., source=...)` 覆写 blocks 时写入各槽 `metric_v_align`。
 /// 优先级：槽位显式 `vertical_align` > shell `__mei_metric_*_v_align`（来自 label_vertical_align 等）> 模板 base blocks。
-pub(crate) fn seed_metric_block_vertical_align_from_base(base: &UiNodeDecl, merged: &mut UiNodeDecl) {
+pub(crate) fn seed_metric_block_vertical_align_from_base(
+    base: &UiNodeDecl,
+    merged: &mut UiNodeDecl,
+) {
     if !merged
         .props
         .as_object()

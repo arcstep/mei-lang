@@ -1,6 +1,4 @@
-
 use serde::{Deserialize, Serialize};
-
 
 /// One node in the build-view reachability tree.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,4 +68,3 @@ pub struct ReachabilityTreeRoot {
     #[serde(default)]
     pub children: Vec<ReachabilityTreeNode>,
 }
-

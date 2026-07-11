@@ -1,13 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use axum::{
-    body::Body,
-    extract::Request,
-    http::Method,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, http::Method, middleware::Next, response::Response};
 use http_body_util::BodyExt;
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -70,10 +64,7 @@ fn classify_route(path: &str) -> (&'static str, String) {
         );
     }
     if path.starts_with("/apps/") {
-        return (
-            "page",
-            path.split('/').nth(3).unwrap_or("-").to_string(),
-        );
+        return ("page", path.split('/').nth(3).unwrap_or("-").to_string());
     }
     if path.starts_with("/app-bundles/")
         || path.starts_with("/app-assets/")

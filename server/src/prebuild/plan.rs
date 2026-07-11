@@ -6,11 +6,7 @@ fn compile_scope_allows(
     scene_id: Option<&str>,
     target_file: Option<&str>,
 ) -> bool {
-    mei_lang_kernel::compile_scope_entry_allowed(
-        app.compile_scope.as_ref(),
-        scene_id,
-        target_file,
-    )
+    mei_lang_kernel::compile_scope_entry_allowed(app.compile_scope.as_ref(), scene_id, target_file)
 }
 
 pub(crate) fn compile_scopes_for_app(
@@ -360,11 +356,9 @@ pub(crate) fn warmup_request_matches_outcome(
             return false;
         }
     }
-    if !mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str()).is_ok()
-        || !dataset_can_materialize_metric_artifacts(
-            &outcome.compiled,
-            request.dataset_id.as_str(),
-        )
+    if !mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str())
+        .is_ok()
+        || !dataset_can_materialize_metric_artifacts(&outcome.compiled, request.dataset_id.as_str())
     {
         return false;
     }
@@ -443,7 +437,11 @@ pub(crate) fn run_warmup_request_batch(
     coverage_state: &CoverageState,
     requests: &[&AggregatedWarmupRequest],
     max_parallelism: usize,
-) -> Vec<(CompileScope, Vec<(String, Result<()>)>, PrebuildCoverageReport)> {
+) -> Vec<(
+    CompileScope,
+    Vec<(String, Result<()>)>,
+    PrebuildCoverageReport,
+)> {
     let grouped_requests = group_warmup_requests_by_scope(requests);
     run_limited_parallel_ordered(grouped_requests, max_parallelism, |batch| {
         let scope = batch.scope.clone();
@@ -479,4 +477,3 @@ pub(crate) fn run_warmup_request_batch(
         (scope, results, local_coverage)
     })
 }
-

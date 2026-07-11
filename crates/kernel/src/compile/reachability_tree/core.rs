@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 
-
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
 
-use super::ReachabilityTreeRoot;
 use super::types::ReachabilityTreeNode;
+use super::ReachabilityTreeRoot;
 
 pub fn build_reachability_tree(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
     crate::compile::build_experience_index::reachability_roots_from_compiled(compiled)
@@ -90,9 +89,8 @@ fn scene_ids_from_nodes(nodes: &[ReachabilityTreeNode]) -> HashSet<String> {
     nodes
         .iter()
         .filter_map(|node| {
-            BuildNodeId::parse(&node.node_id).and_then(|id| {
-                (id.kind == BuildNodeKind::Scene).then_some(id.key)
-            })
+            BuildNodeId::parse(&node.node_id)
+                .and_then(|id| (id.kind == BuildNodeKind::Scene).then_some(id.key))
         })
         .collect()
 }
@@ -108,8 +106,9 @@ fn filter_catalog_scene_roots(roots: &mut [ReachabilityTreeRoot], path_prefix: &
         }
         if root.group == "routes" {
             root.children.retain(|node| {
-                BuildNodeId::parse(&node.node_id)
-                    .is_some_and(|id| id.kind == BuildNodeKind::Route && allowed_scene_ids.contains(&id.key))
+                BuildNodeId::parse(&node.node_id).is_some_and(|id| {
+                    id.kind == BuildNodeKind::Route && allowed_scene_ids.contains(&id.key)
+                })
             });
             continue;
         }
@@ -135,8 +134,7 @@ fn should_hide_catalog_root(root: &ReachabilityTreeRoot, pack_selected: bool) ->
             "scenes" | "routes" | "artifacts" | "world" | "datasets" | "boards"
         );
     }
-    if pack_selected && is_stock_facet_root_group(root.group.as_str()) && root.children.is_empty()
-    {
+    if pack_selected && is_stock_facet_root_group(root.group.as_str()) && root.children.is_empty() {
         return true;
     }
     false
@@ -159,4 +157,3 @@ fn narrow_stock_facet_root(root: &mut ReachabilityTreeRoot, pack: &str) {
 fn is_stock_facet_root_group(group: &str) -> bool {
     group == "templates" || group == "template_files"
 }
-

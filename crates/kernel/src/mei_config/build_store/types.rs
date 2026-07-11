@@ -16,10 +16,7 @@ pub const DEV_TOOLCHAIN_VERSION: &str = "0.0.0-dev-local";
 pub const DEV_TOOLCHAIN_ALIAS: &str = "latest";
 
 pub fn is_dev_toolchain_alias(version: &str) -> bool {
-    matches!(
-        version.trim(),
-        DEV_TOOLCHAIN_ALIAS | DEV_TOOLCHAIN_VERSION
-    )
+    matches!(version.trim(), DEV_TOOLCHAIN_ALIAS | DEV_TOOLCHAIN_VERSION)
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

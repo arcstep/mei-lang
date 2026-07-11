@@ -54,10 +54,7 @@ pub fn export_bridge(
                 GraphNodeKind::MetricDefBundle,
                 bundle.owner_resource_id.clone(),
             ),
-            mrg_node: GraphNodeId::new(
-                GraphNodeKind::EvalPlan,
-                bundle.owner_resource_id.clone(),
-            ),
+            mrg_node: GraphNodeId::new(GraphNodeKind::EvalPlan, bundle.owner_resource_id.clone()),
             defs_fingerprint: bundle.defs_fingerprint.clone(),
         })
         .collect();

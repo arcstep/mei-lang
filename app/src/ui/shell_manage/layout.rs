@@ -1,29 +1,26 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
-    filter_reachability_roots_for_stock_catalog, filter_roots_for_tree_mode,
-    is_stock_catalog_app, resolve_build_node_context, resolve_build_preview_scope_for_ssr,
-    resolve_build_view_query, BuildNodeKind, BuildViewTab, CompiledApp,
-    LegacyBuildQuery, WorkspaceAppMeta,
+    filter_reachability_roots_for_stock_catalog, filter_roots_for_tree_mode, is_stock_catalog_app,
+    resolve_build_node_context, resolve_build_preview_scope_for_ssr, resolve_build_view_query,
+    BuildNodeKind, BuildViewTab, CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
 };
 
 use super::super::build_tree::reachability_tree_view;
 use super::super::manage_routing::{build_node_href, BuildReviewAxes, WorldSemanticQuery};
 use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
-use super::super::route::UiRouteMode;
 use super::super::prototype_preset::{
     default_build_preset, match_preset, preset_for_route_mode, preset_tree_max_ui_role,
     prototype_normalize_workspace_tab, prototype_workspace_primary_tabs,
     prototype_workspace_tool_tabs,
 };
+use super::super::route::UiRouteMode;
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
-use super::build_panels::{
-    build_artifact_panel, build_exec_panel_shell, build_graph_panel,
-};
+use super::build_panels::{build_artifact_panel, build_exec_panel_shell, build_graph_panel};
 use super::world_semantic_inspector::{
     should_show_world_semantic_inspector, world_semantic_inspector_view,
 };
@@ -96,11 +93,12 @@ pub(crate) fn manage_shell(
         _ => None,
     };
     let build_preview_component_use_key_owned = match workspace_route_mode {
-        UiRouteMode::Prototype => super::preview_fragment::build_preview_component_use_key(&resolved.node),
+        UiRouteMode::Prototype => {
+            super::preview_fragment::build_preview_component_use_key(&resolved.node)
+        }
         _ => None,
     };
-    let build_preview_component_use_key =
-        build_preview_component_use_key_owned.as_deref();
+    let build_preview_component_use_key = build_preview_component_use_key_owned.as_deref();
     let active_data_mode = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -157,9 +155,7 @@ pub(crate) fn manage_shell(
     let tree_max_ui_role = tree_max_ui_role
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            preset_tree_max_ui_role(active_data_mode, active_review_projection)
-        });
+        .unwrap_or_else(|| preset_tree_max_ui_role(active_data_mode, active_review_projection));
     let ceiling_notice_view = data_mode_ceiling_notice.map(|notice| {
         view! {
             <div

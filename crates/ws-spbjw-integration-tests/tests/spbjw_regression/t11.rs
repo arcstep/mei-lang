@@ -202,4 +202,3 @@ fn compile_spbjw_inspection_board_export_preview_projection_slots_in_assembly() 
         "expected preview_params in assembly, got: {assembly:?}"
     );
 }
-

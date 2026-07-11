@@ -73,15 +73,9 @@ mod tests {
     #[test]
     fn compile_revision_digest_ignores_theme_only_changes() {
         let mut themes_a = BTreeMap::new();
-        themes_a.insert(
-            "cockpit".to_string(),
-            json!({"font": {"2": "14px"}}),
-        );
+        themes_a.insert("cockpit".to_string(), json!({"font": {"2": "14px"}}));
         let mut themes_b = BTreeMap::new();
-        themes_b.insert(
-            "cockpit".to_string(),
-            json!({"font": {"2": "16px"}}),
-        );
+        themes_b.insert("cockpit".to_string(), json!({"font": {"2": "16px"}}));
         let first = mei_config_compile_revision_digest(&sample_config(themes_a));
         let second = mei_config_compile_revision_digest(&sample_config(themes_b));
         assert_eq!(first, second);
@@ -103,13 +97,14 @@ mod tests {
     #[test]
     fn resolve_live_ops_theme_value_reads_ops_table() {
         let mut themes = BTreeMap::new();
-        themes.insert("cockpit".to_string(), json!({"tokens": {"color": {"x": "#111"}}}));
+        themes.insert(
+            "cockpit".to_string(),
+            json!({"tokens": {"color": {"x": "#111"}}}),
+        );
         let config = sample_config(themes);
         let value = resolve_live_ops_theme_value(&config, "cockpit").expect("theme");
         assert_eq!(
-            value
-                .pointer("/tokens/color/x")
-                .and_then(Value::as_str),
+            value.pointer("/tokens/color/x").and_then(Value::as_str),
             Some("#111")
         );
     }

@@ -34,7 +34,10 @@ fn setup_demo_app(root: &Path) {
 #[test]
 fn resolve_toolchain_segment_maps_dev_alias_to_latest() {
     assert_eq!(resolve_toolchain_segment(DEV_TOOLCHAIN_ALIAS), "latest");
-    assert_eq!(resolve_toolchain_segment("2026.6.1-abc1234"), "2026.6.1-abc1234");
+    assert_eq!(
+        resolve_toolchain_segment("2026.6.1-abc1234"),
+        "2026.6.1-abc1234"
+    );
 }
 
 #[test]
@@ -173,10 +176,14 @@ fn promote_build_unions_historical_cas_into_active_target() {
     fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
     write_ws(ws, "20260201");
     let app = ws.join("apps/zhifa");
-    fs::create_dir_all(app_env_build_dir(&app, "WS-20260201.0").join("store/content/scene_payload"))
-        .expect("mkdir old");
-    fs::create_dir_all(app_env_build_dir(&app, "WS-20260202.0").join("store/content/scene_payload"))
-        .expect("mkdir new");
+    fs::create_dir_all(
+        app_env_build_dir(&app, "WS-20260201.0").join("store/content/scene_payload"),
+    )
+    .expect("mkdir old");
+    fs::create_dir_all(
+        app_env_build_dir(&app, "WS-20260202.0").join("store/content/scene_payload"),
+    )
+    .expect("mkdir new");
     fs::write(
         app_env_build_dir(&app, "WS-20260201.0").join("store/content/scene_payload/old-only.json"),
         br#"{"old":true}"#,
@@ -333,7 +340,7 @@ fn clean_env_generations_respects_links_protected_vers() {
     assert!(report.retained.iter().any(|l| l.contains("WS-20260228.0")));
 }
 
-    #[test]
+#[test]
 fn resolve_build_footer_with_host_hint_uses_compile_day_not_env_current() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let ws = tmp.path();
@@ -345,8 +352,8 @@ fn resolve_build_footer_with_host_hint_uses_compile_day_not_env_current() {
     .expect("write workspace.json");
     setup_demo_app(ws);
     attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0").expect("attach");
-    let identity = resolve_version_display_identity_with_hint(ws, Some("2.0.15+abc-dirty"))
-        .expect("identity");
+    let identity =
+        resolve_version_display_identity_with_hint(ws, Some("2.0.15+abc-dirty")).expect("identity");
     assert_eq!(identity.meilang_version, "2.0.15+abc-dirty");
     let expected = resolve_build_generation_for_prebuild(ws).tag;
     assert_eq!(identity.build_generation, expected);

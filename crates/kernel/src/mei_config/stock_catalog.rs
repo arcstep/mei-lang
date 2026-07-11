@@ -12,7 +12,10 @@ pub enum StockCatalogKind {
     Authoring,
 }
 
-pub fn stock_catalog_kind_config(source_root: &Path, kind: StockCatalogKind) -> WorkspaceStockCatalogKindConfig {
+pub fn stock_catalog_kind_config(
+    source_root: &Path,
+    kind: StockCatalogKind,
+) -> WorkspaceStockCatalogKindConfig {
     let cfg = load_workspace_config(source_root);
     match kind {
         StockCatalogKind::Components => cfg.stock.catalog.components.clone(),
@@ -40,8 +43,7 @@ pub fn stock_catalog_app_id(source_root: &Path) -> String {
 }
 
 pub fn is_stock_catalog_app(app_id: &str) -> bool {
-    app_id.trim() == DEFAULT_STOCK_CATALOG_APP_ID
-        || app_id.trim().starts_with("_stock-catalog")
+    app_id.trim() == DEFAULT_STOCK_CATALOG_APP_ID || app_id.trim().starts_with("_stock-catalog")
 }
 
 pub fn is_stock_catalog_app_for_root(source_root: &Path, app_id: &str) -> bool {

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, FrameDecl, UiNodeDecl, Severity, WorldDecl};
+use crate::model::{Diagnostic, FrameDecl, Severity, UiNodeDecl, WorldDecl};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
 use super::super::normalize::{

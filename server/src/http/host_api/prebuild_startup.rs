@@ -7,7 +7,8 @@ pub(crate) fn initialize_startup_readiness(source_root: &Path, startup_policy: &
 }
 
 pub(crate) fn mark_host_bound() {
-    let started_at_ms = startup_run::current_started_at_ms().or_else(|| Some(startup_run::now_ms_for_host_message()));
+    let started_at_ms = startup_run::current_started_at_ms()
+        .or_else(|| Some(startup_run::now_ms_for_host_message()));
     let _ = with_registry(|registry| {
         registry.host_bound = true;
         if registry.host_started_at_ms.is_none() {
@@ -83,8 +84,14 @@ fn startup_prebuild_skip_reason(source_root: &Path) -> Option<String> {
     let current = mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
         .ok()
         .filter(|value| !value.trim().is_empty())?;
-    let matched = crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root).ok()??;
-    if matched.stored.artifact_coverage_summary.total_missing_artifacts > 0 {
+    let matched =
+        crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root).ok()??;
+    if matched
+        .stored
+        .artifact_coverage_summary
+        .total_missing_artifacts
+        > 0
+    {
         return None;
     }
     Some(format!(
@@ -149,7 +156,10 @@ fn startup_watcher_detail(snapshot: &HostReadyResponse, source_root: &Path) -> S
     if snapshot.active_job.is_some() {
         return "background prebuild running".to_string();
     }
-    if matches!(snapshot.phase.as_str(), "building" | "verifying" | "starting") {
+    if matches!(
+        snapshot.phase.as_str(),
+        "building" | "verifying" | "starting"
+    ) {
         return "startup warmup in progress".to_string();
     }
     if !snapshot.scope_gate_ready && snapshot.access_ready {
@@ -251,16 +261,8 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
             crate::prebuild::prebuild_emit_notice(
                 "startup report loaded (landing-only) — applying ACCESS gate now",
             );
-            status_from_report(
-                &report,
-                None,
-                false,
-                ScopeGateRefreshMode::LandingOnly,
-            );
-            spawn_deferred_scope_gate_sweep(
-                source_root.clone(),
-                report.succeeded_apps.clone(),
-            );
+            status_from_report(&report, None, false, ScopeGateRefreshMode::LandingOnly);
+            spawn_deferred_scope_gate_sweep(source_root.clone(), report.succeeded_apps.clone());
         }
         return Ok(());
     }
@@ -291,12 +293,7 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
         .await;
         match hot_result {
             Ok(Ok(hot_report)) => {
-                status_from_report(
-                    &hot_report,
-                    None,
-                    false,
-                    ScopeGateRefreshMode::LandingOnly,
-                );
+                status_from_report(&hot_report, None, false, ScopeGateRefreshMode::LandingOnly);
                 startup_run::record_phase(
                     "startup_prebuild_hot_finished",
                     Some(serde_json::json!({
@@ -369,14 +366,12 @@ pub(crate) fn spawn_manual_job(
         })
         .await;
         match report_result {
-            Ok(Ok(report)) => {
-                status_from_report(
-                    &report,
-                    app_filter_owned.as_deref(),
-                    false,
-                    ScopeGateRefreshMode::Full,
-                )
-            }
+            Ok(Ok(report)) => status_from_report(
+                &report,
+                app_filter_owned.as_deref(),
+                false,
+                ScopeGateRefreshMode::Full,
+            ),
             Ok(Err(error)) => {
                 mark_job_failed(app_filter_owned.as_deref(), mode, &error.to_string(), false)
             }
@@ -427,9 +422,8 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
     if normalized_scene.is_empty() {
         return None;
     }
-    let canonical = mei_lang_kernel::canonical_app_source_rel_path(&format!(
-        "scenes/{normalized_scene}.mei"
-    ));
+    let canonical =
+        mei_lang_kernel::canonical_app_source_rel_path(&format!("scenes/{normalized_scene}.mei"));
     let snapshot = registry_snapshot();
     let Some(app) = snapshot.apps.iter().find(|app| app.app_id == app_id) else {
         return Some(canonical);
@@ -477,4 +471,3 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
         (cross_capsule_penalty, target.len())
     })
 }
-

@@ -56,11 +56,7 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
     } else {
         crate::auth::AuthEnforcement::Disabled
     };
-    crate::auth::prepare_auth_for_serve(
-        source_root.as_path(),
-        auth_enforcement,
-        "mei-host-web",
-    )?;
+    crate::auth::prepare_auth_for_serve(source_root.as_path(), auth_enforcement, "mei-host-web")?;
     if let Err(error) = mei_lang_toolchain::ensure_workspace_stock_materialized(
         source_root.as_path(),
         package_root.as_path(),
@@ -183,8 +179,7 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
     if startup_policy == "background-build" {
         let source_root_for_startup = source_root.clone();
         tokio::spawn(async move {
-            if let Err(error) =
-                crate::http::host_api::spawn_startup_build(source_root_for_startup)
+            if let Err(error) = crate::http::host_api::spawn_startup_build(source_root_for_startup)
             {
                 tracing::warn!(%error, "failed to schedule startup background build");
             }

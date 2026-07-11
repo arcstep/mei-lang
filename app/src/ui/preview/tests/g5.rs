@@ -110,4 +110,3 @@ fn panel_show_heading_uses_normalized_head_flag() {
     assert!(!panel_show_heading(&json!({})));
     assert!(panel_show_heading(&json!({"__mei_has_head": true})));
 }
-

@@ -100,7 +100,8 @@ pub fn collect_prebuild_failed_block_hints(
     let mut seen = std::collections::BTreeSet::new();
     for app in &report.apps {
         for warning in &app.warnings {
-            if let Some(hint) = prebuild_warning_hint(workspace_flag.as_str(), app.app_id.as_str(), warning)
+            if let Some(hint) =
+                prebuild_warning_hint(workspace_flag.as_str(), app.app_id.as_str(), warning)
             {
                 if seen.insert(hint.clone()) {
                     hints.push(hint);

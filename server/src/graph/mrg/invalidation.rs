@@ -59,8 +59,8 @@ pub fn changed_bundle_owners(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::types::MaterialState;
     use crate::graph::mrg::registry::{MrgRegistry, MrgSlotId, MrgSlotRecord};
+    use crate::graph::types::MaterialState;
     use crate::graph::types::{GraphNodeId, GraphNodeKind};
 
     #[test]

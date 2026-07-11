@@ -45,7 +45,11 @@ fn data_demo_scene_examples_by_id_matches_page_instance() {
         .unwrap_or_else(|| {
             panic!(
                 "expected scene_examples_by_id[{scene_id}], keys={:?}",
-                outcome.compiled.scene_examples_by_id.keys().collect::<Vec<_>>()
+                outcome
+                    .compiled
+                    .scene_examples_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         });
     let assembly_examples = outcome
@@ -88,10 +92,7 @@ fn data_demo_scene_examples_by_id_matches_page_instance() {
         .and_then(|s| s.get("zones"))
         .and_then(|z| z.as_array())
         .filter(|items| !items.is_empty());
-    assert!(
-        shell_zones.is_some(),
-        "shell_contract.zones for {scene_id}"
-    );
+    assert!(shell_zones.is_some(), "shell_contract.zones for {scene_id}");
     assert_eq!(
         assembly
             .get("shell_contract")

@@ -2,15 +2,13 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
+use crate::build_ops::{import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint};
 use crate::cli::{
-    AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs,
-    BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command,
-    EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs,
-    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
-    WorkspaceCommand, WorkspaceInitArgs,
-};
-use crate::build_ops::{
-    import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint,
+    AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs,
+    BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs,
+    Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, MrgCommand, MrgStatusArgs,
+    PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WorkspaceCommand,
+    WorkspaceInitArgs,
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
@@ -22,9 +20,9 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Prebuild(args) => run_prebuild(args).await,
         Command::PrebuildData(args) => run_prebuild_data(args),
         Command::Mrg(sub) => run_mrg(sub),
-        Command::Auth(sub) => mei_host_auth::run_auth_command(mei_host_auth::cli_args::AuthArgs {
-            command: sub,
-        }),
+        Command::Auth(sub) => {
+            mei_host_auth::run_auth_command(mei_host_auth::cli_args::AuthArgs { command: sub })
+        }
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
         Command::Workspace(sub) => run_workspace(sub),
@@ -40,20 +38,16 @@ fn run_eval_cache(command: EvalCacheCommand) -> anyhow::Result<()> {
 }
 
 fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let report = mei_host_graph::invalidate_app_eval_cache(
         workspace.as_path(),
         args.app.as_str(),
         args.force,
     )?;
-    let legacy_cache_cleared =
-        crate::access_page_cache::clear_legacy_page_render_cache_for_app(
-            workspace.as_path(),
-            args.app.as_str(),
-        );
+    let legacy_cache_cleared = crate::access_page_cache::clear_legacy_page_render_cache_for_app(
+        workspace.as_path(),
+        args.app.as_str(),
+    );
     println!(
         "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} cleared_legacy_page_render_cache={} removed_bytes={} ({})",
         mei_host_core::log_timestamp_rfc3339(),
@@ -76,10 +70,7 @@ fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
 }
 
 fn run_apps_list(args: AppsListArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let apps = crate::landing::discover_workspace_apps(workspace.as_path())?;
     if args.json {
         let ids: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
@@ -110,7 +101,10 @@ fn run_build(command: BuildCommand) -> anyhow::Result<()> {
     }
 }
 
-fn resolve_build_app_ids(workspace: &std::path::Path, apps: &[String]) -> anyhow::Result<Vec<String>> {
+fn resolve_build_app_ids(
+    workspace: &std::path::Path,
+    apps: &[String],
+) -> anyhow::Result<Vec<String>> {
     if !apps.is_empty() {
         return Ok(apps.to_vec());
     }
@@ -122,10 +116,7 @@ fn cli_toolchain_hint() -> &'static str {
 }
 
 fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let generation = mei_lang_kernel::prepare_dev_build_generation_with_hint(
         workspace.as_path(),
@@ -137,10 +128,7 @@ fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
 }
 
 fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let generation = mei_lang_kernel::PrebuildGeneration {
         env_version: args.build_id.clone(),
@@ -178,33 +166,21 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
 }
 
 fn run_build_promote(args: BuildPromoteArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
-    let build_id = mei_lang_kernel::promote_build(
-        workspace.as_path(),
-        args.build_id.as_deref(),
-    )?;
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
+    let build_id = mei_lang_kernel::promote_build(workspace.as_path(), args.build_id.as_deref())?;
     println!("promoted {build_id}");
     Ok(())
 }
 
 fn run_build_rollback(args: BuildRollbackArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let build_id = mei_lang_kernel::rollback_build(workspace.as_path())?;
     println!("rollback active -> {build_id}");
     Ok(())
 }
 
 fn run_build_status(args: BuildStatusArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let links = mei_lang_kernel::read_links_state(workspace.as_path())?;
     let identity = mei_lang_kernel::resolve_active_build_identity(workspace.as_path());
     let toolchain = links
@@ -221,11 +197,15 @@ fn run_build_status(args: BuildStatusArgs) -> anyhow::Result<()> {
     let apps = mei_lang_kernel::discover_apps(workspace.as_path())?;
     for app in &apps {
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app.id.as_str());
-        let current = mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
-            .unwrap_or_else(|_| "-".to_string());
+        let current =
+            mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+                .unwrap_or_else(|_| "-".to_string());
         println!("app={} current={current}", app.id);
     }
-    println!("display={}", mei_lang_kernel::resolve_build_footer_label(workspace.as_path()));
+    println!(
+        "display={}",
+        mei_lang_kernel::resolve_build_footer_label(workspace.as_path())
+    );
     println!("shell.build_version={}", crate::build_info::BUILD_VERSION);
     Ok(())
 }
@@ -238,10 +218,7 @@ fn run_version(args: VersionArgs) -> anyhow::Result<()> {
 }
 
 fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let report = mei_lang_kernel::clean_env_generations(
         workspace.as_path(),
@@ -265,10 +242,7 @@ fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
 }
 
 fn run_build_migrate_env(args: BuildMigrateEnvArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let reports = mei_lang_kernel::migrate_apps_to_env_layout(workspace.as_path(), &app_ids)?;
     for (app_id, report) in reports {
@@ -295,9 +269,10 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
         .workspace
         .canonicalize()
         .unwrap_or(args.workspace.clone());
-    let prev_revision = mei_host_graph::McgRegistryWriter::load(workspace.as_path(), args.app.as_str())
-        .registry_revision
-        .clone();
+    let prev_revision =
+        mei_host_graph::McgRegistryWriter::load(workspace.as_path(), args.app.as_str())
+            .registry_revision
+            .clone();
     let report = import_with_options(&workspace, &args.app, args.bundle)?;
     let changed = report.registry_revision != prev_revision;
     if args.json {
@@ -337,10 +312,7 @@ fn print_import_report(report: &mei_host_core::ImportReport) {
 }
 
 async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app = args.app.as_str();
 
     println!("==> build prepare + compile + import + prebuild-data + warmup + finalize");
@@ -349,10 +321,7 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
 }
 
 fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
-    let dir = args
-        .dir
-        .canonicalize()
-        .unwrap_or(args.dir);
+    let dir = args.dir.canonicalize().unwrap_or(args.dir);
     let package_root = resolve_package_root()?;
     let profile_id = args
         .id
@@ -484,10 +453,7 @@ navigation(
 }
 
 fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
-    let workspace = args
-        .workspace
-        .canonicalize()
-        .unwrap_or(args.workspace);
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let report =
         mei_host_graph::publish_app_data_snapshots(workspace.as_path(), args.app.as_str())?;
     println!(
@@ -512,7 +478,9 @@ fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
     for skip in &report.skipped {
         eprintln!("warning: skipped {skip}");
     }
-    if report.written.is_empty() && !report.discovered_sources.is_empty() && report.skipped.is_empty()
+    if report.written.is_empty()
+        && !report.discovered_sources.is_empty()
+        && report.skipped.is_empty()
     {
         eprintln!("warning: no parquet files written despite discovered sources");
     }
@@ -594,9 +562,10 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
     let data_mode_ceiling = serve_data_mode_ceiling(&args)?;
-    if let Some(report) =
-        mei_host_core::ensure_workspace_stock_materialized(workspace.as_path(), package_root.as_path())?
-    {
+    if let Some(report) = mei_host_core::ensure_workspace_stock_materialized(
+        workspace.as_path(),
+        package_root.as_path(),
+    )? {
         if report.components.copied_files > 0
             || report.templates.copied_files > 0
             || report.authoring.copied_files > 0
@@ -610,8 +579,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         }
     }
     let default_app_id = args.app.clone();
-    let default_ctx =
-        mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
+    let default_ctx = mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
     ensure_registry_materialized(&default_ctx)?;
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
     let app_ids: Vec<String> = if discovered.is_empty() {
@@ -643,11 +611,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     } else {
         mei_host_auth::AuthEnforcement::Disabled
     };
-    mei_host_auth::prepare_auth_for_serve(
-        workspace.as_path(),
-        auth_enforcement,
-        "mei-host-shell",
-    )?;
+    mei_host_auth::prepare_auth_for_serve(workspace.as_path(), auth_enforcement, "mei-host-shell")?;
     let shell: SharedState = Arc::new(RwLock::new({
         let mut state = ShellState::new(
             workspace.clone(),
@@ -660,7 +624,8 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         state
     }));
     refresh_host_materialization_flags(&shell);
-    let discovered = crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
+    let discovered =
+        crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
     let app_ids: Vec<String> = if discovered.is_empty() {
         vec![default_app_id.clone()]
     } else {
@@ -673,8 +638,12 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     let addr = format!("{}:{}", args.host, args.port);
     let listen_url = format!("http://{addr}");
     let guard = shell.read().expect("state lock");
-    let mut warmup_lines =
-        crate::startup::build_access_ready_banner_lines(&guard, app_ids.as_slice(), "home", listen_url.as_str());
+    let mut warmup_lines = crate::startup::build_access_ready_banner_lines(
+        &guard,
+        app_ids.as_slice(),
+        "home",
+        listen_url.as_str(),
+    );
     warmup_lines.push("blocking serve — port opens after warmup".to_string());
     drop(guard);
     let warmup_refs: Vec<&str> = warmup_lines.iter().map(String::as_str).collect();
@@ -696,7 +665,10 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             external_plug_ds.as_deref().unwrap_or("-")
         );
     } else {
-        println!("Plug-ds:   managed by host-shell ({} app(s))", plug_ds_by_app.len());
+        println!(
+            "Plug-ds:   managed by host-shell ({} app(s))",
+            plug_ds_by_app.len()
+        );
         for (app_id, endpoint) in &plug_ds_by_app {
             println!("           {app_id} -> {endpoint}");
         }
@@ -706,19 +678,22 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         version_line.as_str(),
         "blocking serve — access pages ready immediately",
     ];
-    crate::startup_banner::emit_host_listening_banner(listen_url.as_str(), listen_detail.as_slice());
-    let app = crate::http::router(state).layer(axum::middleware::from_fn_with_state(
-        auth_state,
-        mei_host_auth::auth_middleware,
-    )).layer(axum::middleware::from_fn(crate::request_logging::log_request));
+    crate::startup_banner::emit_host_listening_banner(
+        listen_url.as_str(),
+        listen_detail.as_slice(),
+    );
+    let app = crate::http::router(state)
+        .layer(axum::middleware::from_fn_with_state(
+            auth_state,
+            mei_host_auth::auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::request_logging::log_request,
+        ));
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e));
-    if let Some(mut pool) = managed_plug
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-    {
+    if let Some(mut pool) = managed_plug.lock().ok().and_then(|mut guard| guard.take()) {
         if let Err(error) = pool.shutdown().await {
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
@@ -748,11 +723,7 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     } else {
         mei_host_auth::AuthEnforcement::Disabled
     };
-    mei_host_auth::prepare_auth_for_serve(
-        workspace.as_path(),
-        auth_enforcement,
-        "mei-host-shell",
-    )?;
+    mei_host_auth::prepare_auth_for_serve(workspace.as_path(), auth_enforcement, "mei-host-shell")?;
     let shell: SharedState = Arc::new(RwLock::new({
         let mut state = ShellState::new(
             workspace.clone(),
@@ -799,7 +770,9 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     tokio::spawn(crate::startup::run_background_startup(shell, startup_plan));
     let managed_plug_for_shutdown = state.managed_plug.clone();
     let app = crate::http::router(state)
-        .layer(axum::middleware::from_fn(crate::request_logging::log_request))
+        .layer(axum::middleware::from_fn(
+            crate::request_logging::log_request,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             auth_state,
             mei_host_auth::auth_middleware,
@@ -820,13 +793,13 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
 }
 
 fn ensure_registry_materialized(ctx: &mei_host_core::HostContext) -> anyhow::Result<()> {
-    let mcg_path = mei_host_graph::mcg_registry_path(
-        ctx.workspace_root.as_path(),
-        ctx.app_id.as_str(),
-    );
+    let mcg_path =
+        mei_host_graph::mcg_registry_path(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     if mcg_path.is_file() {
-        let registry =
-            mei_host_graph::McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+        let registry = mei_host_graph::McgRegistryWriter::load(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+        );
         if !registry.nodes.is_empty() {
             return Ok(());
         }

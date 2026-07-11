@@ -1,8 +1,6 @@
 use super::*;
 
-use crate::model::{
-    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode,
-};
+use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -230,9 +228,7 @@ fn stock_catalog_filter_narrows_scenes_and_flattens_facet_by_pack() {
         Some("chart/echarts"),
     );
     assert!(
-        filtered
-            .iter()
-            .all(|root| root.group != "template_files"),
+        filtered.iter().all(|root| root.group != "template_files"),
         "components facet should drop template_files root"
     );
     let scenes = filtered

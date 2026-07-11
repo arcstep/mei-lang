@@ -14,11 +14,11 @@ use crate::http::compile_cache::{
 };
 use crate::http::host_api;
 use crate::http::host_error_page::{self, HostScopedRebuildContext, HostShellAction};
-use crate::AppState;
 use crate::http::pages::app::compiling_shell::{
     compile_bootstrap_probe_requested, compile_bootstrap_route_supported,
 };
 use crate::http::pages::app::query::AppQuery;
+use crate::AppState;
 
 pub(super) enum CompileResolution {
     Outcome(ResolvedCompileOutcome),

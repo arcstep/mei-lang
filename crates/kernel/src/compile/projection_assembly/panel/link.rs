@@ -1,16 +1,16 @@
-use super::{resolve_target_scene_id, scene_shell_contract_from_scene_contract, synthesize_scene_first_board_payload, synthesize_scene_first_generic_tabs_slots, validate_and_resolve_scene_params};
+use super::{
+    resolve_target_scene_id, scene_shell_contract_from_scene_contract,
+    synthesize_scene_first_board_payload, synthesize_scene_first_generic_tabs_slots,
+    validate_and_resolve_scene_params,
+};
 
 use std::collections::BTreeMap;
 
 use serde_json::{json, Map, Value};
 
-use crate::model::{
-    Diagnostic, UiNodeDecl, SceneContract, Severity, UiTreeNode,
-};
+use crate::model::{Diagnostic, SceneContract, Severity, UiNodeDecl, UiTreeNode};
 
-use super::super::metric::{
-    build_generic_rowset_filter_schema, expand_page_instance,
-};
+use super::super::metric::{build_generic_rowset_filter_schema, expand_page_instance};
 
 pub(crate) fn lower_scene_links_in_panels(
     panels: &mut [UiNodeDecl],
@@ -477,4 +477,3 @@ fn lower_scene_link(
         diagnostics,
     );
 }
-

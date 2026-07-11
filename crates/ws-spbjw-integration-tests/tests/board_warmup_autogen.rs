@@ -4,8 +4,8 @@ use ws_spbjw_integration_tests::{source_root, zhifa_app_root};
 #[test]
 fn runtime_warmup_manifest_includes_board_derived_penalty_analytics() {
     let source_root = source_root();
-    let manifest =
-        build_runtime_warmup_manifest(source_root.as_path()).expect("build runtime warmup manifest");
+    let manifest = build_runtime_warmup_manifest(source_root.as_path())
+        .expect("build runtime warmup manifest");
     let zhifa = manifest
         .apps
         .iter()

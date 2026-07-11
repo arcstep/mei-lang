@@ -1,9 +1,7 @@
 use super::prelude::*;
 use super::*;
 
-pub(crate) fn registry_snapshot_with_scope_gate(
-    source_root: Option<&Path>,
-) -> HostReadyResponse {
+pub(crate) fn registry_snapshot_with_scope_gate(source_root: Option<&Path>) -> HostReadyResponse {
     let mut response = registry_snapshot();
     if let Some(root) = source_root {
         let reachability = crate::readiness::reachability::check_reachability(root, None);
@@ -232,4 +230,3 @@ pub(crate) fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
         "starting".to_string()
     };
 }
-

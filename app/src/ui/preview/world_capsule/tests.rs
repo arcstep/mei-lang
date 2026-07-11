@@ -1,6 +1,4 @@
-use mei_lang_kernel::{
-    DatasetView, SourceDecl, WorldSemanticExplainBlock, WorldSemanticMetric,
-};
+use mei_lang_kernel::{DatasetView, SourceDecl, WorldSemanticExplainBlock, WorldSemanticMetric};
 
 use super::lookup::{resolve_explain_block_id, tabular_metric_lookup_candidates};
 

@@ -69,9 +69,9 @@ fn lower_top_level(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .ok_or_else(|| {
-                        LowerGraphError::Lower(
-                            format!("{name} top-level must declare non-empty `id`"),
-                        )
+                        LowerGraphError::Lower(format!(
+                            "{name} top-level must declare non-empty `id`"
+                        ))
                     })?;
                 obj.insert(
                     "key".to_string(),
@@ -166,13 +166,15 @@ fn call_args_to_json(args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
     for (idx, expr) in args.positional.iter().enumerate() {
         map.insert(
             format!("arg{idx}"),
-            artifact_expand::expr_to_json(expr).map_err(|e| LowerGraphError::Lower(e.to_string()))?,
+            artifact_expand::expr_to_json(expr)
+                .map_err(|e| LowerGraphError::Lower(e.to_string()))?,
         );
     }
     for (name, expr) in &args.keywords {
         map.insert(
             name.clone(),
-            artifact_expand::expr_to_json(expr).map_err(|e| LowerGraphError::Lower(e.to_string()))?,
+            artifact_expand::expr_to_json(expr)
+                .map_err(|e| LowerGraphError::Lower(e.to_string()))?,
         );
     }
     Ok(JsonValue::Object(map))

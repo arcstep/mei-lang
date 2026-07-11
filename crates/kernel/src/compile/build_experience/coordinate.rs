@@ -1,13 +1,12 @@
 use super::{BuildCompileCoordinate, BuildPreviewKind};
 
-use super::{compile_scene_from_build_node, compile_scene_from_build_node_with_app, is_template_file_node_key, preview_target_from_build_node_with_app};
-
-
+use super::{
+    compile_scene_from_build_node, compile_scene_from_build_node_with_app,
+    is_template_file_node_key, preview_target_from_build_node_with_app,
+};
 
 use crate::catalog_app::catalog_scene_route_for_build_node;
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp,
-};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
 
 pub fn compile_coordinate_for_node(
     node: &BuildNodeId,
@@ -25,9 +24,9 @@ pub fn compile_coordinate_for_node(
                 BuildPreviewKind::WorldCapsule
             }
         }
-        BuildNodeKind::WorldDataset
-        | BuildNodeKind::WorldMetric
-        | BuildNodeKind::WorldExplain => BuildPreviewKind::WorldCapsule,
+        BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric | BuildNodeKind::WorldExplain => {
+            BuildPreviewKind::WorldCapsule
+        }
         BuildNodeKind::Scene
         | BuildNodeKind::Route
         | BuildNodeKind::ScenePanel
@@ -86,7 +85,9 @@ pub fn compile_coordinate_for_node(
                 BuildPreviewKind::Other
             }
         }
-        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval
+        BuildNodeKind::Artifact
+        | BuildNodeKind::GraphSemantic
+        | BuildNodeKind::GraphEval
         | BuildNodeKind::McgNode => BuildPreviewKind::Other,
         BuildNodeKind::Dataset => BuildPreviewKind::Script,
     };
@@ -96,4 +97,3 @@ pub fn compile_coordinate_for_node(
         preview_kind,
     })
 }
-

@@ -504,4 +504,3 @@ fn resolve_value_supports_shared_refs() {
     assert_eq!(resolved.get("width").and_then(Value::as_str), Some("520px"));
     assert_eq!(resolved.get("height").and_then(Value::as_i64), Some(74));
 }
-

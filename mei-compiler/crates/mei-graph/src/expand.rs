@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
 use thiserror::Error;
 
-use crate::registry::{MacroDef, MacroRegistry, normalize_template_path, template_file_path};
+use crate::registry::{normalize_template_path, MacroDef, MacroRegistry, TemplateRoots};
 
 #[derive(Debug, Error)]
 pub enum ExpandError {
@@ -36,29 +36,24 @@ pub fn expand_artifact_expr(
 pub fn expand_v2_file(
     file: &V2SourceFile,
     registry: &MacroRegistry,
-    stock_templates: &std::path::Path,
+    roots: &TemplateRoots,
 ) -> Result<V2SourceFile, ExpandError> {
     let mut imports = BTreeMap::new();
     let mut module_consts = BTreeMap::new();
+    let mut registry_owned: Option<MacroRegistry> = None;
     for item in &file.items {
         match item {
             V2Item::UseTemplate { path, alias } => {
                 let norm = normalize_template_path(path);
-                let import_name = alias.clone().unwrap_or_else(|| {
-                    norm.rsplit('/').next().unwrap_or(&norm).to_string()
-                });
+                let import_name = alias
+                    .clone()
+                    .unwrap_or_else(|| norm.rsplit('/').next().unwrap_or(&norm).to_string());
                 imports.insert(import_name, norm);
-                if !registry.resolve_path(path).is_some() {
-                    let disk = template_file_path(stock_templates, path);
-                    if disk.is_file() {
+                if registry.resolve_path(path).is_none() {
+                    if let Some(disk) = roots.resolve_file(path) {
                         let nested = mei_syntax::v2::parse_v2_source_file(&disk)?;
-                        let mut reg = MacroRegistry::new();
-                        reg.register_file(
-                            &normalize_template_path(path),
-                            &nested,
-                        );
-                        // merge single file defs — registry should already have from load_dir
-                        let _ = reg;
+                        let reg = registry_owned.get_or_insert_with(|| registry.clone());
+                        reg.register_file(&normalize_template_path(path), &nested);
                     }
                 }
             }
@@ -69,8 +64,9 @@ pub fn expand_v2_file(
         }
     }
 
+    let registry_ref = registry_owned.as_ref().unwrap_or(registry);
     let ctx = ExpandContext {
-        registry,
+        registry: registry_ref,
         imports,
         module_consts,
     };
@@ -156,7 +152,12 @@ fn expand_expr(expr: &V2Expr, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandE
             let path = args
                 .positional
                 .first()
-                .or_else(|| args.keywords.iter().find(|(k, _)| k == "path").map(|(_, v)| v))
+                .or_else(|| {
+                    args.keywords
+                        .iter()
+                        .find(|(k, _)| k == "path")
+                        .map(|(_, v)| v)
+                })
                 .and_then(|e| match e {
                     V2Expr::String(s) => Some(s.clone()),
                     _ => None,
@@ -190,6 +191,14 @@ fn try_expand_macro_call(
 ) -> Result<Option<V2Expr>, ExpandError> {
     match path {
         [name] => {
+            // A template may intentionally export the same name as a built-in
+            // UI constructor (for example `ui.panel`). Keep the unqualified
+            // form reserved for the constructor so the template can forward
+            // to it without recursively expanding itself or hijacking other
+            // author files.
+            if matches!(name.as_str(), "panel" | "metric_card") {
+                return Ok(None);
+            }
             if let Some(def) = ctx.registry.resolve_name(name) {
                 return Ok(Some(apply_macro(def, args, ctx)?));
             }
@@ -217,7 +226,11 @@ fn try_expand_macro_call(
     }
 }
 
-fn expand_macro_by_path(path: &str, args: &CallArgs, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandError> {
+fn expand_macro_by_path(
+    path: &str,
+    args: &CallArgs,
+    ctx: &ExpandContext<'_>,
+) -> Result<V2Expr, ExpandError> {
     let def = ctx
         .registry
         .resolve_path(path)
@@ -225,7 +238,11 @@ fn expand_macro_by_path(path: &str, args: &CallArgs, ctx: &ExpandContext<'_>) ->
     apply_macro(def, args, ctx)
 }
 
-fn apply_macro(def: &MacroDef, args: &CallArgs, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandError> {
+fn apply_macro(
+    def: &MacroDef,
+    args: &CallArgs,
+    ctx: &ExpandContext<'_>,
+) -> Result<V2Expr, ExpandError> {
     let mut bindings = def.module_consts.clone();
     bindings.extend(ctx.module_consts.clone());
     for param in &def.params {
@@ -335,7 +352,9 @@ fn merge_dict_expr(left: &V2Expr, right: &V2Expr) -> Option<V2Expr> {
     };
     let mut merged = left_entries.clone();
     for (key, value) in right_entries {
-        if let Some((_, existing)) = merged.iter_mut().find(|(existing_key, _)| existing_key == key)
+        if let Some((_, existing)) = merged
+            .iter_mut()
+            .find(|(existing_key, _)| existing_key == key)
         {
             *existing = value.clone();
         } else {
@@ -345,7 +364,10 @@ fn merge_dict_expr(left: &V2Expr, right: &V2Expr) -> Option<V2Expr> {
     Some(V2Expr::Dict(merged))
 }
 
-fn eval_const_expr(expr: &V2Expr, consts: &BTreeMap<String, V2Expr>) -> Result<V2Expr, ExpandError> {
+fn eval_const_expr(
+    expr: &V2Expr,
+    consts: &BTreeMap<String, V2Expr>,
+) -> Result<V2Expr, ExpandError> {
     match expr {
         V2Expr::VarRef(name) => consts
             .get(name)
@@ -374,9 +396,8 @@ fn eval_const_expr(expr: &V2Expr, consts: &BTreeMap<String, V2Expr>) -> Result<V
         } => {
             let left = eval_const_expr(left, consts)?;
             let right = eval_const_expr(right, consts)?;
-            merge_dict_expr(&left, &right).ok_or_else(|| {
-                ExpandError::Expand("dict merge requires two dict literals".into())
-            })
+            merge_dict_expr(&left, &right)
+                .ok_or_else(|| ExpandError::Expand("dict merge requires two dict literals".into()))
         }
         other => Ok(other.clone()),
     }

@@ -30,17 +30,15 @@ pub async fn api_host_ops_reload(State(state): State<SharedState>) -> Response {
         if let Err(error) = begin_ops_job(&mut guard, "reload") {
             return ops_conflict(error);
         }
-        (
-            guard.ctx.workspace_root.clone(),
-            guard.ctx.app_id.clone(),
-        )
+        (guard.ctx.workspace_root.clone(), guard.ctx.app_id.clone())
     };
 
     let shell = state.clone();
-    let result = tokio::task::spawn_blocking(move || reload_pipeline(workspace.as_path(), app_id.as_str()))
-        .await
-        .map_err(|error| format!("reload task join failed: {error}"))
-        .and_then(|inner| inner.map_err(|error| error.to_string()));
+    let result =
+        tokio::task::spawn_blocking(move || reload_pipeline(workspace.as_path(), app_id.as_str()))
+            .await
+            .map_err(|error| format!("reload task join failed: {error}"))
+            .and_then(|inner| inner.map_err(|error| error.to_string()));
 
     match result {
         Ok(outcome) => {
@@ -89,10 +87,7 @@ pub async fn api_host_ops_prebuild(
         if let Err(error) = begin_ops_job(&mut guard, "prebuild") {
             return ops_conflict(error);
         }
-        (
-            guard.ctx.workspace_root.clone(),
-            guard.ctx.app_id.clone(),
-        )
+        (guard.ctx.workspace_root.clone(), guard.ctx.app_id.clone())
     };
     let app_id = body
         .app_id
@@ -107,7 +102,11 @@ pub async fn api_host_ops_prebuild(
     tokio::spawn(async move {
         let policy_for_task = policy;
         let result = tokio::task::spawn_blocking(move || {
-            prebuild_pipeline(workspace.as_path(), app_id.as_str(), policy_for_task.as_str())
+            prebuild_pipeline(
+                workspace.as_path(),
+                app_id.as_str(),
+                policy_for_task.as_str(),
+            )
         })
         .await
         .map_err(|error| format!("prebuild task join failed: {error}"))
@@ -137,11 +136,7 @@ pub async fn api_host_ops_prebuild(
 }
 
 fn ops_conflict(message: String) -> Response {
-    (
-        StatusCode::CONFLICT,
-        Json(json!({ "error": message })),
-    )
-        .into_response()
+    (StatusCode::CONFLICT, Json(json!({ "error": message }))).into_response()
 }
 
 fn ops_failed(kind: &str, error: String) -> Response {

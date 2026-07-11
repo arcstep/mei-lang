@@ -82,7 +82,11 @@ pub(crate) fn stock_tree_ready(path: &Path) -> bool {
             .is_some()
 }
 
-pub(crate) fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDirReport> {
+pub(crate) fn materialize_tree(
+    from: &Path,
+    to: &Path,
+    force: bool,
+) -> Result<MaterializeDirReport> {
     if !from.is_dir() {
         anyhow::bail!(
             "stock source `{}` is missing; ensure mei-lang ships stock/components and stock/templates",
@@ -108,10 +112,12 @@ pub(crate) fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<Ma
         }
         if dest.exists() && !force {
             let should_refresh = match (fs::metadata(src), fs::metadata(&dest)) {
-                (Ok(src_meta), Ok(dest_meta)) => match (src_meta.modified(), dest_meta.modified()) {
-                    (Ok(src_mtime), Ok(dest_mtime)) => src_mtime > dest_mtime,
-                    _ => false,
-                },
+                (Ok(src_meta), Ok(dest_meta)) => {
+                    match (src_meta.modified(), dest_meta.modified()) {
+                        (Ok(src_mtime), Ok(dest_mtime)) => src_mtime > dest_mtime,
+                        _ => false,
+                    }
+                }
                 _ => false,
             };
             if !should_refresh {

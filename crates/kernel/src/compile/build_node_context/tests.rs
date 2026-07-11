@@ -71,12 +71,9 @@ fn component_authoring_preview_panel_scope_targets_host_panel() {
     if !app_root.is_dir() || !example.is_file() {
         return;
     }
-    let home = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile hello home");
+    let home =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile hello home");
     let coord = crate::compile::build_experience::compile_coordinate_for_node(
         &BuildNodeId::component("chart.area"),
         &home,

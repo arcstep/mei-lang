@@ -166,7 +166,9 @@ pub fn materialize_scope_after_compile(
     if let Err(error) = patch_prebuild_compile_index_entry(source_root, app_id, &scope, &shared) {
         tracing::warn!(target: "mei.scoped_build", app_id = %app_id, error = %error, "patch scoped compile index failed");
     }
-    if let Err(error) = crate::prebuild_fingerprint::bump_scoped_prebuild_timestamp(source_root, app_id) {
+    if let Err(error) =
+        crate::prebuild_fingerprint::bump_scoped_prebuild_timestamp(source_root, app_id)
+    {
         tracing::warn!(target: "mei.scoped_build", app_id = %app_id, error = %error, "scoped prebuild fingerprint bump failed");
     }
 

@@ -61,7 +61,11 @@ pub(crate) fn artifact_scene_context_for_resource(
                 .iter()
                 .any(|route| route.target_file == *key)
         })
-        .or_else(|| Some(mei_lang_kernel::canonical_app_source_rel_path(target_file.as_str())));
+        .or_else(|| {
+            Some(mei_lang_kernel::canonical_app_source_rel_path(
+                target_file.as_str(),
+            ))
+        });
     (scene_id, scene_path)
 }
 
@@ -80,7 +84,11 @@ pub(crate) fn request_metric_scope_token(metric_ids: &[String]) -> String {
     }
 }
 
-pub(crate) fn logical_metric_workset_id(app_id: &str, owner_resource_id: &str, metric_ids: &[String]) -> String {
+pub(crate) fn logical_metric_workset_id(
+    app_id: &str,
+    owner_resource_id: &str,
+    metric_ids: &[String],
+) -> String {
     format!(
         "workset|app={app_id}|owner={owner_resource_id}|metrics={}",
         request_metric_scope_token(metric_ids)
@@ -112,4 +120,3 @@ pub(crate) fn materialization_identity(
         "{logical_node_id}|scope={scope_id}|dependency={dependency_revision_key}|compile={compile_revision}"
     )
 }
-

@@ -1,12 +1,7 @@
 use super::prelude::*;
 use super::*;
 
-fn prebuild_timed_step<T, F>(
-    source_root: &Path,
-    phase: &str,
-    detail: &str,
-    step: F,
-) -> Result<T>
+fn prebuild_timed_step<T, F>(source_root: &Path, phase: &str, detail: &str, step: F) -> Result<T>
 where
     F: FnOnce() -> Result<T>,
 {
@@ -16,9 +11,7 @@ where
     let ms = started.elapsed().as_millis();
     match &result {
         Ok(_) => prebuild_emit_notice(format!("✓ {phase} | {detail} | {ms}ms")),
-        Err(error) => prebuild_emit_notice(format!(
-            "✗ {phase} | {detail} | {ms}ms | {error:#}"
-        )),
+        Err(error) => prebuild_emit_notice(format!("✗ {phase} | {detail} | {ms}ms | {error:#}")),
     }
     result
 }
@@ -26,20 +19,29 @@ where
 pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<PrebuildReport> {
     std::env::set_var("MEI_PREBUILD_ACTIVE", "1");
     if let Ok(package_root) = crate::cli::util::resolve_package_root() {
-        prebuild_timed_step(source_root, "stock_materialize", "检查/同步 platform stock", || {
-            mei_lang_toolchain::ensure_workspace_stock_materialized(
-                source_root,
-                package_root.as_path(),
-            )
-            .map(|_| ())
-            .map_err(Into::into)
-        })?;
-        prebuild_timed_step(source_root, "stock_doctor", "workspace stock 一致性检查", || {
-            if let Ok(doctor) =
-                mei_lang_toolchain::doctor_workspace_stock(source_root, package_root.as_path())
-            {
-                if !doctor.ok {
-                    tracing::warn!(
+        prebuild_timed_step(
+            source_root,
+            "stock_materialize",
+            "检查/同步 platform stock",
+            || {
+                mei_lang_toolchain::ensure_workspace_stock_materialized(
+                    source_root,
+                    package_root.as_path(),
+                )
+                .map(|_| ())
+                .map_err(Into::into)
+            },
+        )?;
+        prebuild_timed_step(
+            source_root,
+            "stock_doctor",
+            "workspace stock 一致性检查",
+            || {
+                if let Ok(doctor) =
+                    mei_lang_toolchain::doctor_workspace_stock(source_root, package_root.as_path())
+                {
+                    if !doctor.ok {
+                        tracing::warn!(
                         missing_trees = doctor.missing_trees.len(),
                         orphan_paths = doctor.orphan_paths.len(),
                         manifest_drift = doctor.manifest_drift.len(),
@@ -47,7 +49,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                         catalog_app_drift = doctor.catalog_app_drift.len(),
                         "workspace stock doctor reported issues before prebuild (run `mei-toolchain workspace stock doctor` for details)"
                     );
-                    prebuild_emit_notice(format!(
+                        prebuild_emit_notice(format!(
                         "stock doctor: missing_trees={} orphan_paths={} manifest_drift={} missing_previews={} catalog_drift={}",
                         doctor.missing_trees.len(),
                         doctor.orphan_paths.len(),
@@ -55,10 +57,11 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                         doctor.missing_component_previews.len(),
                         doctor.catalog_app_drift.len(),
                     ));
+                    }
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
     }
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
@@ -201,7 +204,8 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             .collect::<Vec<_>>()
             .join(", ")
     ));
-    let prebuild_app_ids: Vec<String> = manifest.apps.iter().map(|app| app.app_id.clone()).collect();
+    let prebuild_app_ids: Vec<String> =
+        manifest.apps.iter().map(|app| app.app_id.clone()).collect();
     let build_generation = Arc::new(if options.mode == PrebuildMode::Build {
         Some(prebuild_timed_step(
             source_root,
@@ -264,10 +268,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     }
     report.diagnostics = aggregate_prebuild_diagnostics(report.apps.as_slice());
     report.total_wall_ms = started.elapsed().as_millis() as u64;
-    if report.ok
-        && options.mode == PrebuildMode::Build
-        && options.app_filter.is_none()
-    {
+    if report.ok && options.mode == PrebuildMode::Build && options.app_filter.is_none() {
         let total_missing = report
             .apps
             .iter()
@@ -405,11 +406,7 @@ fn resolve_clean_app_ids(source_root: &Path, app_filter: Option<&str>) -> Result
     }
     if let Some(manifest) = resolve_runtime_warmup_manifest(source_root)? {
         if !manifest.apps.is_empty() {
-            return Ok(manifest
-                .apps
-                .iter()
-                .map(|app| app.app_id.clone())
-                .collect());
+            return Ok(manifest.apps.iter().map(|app| app.app_id.clone()).collect());
         }
     }
     Ok(mei_lang_kernel::discover_apps(source_root)?
@@ -500,7 +497,8 @@ pub fn recent_ok_prebuild_report(
 }
 
 pub fn load_prebuild_report(source_root: &Path) -> Result<Option<PrebuildReport>> {
-    let path = mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("prebuild-last.json");
+    let path =
+        mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("prebuild-last.json");
     if !path.is_file() {
         return Ok(None);
     }
@@ -581,8 +579,8 @@ pub(crate) fn merge_coverage(target: &mut PrebuildCoverageReport, delta: &Prebui
     target.metric_response_artifacts_planned += delta.metric_response_artifacts_planned;
     target.metric_response_artifacts_ready += delta.metric_response_artifacts_ready;
     target.metric_response_artifacts_built += delta.metric_response_artifacts_built;
-    target.metric_response_artifacts_skipped_bundle_unchanged += delta
-        .metric_response_artifacts_skipped_bundle_unchanged;
+    target.metric_response_artifacts_skipped_bundle_unchanged +=
+        delta.metric_response_artifacts_skipped_bundle_unchanged;
     target.metric_response_artifacts_missing += delta.metric_response_artifacts_missing;
     target.metric_dataframe_artifacts_planned += delta.metric_dataframe_artifacts_planned;
     target.metric_dataframe_artifacts_ready += delta.metric_dataframe_artifacts_ready;
@@ -610,4 +608,3 @@ pub(crate) fn finalize_coverage_report(coverage: &mut PrebuildCoverageReport) {
         .saturating_add(coverage.metric_response_artifacts_missing)
         .saturating_add(coverage.metric_dataframe_artifacts_missing);
 }
-

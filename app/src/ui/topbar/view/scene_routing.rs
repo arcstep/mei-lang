@@ -4,7 +4,6 @@ use crate::ui::manage_routing::encode_query_value;
 use crate::ui::route::UiRouteMode;
 use crate::ui::{HostAccountView, HostCapabilities};
 
-
 pub(super) fn exported_scene_by_id<'a>(
     routes: &'a [CompiledSceneRoute],
     scene_id: Option<&str>,
@@ -87,11 +86,7 @@ pub(super) fn auth_surface_tabs_visible(
     } else {
         HostCapabilities::auth_disabled()
     };
-    (
-        caps.config_upload,
-        caps.build_view,
-        caps.config_upload,
-    )
+    (caps.config_upload, caps.build_view, caps.config_upload)
 }
 
 #[allow(dead_code)]

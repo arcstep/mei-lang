@@ -391,11 +391,11 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
     let warning_id = table
         .rows
         .first()
-    .and_then(|row| row.get("warning_id"))
-    .and_then(|v| v.as_str())
-    .map(str::trim)
-    .filter(|v| !v.is_empty())
-    .expect("warning_id sample");
+        .and_then(|row| row.get("warning_id"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .expect("warning_id sample");
     let mut filters = BTreeMap::new();
     filters.insert("预警ID".to_string(), warning_id.to_string());
     let detail = query_metric_dataframe(

@@ -4,9 +4,7 @@ use mei_lang_kernel::resolve_app_root;
 
 use crate::graph::content_store::{self, METRIC_DATAFRAME, METRIC_RESPONSE};
 use crate::graph::feature::graph_registry_dedup_enabled;
-use crate::graph::mrg::registry::{
-    MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord,
-};
+use crate::graph::mrg::registry::{MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord};
 use crate::graph::mrg::slot_revision::compute_slot_revision;
 use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 
@@ -44,11 +42,7 @@ fn record_mrg_slot(
         owner_resource_id: owner_resource_id.to_string(),
         metric_def_bundle_revision: metric_def_bundle_revision.to_string(),
         data_source_revision: data_source_revision.to_string(),
-        payload_ref: Some(PayloadRef::new(
-            payload_kind,
-            content_hash,
-            schema_version,
-        )),
+        payload_ref: Some(PayloadRef::new(payload_kind, content_hash, schema_version)),
         cache_policy: "artifact_sealed".to_string(),
         eval_engine: "json_walk".to_string(),
         last_eval: Some(MrgLastEval {

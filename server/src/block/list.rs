@@ -7,11 +7,7 @@ use crate::graph::types::MaterialState;
 
 use super::types::{BlockListEntry, BlockListReport};
 
-pub fn block_list(
-    source_root: &Path,
-    app_id: &str,
-    states: &[&str],
-) -> Result<BlockListReport> {
+pub fn block_list(source_root: &Path, app_id: &str, states: &[&str]) -> Result<BlockListReport> {
     let mrg = load_mrg_registry(source_root, app_id);
     let want_all = states.is_empty();
     let mut blocks = Vec::new();

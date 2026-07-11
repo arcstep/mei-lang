@@ -1,4 +1,4 @@
-use crate::model::{Diagnostic, UiNodeDecl, Severity};
+use crate::model::{Diagnostic, Severity, UiNodeDecl};
 
 use super::constants::{
     LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,

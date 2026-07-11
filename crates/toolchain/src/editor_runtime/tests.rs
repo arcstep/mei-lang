@@ -5,7 +5,7 @@ mod tests {
     use mei_lang_kernel::{RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL};
 
     use super::prelude::*;
-use super::*;
+    use super::*;
 
     fn temp_workspace_root(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -104,11 +104,9 @@ use super::*;
         assert!(report.installed);
         assert!(report.installed_now);
         assert!(report.file_count > 0);
-        assert!(
-            workspace_root
-                .join("runtime/platform/skills/meilang-author/SKILL.md")
-                .is_file()
-        );
+        assert!(workspace_root
+            .join("runtime/platform/skills/meilang-author/SKILL.md")
+            .is_file());
         let again = ensure_workspace_author_skill_package(&workspace_root, &package_root)
             .expect("ensure author skill again");
         assert!(again.installed);

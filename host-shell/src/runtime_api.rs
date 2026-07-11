@@ -165,7 +165,8 @@ fn resolve_activation_hops(ctx: &mei_host_core::HostContext, requested: Option<u
     if let Some(hops) = requested {
         return hops.max(1);
     }
-    let config = load_mei_config_for_app(ctx.app_root().as_path(), Some(ctx.workspace_root.as_path()));
+    let config =
+        load_mei_config_for_app(ctx.app_root().as_path(), Some(ctx.workspace_root.as_path()));
     let hops = config
         .runtime
         .client_bootstrap

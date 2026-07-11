@@ -5,9 +5,7 @@ use std::sync::Once;
 
 use mei_host_core::HostContext;
 use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions};
-use mei_lang_kernel::{
-    compile_app_from_root_with_options, CompileOptions, UiNodeDecl, UiTreeNode,
-};
+use mei_lang_kernel::{compile_app_from_root_with_options, CompileOptions, UiNodeDecl, UiTreeNode};
 
 static V2_INIT: Once = Once::new();
 
@@ -28,8 +26,7 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_v2_imported() {
     V2_INIT.call_once(|| {
         let workspace = ws_demo_v2();
-        let bundle = workspace
-            .join("apps/data-demo/build/active/exchange/data-demo.meibundle");
+        let bundle = workspace.join("apps/data-demo/build/active/exchange/data-demo.meibundle");
         assert!(bundle.is_file(), "run mei-compiler for ws-demo-v2 first");
         let ctx = HostContext::new(workspace, "data-demo");
         import_bundle(
@@ -98,18 +95,15 @@ fn home_v2_matches_v1_component_shape() {
     .expect("v1 compile home");
     let v1_contract = v1.scene_contract.as_ref().expect("v1 contract");
 
-    assert_eq!(v1_contract.panels.len(), v2_contract.panels.len(), "top-level panel count");
+    assert_eq!(
+        v1_contract.panels.len(),
+        v2_contract.panels.len(),
+        "top-level panel count"
+    );
     let v1_keys = collect_use_keys(&v1_contract.panels);
     let v2_keys = collect_use_keys(&v2_contract.panels);
-    for key in [
-        "cockpit.header-brand",
-        "cockpit.data-table",
-        "mei.text",
-    ] {
-        assert!(
-            v1_keys.iter().any(|k| k == key),
-            "v1 home missing {key}"
-        );
+    for key in ["cockpit.header-brand", "cockpit.data-table", "mei.text"] {
+        assert!(v1_keys.iter().any(|k| k == key), "v1 home missing {key}");
         assert!(
             v2_keys.iter().any(|k| k == key),
             "v2 home missing {key}; got {v2_keys:?}"
@@ -156,12 +150,18 @@ fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
     });
     let card = card.expect("supervision_items_card");
     assert_eq!(
-        v2.compiled.scene_contract.as_ref().and_then(|c| c.scene.theme.as_deref()),
+        v2.compiled
+            .scene_contract
+            .as_ref()
+            .and_then(|c| c.scene.theme.as_deref()),
         Some("cockpit"),
         "home scene should use cockpit theme for metric/table chrome"
     );
     assert!(
-        card.props.get("__mei_metric_card").and_then(|v| v.as_bool()) == Some(true),
+        card.props
+            .get("__mei_metric_card")
+            .and_then(|v| v.as_bool())
+            == Some(true),
         "solid_stack card props: {:?}",
         card.props
     );
@@ -229,8 +229,7 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
         "popup should be resolved, got {popup}"
     );
     assert!(
-        popup.get("scene_id").and_then(|v| v.as_str())
-            == Some("supervision_items_analytics_board"),
+        popup.get("scene_id").and_then(|v| v.as_str()) == Some("supervision_items_analytics_board"),
         "unexpected popup {popup}"
     );
 }
@@ -260,7 +259,9 @@ fn home_v2_analytics_board_assemblies_include_projection_slots() {
             .unwrap_or_else(|| {
                 panic!(
                     "expected projection_slots for {scene_id}, assembly keys: {:?}",
-                    assembly.as_object().map(|map| map.keys().collect::<Vec<_>>())
+                    assembly
+                        .as_object()
+                        .map(|map| map.keys().collect::<Vec<_>>())
                 )
             });
         assert!(

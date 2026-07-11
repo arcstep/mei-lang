@@ -431,4 +431,3 @@ async fn presentation_route_renders_navigation_shell() {
 
     let _ = fs::remove_dir_all(&root);
 }
-

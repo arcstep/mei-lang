@@ -15,7 +15,7 @@ use crate::manifest_index::{
 use crate::view_artifact::{
     build_semantic_core_for_scene, layer_ref_from_manifest_entry, manifest_revision_digest,
     surface_revision_digest_from_manifest, ComposeRequest, LayerRef, SceneViewManifest,
-    SCENE_VIEW_MANIFEST_SCHEMA, StructureFullDocument,
+    StructureFullDocument, SCENE_VIEW_MANIFEST_SCHEMA,
 };
 
 fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
@@ -52,13 +52,13 @@ pub fn warm_manifest_index_for_scope(
         return Ok(index);
     }
 
-    let Some(outcome) = crate::assemble_scope_from_registry(workspace_root, app_id, scene_id)? else {
+    let Some(outcome) = crate::assemble_scope_from_registry(workspace_root, app_id, scene_id)?
+    else {
         anyhow::bail!("assemble unavailable for {app_id}/{scene_id}");
     };
     let compiled = &outcome.compiled;
 
-    let structure_key =
-        crate::structure_full_cache_key(&semantic_core, layout_rev.as_str());
+    let structure_key = crate::structure_full_cache_key(&semantic_core, layout_rev.as_str());
     let (_doc, structure_pref, _) = crate::structure_full_from_compiled(
         workspace_root,
         compiled,
@@ -79,8 +79,11 @@ pub fn warm_manifest_index_for_scope(
         encoding: Some("json".to_string()),
     };
 
-    let (theme_doc, _) =
-        crate::layer_overlay::ensure_theme_tokens_cached(workspace_root, app_id, layout_rev.as_str())?;
+    let (theme_doc, _) = crate::layer_overlay::ensure_theme_tokens_cached(
+        workspace_root,
+        app_id,
+        layout_rev.as_str(),
+    )?;
     let theme_key = crate::view_artifact::theme_tokens_cache_key(layout_rev.as_str());
     let theme_doc_value = json!({
         "artifact_id": theme_key,
@@ -105,8 +108,10 @@ pub fn warm_manifest_index_for_scope(
 
     let runtime_doc = crate::runtime_plans::runtime_plans_from_outcome(&outcome, workspace_root);
     let app_root = resolve_app_root(workspace_root, app_id);
-    let runtime_pref = crate::runtime_plans::persist_runtime_plans(app_root.as_path(), &runtime_doc)?;
-    let runtime_key = crate::runtime_plans::runtime_plans_cache_key(&semantic_core, layout_rev.as_str());
+    let runtime_pref =
+        crate::runtime_plans::persist_runtime_plans(app_root.as_path(), &runtime_doc)?;
+    let runtime_key =
+        crate::runtime_plans::runtime_plans_cache_key(&semantic_core, layout_rev.as_str());
     let runtime_bytes = serde_json::to_vec(&runtime_doc)?;
     crate::layer_store::store_layer(
         runtime_key.clone(),
@@ -240,11 +245,6 @@ pub fn warm_manifest_index_for_app(
     app_id: &str,
     scene_id: &str,
 ) -> Result<()> {
-    let _ = warm_manifest_index_for_scope(
-        workspace_root,
-        app_id,
-        scene_id,
-        DataMode::Eval,
-    )?;
+    let _ = warm_manifest_index_for_scope(workspace_root, app_id, scene_id, DataMode::Eval)?;
     Ok(())
 }

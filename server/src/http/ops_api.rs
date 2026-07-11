@@ -9,8 +9,7 @@ use axum::{
 use mei_lang_app::{scene_theme_style_for_theme_id, scene_viewport_theme_style};
 use mei_lang_kernel::{
     apply_ops_patch_with_journal, compile_app_from_root_with_options, decode_theme_ref_token,
-    journal_path, load_mei_config_for_app,
-    merge_theme_layout_draft_into_theme,
+    journal_path, load_mei_config_for_app, merge_theme_layout_draft_into_theme,
     ops_theme_layout_revision_digest, ops_themes_revision_digest,
     resolve_app_root as kernel_resolve_app_root, resolve_components_root,
     resolve_default_scene_from_root, resolve_mei_config_path, theme_layout_overlay_keys,
@@ -230,55 +229,54 @@ pub async fn ops_theme_style_get(
         ..Default::default()
     };
     let components_root = resolve_components_root(&state.source_root);
-    let (css_vars_style, theme_id) =
-        if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
-            &state,
-            &app_id,
-            &compile_options,
-            components_root.as_path(),
-            RuntimeAccessPolicies::default_for_access_host(),
-            mei_lang_app::UiRouteMode::App,
-        ) {
-            let outcome = compile_outcome_from_shared(resolution.outcome);
-            let theme_id = outcome
-                .compiled
-                .scene_contract
-                .as_ref()
-                .map(theme_id_from_scene_contract)
-                .unwrap_or_else(|| "page".to_string());
-            (
-                scene_viewport_theme_style(&outcome.compiled, Some(&config)),
-                theme_id,
-            )
-        } else if let Ok(compiled) =
-            compile_app_from_root_with_options(source_root, &app_root, compile_options)
-        {
-            let theme_id = compiled
-                .scene_contract
-                .as_ref()
-                .map(theme_id_from_scene_contract)
-                .unwrap_or_else(|| "page".to_string());
-            (
-                scene_viewport_theme_style(&compiled, Some(&config)),
-                theme_id,
-            )
-        } else if let Some(theme_id) = query
-            .theme_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            (
-                scene_theme_style_for_theme_id(theme_id, Some(&config)),
-                theme_id.to_string(),
-            )
-        } else {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "compile artifact missing and no themeId provided"})),
-            )
-                .into_response();
-        };
+    let (css_vars_style, theme_id) = if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
+        &state,
+        &app_id,
+        &compile_options,
+        components_root.as_path(),
+        RuntimeAccessPolicies::default_for_access_host(),
+        mei_lang_app::UiRouteMode::App,
+    ) {
+        let outcome = compile_outcome_from_shared(resolution.outcome);
+        let theme_id = outcome
+            .compiled
+            .scene_contract
+            .as_ref()
+            .map(theme_id_from_scene_contract)
+            .unwrap_or_else(|| "page".to_string());
+        (
+            scene_viewport_theme_style(&outcome.compiled, Some(&config)),
+            theme_id,
+        )
+    } else if let Ok(compiled) =
+        compile_app_from_root_with_options(source_root, &app_root, compile_options)
+    {
+        let theme_id = compiled
+            .scene_contract
+            .as_ref()
+            .map(theme_id_from_scene_contract)
+            .unwrap_or_else(|| "page".to_string());
+        (
+            scene_viewport_theme_style(&compiled, Some(&config)),
+            theme_id,
+        )
+    } else if let Some(theme_id) = query
+        .theme_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        (
+            scene_theme_style_for_theme_id(theme_id, Some(&config)),
+            theme_id.to_string(),
+        )
+    } else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "compile artifact missing and no themeId provided"})),
+        )
+            .into_response();
+    };
     let mut response = (
         StatusCode::OK,
         Json(OpsThemeStyleResponse {
@@ -289,23 +287,14 @@ pub async fn ops_theme_style_get(
     )
         .into_response();
     if let Ok(value) = HeaderValue::from_str(theme_revision_header.as_str()) {
-        response.headers_mut().insert(
-            HeaderName::from_static("x-mei-theme-revision"),
-            value,
-        );
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-theme-revision"), value);
     }
     response
 }
 
-
-
-
-
-
-
-fn theme_id_from_scene_contract(
-    contract: &mei_lang_kernel::SceneContract,
-) -> String {
+fn theme_id_from_scene_contract(contract: &mei_lang_kernel::SceneContract) -> String {
     contract
         .scene
         .theme

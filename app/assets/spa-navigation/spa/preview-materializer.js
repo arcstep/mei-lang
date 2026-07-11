@@ -471,13 +471,11 @@
       if (useKey !== "mei.text") return true;
       const props = mount?.props && typeof mount.props === "object" ? mount.props : {};
       if (String(props.metric_role || props.metricRole || "").trim()) return true;
-      // Authored plain-text leaves (`…/area/mei.text`) carry string content and
-      // must not be dropped — metric_role is only required inside metric cards.
-      const scope = String(scopeKey || "").trim().toLowerCase();
-      if (scope.endsWith("/mei.text") && !isDuplicateMetricCardLeafScope(scope)) {
-        return typeof props.content === "string" && props.content.trim().length > 0;
-      }
-      return false;
+      // Authored plain-text leaves carry string content (metric cards use object
+      // content + metric_role). Keep them under classic `…/area/mei.text` scopes
+      // and duplicate-segment leaves like `…/chart/chart`.
+      if (isDuplicateMetricCardLeafScope(scopeKey)) return false;
+      return typeof props.content === "string" && props.content.trim().length > 0;
     });
   }
 

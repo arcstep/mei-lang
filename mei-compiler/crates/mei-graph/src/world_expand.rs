@@ -21,7 +21,10 @@ pub struct WorldContextCatalog {
 impl WorldContextCatalog {
     pub fn load_from_app(app_root: &Path) -> Self {
         let mut out = Self::default();
-        for dir in [app_root.join("src/context"), app_root.join("assets/context")] {
+        for dir in [
+            app_root.join("src/context"),
+            app_root.join("assets/context"),
+        ] {
             if !dir.is_dir() {
                 continue;
             }
@@ -67,7 +70,10 @@ pub fn expand_world_v2_file(
     Ok(V2SourceFile { items })
 }
 
-fn expand_world_item(item: &V2Item, catalog: &WorldContextCatalog) -> Result<V2Item, WorldExpandError> {
+fn expand_world_item(
+    item: &V2Item,
+    catalog: &WorldContextCatalog,
+) -> Result<V2Item, WorldExpandError> {
     match item {
         V2Item::TopLevel { name, args } if name == "world" => Ok(V2Item::TopLevel {
             name: name.clone(),
@@ -96,7 +102,10 @@ fn expand_world_call_args(
             )));
         }
     }
-    Ok(CallArgs { positional, keywords })
+    Ok(CallArgs {
+        positional,
+        keywords,
+    })
 }
 
 fn expand_world_expr(

@@ -110,10 +110,12 @@ fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDi
         }
         if dest.exists() && !force {
             let should_refresh = match (fs::metadata(src), fs::metadata(&dest)) {
-                (Ok(src_meta), Ok(dest_meta)) => match (src_meta.modified(), dest_meta.modified()) {
-                    (Ok(src_mtime), Ok(dest_mtime)) => src_mtime > dest_mtime,
-                    _ => false,
-                },
+                (Ok(src_meta), Ok(dest_meta)) => {
+                    match (src_meta.modified(), dest_meta.modified()) {
+                        (Ok(src_mtime), Ok(dest_mtime)) => src_mtime > dest_mtime,
+                        _ => false,
+                    }
+                }
                 _ => false,
             };
             if !should_refresh {

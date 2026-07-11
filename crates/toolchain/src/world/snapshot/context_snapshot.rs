@@ -3,10 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::types::{
-    WorldContextSnapshot,
-    WorldRuntimeSummary, WorldScope, WorldSnapshotSummary,
-};
+use crate::types::{WorldContextSnapshot, WorldRuntimeSummary, WorldScope, WorldSnapshotSummary};
 
 use super::super::bundle::load_world_runtime_bundle;
 use super::super::inventory::build_resource_inventory;

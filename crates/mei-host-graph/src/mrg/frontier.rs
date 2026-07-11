@@ -241,10 +241,7 @@ fn append_section_children_for_regions(
         if scene.contains("/s-") {
             continue;
         }
-        let region_keys = [
-            format!("{}/{}", ctx.app_id, scene),
-            scene.clone(),
-        ];
+        let region_keys = [format!("{}/{}", ctx.app_id, scene), scene.clone()];
         for node in registry.nodes.iter() {
             if !region_keys.iter().any(|key| node.id.key == *key) {
                 continue;
@@ -592,7 +589,10 @@ fn registry_scope_key_from_reference(raw: &str) -> Option<String> {
         .split_once('@')
         .map(|(_, tail)| tail)
         .unwrap_or(trimmed);
-    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    let segments: Vec<&str> = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     if segments.len() < 2 || segments[1] != "home" {
         return None;
     }

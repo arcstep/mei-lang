@@ -77,10 +77,9 @@ pub(crate) fn build_topbar_menu_groups(
 
         if let Some(cfg) = config {
             for group in cfg.groups.iter() {
-                group_overrides.entry(group.id.clone()).or_insert((
-                    group.label.clone(),
-                    group.order.unwrap_or(i32::MAX / 2),
-                ));
+                group_overrides
+                    .entry(group.id.clone())
+                    .or_insert((group.label.clone(), group.order.unwrap_or(i32::MAX / 2)));
             }
         }
         let item_overrides = config
@@ -267,7 +266,9 @@ fn infer_order_from_label(label: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::{TopbarMenuConfig, TopbarMenuConfigGroup, TopbarMenuConfigItem, TopbarMenuContext};
+    use crate::ui::{
+        TopbarMenuConfig, TopbarMenuConfigGroup, TopbarMenuConfigItem, TopbarMenuContext,
+    };
 
     #[test]
     fn single_segment_apps_without_aggregate_group_land_in_misc() {

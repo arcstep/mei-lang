@@ -86,7 +86,10 @@ fn panel_card_layout_style_applies_heading_height_only_for_head_slot_layouts() {
             "height": "54px"
         }),
     );
-    assert!(style.contains("grid-template-rows:54px minmax(0, 1fr);") || style.contains("grid-template-rows:54px 1fr;"));
+    assert!(
+        style.contains("grid-template-rows:54px minmax(0, 1fr);")
+            || style.contains("grid-template-rows:54px 1fr;")
+    );
 }
 
 #[test]
@@ -128,4 +131,3 @@ fn block_style_uses_full_span_in_grid() {
         "grid-column:1 / -1;"
     );
 }
-

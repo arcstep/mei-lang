@@ -225,6 +225,9 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert_eq!(value["scope"], "home");
         assert_eq!(value["hops"], 1);
-        assert!(value.get("error").and_then(|error| error.as_str()).is_some());
+        assert!(value
+            .get("error")
+            .and_then(|error| error.as_str())
+            .is_some());
     }
 }

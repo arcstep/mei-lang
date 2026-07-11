@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use mei_lang_kernel::{resolve_app_root, resolve_app_registry_root};
+use mei_lang_kernel::{resolve_app_registry_root, resolve_app_root};
 
 use crate::config::{load_app_config, AppConfig};
 
@@ -41,10 +41,7 @@ impl HostContext {
     }
 }
 
-pub fn resolve_bundle_path(
-    ctx: &HostContext,
-    bundle: Option<&Path>,
-) -> PathBuf {
+pub fn resolve_bundle_path(ctx: &HostContext, bundle: Option<&Path>) -> PathBuf {
     bundle
         .map(Path::to_path_buf)
         .unwrap_or_else(|| ctx.bundle_path())

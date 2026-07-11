@@ -93,14 +93,8 @@ fn supervision_mini_home_scalar_rowset_respects_dataset_across_pages() {
             Vec::new(),
         )
         .unwrap_or_else(|error| panic!("{label} page2 query failed: {error}"));
-        assert!(
-            !page1.rows.is_empty(),
-            "{label} page1 should return rows"
-        );
-        assert!(
-            !page2.rows.is_empty(),
-            "{label} page2 should return rows"
-        );
+        assert!(!page1.rows.is_empty(), "{label} page1 should return rows");
+        assert!(!page2.rows.is_empty(), "{label} page2 should return rows");
         let col1 = first_column_name(&page1);
         let col2 = first_column_name(&page2);
         assert_eq!(

@@ -70,12 +70,8 @@ fn discovered_compile_scopes_expand_board_target_without_active_scene() {
         .into_iter()
         .map(|scope| scope.key())
         .collect::<BTreeSet<_>>();
-    assert!(discovered.contains(
-        "key_enterprises_analytics_board|scenes/01-elements.board.mei"
-    ));
-    assert!(discovered.contains(
-        "enforcement_units_analytics_board|scenes/01-elements.board.mei"
-    ));
+    assert!(discovered.contains("key_enterprises_analytics_board|scenes/01-elements.board.mei"));
+    assert!(discovered.contains("enforcement_units_analytics_board|scenes/01-elements.board.mei"));
 }
 
 #[test]
@@ -146,4 +142,3 @@ fn warmup_request_scope_uses_dataset_selector_target_when_focus_missing() {
         Some("scenes/10-地图.mei")
     );
 }
-

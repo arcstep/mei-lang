@@ -54,7 +54,10 @@ impl MrgNodeRecord {
         state: MaterialState,
     ) -> Self {
         Self::Navigation {
-            id: GraphNodeId::new(crate::graph::types::GraphNodeKind::Navigation, key.to_string()),
+            id: GraphNodeId::new(
+                crate::graph::types::GraphNodeKind::Navigation,
+                key.to_string(),
+            ),
             url: url.to_string(),
             scene_id: scene_id.to_string(),
             target_file: target_file.to_string(),
@@ -211,10 +214,7 @@ where
         .collect())
 }
 
-pub fn serialize_mrg_nodes<S>(
-    nodes: &[MrgNodeRecord],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+pub fn serialize_mrg_nodes<S>(nodes: &[MrgNodeRecord], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {

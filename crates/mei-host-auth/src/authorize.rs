@@ -239,8 +239,8 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
             }
         }
         let route_allowed = match mode.as_str() {
-            "app" | "access" | "access-only" | "run" | "presentation" | "slides"
-            | "copilot" | "speaker" => caps.access_view,
+            "app" | "access" | "access-only" | "run" | "presentation" | "slides" | "copilot"
+            | "speaker" => caps.access_view,
             "upload" | "config" => caps.config_upload,
             "build" | "manage" | "runtime" => caps.build_view,
             _ => false,
@@ -279,9 +279,7 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
         return Ok(());
     }
-    if path.starts_with("/api/ops/boundary")
-        || path.starts_with("/api/ops/journal/")
-    {
+    if path.starts_with("/api/ops/boundary") || path.starts_with("/api/ops/journal/") {
         if !caps.access_view {
             anyhow::bail!("current role cannot access ops read api");
         }
@@ -371,7 +369,9 @@ fn format_auth_not_ready_message(
             "  printf '%s' 'YourPwd1!complex' | {cli_hint} auth bootstrap-users --workspace {root} --default-password-stdin"
         ));
         lines.push("或生成随机临时密码（仅当次输出，适合首次部署）：".to_string());
-        lines.push(format!("  {cli_hint} auth bootstrap-users --workspace {root} --json"));
+        lines.push(format!(
+            "  {cli_hint} auth bootstrap-users --workspace {root} --json"
+        ));
         lines.push("仅新增单个用户：".to_string());
         lines.push(format!(
             "  printf '%s' 'YourPwd1!complex' | {cli_hint} auth add-user --workspace {root} --username guest01 --role guest --password-stdin"

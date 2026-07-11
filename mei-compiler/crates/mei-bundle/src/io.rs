@@ -67,12 +67,7 @@ pub fn write_bundle(
     emit_debug_sidecar: bool,
 ) -> Result<BundleStats, WriteBundleError> {
     let compiled_at_ms = current_time_ms();
-    let manifest = build_manifest(
-        exchange,
-        workspace_digest,
-        compiler_version,
-        compiled_at_ms,
-    );
+    let manifest = build_manifest(exchange, workspace_digest, compiler_version, compiled_at_ms);
     let blocks_json = blocks_json_compact(&exchange.blocks)?;
     let blocks_zstd = zstd_compress(&blocks_json)?;
 
@@ -127,7 +122,10 @@ pub fn write_bundle_from_outcome(
 }
 
 /// Write human-readable compile blocks next to `.meibundle` for source→artifact debugging.
-pub fn write_debug_sidecar(bundle_path: &Path, blocks: &[GraphBlock]) -> Result<(), WriteBundleError> {
+pub fn write_debug_sidecar(
+    bundle_path: &Path,
+    blocks: &[GraphBlock],
+) -> Result<(), WriteBundleError> {
     let file_name = bundle_path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -147,9 +145,9 @@ pub fn read_bundle(path: &Path) -> Result<(MeiBundleManifest, Vec<GraphBlock>), 
 
     let mut manifest_raw = Vec::new();
     {
-        let mut manifest_file = archive.by_name(MANIFEST_PATH).map_err(|_| {
-            ReadBundleError::Invalid(format!("missing {MANIFEST_PATH} in bundle"))
-        })?;
+        let mut manifest_file = archive
+            .by_name(MANIFEST_PATH)
+            .map_err(|_| ReadBundleError::Invalid(format!("missing {MANIFEST_PATH} in bundle")))?;
         manifest_file.read_to_end(&mut manifest_raw)?;
     }
     let manifest: MeiBundleManifest = serde_json::from_slice(&manifest_raw)?;
@@ -169,9 +167,9 @@ pub fn read_bundle(path: &Path) -> Result<(MeiBundleManifest, Vec<GraphBlock>), 
 
     let mut zst_raw = Vec::new();
     {
-        let mut blocks_file = archive.by_name(&blocks_path).map_err(|_| {
-            ReadBundleError::Invalid(format!("missing {blocks_path} in bundle"))
-        })?;
+        let mut blocks_file = archive
+            .by_name(&blocks_path)
+            .map_err(|_| ReadBundleError::Invalid(format!("missing {blocks_path} in bundle")))?;
         blocks_file.read_to_end(&mut zst_raw)?;
     }
 

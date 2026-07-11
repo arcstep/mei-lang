@@ -97,7 +97,10 @@ pub fn parse_client_command_headers(
     kind: Option<&str>,
     label: Option<&str>,
 ) -> Option<ClientCommandContext> {
-    let id = id.map(str::trim).filter(|value| !value.is_empty())?.to_string();
+    let id = id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
     let kind = kind.map(str::trim).unwrap_or("CMD").to_string();
     let label = label
         .map(str::trim)

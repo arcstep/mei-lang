@@ -67,7 +67,10 @@ pub fn resolve_cargo_package_root(source_root: &std::path::Path) -> Result<PathB
         let candidate = PathBuf::from(raw.trim());
         if candidate.join("Cargo.toml").is_file() {
             return candidate.canonicalize().with_context(|| {
-                format!("failed to canonicalize MEI_LANG_ROOT {}", candidate.display())
+                format!(
+                    "failed to canonicalize MEI_LANG_ROOT {}",
+                    candidate.display()
+                )
             });
         }
     }
@@ -77,7 +80,10 @@ pub fn resolve_cargo_package_root(source_root: &std::path::Path) -> Result<PathB
         .map(|grand| grand.join("mei-lang"));
     if let Some(candidate) = sibling.filter(|path| path.join("Cargo.toml").is_file()) {
         return candidate.canonicalize().with_context(|| {
-            format!("failed to canonicalize mei-lang root {}", candidate.display())
+            format!(
+                "failed to canonicalize mei-lang root {}",
+                candidate.display()
+            )
         });
     }
     resolve_package_root()

@@ -1,11 +1,21 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 use crate::theme_tokens::is_literal_font_size;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct LayoutBudgetValidateOptions {
     pub strict_t1_fill_down: bool,
+    pub strict_t2_fill_down: bool,
+}
+
+impl Default for LayoutBudgetValidateOptions {
+    fn default() -> Self {
+        Self {
+            strict_t1_fill_down: true,
+            strict_t2_fill_down: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -36,6 +46,8 @@ pub fn validate_layout_budget_policy(
         &LayoutBudgetValidateOptions {
             // Phase 3: T1 forbids __mei_content_budget / row_budgets px path.
             strict_t1_fill_down: true,
+            // T2 defaults to the same policy; content-driven pages opt out in app config.
+            strict_t2_fill_down: true,
         },
     )
 }
@@ -55,11 +67,9 @@ pub fn validate_layout_budget_policy_with_options(
     let fill_descendants = collect_fill_down_descendant_ids(&flat);
     for panel in flat.iter() {
         let tier = panel_tier(panel);
-        let in_fill_down = fill_descendants.contains(panel.id.as_str()) || is_layout_fill_panel(panel);
-        let ctx = ValidateContext {
-            tier,
-            in_fill_down,
-        };
+        let in_fill_down =
+            fill_descendants.contains(panel.id.as_str()) || is_layout_fill_panel(panel);
+        let ctx = ValidateContext { tier, in_fill_down };
         validate_panel(panel, &panel_map, &ctx, diagnostics, source_path, options);
     }
 }
@@ -213,11 +223,7 @@ fn materialize_region_fr_rows_fill_only(
     if fr_weights.len() != rows.len() {
         return;
     }
-    let gap_px = layout
-        .gap
-        .as_deref()
-        .and_then(parse_px_str)
-        .unwrap_or(0.0);
+    let gap_px = layout.gap.as_deref().and_then(parse_px_str).unwrap_or(0.0);
     let gap_total = if section_ids.len() > 1 {
         gap_px * (section_ids.len() as f64 - 1.0)
     } else {
@@ -352,9 +358,7 @@ fn stamp_derived_recursive(
     }
 }
 
-fn collect_fill_section_ids(
-    panels: &[UiNodeDecl],
-) -> std::collections::HashSet<String> {
+fn collect_fill_section_ids(panels: &[UiNodeDecl]) -> std::collections::HashSet<String> {
     let mut flat = Vec::new();
     for panel in panels {
         collect_panels(panel, &mut flat);
@@ -376,13 +380,7 @@ fn materialize_regions_on_tree(
     source_path: &str,
 ) {
     for panel in panels.iter_mut() {
-        materialize_regions_recursive(
-            panel,
-            derived,
-            fill_section_ids,
-            diagnostics,
-            source_path,
-        );
+        materialize_regions_recursive(panel, derived, fill_section_ids, diagnostics, source_path);
     }
 }
 
@@ -394,13 +392,7 @@ fn materialize_regions_recursive(
     source_path: &str,
 ) {
     if ui_role(panel) == Some("region") {
-        materialize_region_fr_rows(
-            panel,
-            derived,
-            fill_section_ids,
-            diagnostics,
-            source_path,
-        );
+        materialize_region_fr_rows(panel, derived, fill_section_ids, diagnostics, source_path);
     }
     for node in panel.blocks.iter_mut() {
         if let UiTreeNode::Panel(child) = node {
@@ -516,12 +508,7 @@ fn track_is_fr_only(track: &str) -> bool {
     t.ends_with("fr") && t[..t.len().saturating_sub(2)].trim().parse::<f64>().is_ok()
 }
 
-fn push_error(
-    diagnostics: &mut Vec<Diagnostic>,
-    code: &str,
-    message: String,
-    source_path: &str,
-) {
+fn push_error(diagnostics: &mut Vec<Diagnostic>, code: &str, message: String, source_path: &str) {
     diagnostics.push(Diagnostic {
         severity: Severity::Error,
         code: code.to_string(),
@@ -541,6 +528,10 @@ fn panel_tier(panel: &UiNodeDecl) -> Option<String> {
 
 fn is_t1_tier(tier: Option<&str>) -> bool {
     tier == Some("t1")
+}
+
+fn is_t2_tier(tier: Option<&str>) -> bool {
+    tier == Some("t2")
 }
 
 fn is_author_px_height(height: &str) -> bool {
@@ -631,7 +622,8 @@ fn validate_panel(
             source_path,
         );
     }
-    if is_content_panel(panel) {
+    let content_fill_required = !is_t2_tier(tier.as_deref()) || options.strict_t2_fill_down;
+    if is_content_panel(panel) && content_fill_required {
         if !is_layout_fill_panel(panel) {
             push_error(
                 diagnostics,
@@ -662,7 +654,9 @@ fn validate_panel(
 
     if role == Some("section") {
         validate_section_content_link(panel, panel_map, diagnostics, source_path);
-        if is_t1_tier(tier.as_deref()) && options.strict_t1_fill_down {
+        let strict_fill_down = (is_t1_tier(tier.as_deref()) && options.strict_t1_fill_down)
+            || (is_t2_tier(tier.as_deref()) && options.strict_t2_fill_down);
+        if strict_fill_down {
             if let Some(body) = find_body_content_panel(panel, panel_map) {
                 if !is_layout_fill_panel(body) {
                     push_error(
@@ -724,8 +718,6 @@ fn section_body_uses_fill(
         .map(is_layout_fill_panel)
         .unwrap_or(false)
 }
-
-
 
 fn parse_px_str(s: &str) -> Option<f64> {
     let t = s.trim();
@@ -803,11 +795,7 @@ fn validate_slot_height_px(
     let Some(map) = panel.props.as_object() else {
         return;
     };
-    if map
-        .get("__mei_slot_frame_bg")
-        .and_then(Value::as_bool)
-        != Some(true)
-    {
+    if map.get("__mei_slot_frame_bg").and_then(Value::as_bool) != Some(true) {
         return;
     }
     if let Some(height) = map.get("height").and_then(Value::as_str) {
@@ -916,11 +904,7 @@ fn validate_slot_background(
     let Some(map) = panel.props.as_object() else {
         return;
     };
-    if map
-        .get("__mei_slot_frame_bg")
-        .and_then(Value::as_bool)
-        != Some(true)
-    {
+    if map.get("__mei_slot_frame_bg").and_then(Value::as_bool) != Some(true) {
         return;
     }
     let bg = map.get("background").and_then(Value::as_object);
@@ -1081,11 +1065,7 @@ fn materialize_region_fr_rows(
     if fr_weights.len() != rows.len() {
         return;
     }
-    let gap_px = layout
-        .gap
-        .as_deref()
-        .and_then(parse_px_str)
-        .unwrap_or(0.0);
+    let gap_px = layout.gap.as_deref().and_then(parse_px_str).unwrap_or(0.0);
     let gap_total = if section_ids.len() > 1 {
         gap_px * (section_ids.len() as f64 - 1.0)
     } else {

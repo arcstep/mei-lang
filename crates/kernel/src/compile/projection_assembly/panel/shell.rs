@@ -1,12 +1,14 @@
 use super::shell_zones::layout_decl_to_value;
-use super::{collect_scene_shell_zones, collect_top_level_layout_areas, dedupe_shell_zones_by_id, infer_scene_shell_layout_mode};
+use super::{
+    collect_scene_shell_zones, collect_top_level_layout_areas, dedupe_shell_zones_by_id,
+    infer_scene_shell_layout_mode,
+};
 
 use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
 use crate::model::SceneContract;
-
 
 pub(crate) fn scene_shell_contract_from_scene_contract(
     contract: &SceneContract,
@@ -193,4 +195,3 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             .is_some_and(|id| kept_ids.contains(id))
     });
 }
-

@@ -110,4 +110,3 @@ fn spbjw_warnings_count_sums_warning_entry_column() {
         "《11》预警ID去重后对「预警条数」求和应为 25 条，got {value}"
     );
 }
-

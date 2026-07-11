@@ -15,10 +15,7 @@ fn static_mode_metric_ref_returns_skeleton_and_ignores_patch() {
     let compiled = static_metric_fixture_compiled();
     let resource_map = build_runtime_resource_map(&compiled);
     let resource_index = build_runtime_resource_index(&compiled);
-    let scene_contract = compiled
-        .scene_contract
-        .clone()
-        .expect("scene contract");
+    let scene_contract = compiled.scene_contract.clone().expect("scene contract");
     let scene_anchor = RuntimeSceneAnchor {
         scene_id: "home".to_string(),
         scene_path: Some("scenes/home.mei".to_string()),
@@ -79,7 +76,10 @@ fn static_mode_metric_ref_returns_skeleton_and_ignores_patch() {
         "static mode metric_ref child must use skeleton value"
     );
     assert!(
-        with_patch.get("patch").and_then(|value| value.get("value")).is_none(),
+        with_patch
+            .get("patch")
+            .and_then(|value| value.get("value"))
+            .is_none(),
         "static mode must strip eval patch.value"
     );
 }

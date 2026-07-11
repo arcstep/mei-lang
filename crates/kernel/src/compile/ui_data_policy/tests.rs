@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{validate_imported_catalog_world_refs, validate_scene_ui_data_bindings};
 use crate::model::{
-    BlockDecl, LoadedResource, UiNodeDecl, SceneContract, SceneDecl, Severity, UiTreeNode,
+    BlockDecl, LoadedResource, SceneContract, SceneDecl, Severity, UiNodeDecl, UiTreeNode,
 };
 use serde_json::Value;
 

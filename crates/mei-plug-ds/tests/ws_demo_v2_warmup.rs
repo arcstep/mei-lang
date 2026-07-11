@@ -112,7 +112,8 @@ fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
         "second eval should hit in-memory metric response cache"
     );
 
-    let embed_status = mei_host_graph::bootstrap_embed_status(workspace.as_path(), "data-demo", "home");
+    let embed_status =
+        mei_host_graph::bootstrap_embed_status(workspace.as_path(), "data-demo", "home");
     assert!(
         embed_status.allowed,
         "home bootstrap embed should be allowed after warmup: {:?}",

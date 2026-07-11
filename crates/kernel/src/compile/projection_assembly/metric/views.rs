@@ -1,7 +1,10 @@
-use super::{build_slot_from_root, default_detail_entry, find_explain_block, lookup_metric_contract, lower_projection_slot, parse_metric_ref_id, slot_from_explain_block};
+use super::{
+    build_slot_from_root, default_detail_entry, find_explain_block, lookup_metric_contract,
+    lower_projection_slot, parse_metric_ref_id, slot_from_explain_block,
+};
 
-use std::borrow::Cow;
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 
 use crate::model::{Diagnostic, Severity};
 
@@ -303,4 +306,3 @@ fn resolve_view_source_to_slot(
     });
     None
 }
-

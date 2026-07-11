@@ -1,17 +1,12 @@
-use super::{insert_hydrated_link_projection_assembly_entry};
+use super::insert_hydrated_link_projection_assembly_entry;
 
-use std::{
-    collections::BTreeMap,
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use serde_json::Value;
 
 use crate::compile::entry_payload::compile_scene_payload_for_target_uncached;
 use crate::evaluate_mei_file;
-use crate::model::{
-    CompiledSceneRoute, ComponentAsset, Diagnostic, SceneContract, WorkspaceNode,
-};
+use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic, SceneContract, WorkspaceNode};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::super::scene::SceneRouteRegistry;

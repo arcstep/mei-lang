@@ -1,11 +1,8 @@
-use super::{dedupe_preserve_order};
+use super::dedupe_preserve_order;
 
 use serde_json::Value;
 
-use crate::model::{
-    BlockDecl, CompiledApp, UiNodeDecl,
-    UiTreeNode,
-};
+use crate::model::{BlockDecl, CompiledApp, UiNodeDecl, UiTreeNode};
 
 pub fn backing_refs_from_block_props(props: &Value) -> Vec<String> {
     let mut refs = Vec::new();
@@ -197,4 +194,3 @@ fn collect_backing_refs(value: &Value, out: &mut Vec<String>) {
         _ => {}
     }
 }
-

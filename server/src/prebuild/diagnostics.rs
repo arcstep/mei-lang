@@ -86,9 +86,7 @@ pub(crate) fn build_prebuild_diagnostics_report(
     let target_overlay_reuse_hits = diagnostics
         .compile_target_overlay_reuse_hits
         .load(Ordering::Relaxed);
-    let mcg_assemble_only_count = diagnostics
-        .mcg_assemble_only_count
-        .load(Ordering::Relaxed);
+    let mcg_assemble_only_count = diagnostics.mcg_assemble_only_count.load(Ordering::Relaxed);
     let session_peak_identity_entries = diagnostics
         .session_peak_identity_entries
         .load(Ordering::Relaxed);
@@ -101,7 +99,9 @@ pub(crate) fn build_prebuild_diagnostics_report(
     let orchestrator_peak_rss_bytes = peak_rss_bytes;
     let worker_peak_rss_bytes = diagnostics.worker_peak_rss_bytes.load(Ordering::Relaxed) as u64;
     let empty_binary_baseline_bytes = {
-        let baseline = diagnostics.empty_binary_baseline_bytes.load(Ordering::Relaxed) as u64;
+        let baseline = diagnostics
+            .empty_binary_baseline_bytes
+            .load(Ordering::Relaxed) as u64;
         if baseline > 0 {
             Some(baseline)
         } else {
@@ -250,7 +250,9 @@ pub(crate) fn build_prebuild_diagnostics_report(
     }
 }
 
-pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> PrebuildDiagnosticsReport {
+pub(crate) fn aggregate_prebuild_diagnostics(
+    apps: &[PrebuildAppReport],
+) -> PrebuildDiagnosticsReport {
     let mut aggregate = PrebuildDiagnosticsReport::default();
     let mut slow_scopes = Vec::new();
     let mut slow_metrics = Vec::new();
@@ -282,13 +284,15 @@ pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> Preb
         aggregate.worker_peak_rss_bytes = aggregate
             .worker_peak_rss_bytes
             .max(diagnostics.worker_peak_rss_bytes);
-        aggregate.empty_binary_baseline_bytes =
-            match (aggregate.empty_binary_baseline_bytes, diagnostics.empty_binary_baseline_bytes) {
-                (Some(left), Some(right)) => Some(left.min(right)),
-                (Some(left), None) => Some(left),
-                (None, Some(right)) => Some(right),
-                (None, None) => None,
-            };
+        aggregate.empty_binary_baseline_bytes = match (
+            aggregate.empty_binary_baseline_bytes,
+            diagnostics.empty_binary_baseline_bytes,
+        ) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (Some(left), None) => Some(left),
+            (None, Some(right)) => Some(right),
+            (None, None) => None,
+        };
         aggregate.rss_after_compile_bytes = max_optional_u64(
             aggregate.rss_after_compile_bytes,
             diagnostics.rss_after_compile_bytes,
@@ -333,12 +337,10 @@ pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> Preb
         aggregate.compile_index.mrg_eval_skips += diagnostics.compile_index.mrg_eval_skips;
         aggregate.compile_index.dataframe_eval_skips +=
             diagnostics.compile_index.dataframe_eval_skips;
-        aggregate.compile_index.target_overlay_reuse_hits += diagnostics
-            .compile_index
-            .target_overlay_reuse_hits;
-        aggregate.compile_index.mcg_assemble_only_count += diagnostics
-            .compile_index
-            .mcg_assemble_only_count;
+        aggregate.compile_index.target_overlay_reuse_hits +=
+            diagnostics.compile_index.target_overlay_reuse_hits;
+        aggregate.compile_index.mcg_assemble_only_count +=
+            diagnostics.compile_index.mcg_assemble_only_count;
         aggregate.assemble_only_count += diagnostics.assemble_only_count;
         aggregate.session_peak_identity_entries = aggregate
             .session_peak_identity_entries
@@ -428,4 +430,3 @@ fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
         (None, None) => None,
     }
 }
-

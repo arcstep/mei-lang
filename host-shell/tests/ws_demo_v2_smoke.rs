@@ -443,7 +443,9 @@ fn ws_demo_v2_scene_routes_include_graph_native_t2_boards() {
         .find(|route| route.scene_id == "enforcement_units_analytics_page")
         .expect("enforcement_units_analytics_page route");
     assert!(
-        enforcement.target_file.contains("c-enforcement-units-analytics/content.mei"),
+        enforcement
+            .target_file
+            .contains("c-enforcement-units-analytics/content.mei"),
         "unexpected target_file: {}",
         enforcement.target_file
     );
@@ -709,9 +711,9 @@ fn ws_demo_v2_presentation_map_viewpoints() {
         .and_then(|v| v.get("t0"))
         .and_then(|v| v.as_array())
         .and_then(|entries| {
-            entries.iter().find(|entry| {
-                entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")
-            })
+            entries
+                .iter()
+                .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage"))
         })
         .expect("layer_plan t0 map_stage");
     assert_eq!(
@@ -949,7 +951,9 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
     {
         assert_eq!(
             viewport_canvas.get("zIndex").and_then(|v| v.as_i64()),
-            Some(mei_host_graph::default_z_index_for_tier(mei_host_graph::TIER_T0)),
+            Some(mei_host_graph::default_z_index_for_tier(
+                mei_host_graph::TIER_T0
+            )),
             "viewport_canvas should be first T0 panel (z=1)"
         );
         assert_eq!(
@@ -1033,10 +1037,22 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
     let point_one = viewpoints
         .get("park_point_1_entry")
         .expect("park_point_1_entry viewpoint");
-    assert_eq!(point_one.get("panelId").and_then(|v| v.as_str()), Some("basemap"));
-    assert_eq!(point_one.get("viewFamily").and_then(|v| v.as_str()), Some("map"));
-    assert_eq!(point_one.get("stageKind").and_then(|v| v.as_str()), Some("map-stage"));
-    assert_eq!(point_one.get("worldRef").and_then(|v| v.as_str()), Some("park_world"));
+    assert_eq!(
+        point_one.get("panelId").and_then(|v| v.as_str()),
+        Some("basemap")
+    );
+    assert_eq!(
+        point_one.get("viewFamily").and_then(|v| v.as_str()),
+        Some("map")
+    );
+    assert_eq!(
+        point_one.get("stageKind").and_then(|v| v.as_str()),
+        Some("map-stage")
+    );
+    assert_eq!(
+        point_one.get("worldRef").and_then(|v| v.as_str()),
+        Some("park_world")
+    );
     assert_eq!(
         point_one.get("entityId").and_then(|v| v.as_str()),
         Some("lake_pavilion")
@@ -1135,8 +1151,8 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
 
 #[test]
 fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
-    let presentation = ws_demo_v2_root()
-        .join("apps/mini-park/src/presentation/intro.presentation.json");
+    let presentation =
+        ws_demo_v2_root().join("apps/mini-park/src/presentation/intro.presentation.json");
     if !presentation.is_file() {
         return;
     }
@@ -1156,15 +1172,21 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
         })
         .collect::<Vec<_>>();
     assert!(
-        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("camera_move")),
+        all_actions
+            .iter()
+            .any(|action| action.get("type").and_then(|v| v.as_str()) == Some("camera_move")),
         "mini-park presentation should emit camera_move action"
     );
     assert!(
-        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("focus_entity")),
+        all_actions
+            .iter()
+            .any(|action| action.get("type").and_then(|v| v.as_str()) == Some("focus_entity")),
         "mini-park presentation should emit focus_entity action"
     );
     assert!(
-        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("show_group")),
+        all_actions
+            .iter()
+            .any(|action| action.get("type").and_then(|v| v.as_str()) == Some("show_group")),
         "mini-park presentation should emit show_group action"
     );
     assert!(
@@ -1174,11 +1196,15 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
         "mini-park presentation should emit enter_world_view action"
     );
     assert!(
-        steps.iter().any(|step| step.get("id").and_then(|v| v.as_str()) == Some("enter_lake_pavilion_world")),
+        steps.iter().any(
+            |step| step.get("id").and_then(|v| v.as_str()) == Some("enter_lake_pavilion_world")
+        ),
         "mini-park presentation should include enter_lake_pavilion_world step"
     );
     assert!(
-        steps.iter().any(|step| step.get("id").and_then(|v| v.as_str()) == Some("dual_view_bridge")),
+        steps
+            .iter()
+            .any(|step| step.get("id").and_then(|v| v.as_str()) == Some("dual_view_bridge")),
         "mini-park presentation should include dual_view_bridge step"
     );
 }
@@ -1231,9 +1257,9 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
         .and_then(|v| v.as_array())
         .expect("park_world viewLayers");
     assert!(
-        view_layers.iter().any(|layer| {
-            layer.get("id").and_then(|v| v.as_str()) == Some("play")
-        }),
+        view_layers
+            .iter()
+            .any(|layer| { layer.get("id").and_then(|v| v.as_str()) == Some("play") }),
         "park_world viewLayers should include play layer"
     );
     let projections = home_outcome
@@ -1285,14 +1311,17 @@ fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() 
     if !bundle.is_file() {
         return;
     }
-    let identity_path = workspace.join("apps/mini-park/prototype/world/park-identity-map.fixture.json");
-    let bridge_path = workspace.join("apps/mini-park/prototype/world/park-dual-view-bridge.fixture.json");
+    let identity_path =
+        workspace.join("apps/mini-park/prototype/world/park-identity-map.fixture.json");
+    let bridge_path =
+        workspace.join("apps/mini-park/prototype/world/park-dual-view-bridge.fixture.json");
     if !identity_path.is_file() || !bridge_path.is_file() {
         return;
     }
-    let identity: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&identity_path).expect("read identity fixture"))
-            .expect("parse identity fixture");
+    let identity: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&identity_path).expect("read identity fixture"),
+    )
+    .expect("parse identity fixture");
     let bridge: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&bridge_path).expect("read bridge fixture"))
             .expect("parse bridge fixture");
@@ -1365,7 +1394,9 @@ fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() 
         .and_then(|v| v.as_array())
         .expect("home_2d t0 tier");
     assert!(
-        home_t0.iter().any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap")),
+        home_t0
+            .iter()
+            .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap")),
         "home t0 should include map basemap"
     );
     assert!(
@@ -1446,14 +1477,20 @@ fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let world_panel = find_panel_by_id(&contract.panels, "world_viewport")
-        .expect("world_viewport panel");
+    let world_panel =
+        find_panel_by_id(&contract.panels, "world_viewport").expect("world_viewport panel");
     assert_eq!(
-        world_panel.props.get("__mei_view_family").and_then(|v| v.as_str()),
+        world_panel
+            .props
+            .get("__mei_view_family")
+            .and_then(|v| v.as_str()),
         Some("world")
     );
     assert_eq!(
-        world_panel.props.get("__mei_stage_kind").and_then(|v| v.as_str()),
+        world_panel
+            .props
+            .get("__mei_stage_kind")
+            .and_then(|v| v.as_str()),
         Some("world-stage")
     );
     let mut world_targets_found = false;
@@ -1464,7 +1501,10 @@ fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
             }
         }
     }
-    assert!(world_targets_found, "cockpit.world-stage block should declare worldTargets");
+    assert!(
+        world_targets_found,
+        "cockpit.world-stage block should declare worldTargets"
+    );
 }
 
 #[test]
@@ -1495,7 +1535,11 @@ fn ws_demo_v2_home_assemble_populates_scene_examples_map() {
             .scene_examples_by_id
             .contains_key("enforcement_units_analytics_page"),
         "home assemble should index T2 board examples, keys={:?}",
-        outcome.compiled.scene_examples_by_id.keys().collect::<Vec<_>>()
+        outcome
+            .compiled
+            .scene_examples_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
 }
 

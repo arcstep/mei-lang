@@ -123,10 +123,7 @@ fn metric_contract_from_runtime_def(def: &Value, metric_id: &str) -> MetricContr
                                 .get("optional")
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
-                            unit: obj
-                                .get("unit")
-                                .and_then(Value::as_str)
-                                .map(str::to_string),
+                            unit: obj.get("unit").and_then(Value::as_str).map(str::to_string),
                         })
                     })
                     .collect()

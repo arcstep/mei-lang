@@ -427,7 +427,11 @@ pub struct PrebuildReportSummary {
     pub warning_summary: PrebuildWarningSummary,
     #[serde(skip_serializing_if = "Option::is_none", rename = "fullReportPath")]
     pub full_report_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "failedBlockHints")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "failedBlockHints"
+    )]
     pub failed_block_hints: Vec<String>,
     pub apps: Vec<PrebuildAppSummary>,
 }
@@ -538,4 +542,3 @@ impl PrebuildReport {
         }
     }
 }
-

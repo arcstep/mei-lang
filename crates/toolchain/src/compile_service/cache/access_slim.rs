@@ -11,14 +11,16 @@ pub fn access_slim_artifacts_enabled() -> bool {
 }
 
 pub fn access_slim_env_override_detected() -> Option<String> {
-    std::env::var(ACCESS_SLIM_ARTIFACTS_ENV).ok().and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
-            Some(format!("{ACCESS_SLIM_ARTIFACTS_ENV}={trimmed}"))
-        } else {
-            None
-        }
-    })
+    std::env::var(ACCESS_SLIM_ARTIFACTS_ENV)
+        .ok()
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
+                Some(format!("{ACCESS_SLIM_ARTIFACTS_ENV}={trimmed}"))
+            } else {
+                None
+            }
+        })
 }
 
 const CANONICAL_ARTIFACT_PERSIST_ENV: &str = "MEI_CANONICAL_ARTIFACT_PERSIST";
@@ -29,22 +31,27 @@ pub fn canonical_artifact_persist_enabled() -> bool {
 }
 
 pub fn canonical_artifact_persist_env_override_detected() -> Option<String> {
-    std::env::var(CANONICAL_ARTIFACT_PERSIST_ENV).ok().and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
-            Some(format!("{CANONICAL_ARTIFACT_PERSIST_ENV}={trimmed}"))
-        } else {
-            None
-        }
-    })
+    std::env::var(CANONICAL_ARTIFACT_PERSIST_ENV)
+        .ok()
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
+                Some(format!("{CANONICAL_ARTIFACT_PERSIST_ENV}={trimmed}"))
+            } else {
+                None
+            }
+        })
 }
 
 /// Collect locked-on env overrides for diagnostics `cache.envOverrides[]`.
 pub fn locked_cache_env_overrides() -> Vec<String> {
-    [access_slim_env_override_detected(), canonical_artifact_persist_env_override_detected()]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        access_slim_env_override_detected(),
+        canonical_artifact_persist_env_override_detected(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 pub fn slim_dataset_for_access(dataset: &mut DatasetView) {
@@ -205,9 +212,6 @@ mod tests {
             None,
             Some("scenes/01-执法要素.board.mei")
         ));
-        assert!(should_persist_compiled_app_artifact(
-            Some("home"),
-            None
-        ));
+        assert!(should_persist_compiled_app_artifact(Some("home"), None));
     }
 }

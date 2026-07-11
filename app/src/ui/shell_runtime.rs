@@ -1,7 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{
-    ReachabilityTreeNode, ReachabilityTreeRoot, WorkspaceAppMeta,
-};
+use mei_lang_kernel::{ReachabilityTreeNode, ReachabilityTreeRoot, WorkspaceAppMeta};
 
 use super::manage_routing::runtime_node_href;
 use super::route::UiRouteMode;
@@ -43,12 +41,8 @@ pub(crate) fn runtime_shell(
     let snapshot = runtime_snapshot_json.and_then(parse_runtime_snapshot);
     let selected = find_runtime_node(active_node_id, runtime_roots);
     let tree = runtime_observability_tree_view(runtime_roots, app_path, Some(active_node_id));
-    let overview_panel = runtime_overview_panel(
-        snapshot.as_ref(),
-        selected,
-        active_node_id,
-        app_path,
-    );
+    let overview_panel =
+        runtime_overview_panel(snapshot.as_ref(), selected, active_node_id, app_path);
     let node_json_panel = runtime_json_panel(
         "当前节点 JSON",
         "host-runtime-node-json",
@@ -90,10 +84,8 @@ pub(crate) fn runtime_shell(
         Some(ShellNavActive::Runtime),
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::Runtime.slug(), "", None);
-    let snapshot_json =
-        runtime_snapshot_json.unwrap_or("{}").to_string();
-    let roots_json =
-        serde_json::to_string(runtime_roots).unwrap_or_else(|_| "[]".to_string());
+    let snapshot_json = runtime_snapshot_json.unwrap_or("{}").to_string();
+    let roots_json = serde_json::to_string(runtime_roots).unwrap_or_else(|_| "[]".to_string());
     view! {
         <div
             class="shell shell-surface mei-text-primary"

@@ -1,6 +1,5 @@
 //! 将 `http::scene_api` 的只读 world 查询接到 `mei_agent::ResourceToolExecutor`，打破 `mei_agent -> http` 循环依赖。
 
-
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -98,4 +97,3 @@ impl SceneResourceToolExecutor {
             .unwrap_or_default()
     }
 }
-

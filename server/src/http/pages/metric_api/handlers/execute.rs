@@ -1,12 +1,23 @@
-use std::time::Instant;
-use crate::http::pages::metric_api::assembly::{hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf, MetricQueryGroupRequest, MetricQueryGroupResponse};
-use crate::http::pages::scene_qualified::locate_dataset_resource;
-use crate::http::pages::util::elapsed_ms;
-use crate::http::observation::EvalObservation;
-use crate::AppError;
-use mei_lang_datasets::{collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan, load_metric_response_result_artifact, metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key, plan_access_metric_eval_for_ids, populate_l1_from_loaded_metric_artifact, project_requested_metrics, run_metric_response_artifact_load_singleflight, store_cached_metric_response_aliases, store_metric_response_result_artifact, take_cached_metric_response, runtime_metric_workset, RuntimeMetricEvalMode};
 use super::helpers::{requested_metric_ids_label, write_runtime_policy_perf};
 use super::types::*;
+use crate::http::observation::EvalObservation;
+use crate::http::pages::metric_api::assembly::{
+    hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf,
+    MetricQueryGroupRequest, MetricQueryGroupResponse,
+};
+use crate::http::pages::scene_qualified::locate_dataset_resource;
+use crate::http::pages::util::elapsed_ms;
+use crate::AppError;
+use mei_lang_datasets::{
+    collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan,
+    load_metric_response_result_artifact, metric_response_artifact_lookup_cache_keys,
+    metric_response_cache_scope_key, plan_access_metric_eval_for_ids,
+    populate_l1_from_loaded_metric_artifact, project_requested_metrics,
+    run_metric_response_artifact_load_singleflight, runtime_metric_workset,
+    store_cached_metric_response_aliases, store_metric_response_result_artifact,
+    take_cached_metric_response, RuntimeMetricEvalMode,
+};
+use std::time::Instant;
 
 pub(super) fn execute_metric_query_group(
     ctx: &MetricQueryExecutionContext<'_>,
@@ -164,15 +175,15 @@ pub(super) fn execute_metric_query_group(
         let bundle_revisions =
             crate::graph::dedup::load_mcg_bundle_revisions(ctx.source_root, ctx.app_id);
         if let Some(bundle_rev) = bundle_revisions.get(&access_plan.owner.id) {
-            let dependency_revision_key = mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
-                ctx.app_root,
-                ctx.compiled,
-                access_plan.owner.id.as_str(),
-                &owner_dataset.runtime_metric_defs,
-            );
+            let dependency_revision_key =
+                mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
+                    ctx.app_root,
+                    ctx.compiled,
+                    access_plan.owner.id.as_str(),
+                    &owner_dataset.runtime_metric_defs,
+                );
             let registry = crate::graph::load_mrg_registry(ctx.source_root, ctx.app_id);
-            let scope_key =
-                crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
+            let scope_key = crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
             for cache_key in &lookup_cache_keys {
                 if !crate::graph::mrg_slot_covers_eval(
                     &registry,
@@ -184,14 +195,15 @@ pub(super) fn execute_metric_query_group(
                 ) {
                     continue;
                 }
-                if let Some((artifact, artifact_load_ms)) = run_metric_response_artifact_load_singleflight(
-                    format!("mrg-artifact|{cache_key}"),
-                    || {
-                        load_metric_response_result_artifact(ctx.app_root, cache_key)
-                            .map_err(|error| error.to_string())
-                    },
-                )
-                .map_err(AppError::msg)?
+                if let Some((artifact, artifact_load_ms)) =
+                    run_metric_response_artifact_load_singleflight(
+                        format!("mrg-artifact|{cache_key}"),
+                        || {
+                            load_metric_response_result_artifact(ctx.app_root, cache_key)
+                                .map_err(|error| error.to_string())
+                        },
+                    )
+                    .map_err(AppError::msg)?
                 {
                     populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
                     let mut perf = BTreeMap::new();
@@ -423,14 +435,14 @@ pub(super) fn execute_metric_query_group(
         let bundle_revisions =
             crate::graph::dedup::load_mcg_bundle_revisions(ctx.source_root, ctx.app_id);
         if let Some(bundle_rev) = bundle_revisions.get(&access_plan.owner.id) {
-            let dependency_revision_key = mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
-                ctx.app_root,
-                ctx.compiled,
-                access_plan.owner.id.as_str(),
-                &owner_dataset.runtime_metric_defs,
-            );
-            let scope_key =
-                crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
+            let dependency_revision_key =
+                mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
+                    ctx.app_root,
+                    ctx.compiled,
+                    access_plan.owner.id.as_str(),
+                    &owner_dataset.runtime_metric_defs,
+                );
+            let scope_key = crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
             let workset_id = format!(
                 "workset|app={}|owner={}|metrics={}",
                 ctx.app_id,
@@ -438,7 +450,11 @@ pub(super) fn execute_metric_query_group(
                 if request_all_metrics {
                     "*".to_string()
                 } else {
-                    requested_eval_metric_ids.iter().cloned().collect::<Vec<_>>().join(",")
+                    requested_eval_metric_ids
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(",")
                 }
             );
             crate::graph::record_prebuild_slot(

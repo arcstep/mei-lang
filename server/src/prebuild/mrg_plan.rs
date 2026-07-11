@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use super::PrebuildScopeProfile;
 use super::warmup::PreparedCompileOutcome;
+use super::PrebuildScopeProfile;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MrgEvalFrontier {
@@ -60,11 +60,7 @@ pub(crate) fn prioritize_artifact_plans_by_frontier<T>(
     plans.sort_by_key(|(prepared, _)| {
         let prepared = prepared.as_ref();
         let scope_key = crate::graph::mrg_eval_scope_key(
-            prepared
-                .scope
-                .requested_scene_id
-                .as_deref()
-                .unwrap_or(""),
+            prepared.scope.requested_scene_id.as_deref().unwrap_or(""),
             prepared.scope.requested_target_file.as_deref(),
         );
         let scope_dirty = frontier.dirty_scope_keys.contains(scope_key.as_str());
@@ -84,11 +80,7 @@ pub(crate) fn retain_dirty_artifact_plans<T>(
     plans.retain(|(prepared, _)| {
         let prepared = prepared.as_ref();
         let scope_key = crate::graph::mrg_eval_scope_key(
-            prepared
-                .scope
-                .requested_scene_id
-                .as_deref()
-                .unwrap_or(""),
+            prepared.scope.requested_scene_id.as_deref().unwrap_or(""),
             prepared.scope.requested_target_file.as_deref(),
         );
         frontier.dirty_scope_keys.contains(scope_key.as_str())
@@ -116,12 +108,20 @@ pub(crate) fn retain_dirty_scope_plan(
         return;
     }
     plan.metric_worksets.retain(|workset| {
-        frontier.dirty_slot_keys.contains(workset.logical_node_id.as_str())
-            || frontier.dirty_slot_keys.contains(workset.owner_resource_id.as_str())
+        frontier
+            .dirty_slot_keys
+            .contains(workset.logical_node_id.as_str())
+            || frontier
+                .dirty_slot_keys
+                .contains(workset.owner_resource_id.as_str())
     });
     plan.dataframe_artifacts.retain(|artifact| {
-        frontier.dirty_slot_keys.contains(artifact.logical_node_id.as_str())
-            || frontier.dirty_slot_keys.contains(artifact.owner_resource_id.as_str())
+        frontier
+            .dirty_slot_keys
+            .contains(artifact.logical_node_id.as_str())
+            || frontier
+                .dirty_slot_keys
+                .contains(artifact.owner_resource_id.as_str())
     });
 }
 
@@ -131,11 +131,7 @@ pub(crate) fn artifact_plan_matches_continue_target(
     target: &str,
 ) -> bool {
     let scope_key = crate::graph::mrg_eval_scope_key(
-        prepared
-            .scope
-            .requested_scene_id
-            .as_deref()
-            .unwrap_or(""),
+        prepared.scope.requested_scene_id.as_deref().unwrap_or(""),
         prepared.scope.requested_target_file.as_deref(),
     );
     if scope_key.contains(target) {

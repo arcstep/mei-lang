@@ -32,7 +32,9 @@ pub fn verify_navigation_contract(source_root: &Path, app_id: &str) -> Navigatio
     let routes = skeleton
         .payload
         .get("sceneRoutes")
-        .and_then(|value| serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone()).ok())
+        .and_then(|value| {
+            serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone()).ok()
+        })
         .unwrap_or_default();
     let entries = list_navigation_entries(source_root, app_id);
     let mut seen = std::collections::BTreeMap::<String, usize>::new();
@@ -100,7 +102,9 @@ mod tests {
         .expect("write skeleton");
         let report = verify_navigation_contract(ws, "demo");
         assert!(!report.ok);
-        assert!(report.missing_access_keys.contains(&"access:home".to_string()));
+        assert!(report
+            .missing_access_keys
+            .contains(&"access:home".to_string()));
     }
 
     #[test]
@@ -108,7 +112,11 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ws = tmp.path();
         fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
-        fs::write(ws.join("workspace.json"), r#"{"schemaVersion":2,"workspace":{"defaultApp":"demo"}}"#).expect("write ws");
+        fs::write(
+            ws.join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"defaultApp":"demo"}}"#,
+        )
+        .expect("write ws");
         fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir");
         fs::write(ws.join("apps/demo/src/main.mei"), "app(id=demo)").expect("write main");
         sync_navigation_registry(

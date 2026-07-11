@@ -128,4 +128,3 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
         "expected imported dataset schema to be materialized"
     );
 }
-

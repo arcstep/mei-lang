@@ -1,11 +1,13 @@
-use super::cache::{CachedEvalValue, EvalContext, eval_node_cache_enabled, expr_cache_key, store_cached_eval_node, take_cached_eval_node};
+use super::cache::{
+    eval_node_cache_enabled, expr_cache_key, store_cached_eval_node, take_cached_eval_node,
+    CachedEvalValue, EvalContext,
+};
 use super::scope::{EvalNodeKind, RequestDag, RequestDagMetrics, RuntimeMetricEvalScope};
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-
 
 impl EvalContext {
     #[cfg_attr(not(test), allow(dead_code))]

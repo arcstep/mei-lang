@@ -42,6 +42,7 @@ pub fn enrich_compiled_scope(
     );
     let layout_options = LayoutBudgetValidateOptions {
         strict_t1_fill_down: mei_config.ops.strict_fill_down,
+        strict_t2_fill_down: mei_config.ops.fill_down,
     };
     if let Some(contract) = compiled.scene_contract.as_mut() {
         let source_path = compiled.active_target_file.as_str();

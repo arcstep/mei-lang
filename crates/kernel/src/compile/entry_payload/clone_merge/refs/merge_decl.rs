@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::model::{
-    EntityDecl, FlowDecl, FrameDecl, UiNodeDecl, ResourceDecl, SceneDecl, WorldDecl,
+    EntityDecl, FlowDecl, FrameDecl, ResourceDecl, SceneDecl, UiNodeDecl, WorldDecl,
 };
 
 use super::super::merge::{deep_merge_json, value_has_key};

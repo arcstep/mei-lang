@@ -32,7 +32,11 @@ fn hydrate_outcome_for_artifacts(
     })
 }
 
-fn metric_artifact_exists(app_root: &Path, workset: &PlannedMetricWorkset, canonical: &str) -> bool {
+fn metric_artifact_exists(
+    app_root: &Path,
+    workset: &PlannedMetricWorkset,
+    canonical: &str,
+) -> bool {
     metric_response_result_artifact_exists(app_root, canonical)
         || metric_response_result_artifact_exists(app_root, workset.shared_cache_key.as_str())
         || metric_response_result_artifact_exists(app_root, workset.response_cache_key.as_str())
@@ -52,10 +56,8 @@ fn should_skip_metric_eval(
     if !dirty_slot_keys.is_empty() && dirty_slot_keys.contains(workset.logical_node_id.as_str()) {
         return false;
     }
-    let scope_key = crate::graph::mrg_eval_scope_key(
-        workset.scene_id.as_str(),
-        workset.scene_path.as_deref(),
-    );
+    let scope_key =
+        crate::graph::mrg_eval_scope_key(workset.scene_id.as_str(), workset.scene_path.as_deref());
     let canonical = slot_cache_key_for_plan(workset, current_rev.as_str());
     let mrg_covers = crate::graph::mrg_slot_covers_eval(
         registry,
@@ -119,10 +121,14 @@ pub(crate) fn ensure_scope_artifacts(
         .unwrap_or_default();
     for workset in &plan.metric_worksets {
         if let Some(registry) = mrg_registry.as_ref() {
-            if should_skip_metric_eval(registry, app_root, workset, &mcg_revisions, &dirty_slot_keys)
-            {
-                if let Some(current_rev) =
-                    current_bundle_revision_for_plan(workset, &mcg_revisions)
+            if should_skip_metric_eval(
+                registry,
+                app_root,
+                workset,
+                &mcg_revisions,
+                &dirty_slot_keys,
+            ) {
+                if let Some(current_rev) = current_bundle_revision_for_plan(workset, &mcg_revisions)
                 {
                     promote_prebuild_metric_response_slot(
                         state.source_root.as_deref(),
@@ -141,19 +147,12 @@ pub(crate) fn ensure_scope_artifacts(
             }
         }
         ensure_metric_response_artifact_for_plan(
-            app_id,
-            app_root,
-            &outcome,
-            workset,
-            mode,
-            coverage,
-            state,
+            app_id, app_root, &outcome, workset, mode, coverage, state,
         )?;
     }
     for dataframe in &plan.dataframe_artifacts {
         if let Some(registry) = mrg_registry.as_ref() {
-            if let Some(current_rev) =
-                current_dataframe_bundle_revision(dataframe, &mcg_revisions)
+            if let Some(current_rev) = current_dataframe_bundle_revision(dataframe, &mcg_revisions)
             {
                 let scope_key = crate::graph::mrg_eval_scope_key(
                     dataframe.scene_id.as_str(),
@@ -185,12 +184,7 @@ pub(crate) fn ensure_scope_artifacts(
             }
         }
         ensure_metric_dataframe_artifact_for_plan(
-            app_root,
-            &outcome,
-            dataframe,
-            mode,
-            coverage,
-            state,
+            app_root, &outcome, dataframe, mode, coverage, state,
         )?;
     }
     Ok(())
@@ -380,7 +374,10 @@ pub(crate) fn dataframe_metric_ids(dataset: &DatasetView) -> Vec<String> {
     ids.into_iter().collect()
 }
 
-pub(crate) fn requested_dataframe_metric_ids(dataset: &DatasetView, metric_ids: &[String]) -> Vec<String> {
+pub(crate) fn requested_dataframe_metric_ids(
+    dataset: &DatasetView,
+    metric_ids: &[String],
+) -> Vec<String> {
     let mut ids = if metric_ids.is_empty() {
         dataframe_metric_ids(dataset)
             .into_iter()

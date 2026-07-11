@@ -256,4 +256,3 @@ fn resolve_value_builds_analysis_contract_nodes_for_explain_scope_metrics() {
         Some("sales_total::sales_total_table")
     );
 }
-

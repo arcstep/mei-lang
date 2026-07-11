@@ -6,22 +6,6 @@ use ws_spbjw_integration_tests::{
 
 #[path = "spbjw_regression/t1.rs"]
 mod t1;
-#[path = "spbjw_regression/t2.rs"]
-mod t2;
-#[path = "spbjw_regression/t3.rs"]
-mod t3;
-#[path = "spbjw_regression/t4.rs"]
-mod t4;
-#[path = "spbjw_regression/t5.rs"]
-mod t5;
-#[path = "spbjw_regression/t6.rs"]
-mod t6;
-#[path = "spbjw_regression/t7.rs"]
-mod t7;
-#[path = "spbjw_regression/t8.rs"]
-mod t8;
-#[path = "spbjw_regression/t9.rs"]
-mod t9;
 #[path = "spbjw_regression/t10.rs"]
 mod t10;
 #[path = "spbjw_regression/t11.rs"]
@@ -42,6 +26,8 @@ mod t17;
 mod t18;
 #[path = "spbjw_regression/t19.rs"]
 mod t19;
+#[path = "spbjw_regression/t2.rs"]
+mod t2;
 #[path = "spbjw_regression/t20.rs"]
 mod t20;
 #[path = "spbjw_regression/t21.rs"]
@@ -52,3 +38,17 @@ mod t22;
 mod t23;
 #[path = "spbjw_regression/t24.rs"]
 mod t24;
+#[path = "spbjw_regression/t3.rs"]
+mod t3;
+#[path = "spbjw_regression/t4.rs"]
+mod t4;
+#[path = "spbjw_regression/t5.rs"]
+mod t5;
+#[path = "spbjw_regression/t6.rs"]
+mod t6;
+#[path = "spbjw_regression/t7.rs"]
+mod t7;
+#[path = "spbjw_regression/t8.rs"]
+mod t8;
+#[path = "spbjw_regression/t9.rs"]
+mod t9;

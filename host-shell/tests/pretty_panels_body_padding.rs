@@ -5,9 +5,7 @@ use mei_host_core::HostContext;
 use mei_host_graph::{
     assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
 };
-use mei_lang_app::{
-    load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode,
-};
+use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
 use mei_lang_kernel::WorkspaceAppMeta;
 
 static INIT: Once = Once::new();
@@ -74,8 +72,7 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
         root: outcome.compiled.app_root.clone(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
-    let theme_style =
-        page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let theme_style = page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
     let html = render_page(
         &apps,
         &outcome.compiled,
@@ -173,7 +170,8 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t0")
     );
-    let center_rail = find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region panel");
+    let center_rail =
+        find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region panel");
     assert_eq!(
         center_rail.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t1")
@@ -200,12 +198,7 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
         .iter()
         .filter_map(|entry| entry.get("panelId").and_then(|v| v.as_str()))
         .collect();
-    for expected in [
-        "home_header",
-        "left_rail",
-        "center_rail",
-        "right_rail",
-    ] {
+    for expected in ["home_header", "left_rail", "center_rail", "right_rail"] {
         assert!(
             chrome_ids.contains(&expected),
             "layer_plan t1 should include {expected}: {chrome_ids:?}"
@@ -213,7 +206,10 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
     }
 }
 
-fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::UiNodeDecl], id: &str) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
+fn find_panel_by_id<'a>(
+    panels: &'a [mei_lang_kernel::UiNodeDecl],
+    id: &str,
+) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
     for panel in panels {
         if panel.id == id || panel.id.ends_with(&format!("/{id}")) {
             return Some(panel);
@@ -246,10 +242,7 @@ fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
         .compiled
         .diagnostics
         .iter()
-        .filter(|d| {
-            d.code.starts_with("layout_policy_")
-                && d.message.contains("right_rail")
-        })
+        .filter(|d| d.code.starts_with("layout_policy_") && d.message.contains("right_rail"))
         .collect();
     assert!(
         right_rail_errors.is_empty(),
@@ -289,7 +282,8 @@ fn pretty_panels_theme_layout_merges_via_index() {
         panel_has_layout_fill(contract, "enforcement-stats"),
         "enforcement-stats should use fill-down body props (0327)"
     );
-    let enforcement_section = find_panel_by_id(&contract.panels, "enforcement").expect("enforcement section");
+    let enforcement_section =
+        find_panel_by_id(&contract.panels, "enforcement").expect("enforcement section");
     assert!(
         enforcement_section
             .props

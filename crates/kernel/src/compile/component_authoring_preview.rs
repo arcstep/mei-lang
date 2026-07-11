@@ -6,8 +6,8 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 use crate::mei_config::{
-    load_workspace_config, resolve_authoring_root, resolve_workspace_source_root_from_app_root,
-    resolve_workspace_path,
+    load_workspace_config, resolve_authoring_root, resolve_workspace_path,
+    resolve_workspace_source_root_from_app_root,
 };
 use crate::model::CompiledApp;
 
@@ -117,7 +117,10 @@ pub fn component_authoring_example_workspace_path(
     workspace_example_rel(source_root.as_path(), filename.as_str())
 }
 
-pub fn scene_contract_contains_use_key(contract: &crate::model::SceneContract, use_key: &str) -> bool {
+pub fn scene_contract_contains_use_key(
+    contract: &crate::model::SceneContract,
+    use_key: &str,
+) -> bool {
     contract
         .panels
         .iter()

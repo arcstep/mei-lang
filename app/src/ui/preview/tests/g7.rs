@@ -120,4 +120,3 @@ fn frame_viewport_is_explicit_when_props_declares_viewport() {
     });
     assert!(super::viewport::frame_viewport_is_explicit(&props));
 }
-

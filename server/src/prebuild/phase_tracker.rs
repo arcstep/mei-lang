@@ -121,10 +121,7 @@ impl PrebuildPhaseTracker {
     }
 
     pub(crate) fn snapshot(&self) -> PrebuildProgressSnapshot {
-        let guard = self
-            .inner
-            .lock()
-            .expect("prebuild phase tracker lock");
+        let guard = self.inner.lock().expect("prebuild phase tracker lock");
         PrebuildProgressSnapshot {
             schema_version: PREBUILD_PROGRESS_SCHEMA_VERSION.to_string(),
             phase: guard.phase.clone(),

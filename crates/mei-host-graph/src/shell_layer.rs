@@ -54,11 +54,7 @@ pub fn store_shell_layer_document(
     );
 }
 
-pub fn build_shell_layer_document(
-    route_mode: &str,
-    tab: &str,
-    chrome: &str,
-) -> ShellLayerDocument {
+pub fn build_shell_layer_document(route_mode: &str, tab: &str, chrome: &str) -> ShellLayerDocument {
     let topbar_html = format!(
         r#"<header class="mei-shell-topbar" data-tab="{tab}" data-chrome="{chrome}" data-route-mode="{route_mode}"></header>"#
     );
@@ -123,7 +119,12 @@ where
     (document, false)
 }
 
-pub fn shell_layer_json(app_id: &str, route_mode: &str, tab: &str, chrome: &str) -> serde_json::Value {
+pub fn shell_layer_json(
+    app_id: &str,
+    route_mode: &str,
+    tab: &str,
+    chrome: &str,
+) -> serde_json::Value {
     let (doc, _) = ensure_shell_layer_cached(app_id, route_mode, tab, chrome, None);
     json!(doc)
 }

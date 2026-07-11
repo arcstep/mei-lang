@@ -341,11 +341,8 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
     };
     let resources = build_runtime_resource_map(&compiled);
     let resource_index = build_runtime_resource_index(&compiled);
-    let scene_anchor = RuntimeSceneAnchor::for_preview(
-        &compiled,
-        Some("src/scenes/home.mei"),
-        Some("home"),
-    );
+    let scene_anchor =
+        RuntimeSceneAnchor::for_preview(&compiled, Some("src/scenes/home.mei"), Some("home"));
     let metric_ref = json!({
         "__ref": "metric",
         "id": "scenes/05-监督预警.mei::supervision_items_count"
@@ -367,4 +364,3 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
     );
     assert!(resolved.get("__mei_runtime_ref").is_some());
 }
-

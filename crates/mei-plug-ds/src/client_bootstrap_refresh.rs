@@ -24,11 +24,7 @@ pub fn maybe_refresh_client_bootstrap_after_eval(
         return;
     }
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
-    let client_cfg = config
-        .runtime
-        .client_bootstrap
-        .clone()
-        .unwrap_or_default();
+    let client_cfg = config.runtime.client_bootstrap.clone().unwrap_or_default();
     if !client_cfg.enabled {
         return;
     }

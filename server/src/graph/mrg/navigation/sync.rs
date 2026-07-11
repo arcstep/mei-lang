@@ -6,7 +6,7 @@ use mei_lang_kernel::{
 
 use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter};
 use crate::graph::mrg::warmup::record_navigation_edge;
-use crate::graph::types::{MaterialState, stable_hash};
+use crate::graph::types::{stable_hash, MaterialState};
 
 /// Minimal scene×target pair for MRG navigation sync (prebuild compile scopes).
 #[derive(Debug, Clone)]
@@ -38,7 +38,11 @@ pub fn sync_navigation_registry(
                 .filter(|scene| !scene.is_empty())
                 .map(str::to_string)
         })
-        .or_else(|| scene_routes.first().map(|(scene_id, _)| scene_id.trim().to_string()))
+        .or_else(|| {
+            scene_routes
+                .first()
+                .map(|(scene_id, _)| scene_id.trim().to_string())
+        })
         .filter(|scene| !scene.is_empty())
         .unwrap_or_else(|| "home".to_string());
 
@@ -161,22 +165,23 @@ pub fn sync_navigation_for_compile_scopes(
         );
     }
 
-    let default_scene = resolve_default_scene_from_root(resolve_app_root(source_root, app_id).as_path())
-        .ok()
-        .flatten()
-        .map(|scene| scene.trim().to_string())
-        .filter(|scene| !scene.is_empty())
-        .or_else(|| {
-            cfg.deploy
-                .access_entry
-                .default_scene
-                .as_deref()
-                .map(str::trim)
-                .filter(|scene| !scene.is_empty())
-                .map(str::to_string)
-        })
-        .or_else(|| scopes.first().map(|scope| scope.scene_id.clone()))
-        .unwrap_or_else(|| "home".to_string());
+    let default_scene =
+        resolve_default_scene_from_root(resolve_app_root(source_root, app_id).as_path())
+            .ok()
+            .flatten()
+            .map(|scene| scene.trim().to_string())
+            .filter(|scene| !scene.is_empty())
+            .or_else(|| {
+                cfg.deploy
+                    .access_entry
+                    .default_scene
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|scene| !scene.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| scopes.first().map(|scope| scope.scene_id.clone()))
+            .unwrap_or_else(|| "home".to_string());
 
     for scope in scopes {
         let scene_id = scope.scene_id.trim();
@@ -226,13 +231,7 @@ fn upsert_navigation_node(
     scene_id: &str,
     target_file: &str,
 ) {
-    registry.upsert_navigation_node(
-        key,
-        url,
-        scene_id,
-        target_file,
-        MaterialState::Ready,
-    );
+    registry.upsert_navigation_node(key, url, scene_id, target_file, MaterialState::Ready);
 }
 
 fn urlencoding_path_segment(value: &str) -> String {

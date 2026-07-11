@@ -1,6 +1,6 @@
-mod support;
-mod append;
 mod api;
+mod append;
+mod support;
 #[cfg(test)]
 mod tests;
 

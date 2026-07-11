@@ -6,8 +6,7 @@ mod io;
 pub use digest::compute_workspace_digest;
 pub use io::{
     bundle_stats, read_bundle, write_bundle, write_bundle_from_outcome, write_debug_sidecar,
-    BundleStats,
-    ReadBundleError, WriteBundleError,
+    BundleStats, ReadBundleError, WriteBundleError,
 };
 
 use std::collections::BTreeMap;
@@ -111,9 +110,7 @@ pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf
     if primary.is_file() {
         return primary;
     }
-    let active = app_root
-        .join("build/active/exchange")
-        .join(&bundle_name);
+    let active = app_root.join("build/active/exchange").join(&bundle_name);
     if active.is_file() {
         return active;
     }
@@ -196,10 +193,7 @@ mod tests {
         }
 
         let path = default_bundle_path(workspace, "demo");
-        assert_eq!(
-            path,
-            env_dir.join("build/exchange/demo.meibundle")
-        );
+        assert_eq!(path, env_dir.join("build/exchange/demo.meibundle"));
     }
 
     #[test]

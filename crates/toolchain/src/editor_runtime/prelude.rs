@@ -16,6 +16,8 @@ pub(crate) use mei_lang_kernel::{
 };
 
 pub(crate) use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
-pub(crate) use crate::{knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root};
+pub(crate) use crate::{
+    knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root,
+};
 
 pub(crate) use super::types::*;

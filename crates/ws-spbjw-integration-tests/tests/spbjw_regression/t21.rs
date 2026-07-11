@@ -205,4 +205,3 @@ fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
         serde_json::to_string(&metric.value).unwrap_or_default()
     );
 }
-

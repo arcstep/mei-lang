@@ -1,7 +1,11 @@
 use super::prelude::*;
 use super::*;
 
-pub(crate) fn write_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeScaffoldFile> {
+pub(crate) fn write_file(
+    path: &Path,
+    content: &str,
+    force: bool,
+) -> Result<EditorRuntimeScaffoldFile> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create scaffold dir {}", parent.display()))?;

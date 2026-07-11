@@ -50,11 +50,7 @@ fn root_branch(
     .into_any()
 }
 
-fn tree_node(
-    node: &ReachabilityTreeNode,
-    app_path: &str,
-    active_node_id: Option<&str>,
-) -> AnyView {
+fn tree_node(node: &ReachabilityTreeNode, app_path: &str, active_node_id: Option<&str>) -> AnyView {
     let is_active = active_node_id == Some(node.node_id.as_str());
     let href = runtime_node_href(app_path, node.node_id.as_str(), Some("overview"));
     let class = if is_active {

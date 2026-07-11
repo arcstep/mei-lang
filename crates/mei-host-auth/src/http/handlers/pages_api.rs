@@ -6,13 +6,13 @@ use axum::{
 };
 use serde_json::json;
 
+use crate::http::pages::{change_password_page_html, login_page_html};
+use crate::shell_chrome;
+use crate::state::AuthServeState;
 use crate::{
     authorize_next_path, clear_cookie_header_value, load_auth_runtime, sanitize_next_path,
     AuthPrincipal,
 };
-use crate::http::pages::{change_password_page_html, login_page_html};
-use crate::shell_chrome;
-use crate::state::AuthServeState;
 
 use super::support::*;
 

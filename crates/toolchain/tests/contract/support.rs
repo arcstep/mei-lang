@@ -99,4 +99,3 @@ pub fn copy_dir_recursive(src: PathBuf, dst: PathBuf) {
 pub const DATASET_APP: &str = "examples-ds-01-dataset-baseline";
 pub const METRIC_APP: &str = "examples-ds-04-data-table-features";
 pub const RUNTIME_APP: &str = "examples-sim-01-fire-baseline";
-

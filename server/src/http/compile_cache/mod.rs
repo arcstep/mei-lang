@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use mei_lang_app::UiRouteMode;
-use mei_lang_kernel::{CompiledApp, CompileOptions, Severity};
+use mei_lang_kernel::{CompileOptions, CompiledApp, Severity};
 use mei_lang_toolchain as toolchain;
 
 use crate::AppState;

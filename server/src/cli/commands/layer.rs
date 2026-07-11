@@ -36,12 +36,7 @@ pub fn layer_command(args: LayerArgs) -> Result<()> {
                 print_json_output(&results, true)?;
             } else {
                 let ok = results.iter().filter(|result| result.ok).count();
-                println!(
-                    "layer compile {} ok={}/{}",
-                    layer.slug(),
-                    ok,
-                    results.len()
-                );
+                println!("layer compile {} ok={}/{}", layer.slug(), ok, results.len());
             }
             Ok(())
         }
@@ -60,7 +55,10 @@ pub fn layer_command(args: LayerArgs) -> Result<()> {
             if verify_args.json {
                 print_json_output(&report, true)?;
             } else if report.ok {
-                println!("layer verify ok: app={} layer={}", report.app_id, report.layer);
+                println!(
+                    "layer verify ok: app={} layer={}",
+                    report.app_id, report.layer
+                );
             } else {
                 eprintln!(
                     "layer verify failed: app={} layer={} alerts={}",

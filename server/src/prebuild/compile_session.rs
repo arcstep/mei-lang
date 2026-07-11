@@ -80,7 +80,10 @@ impl PrebuildCompileSession {
         self.peak_identity_entries = self.peak_identity_entries.max(self.by_identity.len());
     }
 
-    pub(crate) fn try_reuse_base_for_target(&self, target_file: &str) -> Option<SharedCompileOutcome> {
+    pub(crate) fn try_reuse_base_for_target(
+        &self,
+        target_file: &str,
+    ) -> Option<SharedCompileOutcome> {
         let target = target_file.trim();
         if target.is_empty() {
             return None;
@@ -116,7 +119,11 @@ impl PrebuildCompileSession {
         self.discovered_scope_keys.insert(scope.key())
     }
 
-    pub(crate) fn note_scope_alias(&mut self, scope: &CompileScope, outcome: &SharedCompileOutcome) {
+    pub(crate) fn note_scope_alias(
+        &mut self,
+        scope: &CompileScope,
+        outcome: &SharedCompileOutcome,
+    ) {
         self.by_scope_key
             .entry(scope.key())
             .or_insert_with(|| outcome.clone());
@@ -160,8 +167,7 @@ impl PrebuildCompileSession {
                 .cloned()
                 .collect();
         }
-        self.expanded_board_targets
-            .insert(board_target.clone());
+        self.expanded_board_targets.insert(board_target.clone());
         discovered.to_vec()
     }
 
@@ -181,7 +187,10 @@ impl PrebuildCompileSession {
             .collect()
     }
 
-    pub(crate) fn filter_hot_only_discovered(&self, discovered: Vec<CompileScope>) -> Vec<CompileScope> {
+    pub(crate) fn filter_hot_only_discovered(
+        &self,
+        discovered: Vec<CompileScope>,
+    ) -> Vec<CompileScope> {
         let Some(hot_scenes) = self.hot_only_scene_ids.as_ref() else {
             return discovered;
         };
@@ -437,4 +446,3 @@ pub(crate) fn mark_prebuild_session_reuse(outcome: &SharedCompileOutcome) -> Sha
         assembly_handle: outcome.assembly_handle.clone(),
     }
 }
-

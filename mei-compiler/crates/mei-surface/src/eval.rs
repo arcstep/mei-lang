@@ -85,7 +85,9 @@ fn dispatch_call(name: &str, args: &CallArgs) -> Result<Value, String> {
         "scene_ref" => builtins::scene_ref(args),
         "flex" => builtins::flex(args),
         "markdown" => builtins::markdown(args),
-        other => Err(format!("unsupported surface call `{other}` in mei-compiler v0")),
+        other => Err(format!(
+            "unsupported surface call `{other}` in mei-compiler v0"
+        )),
     }
 }
 
@@ -95,7 +97,11 @@ pub fn expr_to_value(expr: &Expr) -> Result<Value, String> {
         Expr::Number(number) => Ok(Value::Number(*number)),
         Expr::Bool(value) => Ok(Value::Bool(*value)),
         Expr::None => Ok(Value::Null),
-        Expr::List(items) => items.iter().map(expr_to_value).collect::<Result<Vec<_>, _>>().map(Value::Array),
+        Expr::List(items) => items
+            .iter()
+            .map(expr_to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
         Expr::Call { path, args } => {
             let name = desugar_call_name(path);
             dispatch_call(&name, args)

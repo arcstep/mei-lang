@@ -5,9 +5,7 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{
-    FlowDecl, FrameDecl, UiNodeDecl, SceneDecl,
-};
+use crate::model::{FlowDecl, FrameDecl, SceneDecl, UiNodeDecl};
 
 use super::super::decl_file_cache::evaluate_mei_file_cached;
 use super::super::decls::FrameSetLayoutDecl;

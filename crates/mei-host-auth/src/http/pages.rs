@@ -1,4 +1,3 @@
-
 fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")

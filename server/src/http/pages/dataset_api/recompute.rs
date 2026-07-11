@@ -10,21 +10,19 @@ use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 
+use super::support::*;
+use super::types::*;
 use crate::http::compile_cache::RuntimeAccessPolicies;
-use crate::http::datasets::{
-    query_dataset_rows, query_metric_dataframe,
-    DatasetQueryOptions,
+use crate::http::datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
+use crate::http::pages::components::resolve_components_root;
+use crate::http::pages::scene_qualified::{
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
+    strict_scene_query_coords,
 };
+use crate::http::pages::util::elapsed_ms;
 use crate::http::runtime_cache::{
     invalidate_after_data_reload, invalidate_app_runtime_caches, invalidate_report_perf,
 };
-use crate::http::pages::components::resolve_components_root;
-use crate::http::pages::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context, strict_scene_query_coords,
-};
-use crate::http::pages::util::elapsed_ms;
-use super::support::*;
-use super::types::*;
 
 pub async fn dataset_recompute_api(
     State(state): State<AppState>,
@@ -62,8 +60,8 @@ pub async fn dataset_recompute_api(
     };
     let source_ids_slice = source_ids.as_ref().map(|ids| ids.as_slice());
     let invalidate_report = invalidate_after_data_reload(&state, &app_id, source_ids_slice)
-    .map(|(report, _)| report)
-    .unwrap_or_else(|_| invalidate_app_runtime_caches(&state, &app_id));
+        .map(|(report, _)| report)
+        .unwrap_or_else(|_| invalidate_app_runtime_caches(&state, &app_id));
     let mut perf = invalidate_report_perf(&invalidate_report);
     let metric_id = request
         .metric_id

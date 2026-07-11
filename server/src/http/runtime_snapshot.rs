@@ -147,12 +147,17 @@ fn build_prebuild_context(
         .recorded_at_ms
         .map(|recorded_at| format_age_ms(recorded_at, now_ms_for_host_message() as u64));
     RuntimePrebuildContext {
-        ok: workspace_report.as_ref().map(|report| report.ok).unwrap_or(false),
-        scope_profile: workspace_report.as_ref().map(|report| match report.scope_profile {
-            crate::prebuild::PrebuildScopeProfile::Full => "full".to_string(),
-            crate::prebuild::PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
-            crate::prebuild::PrebuildScopeProfile::BlockScoped => "block_scoped".to_string(),
-        }),
+        ok: workspace_report
+            .as_ref()
+            .map(|report| report.ok)
+            .unwrap_or(false),
+        scope_profile: workspace_report
+            .as_ref()
+            .map(|report| match report.scope_profile {
+                crate::prebuild::PrebuildScopeProfile::Full => "full".to_string(),
+                crate::prebuild::PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
+                crate::prebuild::PrebuildScopeProfile::BlockScoped => "block_scoped".to_string(),
+            }),
         total_wall_ms: app_report
             .map(|app| app.timings.total_wall_ms)
             .or_else(|| workspace_report.as_ref().map(|report| report.total_wall_ms)),
@@ -242,9 +247,17 @@ fn build_overview_root(
                     format_bytes_human(report.content_store.bytes),
                     format_bytes_human(report.disk.prebuild_bytes)
                 ),
-                vec![format!("eval_total={}", format_bytes_human(report.eval.eval_total_bytes))],
+                vec![format!(
+                    "eval_total={}",
+                    format_bytes_human(report.eval.eval_total_bytes)
+                )],
             ),
-            summary_node("overview-memory", "overview-memory", memory_line, Vec::new()),
+            summary_node(
+                "overview-memory",
+                "overview-memory",
+                memory_line,
+                Vec::new(),
+            ),
             summary_node(
                 "overview-timing",
                 "overview-timing",
@@ -398,28 +411,26 @@ fn build_l3_root(
     report: &MaterializationDiagnosticsReport,
 ) -> ReachabilityTreeRoot {
     let mcg = McgRegistryWriter::load(source_root, app_id);
-    let mut children = vec![
-        summary_node(
-            "l3-mcg-summary",
-            "l3-mcg-summary",
-            format!(
-                "MCG nodes={} scene_payload={} bundles={} skeleton={}",
-                report.mcg.node_count,
-                report.mcg.scene_payload_nodes,
-                report.mcg.metric_def_bundle_nodes,
-                report.mcg.app_skeleton_present
-            ),
-            vec![
-                format!("revision={}", report.mcg.registry_revision),
-                format!(
-                    "scene_payload_disk={} / {} files",
-                    format_bytes_human(report.disk.scene_payload_bytes),
-                    report.disk.scene_payload_file_count
-                ),
-                format!("gate_sweep L3_fail={}", report.scope_gate_sweep.l3_fail),
-            ],
+    let mut children = vec![summary_node(
+        "l3-mcg-summary",
+        "l3-mcg-summary",
+        format!(
+            "MCG nodes={} scene_payload={} bundles={} skeleton={}",
+            report.mcg.node_count,
+            report.mcg.scene_payload_nodes,
+            report.mcg.metric_def_bundle_nodes,
+            report.mcg.app_skeleton_present
         ),
-    ];
+        vec![
+            format!("revision={}", report.mcg.registry_revision),
+            format!(
+                "scene_payload_disk={} / {} files",
+                format_bytes_human(report.disk.scene_payload_bytes),
+                report.disk.scene_payload_file_count
+            ),
+            format!("gate_sweep L3_fail={}", report.scope_gate_sweep.l3_fail),
+        ],
+    )];
     for node in &mcg.nodes {
         if node.id.kind != GraphNodeKind::ScenePayload {
             continue;
@@ -498,7 +509,8 @@ fn build_l4_root(
         children.push(summary_node(
             "l4-slots-empty",
             "l4-slots-empty",
-            "无 MRG slot（hello 等轻量 app 可能为 0；L4 数据面由 MCG scene_payload 承担）".to_string(),
+            "无 MRG slot（hello 等轻量 app 可能为 0；L4 数据面由 MCG scene_payload 承担）"
+                .to_string(),
             Vec::new(),
         ));
     } else {
@@ -555,10 +567,7 @@ fn build_build_root(
             format!(
                 "prebuild ok={} profile={} in_succeeded_apps={}",
                 prebuild.ok,
-                prebuild
-                    .scope_profile
-                    .as_deref()
-                    .unwrap_or("-"),
+                prebuild.scope_profile.as_deref().unwrap_or("-"),
                 prebuild.in_succeeded_apps
             ),
             vec![
@@ -582,11 +591,7 @@ fn build_build_root(
             format!(
                 "compile_index source={} path={}",
                 report.build.source,
-                report
-                    .build
-                    .report_path
-                    .as_deref()
-                    .unwrap_or("-")
+                report.build.report_path.as_deref().unwrap_or("-")
             ),
             vec![
                 format!(
@@ -691,10 +696,7 @@ fn scope_gate_nodes(
         .collect()
 }
 
-fn collect_scope_coords(
-    source_root: &Path,
-    app_id: &str,
-) -> Vec<(Option<String>, Option<String>)> {
+fn collect_scope_coords(source_root: &Path, app_id: &str) -> Vec<(Option<String>, Option<String>)> {
     let mut coords = Vec::new();
     let snapshot = registry_snapshot();
     if let Some(app) = snapshot.apps.iter().find(|app| app.app_id == app_id) {
@@ -787,7 +789,11 @@ mod tests {
         std::fs::create_dir_all(&root).expect("mkdir");
         std::fs::create_dir_all(root.join("hello/.mei/build/active")).expect("app dir");
         let snapshot = build_runtime_observability_snapshot(root.as_path(), "hello");
-        let groups: Vec<_> = snapshot.roots.iter().map(|root| root.group.as_str()).collect();
+        let groups: Vec<_> = snapshot
+            .roots
+            .iter()
+            .map(|root| root.group.as_str())
+            .collect();
         assert!(groups.contains(&"overview"));
         assert!(groups.contains(&"l1_cache"));
         assert!(groups.contains(&"l2_navigation"));

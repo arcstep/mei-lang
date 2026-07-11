@@ -14,17 +14,18 @@ use crate::prebuild::{ensure_compile_scope, CompileScope, PrebuildMode};
 use super::types::{BlockId, BlockResult, BlockTimingMs};
 
 /// Assemble-only: load scene_payload + hydrate without compile cache write.
-pub fn block_assemble_only(source_root: &Path, app_id: &str, block_id: &BlockId) -> Result<BlockResult> {
+pub fn block_assemble_only(
+    source_root: &Path,
+    app_id: &str,
+    block_id: &BlockId,
+) -> Result<BlockResult> {
     let started = Instant::now();
     let target = block_id.key.as_str();
     let scope_key = block_id.scope_key.as_deref();
     let assemble_started = Instant::now();
-    let Some((mut compiled, compile_revision)) = try_assemble_scope_from_scene_payload(
-        source_root,
-        app_id,
-        scope_key,
-        target,
-    ) else {
+    let Some((mut compiled, compile_revision)) =
+        try_assemble_scope_from_scene_payload(source_root, app_id, scope_key, target)
+    else {
         return Ok(BlockResult::err(
             block_id.clone(),
             "assemble-only",

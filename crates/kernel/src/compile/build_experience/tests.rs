@@ -16,9 +16,8 @@ fn backing_refs_from_metric_binding() {
 fn board_build_node_resolves_preview_target_and_scene() {
     use crate::model::BuildNodeId;
 
-    let node = BuildNodeId::board_file(
-        "scenes/01-执法要素.board.mei#enforcement_units_analytics_board",
-    );
+    let node =
+        BuildNodeId::board_file("scenes/01-执法要素.board.mei#enforcement_units_analytics_board");
     assert_eq!(
         preview_target_from_build_node_with_app(&node, None).as_deref(),
         Some("scenes/01-执法要素.board.mei")
@@ -256,12 +255,9 @@ fn ws_hello_chart_bar_resolves_authoring_example_preview() {
     if !app_root.is_dir() {
         return;
     }
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile hello");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile hello");
     let node = BuildNodeId::template("chart.bar");
     let preview = preview_target_from_build_node_with_app(&node, Some(&compiled))
         .expect("chart.bar preview target");
@@ -296,12 +292,9 @@ fn ws_hello_doc_markdown_resolves_scene_consumer_preview() {
     if !app_root.is_dir() {
         return;
     }
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile hello");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile hello");
     let node = BuildNodeId::template("doc.markdown");
     let entry = compiled.build_template_index.lookup("doc.markdown");
     assert!(
@@ -312,8 +305,8 @@ fn ws_hello_doc_markdown_resolves_scene_consumer_preview() {
         !entry.expect("entry").consumer_anchors.is_empty(),
         "doc.markdown should have consumer anchors from home scene"
     );
-    let preview = preview_target_from_build_node_with_app(&node, Some(&compiled))
-        .expect("preview target");
+    let preview =
+        preview_target_from_build_node_with_app(&node, Some(&compiled)).expect("preview target");
     assert!(
         preview.contains("dataset-baseline.mei") || preview.contains("home"),
         "doc.markdown should preview authoring example or home consumer scene, got {preview}"
@@ -359,12 +352,9 @@ fn v2_template_file_preview_resolves_stock_templates_path() {
     {
         return;
     }
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile hello");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile hello");
     let node = BuildNodeId::template(template_key);
     let target = preview_target_from_build_node_with_app(&node, Some(&compiled))
         .expect("template preview target");

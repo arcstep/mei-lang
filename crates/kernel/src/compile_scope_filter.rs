@@ -29,10 +29,7 @@ fn matches_any_glob(patterns: &[String], value: &str) -> bool {
         .any(|pattern| match_path_glob(pattern.as_str(), value))
 }
 
-pub fn compile_scope_target_allowed(
-    config: &CompileScopeFilterConfig,
-    target: &str,
-) -> bool {
+pub fn compile_scope_target_allowed(config: &CompileScopeFilterConfig, target: &str) -> bool {
     let normalized = normalize_target_path(target);
     if normalized.is_empty() {
         return true;
@@ -46,10 +43,7 @@ pub fn compile_scope_target_allowed(
     matches_any_glob(config.include_targets.as_slice(), normalized.as_str())
 }
 
-pub fn compile_scope_scene_id_allowed(
-    config: &CompileScopeFilterConfig,
-    scene_id: &str,
-) -> bool {
+pub fn compile_scope_scene_id_allowed(config: &CompileScopeFilterConfig, scene_id: &str) -> bool {
     let scene_id = scene_id.trim();
     if scene_id.is_empty() {
         return true;
@@ -94,7 +88,10 @@ mod tests {
     fn exclude_t2_page_targets() {
         let cfg = home_only();
         assert!(compile_scope_target_allowed(&cfg, "scenes/home.mei"));
-        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.page.mei"));
+        assert!(!compile_scope_target_allowed(
+            &cfg,
+            "scenes/05-监督预警.page.mei"
+        ));
         assert!(!compile_scope_target_allowed(
             &cfg,
             "scenes/_shared/warning-detail.detail.page.mei"
@@ -112,7 +109,10 @@ mod tests {
         };
         assert!(compile_scope_target_allowed(&cfg, "scenes/home.mei"));
         assert!(compile_scope_target_allowed(&cfg, "scenes/layout-中栏.mei"));
-        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.page.mei"));
+        assert!(!compile_scope_target_allowed(
+            &cfg,
+            "scenes/05-监督预警.page.mei"
+        ));
     }
 
     #[test]
@@ -122,6 +122,9 @@ mod tests {
             ..CompileScopeFilterConfig::default()
         };
         assert!(compile_scope_scene_id_allowed(&cfg, "home"));
-        assert!(!compile_scope_scene_id_allowed(&cfg, "issue_pending_analytics_page"));
+        assert!(!compile_scope_scene_id_allowed(
+            &cfg,
+            "issue_pending_analytics_page"
+        ));
     }
 }

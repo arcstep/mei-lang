@@ -90,4 +90,3 @@ pub(super) fn theme_decl_to_value(theme: &ThemeDecl) -> Value {
         "components": theme.components,
     })
 }
-

@@ -244,4 +244,3 @@ fn compile_spbjw_typical_cases_popup_lowers_list_preview_projection_slots() {
         "detail tab should target scalar rowset metric"
     );
 }
-

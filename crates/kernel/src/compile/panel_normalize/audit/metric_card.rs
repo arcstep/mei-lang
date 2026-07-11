@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 
 use super::super::css_util::padding_horizontal_px;
 use super::super::nodes::{node_is_metric_card_like, panel_px_prop};

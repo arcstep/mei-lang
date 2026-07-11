@@ -70,12 +70,12 @@ fn projection_query_parts(
         parts.push(format!("chrome={}", percent_encode_query_component(c)));
     }
     if let Some(mode) = data_mode.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("data_mode={}", percent_encode_query_component(mode)));
+        parts.push(format!(
+            "data_mode={}",
+            percent_encode_query_component(mode)
+        ));
     }
-    if let Some(projection) = review_projection
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(projection) = review_projection.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!(
             "review_projection={}",
             percent_encode_query_component(projection)
@@ -115,9 +115,7 @@ fn parse_presentation_tail_with_mark(raw_app_path: &str, mark: &str) -> Option<(
         return None;
     };
     let app = raw[..idx].trim_end_matches('/').to_string();
-    let presentation_id = raw[idx + mark.len()..]
-        .trim_matches('/')
-        .to_string();
+    let presentation_id = raw[idx + mark.len()..].trim_matches('/').to_string();
     if app.is_empty() || presentation_id.is_empty() || presentation_id.contains('/') {
         return None;
     }
@@ -144,7 +142,10 @@ pub(crate) fn legacy_speaker_redirect_location(app_tail: &str) -> String {
 }
 
 /// Copilot 演说稿 canonical URL。
-pub(crate) fn copilot_presentation_canonical_location(app_id: &str, presentation_id: &str) -> String {
+pub(crate) fn copilot_presentation_canonical_location(
+    app_id: &str,
+    presentation_id: &str,
+) -> String {
     format!(
         "/apps/copilot/{}/{PRESENTATION_PATH_MARK}{}",
         app_id.trim_start_matches('/'),
@@ -167,13 +168,7 @@ pub(crate) fn scene_projection_canonical_location(
         projection_base_path(route_mode, app_id),
         percent_encode_query_component(sid)
     );
-    let parts = projection_query_parts(
-        route_mode,
-        tab,
-        chrome,
-        data_mode,
-        review_projection,
-    );
+    let parts = projection_query_parts(route_mode, tab, chrome, data_mode, review_projection);
     if !parts.is_empty() {
         out.push('?');
         out.push_str(&parts.join("&"));
@@ -188,15 +183,7 @@ pub(crate) fn access_canonical_location(
     tab: Option<&str>,
     chrome: Option<&str>,
 ) -> String {
-    scene_projection_canonical_location(
-        UiRouteMode::App,
-        app_id,
-        scene_id,
-        tab,
-        chrome,
-        None,
-        None,
-    )
+    scene_projection_canonical_location(UiRouteMode::App, app_id, scene_id, tab, chrome, None, None)
 }
 
 pub(crate) fn scene_projection_sanitized_redirect_location(
@@ -301,17 +288,32 @@ pub(crate) fn build_query_suffix_with_options(
         }
     }
     if options.include_node {
-        if let Some(node) = query.node.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(node) = query
+            .node
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             parts.push(format!("node={}", percent_encode_query_component(node)));
         }
     }
     if options.include_scope {
-        if let Some(scope) = query.scope.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(scope) = query
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             parts.push(format!("scope={}", percent_encode_query_component(scope)));
         }
     }
     if options.include_focus {
-        if let Some(focus) = query.focus.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(focus) = query
+            .focus
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             parts.push(format!("focus={}", percent_encode_query_component(focus)));
         }
     }
@@ -321,7 +323,10 @@ pub(crate) fn build_query_suffix_with_options(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        parts.push(format!("catalog={}", percent_encode_query_component(catalog)));
+        parts.push(format!(
+            "catalog={}",
+            percent_encode_query_component(catalog)
+        ));
     }
     if let Some(pack) = query
         .pack

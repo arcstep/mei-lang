@@ -353,5 +353,4 @@ pub(crate) fn compile_app_with_cache_uncached_path_shared(
         compile_cache_lock_wait_ms,
         compile_ms,
     })
-
 }

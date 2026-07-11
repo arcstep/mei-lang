@@ -1,10 +1,10 @@
+mod components;
 mod discover;
 mod source_tree;
-mod components;
 
 #[cfg(test)]
 mod tests;
 
+pub use components::*;
 pub use discover::*;
 pub use source_tree::*;
-pub use components::*;

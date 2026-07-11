@@ -1,13 +1,12 @@
-
-
 use super::{
-    theme_decl_to_value, validate_required_scene_theme_tokens, validate_required_shell_theme_tokens,
-    validate_theme_layout_value, validate_theme_value_refs, walk_value_for_token_refs,
+    theme_decl_to_value, validate_required_scene_theme_tokens,
+    validate_required_shell_theme_tokens, validate_theme_layout_value, validate_theme_value_refs,
+    walk_value_for_token_refs,
 };
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, FrameDecl, UiNodeDecl, ThemeDecl};
+use crate::model::{Diagnostic, FrameDecl, ThemeDecl, UiNodeDecl};
 
 pub fn validate_theme_decl(
     theme: &ThemeDecl,
@@ -111,4 +110,3 @@ fn validate_props_token_refs(
 ) {
     walk_value_for_token_refs(value, context, false, target_file, diagnostics);
 }
-

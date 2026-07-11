@@ -9,17 +9,15 @@ use anyhow::Result;
 use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
 use super::build_generation::require_build_generation_tag;
+use super::build_generation::resolve_build_generation_for_prebuild;
 use super::env_paths::{
     app_env_build_dir, app_env_current_link, app_env_dir, app_env_var_dir,
     env_generation_from_env_dir, normalize_env_generation_id,
     resolve_app_build_generation_from_current, resolve_app_env_dir_following_current,
     resolve_env_generation_id_for_prebuild, resolve_workspace_default_app_id,
 };
-use super::build_generation::resolve_build_generation_for_prebuild;
 use super::paths::{civil_from_days, resolve_toolchain_version_with_hint, write_build_manifest};
-use super::types::{
-    read_links_state, write_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA,
-};
+use super::types::{read_links_state, write_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ContentStoreMergeStats {
@@ -72,10 +70,7 @@ fn seed_build_content_store_from_active(
     active_ver: &str,
     target_build_dir: &Path,
 ) -> Result<ContentStoreMergeStats> {
-    merge_build_content_store(
-        &app_env_build_dir(app_root, active_ver),
-        target_build_dir,
-    )
+    merge_build_content_store(&app_env_build_dir(app_root, active_ver), target_build_dir)
 }
 
 fn union_historical_build_content_into_target(
@@ -141,7 +136,10 @@ impl PrebuildGeneration {
     }
 }
 
-pub fn begin_prebuild_generation(source_root: &Path, app_ids: &[String]) -> Result<PrebuildGeneration> {
+pub fn begin_prebuild_generation(
+    source_root: &Path,
+    app_ids: &[String],
+) -> Result<PrebuildGeneration> {
     begin_prebuild_generation_with_hint(source_root, app_ids, None)
 }
 
@@ -150,8 +148,7 @@ pub fn begin_prebuild_generation_with_hint(
     app_ids: &[String],
     cli_toolchain_hint: Option<&str>,
 ) -> Result<PrebuildGeneration> {
-    let toolchain_version =
-        resolve_toolchain_version_with_hint(source_root, cli_toolchain_hint);
+    let toolchain_version = resolve_toolchain_version_with_hint(source_root, cli_toolchain_hint);
     let build_spec = resolve_build_generation_for_prebuild(source_root);
     let env_version = resolve_env_generation_id_for_prebuild(source_root);
     let workspace_version = build_spec.date.clone();
@@ -160,7 +157,8 @@ pub fn begin_prebuild_generation_with_hint(
         let app_root = resolve_app_root(source_root, app_id);
         let previous_active = resolve_app_env_dir_following_current(app_root.as_path())
             .and_then(|env_dir| env_generation_from_env_dir(env_dir.as_path()));
-        let (build_dir, _var_dir) = replace_env_generation(app_root.as_path(), env_version.as_str())?;
+        let (build_dir, _var_dir) =
+            replace_env_generation(app_root.as_path(), env_version.as_str())?;
         if let Some(ref active_ver) = previous_active {
             if active_ver != &env_version {
                 let _ = seed_build_content_store_from_active(
@@ -338,8 +336,7 @@ pub fn prepare_dev_build_generation_with_hint(
     app_ids: &[String],
     cli_toolchain_hint: Option<&str>,
 ) -> Result<PrebuildGeneration> {
-    let generation =
-        begin_prebuild_generation_with_hint(source_root, app_ids, cli_toolchain_hint)?;
+    let generation = begin_prebuild_generation_with_hint(source_root, app_ids, cli_toolchain_hint)?;
     attach_build_generation(source_root, app_ids, generation.env_version.as_str())?;
     sync_dev_links_for_generation(source_root, &generation)?;
     Ok(generation)
@@ -406,7 +403,10 @@ pub fn rollback_build(source_root: &Path) -> Result<String> {
     Ok(target)
 }
 
-pub(crate) fn apply_build_symlinks_for_all_apps(source_root: &Path, env_version: &str) -> Result<()> {
+pub(crate) fn apply_build_symlinks_for_all_apps(
+    source_root: &Path,
+    env_version: &str,
+) -> Result<()> {
     let apps_root = resolve_apps_root(source_root);
     if !apps_root.is_dir() {
         return Ok(());

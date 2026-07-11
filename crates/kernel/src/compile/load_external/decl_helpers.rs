@@ -4,8 +4,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::model::{
-    FrameDecl, FrameExportDecl, UiNodeDecl,
-    PanelExportDecl, SceneDecl, SceneExportDecl,
+    FrameDecl, FrameExportDecl, PanelExportDecl, SceneDecl, SceneExportDecl, UiNodeDecl,
 };
 
 use super::super::scene_binding::decode_scene_decl;

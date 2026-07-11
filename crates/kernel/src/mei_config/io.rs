@@ -4,9 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use super::types::{
-    MeiConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN,
-};
+use super::types::{MeiConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN};
 use super::workspace_paths::{app_mei_config_path, workspace_config_path};
 
 /// 仅认 app 根目录的 `.mei-config.json`，不再向上/向 segment 回退。

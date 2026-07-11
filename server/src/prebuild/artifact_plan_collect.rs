@@ -147,8 +147,7 @@ fn home_embedded_warmup_request_matches_scope(
     let Some(request_target) = request_target else {
         return false;
     };
-    let inferred_target =
-        mei_lang_kernel::canonical_app_source_rel_path(inferred_target.as_str());
+    let inferred_target = mei_lang_kernel::canonical_app_source_rel_path(inferred_target.as_str());
     request_target == inferred_target && !request_target.ends_with("home.mei")
 }
 
@@ -219,10 +218,7 @@ pub(crate) fn build_scope_artifact_plan(
         )?;
     }
     if scope.key() == CompileScope::default_scope().key()
-        || outcome
-            .compiled
-            .active_target_file
-            .contains("home.mei")
+        || outcome.compiled.active_target_file.contains("home.mei")
     {
         let mut planning_compiled = (*outcome.compiled).clone();
         let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
@@ -367,16 +363,20 @@ pub(crate) fn build_plan_node_stats(
             dataframe_nodes.insert(dataframe.artifact_key.clone());
         }
     }
-    let _ = (logical_workset_nodes.len(), logical_dataframe_nodes.len(), scope_ids.len(), dependency_keys.len());
+    let _ = (
+        logical_workset_nodes.len(),
+        logical_dataframe_nodes.len(),
+        scope_ids.len(),
+        dependency_keys.len(),
+    );
     let canonical_prebuild_nodes = canonical_identity_count + metric_workset_nodes.len();
     let budget = PrebuildNodeBudgetReport {
         canonical_node_limit: CANONICAL_PREBUILD_NODE_BUDGET,
         startup_wall_ms_limit: STARTUP_PREBUILD_WALL_MS_BUDGET_MS,
         over_canonical_node_limit: canonical_prebuild_nodes > CANONICAL_PREBUILD_NODE_BUDGET,
     };
-    let planned_total_nodes = canonical_prebuild_nodes
-        + manifest_plan.warmup_requests.len()
-        + dataframe_nodes.len();
+    let planned_total_nodes =
+        canonical_prebuild_nodes + manifest_plan.warmup_requests.len() + dataframe_nodes.len();
     PrebuildPlanNodeStatsReport {
         manifest_compile_scope_nodes: 1
             + manifest_plan.hot_scopes.len()
@@ -488,10 +488,7 @@ mod home_embedded_warmup_tests {
             },
             dataset_id: "scenes/09-监督典型案例.mei::typical_cases".to_string(),
             priority: WarmupRequestPriority::Critical,
-            metric_ids: vec![
-                "case_count".to_string(),
-                "case_highlights".to_string(),
-            ],
+            metric_ids: vec!["case_count".to_string(), "case_highlights".to_string()],
         };
         assert!(home_embedded_warmup_request_matches_scope(
             &embedded_request,
@@ -541,4 +538,3 @@ mod home_embedded_warmup_tests {
         ));
     }
 }
-

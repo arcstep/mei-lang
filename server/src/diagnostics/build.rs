@@ -3,9 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::report::{
-    BuildDiagnosticsSection, LastBuildSummary, LAST_BUILD_SUMMARY_REL,
-};
+use super::report::{BuildDiagnosticsSection, LastBuildSummary, LAST_BUILD_SUMMARY_REL};
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct ParsedCompileIndexStats {
@@ -137,9 +135,8 @@ fn load_compile_index_meta(app_root: &Path) -> Option<CompileIndexMeta> {
         generated_at_ms: u64,
         entries: Vec<serde_json::Value>,
     }
-    let path = mei_lang_kernel::resolve_app_build_root(app_root).join(
-        mei_lang_kernel::PREBUILD_COMPILE_INDEX_REL,
-    );
+    let path = mei_lang_kernel::resolve_app_build_root(app_root)
+        .join(mei_lang_kernel::PREBUILD_COMPILE_INDEX_REL);
     let raw = fs::read_to_string(&path).ok()?;
     let persisted = serde_json::from_str::<PersistedCompileIndex>(&raw).ok()?;
     Some(CompileIndexMeta {
@@ -171,7 +168,8 @@ fn load_latest_startup_prebuild_diagnostics(
     source_root: &Path,
     app_id: &str,
 ) -> Option<(String, ParsedStartupDiagnostics, u64)> {
-    let runs_root = mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("startup-runs");
+    let runs_root =
+        mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("startup-runs");
     let mut candidates = Vec::new();
     let entries = fs::read_dir(&runs_root).ok()?;
     for entry in entries.flatten() {
@@ -216,15 +214,17 @@ fn parse_startup_prebuild_report(
         .iter()
         .find(|app| app.app_id == app_id)
         .map(|app| app.diagnostics.clone());
-    let diagnostics = app_diag.filter(|diag| diag.peak_rss_bytes > 0).or_else(|| {
-        if report.succeeded_apps.iter().any(|id| id == app_id)
-            && report.diagnostics.peak_rss_bytes > 0
-        {
-            Some(report.diagnostics.clone())
-        } else {
-            None
-        }
-    })?;
+    let diagnostics = app_diag
+        .filter(|diag| diag.peak_rss_bytes > 0)
+        .or_else(|| {
+            if report.succeeded_apps.iter().any(|id| id == app_id)
+                && report.diagnostics.peak_rss_bytes > 0
+            {
+                Some(report.diagnostics.clone())
+            } else {
+                None
+            }
+        })?;
     let recorded_at_ms = path
         .metadata()
         .ok()

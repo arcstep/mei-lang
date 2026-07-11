@@ -222,7 +222,8 @@ pub fn render_startup_warming_page(
     let footer = render_host_shell_footer_for_source_root(source_root);
     let body_theme = host_shell_body_theme_style(source_root);
     let status_esc = html_escape(status_line.trim());
-    let return_to_js = serde_json::to_string(return_path.trim()).unwrap_or_else(|_| "\"/\"".to_string());
+    let return_to_js =
+        serde_json::to_string(return_path.trim()).unwrap_or_else(|_| "\"/\"".to_string());
     let script = STARTUP_WARMING_SCRIPT_TEMPLATE
         .replace("__RETURN_TO__", return_to_js.as_str())
         .replace("__APP__", poll_app_id.trim())

@@ -55,8 +55,10 @@ impl Visit for FieldVisitor {
             self.message = Some(format!("{value:?}").trim_matches('"').to_string());
             return;
         }
-        self.fields
-            .insert(key, serde_json::Value::String(format!("{value:?}").replace('"', "")));
+        self.fields.insert(
+            key,
+            serde_json::Value::String(format!("{value:?}").replace('"', "")),
+        );
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
@@ -106,14 +108,18 @@ impl HostLogWriter {
         if size < self.max_bytes {
             return Ok(());
         }
-        let oldest = self.log_dir.join(format!("host-events.{}.jsonl", self.max_files - 1));
+        let oldest = self
+            .log_dir
+            .join(format!("host-events.{}.jsonl", self.max_files - 1));
         if oldest.is_file() {
             let _ = fs::remove_file(&oldest);
         }
         for index in (1..self.max_files - 1).rev() {
             let from = self.log_dir.join(format!("host-events.{index}.jsonl"));
             if from.is_file() {
-                let to = self.log_dir.join(format!("host-events.{}.jsonl", index + 1));
+                let to = self
+                    .log_dir
+                    .join(format!("host-events.{}.jsonl", index + 1));
                 let _ = fs::rename(from, to);
             }
         }
@@ -164,7 +170,9 @@ where
         }
         let mut visitor = FieldVisitor::new();
         event.record(&mut visitor);
-        let message = visitor.message.unwrap_or_else(|| event.metadata().name().to_string());
+        let message = visitor
+            .message
+            .unwrap_or_else(|| event.metadata().name().to_string());
         let entry = HostLogEntry {
             recorded_at_ms: crate::http::startup_run::now_ms_for_host_message() as u128,
             level: level.to_string().to_ascii_lowercase(),

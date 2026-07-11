@@ -96,7 +96,10 @@ pub(super) fn resolve_existing_upload_file(
     Ok(canonical_file)
 }
 
-pub(super) fn build_upload_rel(upload_dir: Option<&str>, file_name: &str) -> Result<String, ApiError> {
+pub(super) fn build_upload_rel(
+    upload_dir: Option<&str>,
+    file_name: &str,
+) -> Result<String, ApiError> {
     let clean_file_name = sanitize_upload_rel(file_name)?;
     if let Some(dir) = upload_dir {
         let clean_dir = sanitize_upload_rel(dir)?;
@@ -116,7 +119,10 @@ pub(super) fn file_name_from_upload_rel(rel: &str) -> Result<String, ApiError> {
         .ok_or_else(|| ApiError::status(StatusCode::BAD_REQUEST, "invalid upload file name"))
 }
 
-pub(super) fn build_move_target_rel(from_rel: &str, to_dir: Option<&str>) -> Result<String, ApiError> {
+pub(super) fn build_move_target_rel(
+    from_rel: &str,
+    to_dir: Option<&str>,
+) -> Result<String, ApiError> {
     let file_name = file_name_from_upload_rel(from_rel)?;
     let target_dir = to_dir.map(str::trim).filter(|value| !value.is_empty());
     build_upload_rel(target_dir, &file_name)

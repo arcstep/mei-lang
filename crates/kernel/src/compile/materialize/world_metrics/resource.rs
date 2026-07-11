@@ -1,4 +1,7 @@
-use super::{imported_capsule_path_from_world_metrics_resource_id, namespace_runtime_metric_defs, namespaced_world_metric_key, WORLD_METRICS_RESOURCE_ID};
+use super::{
+    imported_capsule_path_from_world_metrics_resource_id, namespace_runtime_metric_defs,
+    namespaced_world_metric_key, WORLD_METRICS_RESOURCE_ID,
+};
 
 use std::collections::BTreeMap;
 

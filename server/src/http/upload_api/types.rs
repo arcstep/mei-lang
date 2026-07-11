@@ -1,7 +1,4 @@
-
 use serde::{Deserialize, Serialize};
-
-
 
 pub(super) const MIN_UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
 pub(super) const MAX_UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
@@ -73,4 +70,3 @@ pub(super) struct UploadChunkSessionMeta {
     pub(super) total_chunks: usize,
     pub(super) last_modified_ms: Option<u64>,
 }
-

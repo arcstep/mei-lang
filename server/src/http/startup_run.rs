@@ -39,7 +39,10 @@ pub(crate) struct StartupRunSnapshot {
     pub full_warmup_ready: bool,
     #[serde(rename = "deferredWarmupPending")]
     pub deferred_warmup_pending: bool,
-    #[serde(rename = "accessArtifactsReady", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "accessArtifactsReady",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub access_artifacts_ready: Option<bool>,
     #[serde(rename = "startupOutcome", skip_serializing_if = "Option::is_none")]
     pub startup_outcome: Option<String>,
@@ -51,7 +54,11 @@ pub(crate) struct StartupRunSnapshot {
     pub last_failed_app_count: Option<usize>,
     #[serde(rename = "correctnessFailed", skip_serializing_if = "Option::is_none")]
     pub correctness_failed: Option<bool>,
-    #[serde(rename = "warningCategories", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(
+        rename = "warningCategories",
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
     pub warning_categories: Vec<String>,
     #[serde(
         rename = "warningCategoryCounts",
@@ -59,7 +66,11 @@ pub(crate) struct StartupRunSnapshot {
         default
     )]
     pub warning_category_counts: serde_json::Map<String, Value>,
-    #[serde(rename = "failingDatasets", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(
+        rename = "failingDatasets",
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
     pub failing_datasets: Vec<String>,
     pub finished: bool,
 }
@@ -253,14 +264,17 @@ pub(crate) fn record_phase(event: &str, detail: Option<Value>) {
                 if let Some(failed) = detail.get("correctnessFailed").and_then(Value::as_bool) {
                     state.summary.correctness_failed = Some(failed);
                 }
-                if let Some(categories) = detail.get("warningCategories").and_then(Value::as_array) {
+                if let Some(categories) = detail.get("warningCategories").and_then(Value::as_array)
+                {
                     state.summary.warning_categories = categories
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect();
                 }
-                if let Some(counts) = detail.get("warningCategoryCounts").and_then(Value::as_object)
+                if let Some(counts) = detail
+                    .get("warningCategoryCounts")
+                    .and_then(Value::as_object)
                 {
                     state.summary.warning_category_counts = counts.clone();
                 }
@@ -390,11 +404,7 @@ pub(crate) fn record_startup_prebuild_outcome(
         return;
     }
     let startup_ok = report.ok && access_artifacts_ready;
-    let startup_outcome = if startup_ok {
-        "ready"
-    } else {
-        "not_ready"
-    };
+    let startup_outcome = if startup_ok { "ready" } else { "not_ready" };
     let _ = with_state(|state| {
         state.summary.startup_warmup_kind = Some(warmup_kind.to_string());
         state.summary.startup_outcome = Some(startup_outcome.to_string());
@@ -403,10 +413,11 @@ pub(crate) fn record_startup_prebuild_outcome(
         state.summary.last_failed_app_count = Some(failed_app_count);
         state.summary.correctness_failed = Some(correctness_failed);
         state.summary.warning_categories = report.warning_categories();
-        state.summary.warning_category_counts = serde_json::to_value(report.warning_category_counts())
-            .ok()
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default();
+        state.summary.warning_category_counts =
+            serde_json::to_value(report.warning_category_counts())
+                .ok()
+                .and_then(|value| value.as_object().cloned())
+                .unwrap_or_default();
         state.summary.failing_datasets = report.failing_datasets();
     });
     if report.ok && access_artifacts_ready {

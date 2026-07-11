@@ -4,6 +4,7 @@ mod access_query;
 mod analysis_contract;
 mod artifact_store;
 mod capability_catalog;
+mod catalog_app;
 mod compile_report;
 mod compile_service;
 mod editor_runtime;
@@ -15,7 +16,6 @@ mod publish_data_snapshots;
 mod runtime_sim;
 mod semantic_summary;
 mod types;
-mod catalog_app;
 mod workspace_stock;
 mod workspace_summary;
 mod world;
@@ -37,16 +37,16 @@ pub use capability_catalog::{
     meilang_author_skill_package, AiProfileDescriptor, SkillPackageDescriptor,
     CAPABILITY_CATALOG_SCHEMA_VERSION, MCP_SURFACE_SCHEMA_VERSION,
 };
+pub use catalog_app::{sync_stock_catalog_app, SyncStockCatalogAppReport};
 pub use compile_report::{compile_report, CompileReport};
 pub use compile_service::{
     access_slim_artifacts_enabled, canonical_artifact_persist_enabled, clear_compile_cache_for_app,
-    locked_cache_env_overrides,
     clear_compiled_app_artifacts_for_app, compile_app_with_cache, compile_app_with_cache_shared,
     compile_cache_key, env_flag_enabled, inspect_source_layout, is_compile_inflight,
-    load_compile_artifact_only, load_compile_artifact_only_shared, peek_compile_cache,
-    peek_compile_cache_hit, peek_compile_cache_hit_shared, peek_compile_cache_shared,
-    probe_compiled_app_manifest_identity, recent_compile_failure, resolve_components_root,
-    should_persist_compiled_app_artifact, slim_compiled_app_for_access,
+    load_compile_artifact_only, load_compile_artifact_only_shared, locked_cache_env_overrides,
+    peek_compile_cache, peek_compile_cache_hit, peek_compile_cache_hit_shared,
+    peek_compile_cache_shared, probe_compiled_app_manifest_identity, recent_compile_failure,
+    resolve_components_root, should_persist_compiled_app_artifact, slim_compiled_app_for_access,
     strip_loaded_compiled_app_for_access, CompileWithCacheFailure, CompileWithCacheOutcome,
     CompileWithCacheOutcomeShared, LayoutCheck, PeekCompileCacheHit, PeekCompileCacheHitShared,
     SourceLayoutInspection, SourceLayoutRoots,
@@ -59,11 +59,12 @@ pub use editor_runtime::{
     workspace_runtime_version_descriptor, EditorRuntimeCheck, EditorRuntimeDescriptor,
     EditorRuntimeDoctorReport, EditorRuntimeInstallReport, EditorRuntimePathDescriptor,
     EditorRuntimeScaffoldFile, EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor,
-    EnsureAuthorSkillReport, InstalledRuntimeDescriptor, RuntimeCompatibilityDescriptor, RuntimeManifestArtifactDescriptor,
-    RuntimeManifestContentDescriptor, RuntimeManifestProvenance, RuntimeSourceRevision,
-    WorkspaceRuntimeManifest, WorkspaceRuntimeStatusReport, WorkspaceRuntimeVersionDescriptor,
-    EDITOR_RUNTIME_SCHEMA_VERSION, RUNTIME_BUNDLE_SCHEMA_VERSION,
-    WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION, WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
+    EnsureAuthorSkillReport, InstalledRuntimeDescriptor, RuntimeCompatibilityDescriptor,
+    RuntimeManifestArtifactDescriptor, RuntimeManifestContentDescriptor, RuntimeManifestProvenance,
+    RuntimeSourceRevision, WorkspaceRuntimeManifest, WorkspaceRuntimeStatusReport,
+    WorkspaceRuntimeVersionDescriptor, EDITOR_RUNTIME_SCHEMA_VERSION,
+    RUNTIME_BUNDLE_SCHEMA_VERSION, WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION,
+    WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
 };
 pub use export::{
     build_eval_plan_markdown, export_analysis_contracts, export_eval_plan,
@@ -79,9 +80,9 @@ pub use knowledge_bundle::{
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use platform_assets::{
     platform_asset_catalog_descriptor, platform_asset_catalog_descriptor_for_package_root,
-    platform_asset_catalog_descriptor_for_workspace_root,
-    ComponentExportDescriptor, ComponentPackDescriptor, PlatformAssetCatalogDescriptor,
-    TemplatePackDescriptor, PLATFORM_ASSET_SCHEMA_VERSION,
+    platform_asset_catalog_descriptor_for_workspace_root, ComponentExportDescriptor,
+    ComponentPackDescriptor, PlatformAssetCatalogDescriptor, TemplatePackDescriptor,
+    PLATFORM_ASSET_SCHEMA_VERSION,
 };
 pub use publish_data_snapshots::{publish_data_snapshots, PublishDataSnapshotsReport};
 pub use runtime_sim::{runtime_sim_step, RuntimeSimStepResult};
@@ -92,7 +93,6 @@ pub use types::{
     WorldContextSnapshot, WorldRuntimeBundle, WorldRuntimePeekResponse, WorldRuntimeSummary,
     WorldScope, WorldSnapshotSummary,
 };
-pub use catalog_app::{sync_stock_catalog_app, SyncStockCatalogAppReport};
 pub use workspace_stock::{
     create_app_skeleton, doctor_workspace_stock, ensure_stock_catalog_app_synced,
     ensure_workspace_stock_materialized, init_workspace_profile, materialize_workspace_stock,

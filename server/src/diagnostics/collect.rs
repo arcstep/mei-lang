@@ -8,8 +8,8 @@ use mei_lang_toolchain::{
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mrg::registry::MrgRegistryWriter;
-use crate::graph::types::{GraphNodeKind, MaterialState};
 use crate::graph::observability::scan_content_store_summary;
+use crate::graph::types::{GraphNodeKind, MaterialState};
 
 use super::build::collect_build_diagnostics;
 use super::report::{
@@ -19,7 +19,15 @@ use super::report::{
 };
 
 const DEFAULT_SECTIONS: &[&str] = &[
-    "disk", "eval", "mcg", "mrg", "cache", "build", "reachability", "content_store", "gate_sweep",
+    "disk",
+    "eval",
+    "mcg",
+    "mrg",
+    "cache",
+    "build",
+    "reachability",
+    "content_store",
+    "gate_sweep",
 ];
 
 pub fn collect_materialization_diagnostics(
@@ -36,7 +44,10 @@ pub fn collect_materialization_diagnostics(
     let mut report = MaterializationDiagnosticsReport {
         app_id: app_id.to_string(),
         sections: if sections.is_empty() {
-            DEFAULT_SECTIONS.iter().map(|name| (*name).to_string()).collect()
+            DEFAULT_SECTIONS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect()
         } else {
             sections.to_vec()
         },
@@ -106,7 +117,10 @@ pub fn collect_materialization_diagnostics(
             degraded_scopes: if gate.access_ready {
                 Vec::new()
             } else {
-                vec![format!("{}/{}", gate.scope.scene_id, gate.scope.target_file)]
+                vec![format!(
+                    "{}/{}",
+                    gate.scope.scene_id, gate.scope.target_file
+                )]
             },
         };
     }
@@ -130,10 +144,7 @@ pub fn collect_materialization_diagnostics(
             .count();
         let total = mrg.slots.len();
         let (navigation_node_count, navigation_duplicate_keys, navigation_orphan_urls) =
-            crate::graph::mrg::navigation_contract::navigation_drift_metrics(
-                source_root,
-                app_id,
-            );
+            crate::graph::mrg::navigation_contract::navigation_drift_metrics(source_root, app_id);
         let nav_contract =
             crate::graph::mrg::navigation_contract::verify_navigation_contract(source_root, app_id);
         if !nav_contract.ok {
@@ -205,12 +216,7 @@ pub fn collect_materialization_diagnostics(
 
     if wants("reachability") {
         let reachability = if scene_id.is_some() || target_file.is_some() {
-            crate::graph::run_scope_gate_check(
-                source_root,
-                app_id,
-                scene_id,
-                target_file,
-            )
+            crate::graph::run_scope_gate_check(source_root, app_id, scene_id, target_file)
         } else {
             crate::readiness::reachability::check_reachability(source_root, None).scope_gate
         };
@@ -309,8 +315,8 @@ fn walk_dir(path: &Path, files: &mut usize, bytes: &mut u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::fs;
+    use std::path::PathBuf;
 
     fn temp_app_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(

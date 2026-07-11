@@ -9,8 +9,8 @@ use serde_json::json;
 
 use crate::{AppError, AppState};
 
-use super::types::*;
 use super::path::*;
+use super::types::*;
 
 pub async fn upload_file_delete(
     State(state): State<AppState>,
@@ -148,9 +148,7 @@ mod tests {
         assert!(upload_supports_inline_preview(Path::new(
             "文件附件/demo.pdf"
         )));
-        assert!(upload_supports_inline_preview(Path::new(
-            "videos/demo.mp4"
-        )));
+        assert!(upload_supports_inline_preview(Path::new("videos/demo.mp4")));
         assert!(upload_supports_inline_preview(Path::new(
             "预警摘要图片/demo.png"
         )));
@@ -181,10 +179,8 @@ mod tests {
 
     #[test]
     pub(super) fn upload_download_match_basename_searches_directory_path() {
-        let upload_root = std::env::temp_dir().join(format!(
-            "mei-upload-download-test-{}",
-            std::process::id()
-        ));
+        let upload_root =
+            std::env::temp_dir().join(format!("mei-upload-download-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&upload_root);
         let image_dir = upload_root.join("预警摘要图片");
         std::fs::create_dir_all(&image_dir).expect("image dir");

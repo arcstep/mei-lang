@@ -1,17 +1,14 @@
-use super::{insert_hydrated_link_projection_assembly_entry, insert_scene_projection_assembly_entry};
-
-use std::{
-    collections::BTreeMap,
-    path::Path,
+use super::{
+    insert_hydrated_link_projection_assembly_entry, insert_scene_projection_assembly_entry,
 };
+
+use std::{collections::BTreeMap, path::Path};
 
 use serde_json::Value;
 
 use crate::compile::entry_payload::CompiledScenePayload;
 use crate::evaluate_mei_file;
-use crate::model::{
-    ComponentAsset, Diagnostic,
-};
+use crate::model::{ComponentAsset, Diagnostic};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::super::dependency_graph::DependencyGraph;
@@ -111,7 +108,10 @@ pub(super) fn build_scene_projection_maps(
                     assembly_map.insert("accepts".to_string(), contract.scene.params.clone());
                 }
                 if !contract.scene.capabilities.is_null() {
-                    assembly_map.insert("capabilities".to_string(), contract.scene.capabilities.clone());
+                    assembly_map.insert(
+                        "capabilities".to_string(),
+                        contract.scene.capabilities.clone(),
+                    );
                 }
                 if let Some(frame) = contract.frame.as_ref() {
                     assembly_map.insert(
@@ -237,4 +237,3 @@ pub(super) fn ensure_build_tree_entry_scene_assemblies(
 fn is_t2_page_target(target_file: &str) -> bool {
     target_file.ends_with(".page.mei") || target_file.ends_with(".board.mei")
 }
-

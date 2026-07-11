@@ -61,7 +61,11 @@ pub(crate) fn package_root_binary_candidates(package_root: &Path, base: &str) ->
     candidates
 }
 
-pub(crate) fn try_resolve_runtime_binary(package_root: &Path, env_key: &str, base: &str) -> Option<PathBuf> {
+pub(crate) fn try_resolve_runtime_binary(
+    package_root: &Path,
+    env_key: &str,
+    base: &str,
+) -> Option<PathBuf> {
     if let Ok(raw) = std::env::var(env_key) {
         let candidate = PathBuf::from(raw);
         if candidate.is_file() {

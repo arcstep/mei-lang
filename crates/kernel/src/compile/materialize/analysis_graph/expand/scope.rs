@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-
 pub(crate) fn rewrite_explain_scope(metric_id: &str, value: &Value) -> Value {
     let Some(items) = value.as_array() else {
         return value.clone();

@@ -4,8 +4,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use mei_lang_kernel::{
-    build_reachability_tree, resolve_build_node_context,
-    resolve_build_view_query, tab_visible_for_node, BuildViewTab, LegacyBuildQuery,
+    build_reachability_tree, resolve_build_node_context, resolve_build_view_query,
+    tab_visible_for_node, BuildViewTab, LegacyBuildQuery,
 };
 use mei_lang_toolchain::load_world_runtime_bundle;
 
@@ -14,8 +14,8 @@ use serde::Deserialize;
 use crate::http::host_api::artifact_gate_status;
 use crate::AppState;
 
-use super::support::*;
 use super::append::*;
+use super::support::*;
 
 #[derive(Deserialize)]
 pub struct BuildContextExportQuery {
@@ -100,10 +100,8 @@ pub async fn api_build_context_export(
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(true);
 
-    let surface = resolve_export_surface(
-        query.surface.as_deref(),
-        query.review_projection.as_deref(),
-    );
+    let surface =
+        resolve_export_surface(query.surface.as_deref(), query.review_projection.as_deref());
 
     let build_url = {
         let route = if surface == "prototype" {
@@ -272,8 +270,12 @@ fn append_layout_surface_sections(
     node: &mei_lang_kernel::BuildNodeId,
 ) {
     md.push_str("### 布局工作区提示\n\n");
-    md.push_str("- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 theme.layout。\n");
-    md.push_str("- session draft：`theme.layout.session`；确认后 `POST /api/ops/themes/layout/apply`。\n");
+    md.push_str(
+        "- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 theme.layout。\n",
+    );
+    md.push_str(
+        "- session draft：`theme.layout.session`；确认后 `POST /api/ops/themes/layout/apply`。\n",
+    );
     if let Some(manifest) = (!compiled.ui_layout_index.nodes.is_empty()).then(|| {
         compiled
             .ui_layout_index
@@ -308,4 +310,3 @@ fn append_prototype_surface_sections(
         md.push_str("\n");
     }
 }
-

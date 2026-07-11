@@ -61,9 +61,7 @@ impl ThinShellPageCache {
 
 pub fn get(key: &str) -> Option<String> {
     let guard = ThinShellPageCache::global();
-    guard
-        .as_ref()
-        .and_then(|cache| cache.get_inner(key))
+    guard.as_ref().and_then(|cache| cache.get_inner(key))
 }
 
 pub fn put(key: String, html: String) {

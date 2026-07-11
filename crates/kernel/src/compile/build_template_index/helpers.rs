@@ -3,11 +3,10 @@ use super::{template_entry_for_preview, template_primary_consumer_from_entry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-
 use crate::compile::block_instance_id;
 use crate::model::{
-    BlockDecl, CompiledApp, ComponentAsset, UiNodeDecl, TemplateCatalogEntry, TemplateConsumerAnchor,
-    UiTreeNode,
+    BlockDecl, CompiledApp, ComponentAsset, TemplateCatalogEntry, TemplateConsumerAnchor,
+    UiNodeDecl, UiTreeNode,
 };
 
 fn normalize_template_file_key(raw: &str) -> String {
@@ -130,7 +129,10 @@ pub fn preview_target_for_template_file_consumer(
     template_file_key: &str,
 ) -> Option<String> {
     let anchor = template_primary_consumer_for_template_file(compiled, template_file_key)?;
-    crate::compile::build_experience::preview_target_for_scene_id(compiled, anchor.scene_id.as_str())
+    crate::compile::build_experience::preview_target_for_scene_id(
+        compiled,
+        anchor.scene_id.as_str(),
+    )
 }
 
 pub fn preview_scene_id_for_template_file_consumer(
@@ -141,7 +143,10 @@ pub fn preview_scene_id_for_template_file_consumer(
         .map(|anchor| anchor.scene_id.clone())
 }
 
-pub(super) fn collect_panel_use_keys(panel: &UiNodeDecl, out: &mut BTreeMap<String, BTreeSet<String>>) {
+pub(super) fn collect_panel_use_keys(
+    panel: &UiNodeDecl,
+    out: &mut BTreeMap<String, BTreeSet<String>>,
+) {
     for ui_node in &panel.blocks {
         match ui_node {
             UiTreeNode::Block(block) => {
@@ -242,4 +247,3 @@ pub(super) fn agent_hint_for(category: &str, key: &str, script: &str) -> String 
         _ => format!("模板 `{key}` 位于 `{script}`；在 block 上设置 use_key=`{key}` 引用。"),
     }
 }
-

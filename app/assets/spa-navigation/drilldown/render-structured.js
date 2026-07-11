@@ -18,7 +18,15 @@
     if (!Array.isArray(areas) || areas.length === 0) return "";
     return areas
       .filter((row) => Array.isArray(row) && row.length > 0)
-      .map((row) => `"${row.map((entry) => String(entry || "").trim() || ".").join(" ")}"`)
+      .map((row) =>
+        `"${row
+          .map((entry) => {
+            const token = String(entry || "").trim();
+            // MeiLang `_` empty cell → CSS null cell `.`
+            return !token || token === "_" ? "." : token;
+          })
+          .join(" ")}"`,
+      )
       .join(" ");
   }
 

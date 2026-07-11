@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{DatasetView, Diagnostic, LoadedResource, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{DatasetView, Diagnostic, LoadedResource, Severity, UiNodeDecl, UiTreeNode};
 
 fn collect_panel_import_scopes(panels: &[UiNodeDecl], out: &mut BTreeSet<String>) {
     for panel in panels {

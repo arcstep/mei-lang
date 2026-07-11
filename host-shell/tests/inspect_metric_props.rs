@@ -1,9 +1,10 @@
 use mei_host_graph::assemble_scope_from_registry;
-use mei_lang_kernel::{UiTreeNode, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
 #[test]
 fn home_inspection_total_card_has_metric_source() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+    let workspace =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
     if !workspace.join("apps/data-demo/app.config.json").is_file() {
         return;
     }
@@ -15,13 +16,21 @@ fn home_inspection_total_card_has_metric_source() {
     for panel in &contract.panels {
         collect_paths(panel, "", &mut paths);
     }
-    eprintln!("panel paths containing inspection: {:?}", 
-        paths.iter().filter(|p| p.contains("inspection")).collect::<Vec<_>>());
+    eprintln!(
+        "panel paths containing inspection: {:?}",
+        paths
+            .iter()
+            .filter(|p| p.contains("inspection"))
+            .collect::<Vec<_>>()
+    );
     let mut found_source = None;
     for panel in &contract.panels {
         walk_panel(panel, &mut found_source);
     }
-    assert!(found_source.is_some(), "inspection_total_card block not found");
+    assert!(
+        found_source.is_some(),
+        "inspection_total_card block not found"
+    );
     let source = found_source.unwrap();
     eprintln!("source = {}", source);
     assert!(
@@ -54,10 +63,20 @@ fn walk_panel(panel: &UiNodeDecl, out: &mut Option<String>) {
         for child in &panel.blocks {
             match child {
                 UiTreeNode::Block(block) => {
-                    eprintln!("  block use_key={} props_keys={:?}", block.use_key, block.props.as_object().map(|m| m.keys().collect::<Vec<_>>()));
+                    eprintln!(
+                        "  block use_key={} props_keys={:?}",
+                        block.use_key,
+                        block
+                            .props
+                            .as_object()
+                            .map(|m| m.keys().collect::<Vec<_>>())
+                    );
                     if block.use_key == "mei.text" || block.use_key == "mei-text" {
                         let content = block.props.get("content");
-                        eprintln!("  content={}", serde_json::to_string(&content).unwrap_or_default());
+                        eprintln!(
+                            "  content={}",
+                            serde_json::to_string(&content).unwrap_or_default()
+                        );
                         if let Some(content) = content {
                             *out = Some(serde_json::to_string(content).unwrap_or_default());
                         }

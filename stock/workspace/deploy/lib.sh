@@ -445,7 +445,7 @@ run_workspace_serve() {
   export MEI_PROFILE="${PROFILE}" MEI_SOURCE="${SOURCE}" MEI_RUNTIME="${RUNTIME}"
 
   if declare -F apply_workspace_deploy_env >/dev/null 2>&1; then
-    apply_workspace_deploy_env "${workspace_root}" 2>/dev/null || true
+    apply_workspace_deploy_env "${workspace_root}"
   fi
   app="${MEI_APP:-data-demo}"
   export MEI_APP

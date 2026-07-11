@@ -1,15 +1,15 @@
 mod build_node;
 mod build_view_index;
-mod ui_layout_index;
 mod compile_out;
 mod contract;
 mod dataset;
 mod diagnostic;
 mod layout;
-mod ui_node;
 mod resource;
 mod review_modes;
 mod ui;
+mod ui_layout_index;
+mod ui_node;
 mod workspace;
 mod world;
 mod world_semantic;
@@ -20,13 +20,9 @@ pub use build_node::{
     ResolvedBuildViewQuery,
 };
 pub use build_view_index::{
-    T2PageFileEntry, T2PageSlotEntry, BuildT2PageIndex, BuildExperienceIndex, BuildTemplateIndex,
-    ExperienceNodeManifest, MountChainEntry, ReachabilityTreeNodeSnapshot,
-    ReachabilityTreeRootSnapshot, TemplateCatalogEntry, TemplateConsumerAnchor,
-};
-pub use ui_layout_index::{
-    LayoutBudgetManifest, LayoutBudgetManifestEntry, UiBudgetSummary, UiLayoutIndex, UiScopeNode,
-    UiScopeRole, UiSourceAnchor,
+    BuildExperienceIndex, BuildT2PageIndex, BuildTemplateIndex, ExperienceNodeManifest,
+    MountChainEntry, ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, T2PageFileEntry,
+    T2PageSlotEntry, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
@@ -38,7 +34,6 @@ pub use dataset::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
-pub use ui_node::{UiNodeDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use review_modes::{
     ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
@@ -48,6 +43,11 @@ pub use ui::{
     deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,
     PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiTreeNode,
 };
+pub use ui_layout_index::{
+    LayoutBudgetManifest, LayoutBudgetManifestEntry, UiBudgetSummary, UiLayoutIndex, UiScopeNode,
+    UiScopeRole, UiSourceAnchor,
+};
+pub use ui_node::{PanelSlotDecl, UiNodeDecl};
 pub use workspace::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 pub use world::{
     EntityDecl, FlowDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl,

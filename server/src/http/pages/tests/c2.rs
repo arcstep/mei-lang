@@ -419,4 +419,3 @@ async fn access_mei_file_query_still_strips_file_param() {
 
     let _ = fs::remove_dir_all(&root);
 }
-

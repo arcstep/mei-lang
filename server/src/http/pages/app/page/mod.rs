@@ -32,15 +32,15 @@ use super::page_render::{
     lightweight_access_scene, list_upload_files, upload_rel_from_config,
 };
 use super::query::{
-    access_canonical_location, access_sanitized_redirect_location, copilot_presentation_canonical_location,
-    legacy_access_redirect_location,
+    access_canonical_location, access_sanitized_redirect_location,
+    copilot_presentation_canonical_location, legacy_access_redirect_location,
     parse_access_scene_path, parse_copilot_presentation_tail, parse_speaker_tour_tail,
     presentation_sanitized_redirect_location, AppQuery,
 };
 
 use crate::http::compile_cache::{
-    compile_outcome_from_shared, resolve_runtime_compile_shared, RuntimeAccessPolicies,
-    CompileWithCacheOutcome,
+    compile_outcome_from_shared, resolve_runtime_compile_shared, CompileWithCacheOutcome,
+    RuntimeAccessPolicies,
 };
 
 use access_gate::check_access_scene_gate;

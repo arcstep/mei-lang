@@ -21,11 +21,7 @@ pub struct ViewpointMapEntry {
         rename = "viewFamily"
     )]
     pub view_family: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "stageKind"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "stageKind")]
     pub stage_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "worldRef")]
     pub world_ref: Option<String>,
@@ -163,7 +159,10 @@ fn entry_from_hints(
     }
 }
 
-fn merge_viewpoint_entry(existing: Option<ViewpointMapEntry>, candidate: ViewpointMapEntry) -> ViewpointMapEntry {
+fn merge_viewpoint_entry(
+    existing: Option<ViewpointMapEntry>,
+    candidate: ViewpointMapEntry,
+) -> ViewpointMapEntry {
     let Some(existing) = existing else {
         return candidate;
     };
@@ -357,7 +356,11 @@ fn viewpoint_entry_args(entry: &Value) -> Option<&Value> {
         Some("viewpoint") => Some(entry.get("__args").unwrap_or(entry)),
         _ => {
             let obj = entry.as_object()?;
-            if obj.get("id").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) {
+            if obj
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+            {
                 Some(entry)
             } else {
                 None

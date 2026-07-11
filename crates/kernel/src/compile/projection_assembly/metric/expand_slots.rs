@@ -1,4 +1,8 @@
-use super::{build_root_metric_slot, default_detail_view, default_preview_view, first_slot_zone_for_component, slot_from_board_view, validate_analytics_slots, validate_scene_shell_slots};
+use super::{
+    build_root_metric_slot, default_detail_view, default_preview_view,
+    first_slot_zone_for_component, slot_from_board_view, validate_analytics_slots,
+    validate_scene_shell_slots,
+};
 
 use serde_json::{Map, Value};
 
@@ -242,4 +246,3 @@ pub(super) fn expand_board_zoned_slots(
     validate_scene_shell_slots(shell, &slots, diagnostics, target_file, root_metric_id)?;
     Some(slots)
 }
-

@@ -1,8 +1,6 @@
 use super::*;
 
-use crate::model::{
-    BlockDecl, ComponentAsset, UiNodeDecl, SceneContract, TemplateConsumerAnchor,
-};
+use crate::model::{BlockDecl, ComponentAsset, SceneContract, TemplateConsumerAnchor, UiNodeDecl};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -198,7 +196,9 @@ fn ws_hello_chart_area_authoring_preview_coordinate() {
         coord.preview_target
     );
     assert!(
-        coord.preview_target.contains("stock/components/chart/echarts/previews"),
+        coord
+            .preview_target
+            .contains("stock/components/chart/echarts/previews"),
         "expected pack-local preview, got {}",
         coord.preview_target
     );
@@ -212,18 +212,14 @@ fn components_tree_groups_by_pack_path() {
             tag: "t".to_string(),
             script: "chart/echarts/line.js".to_string(),
             pack_path: "chart/echarts".to_string(),
-            preview_mei: Some(
-                "stock/components/chart/echarts/previews/chart.line.mei".to_string(),
-            ),
+            preview_mei: Some("stock/components/chart/echarts/previews/chart.line.mei".to_string()),
         },
         ComponentAsset {
             key: "chart.area".to_string(),
             tag: "t".to_string(),
             script: "chart/echarts/area.js".to_string(),
             pack_path: "chart/echarts".to_string(),
-            preview_mei: Some(
-                "stock/components/chart/echarts/previews/chart.area.mei".to_string(),
-            ),
+            preview_mei: Some("stock/components/chart/echarts/previews/chart.area.mei".to_string()),
         },
     ];
     let result = build_template_index(&assets, &BTreeMap::new(), &BTreeMap::new());
@@ -278,9 +274,7 @@ fn template_preview_targets_primary_consumer_scene() {
 fn template_file_authoring_preview_targets_template_mei() {
     use std::collections::BTreeMap;
 
-    use crate::model::{
-        BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry,
-    };
+    use crate::model::{BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry};
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")

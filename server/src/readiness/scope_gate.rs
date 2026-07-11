@@ -8,8 +8,8 @@ use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::integration::try_assemble_scope_from_scene_payload;
 use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mrg::navigation::{
-    match_request_to_navigation, match_request_to_navigation_with_opts, resolve_default_scope_with_opts,
-    NavigationResolveOpts,
+    match_request_to_navigation, match_request_to_navigation_with_opts,
+    resolve_default_scope_with_opts, NavigationResolveOpts,
 };
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::graph::types::{GraphNodeKind, MaterialState};
@@ -73,8 +73,7 @@ pub fn resolve_scope_gate(
     scene_id: Option<&str>,
     query: &AppQuery,
 ) -> ScopeGateReport {
-    let nav_match =
-        match_request_to_navigation(source_root, app_id, route_mode, scene_id, query);
+    let nav_match = match_request_to_navigation(source_root, app_id, route_mode, scene_id, query);
     check_scope_gate_for_coords(source_root, nav_match, None)
 }
 
@@ -138,10 +137,7 @@ pub fn resolve_scope_gate_for_compile(
     compile_options: &CompileOptions,
     query: &AppQuery,
 ) -> ScopeGateReport {
-    let scene = compile_options
-        .scene
-        .as_deref()
-        .or(query.scene.as_deref());
+    let scene = compile_options.scene.as_deref().or(query.scene.as_deref());
     let target = compile_options
         .preview_target
         .as_deref()
@@ -163,8 +159,7 @@ pub fn resolve_scope_gate_for_compile(
         data_mode: query.data_mode.clone(),
         review_projection: query.review_projection.clone(),
     };
-    let nav_match =
-        match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
+    let nav_match = match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
     let assembly_scene = scene
         .filter(|value| !value.is_empty())
         .map(str::to_string)
@@ -259,7 +254,8 @@ fn check_scope_gate_for_coords(
 
     if !navigation_ready {
         if nav_match.legacy_fallback {
-            blockers.push("L2:navigation missing in MRG registry (legacy scope fallback)".to_string());
+            blockers
+                .push("L2:navigation missing in MRG registry (legacy scope fallback)".to_string());
         } else if let Some(entry) = nav_match.entry.as_ref() {
             blockers.push(format!(
                 "L2:navigation {} state={:?}",
@@ -277,31 +273,30 @@ fn check_scope_gate_for_coords(
         Some(scene_arg)
     };
 
-    let (assembly_ready, shell_ready, compile_revision) =
-        if try_assemble_scope_from_scene_payload(
-            source_root,
-            app_id,
-            scene_for_assemble,
-            target.as_str(),
-        )
-        .is_some()
-        {
-            (true, true, None)
-        } else {
-            let entry = AccessEntry {
-                app_id: app_id.to_string(),
-                scene_id: scene.clone(),
-                target_file: target.clone(),
-            };
-            if let Some(blocker) = check_mcg_scene_payload_ready(source_root, &entry) {
-                blockers.push(format!("L3:{blocker}"));
-            } else {
-                blockers.push(format!(
-                    "L3:scope artifact missing for app={app_id} scene={scene} target={target}"
-                ));
-            }
-            (false, false, None)
+    let (assembly_ready, shell_ready, compile_revision) = if try_assemble_scope_from_scene_payload(
+        source_root,
+        app_id,
+        scene_for_assemble,
+        target.as_str(),
+    )
+    .is_some()
+    {
+        (true, true, None)
+    } else {
+        let entry = AccessEntry {
+            app_id: app_id.to_string(),
+            scene_id: scene.clone(),
+            target_file: target.clone(),
         };
+        if let Some(blocker) = check_mcg_scene_payload_ready(source_root, &entry) {
+            blockers.push(format!("L3:{blocker}"));
+        } else {
+            blockers.push(format!(
+                "L3:scope artifact missing for app={app_id} scene={scene} target={target}"
+            ));
+        }
+        (false, false, None)
+    };
 
     let data_blockers = check_mrg_data_ready(source_root, app_id);
     let data_ready = data_blockers.is_empty();
@@ -312,9 +307,7 @@ fn check_scope_gate_for_coords(
         .reachability_gate
         .require_mrg_critical_ready
         .unwrap_or(false);
-    let access_ready = shell_ready
-        && (!require_data || data_ready)
-        && navigation_ready;
+    let access_ready = shell_ready && (!require_data || data_ready) && navigation_ready;
 
     ScopeGateReport::from_parts(
         scope,
@@ -345,9 +338,10 @@ fn check_mcg_scene_payload_ready(source_root: &Path, entry: &AccessEntry) -> Opt
     let registry = McgRegistryWriter::load(source_root, &entry.app_id);
     let lookup_keys = mei_lang_kernel::app_source_rel_path_lookup_keys(entry.target_file.as_str());
     let node = lookup_keys.iter().find_map(|key| {
-        registry.nodes.iter().find(|node| {
-            node.id.kind == GraphNodeKind::ScenePayload && node.id.key == *key
-        })
+        registry
+            .nodes
+            .iter()
+            .find(|node| node.id.kind == GraphNodeKind::ScenePayload && node.id.key == *key)
     });
     let Some(node) = node else {
         return Some(format!(
@@ -390,7 +384,8 @@ fn check_mrg_data_ready(source_root: &Path, app_id: &str) -> Vec<String> {
                     slot.state
                 ));
             }
-            if crate::graph::mrg::slots::resolve_slot_payload_path(source_root, app_id, slot).is_none()
+            if crate::graph::mrg::slots::resolve_slot_payload_path(source_root, app_id, slot)
+                .is_none()
             {
                 return Some(format!(
                     "MRG slot {} payload missing (CAS and legacy path)",
@@ -402,7 +397,10 @@ fn check_mrg_data_ready(source_root: &Path, app_id: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn check_scope_gate_for_access_entry(source_root: &Path, entry: &AccessEntry) -> ScopeGateReport {
+pub fn check_scope_gate_for_access_entry(
+    source_root: &Path,
+    entry: &AccessEntry,
+) -> ScopeGateReport {
     let query = AppQuery {
         file: Some(entry.target_file.clone()),
         scene: Some(entry.scene_id.clone()),
@@ -485,8 +483,8 @@ mod tests {
             chrome: None,
             catalog: None,
             pack: None,
-        data_mode: None,
-        review_projection: None,
+            data_mode: None,
+            review_projection: None,
         };
         let gate = resolve_scope_gate_for_compile(
             ws,

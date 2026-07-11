@@ -222,16 +222,6 @@ pub(crate) fn clear_dependency_graph_cache() {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn clear_file_content_hash_cache_for_tests() {
-    clear_file_content_hash_cache();
-}
-
-#[cfg(test)]
-pub(crate) fn clear_dependency_graph_cache_for_tests() {
-    clear_dependency_graph_cache();
-}
-
 fn collect_target_closure(
     app_root: &Path,
     app_decls: &Value,

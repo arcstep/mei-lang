@@ -189,12 +189,9 @@ fn mrg_slot_covers_payload(
                 .payload_ref
                 .as_ref()
                 .is_some_and(|payload| payload.kind == payload_kind)
-            && slot
-                .payload_ref
-                .as_ref()
-                .is_some_and(|payload| {
-                    payload.content_hash == cache_key || payload.content_hash == canonical_key
-                })
+            && slot.payload_ref.as_ref().is_some_and(|payload| {
+                payload.content_hash == cache_key || payload.content_hash == canonical_key
+            })
     })
 }
 
@@ -238,12 +235,7 @@ mod tests {
             edges: Vec::new(),
         };
         assert!(mrg_slot_covers_eval(
-            &registry,
-            "owner1",
-            bundle_rev,
-            ds_rev,
-            "default",
-            cache_key,
+            &registry, "owner1", bundle_rev, ds_rev, "default", cache_key,
         ));
     }
 }

@@ -1,9 +1,6 @@
-use super::super::{
-    build_analysis_contracts,
-};
+use super::super::build_analysis_contracts;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-
 
 #[test]
 fn build_analysis_contracts_ignores_legacy_explain_object() {
@@ -310,4 +307,3 @@ fn build_analysis_contracts_hoists_trend_dataframe_without_prior_data_product() 
         Some("enterprise_complaints_count::trend_by_report_time")
     );
 }
-

@@ -6,11 +6,11 @@ use axum::{
 };
 use serde_json::json;
 
+use crate::state::AuthServeState;
 use crate::{
     authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
     load_auth_runtime, update_workspace_user_password, AuthPrincipal,
 };
-use crate::state::AuthServeState;
 
 use super::support::*;
 

@@ -1,13 +1,17 @@
 use anyhow::Result;
 
 use crate::cli::args::ScopeArgs;
-use crate::cli::util::{print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg};
+use crate::cli::util::{
+    print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg,
+};
 use crate::graph::run_scope_gate_check;
 
 pub fn scope_command(args: ScopeArgs) -> Result<()> {
     match args.command {
         crate::cli::args::ScopeCommand::Gate(gate_args) => match gate_args.command {
-            crate::cli::args::ScopeGateCommand::Check(check_args) => scope_gate_check_command(check_args),
+            crate::cli::args::ScopeGateCommand::Check(check_args) => {
+                scope_gate_check_command(check_args)
+            }
         },
     }
 }

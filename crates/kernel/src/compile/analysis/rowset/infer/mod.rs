@@ -1,20 +1,20 @@
-mod basic;
 mod aggregate;
-mod trend;
+mod basic;
 mod pivot;
+mod trend;
 
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::DatasetView;
 use crate::compile::analysis::eval_context::EvalContext;
+use crate::model::DatasetView;
 
-use basic::*;
 use aggregate::*;
-use trend::*;
+use basic::*;
 use pivot::*;
+use trend::*;
 
 pub(super) fn eval_analysis_rowset(
     map: &serde_json::Map<String, Value>,

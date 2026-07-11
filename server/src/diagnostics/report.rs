@@ -28,7 +28,11 @@ pub struct ScopeGateSweepSection {
     pub l3_fail: usize,
     #[serde(rename = "l4Stale")]
     pub l4_stale: usize,
-    #[serde(default, rename = "degradedScopes", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        rename = "degradedScopes",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub degraded_scopes: Vec<String>,
 }
 
@@ -132,11 +136,20 @@ pub struct MrgDiagnosticsSection {
     pub failed_slots: usize,
     #[serde(rename = "staleRatio")]
     pub stale_ratio: f64,
-    #[serde(rename = "navigationNodeCount", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "navigationNodeCount",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub navigation_node_count: Option<usize>,
-    #[serde(rename = "navigationDuplicateKeys", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "navigationDuplicateKeys",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub navigation_duplicate_keys: Option<usize>,
-    #[serde(rename = "navigationOrphanUrls", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "navigationOrphanUrls",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub navigation_orphan_urls: Option<usize>,
 }
 
@@ -150,7 +163,11 @@ pub struct CacheDiagnosticsSection {
     pub graph_registry_dedup: bool,
     #[serde(rename = "lockedOn", default)]
     pub locked_on: bool,
-    #[serde(default, rename = "envOverrides", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        rename = "envOverrides",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub env_overrides: Vec<String>,
 }
 
@@ -169,15 +186,24 @@ pub struct BuildDiagnosticsSection {
     pub compile_index_hits: Option<usize>,
     #[serde(rename = "compileIndexMisses", skip_serializing_if = "Option::is_none")]
     pub compile_index_misses: Option<usize>,
-    #[serde(rename = "compileIndexStaleEntries", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "compileIndexStaleEntries",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub compile_index_stale_entries: Option<usize>,
     #[serde(rename = "mrgEvalSkips", skip_serializing_if = "Option::is_none")]
     pub mrg_eval_skips: Option<usize>,
     #[serde(rename = "dataframeEvalSkips", skip_serializing_if = "Option::is_none")]
     pub dataframe_eval_skips: Option<usize>,
-    #[serde(rename = "compileIndexEntries", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "compileIndexEntries",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub compile_index_entries: Option<usize>,
-    #[serde(rename = "compileIndexGeneratedAtMs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "compileIndexGeneratedAtMs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub compile_index_generated_at_ms: Option<u64>,
 }
 

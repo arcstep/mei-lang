@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::mei_config::types::{
-    TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL, WORKSPACE_AGENT_LOCAL_DIR_REL,
-    WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL, LEGACY_WORKSPACE_RUNTIME_DIR_REL,
+    LEGACY_WORKSPACE_RUNTIME_DIR_REL, TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL,
+    WORKSPACE_AGENT_LOCAL_DIR_REL, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL,
 };
 use crate::mei_config::workspace_paths::resolve_toolchain_root;
 
@@ -50,7 +50,10 @@ pub fn migrate_legacy_workspace_mei(source_root: &Path) -> Result<()> {
     }
     let legacy_runtime = legacy.join("runtime");
     if legacy_runtime.is_dir() {
-        merge_dir_recursive(&legacy_runtime, &source_root.join(WORKSPACE_PLATFORM_DIR_REL))?;
+        merge_dir_recursive(
+            &legacy_runtime,
+            &source_root.join(WORKSPACE_PLATFORM_DIR_REL),
+        )?;
     }
     let remaining: Vec<_> = fs::read_dir(&legacy)
         .ok()
@@ -70,7 +73,8 @@ pub fn migrate_legacy_workspace_runtime_dir(source_root: &Path) -> Result<()> {
     if !legacy.is_dir() {
         return Ok(());
     }
-    let target = source_root.join(WORKSPACE_PLATFORM_DIR_REL)
+    let target = source_root
+        .join(WORKSPACE_PLATFORM_DIR_REL)
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| source_root.join("deploy/runtime"));
@@ -142,4 +146,3 @@ pub(crate) fn merge_dir_recursive(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
-

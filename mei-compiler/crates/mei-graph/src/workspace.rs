@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use crate::expand::expand_v2_file;
 use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
-use crate::registry::MacroRegistry;
+use crate::registry::{MacroRegistry, TemplateRoots};
 use crate::world_expand::{expand_world_v2_file, WorldContextCatalog, WorldExpandError};
 
 #[derive(Debug, Error)]
@@ -49,10 +49,8 @@ pub struct CompileOutcome {
 pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, CompileAppError> {
     let workspace_json = resolve_workspace_config_path(workspace);
     let ws_config: WorkspaceJson = serde_json::from_str(
-        &std::fs::read_to_string(&workspace_json).map_err(|e| CompileAppError::Config(format!(
-            "{}: {e}",
-            workspace_json.display()
-        )))?,
+        &std::fs::read_to_string(&workspace_json)
+            .map_err(|e| CompileAppError::Config(format!("{}: {e}", workspace_json.display())))?,
     )
     .map_err(|e| CompileAppError::Config(format!("{}: {e}", workspace_json.display())))?;
 
@@ -61,7 +59,6 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         .and_then(|p| p.templates)
         .unwrap_or_else(|| "stock/templates".to_string());
     let stock_templates = workspace.join(&templates_rel);
-
     let app_root = workspace.join("apps").join(app_id);
     let src_root = app_root.join("src");
     if !src_root.is_dir() {
@@ -74,7 +71,8 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
     let syntax_version =
         read_syntax_version(&app_root).unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
-    let registry = MacroRegistry::load_dir(&stock_templates)?;
+    let roots = TemplateRoots::from_app_and_stock(&app_root, stock_templates);
+    let registry = MacroRegistry::load_layered(&roots)?;
 
     let mut files = Vec::new();
     let mut blocks = Vec::new();
@@ -95,7 +93,7 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
             path: path.to_path_buf(),
             error,
         })?;
-        let expanded = expand_v2_file(&parsed, &registry, &stock_templates).map_err(|error| {
+        let expanded = expand_v2_file(&parsed, &registry, &roots).map_err(|error| {
             CompileAppError::Expand {
                 path: path.to_path_buf(),
                 error,

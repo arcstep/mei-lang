@@ -243,11 +243,12 @@ pub(crate) fn finish_run_prebuild_for_app(
         Some(&format!("{} scope artifacts", artifact_outcomes.len())),
     );
     let artifact_total = artifact_outcomes.len();
-    let mut artifact_pairs: Vec<(Arc<PreparedCompileOutcome>, ScopeArtifactPlan)> = artifact_outcomes
-        .into_iter()
-        .zip(scope_artifact_plans)
-        .map(|(prepared, plan)| (Arc::new(prepared), plan))
-        .collect();
+    let mut artifact_pairs: Vec<(Arc<PreparedCompileOutcome>, ScopeArtifactPlan)> =
+        artifact_outcomes
+            .into_iter()
+            .zip(scope_artifact_plans)
+            .map(|(prepared, plan)| (Arc::new(prepared), plan))
+            .collect();
     if dirty_only {
         retain_dirty_artifact_plans(&mut artifact_pairs, &mrg_frontier);
     } else {
@@ -263,7 +264,10 @@ pub(crate) fn finish_run_prebuild_for_app(
             artifact_pairs.len()
         ));
     }
-    if let Some(node_filter) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    if let Some(node_filter) = block_node
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     {
         artifact_pairs.retain(|(prepared, plan)| {
             artifact_plan_matches_continue_target(prepared.as_ref(), plan, node_filter)
@@ -298,11 +302,9 @@ pub(crate) fn finish_run_prebuild_for_app(
                 let (result, local_coverage) = match worker_report {
                     Ok(report) if report.ok => (Ok(()), report.coverage),
                     Ok(report) => (
-                        Err(anyhow::anyhow!(
-                            report
-                                .error
-                                .unwrap_or_else(|| "materialize worker failed".to_string())
-                        )),
+                        Err(anyhow::anyhow!(report
+                            .error
+                            .unwrap_or_else(|| "materialize worker failed".to_string()))),
                         report.coverage,
                     ),
                     Err(error) => (Err(error), PrebuildCoverageReport::default()),
@@ -369,13 +371,16 @@ pub(crate) fn finish_run_prebuild_for_app(
             let mut error_chain = format!("{error:#}");
             if diagnose_on_fail {
                 for workset in &scope_plan.metric_worksets {
-                    let metric_ids = if workset.request_all_metrics
-                        || workset.requested_metric_ids.is_empty()
-                    {
-                        workset.covered_metric_ids.iter().cloned().collect::<Vec<_>>()
-                    } else {
-                        workset.requested_metric_ids.clone()
-                    };
+                    let metric_ids =
+                        if workset.request_all_metrics || workset.requested_metric_ids.is_empty() {
+                            workset
+                                .covered_metric_ids
+                                .iter()
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        } else {
+                            workset.requested_metric_ids.clone()
+                        };
                     if metric_ids.is_empty() {
                         continue;
                     }
@@ -620,8 +625,7 @@ pub(crate) fn finish_run_prebuild_for_app(
         app.app_id.as_str(),
         &diagnostics_report,
     );
-    if let Err(error) =
-        crate::diagnostics::persist_last_build_summary(app_root.as_path(), &summary)
+    if let Err(error) = crate::diagnostics::persist_last_build_summary(app_root.as_path(), &summary)
     {
         tracing::warn!(
             %error,
@@ -635,11 +639,9 @@ pub(crate) fn finish_run_prebuild_for_app(
             .as_deref()
             .or(scope.requested_scene_id.as_deref())
             .unwrap_or("home");
-        if let Err(error) = mei_host_graph::warm_manifest_index_for_app(
-            source_root,
-            app.app_id.as_str(),
-            scene_id,
-        ) {
+        if let Err(error) =
+            mei_host_graph::warm_manifest_index_for_app(source_root, app.app_id.as_str(), scene_id)
+        {
             tracing::warn!(
                 app_id = %app.app_id,
                 scene_id = %scene_id,
@@ -685,7 +687,7 @@ fn artifact_progress_hook(
         std::time::Duration,
     ),
 ) + Send
-+ Sync {
+       + Sync {
     let done = Arc::new(AtomicUsize::new(0));
     move |index,
           (_prepared, _scope_plan, scope, result, local_coverage, wall_time): &(
@@ -722,4 +724,3 @@ fn artifact_progress_hook(
         let _ = index;
     }
 }
-

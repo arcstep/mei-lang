@@ -1,17 +1,16 @@
 use mei_lang_kernel::{
-    resolve_runtime_metric_def_key, CompiledApp, DatasetView,
-    MetricContract, MetricShape, WorldSemanticExplainBlock, WorldSemanticMetric,
+    resolve_runtime_metric_def_key, CompiledApp, DatasetView, MetricContract, MetricShape,
+    WorldSemanticExplainBlock, WorldSemanticMetric,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-use crate::ui::preview::nodes::component_html;
-use crate::ui::preview::resolve::{
-    attach_host_meta, dataset_for_host_ssr, with_runtime_ref, HostMetaOptions,
-    RuntimeSceneAnchor,
-};
 use crate::ui::compile_status::{
     is_world_capsule_target, normalize_target_path, world_capsule_companion_scene,
+};
+use crate::ui::preview::nodes::component_html;
+use crate::ui::preview::resolve::{
+    attach_host_meta, dataset_for_host_ssr, with_runtime_ref, HostMetaOptions, RuntimeSceneAnchor,
 };
 
 pub(super) fn component_tag(compiled: &CompiledApp, use_key: &str) -> String {
@@ -70,7 +69,12 @@ pub(super) fn runtime_scene_anchor(compiled: &CompiledApp, file_path: &str) -> R
     }
 }
 
-pub(super) fn table_host_html(compiled: &CompiledApp, app_path: &str, file_path: &str, data: Value) -> String {
+pub(super) fn table_host_html(
+    compiled: &CompiledApp,
+    app_path: &str,
+    file_path: &str,
+    data: Value,
+) -> String {
     let props = attach_host_meta(
         json!({
             "data": data,
@@ -297,4 +301,3 @@ pub(super) fn metric_contract_is_tabular(contract: &MetricContract) -> bool {
         MetricShape::Table | MetricShape::Dataframe | MetricShape::Series
     ) || contract.value.is_array()
 }
-

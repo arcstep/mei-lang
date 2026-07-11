@@ -1,0 +1,56 @@
+# Layout constructor defaults（0332）
+# 只复用稳定默认值；不封装业务组合语义。
+# 用法：use template "cockpit/layout-defaults" as ui
+# metric 与 source 并存时，lower 优先 metric（见 v2_lower resolve_metric_atom_source）。
+
+template panel(
+    id = "panel",
+    area = None,
+    surface = "none",
+    layout = None,
+    blocks = [],
+    props = {},
+):
+    panel(
+        id = id,
+        area = area,
+        surface = surface,
+        variant = "container",
+        chrome = "bare",
+        show_heading = False,
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+        } | props,
+        layout = layout,
+        blocks = blocks,
+    )
+
+template metric_card(
+    id = "metric_card",
+    area = None,
+    surface = "none",
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    layout = None,
+    placements = None,
+    props = {},
+):
+    metric_card(
+        id = id,
+        area = area,
+        surface = surface,
+        source = source,
+        metric = metric,
+        popup = popup,
+        layout = layout,
+        placements = placements,
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+        } | props,
+    )

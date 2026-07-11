@@ -1,8 +1,11 @@
 //! Resolve preview_scope / panel id for theme layout merge (ops.themes.*.layout).
 
-use mei_lang_kernel::{UiNodeDecl, UiLayoutIndex, UiTreeNode, UiScopeRole};
+use mei_lang_kernel::{UiLayoutIndex, UiNodeDecl, UiScopeRole, UiTreeNode};
 
-pub(crate) fn resolve_preview_scope_for_tuning_key(index: &UiLayoutIndex, scope_key: &str) -> Option<String> {
+pub(crate) fn resolve_preview_scope_for_tuning_key(
+    index: &UiLayoutIndex,
+    scope_key: &str,
+) -> Option<String> {
     let key = normalize_preview_scope(scope_key);
     if key.is_empty() {
         return None;
@@ -23,13 +26,15 @@ pub(crate) fn resolve_preview_scope_for_tuning_key(index: &UiLayoutIndex, scope_
         if score == 0 {
             continue;
         }
-        if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score > *best_score)
+        {
             best = Some((score, scope));
         }
     }
     best.map(|(_, scope)| scope)
 }
-
 
 fn tuning_scope_match_score(scope_key: &str, preview_scope: &str) -> usize {
     if scope_key == preview_scope {
@@ -49,13 +54,14 @@ fn tuning_scope_match_score(scope_key: &str, preview_scope: &str) -> usize {
     0
 }
 
-
 fn normalize_preview_scope(scope: &str) -> String {
     scope.trim().trim_matches('/').to_string()
 }
 
-
-pub(crate) fn resolve_panel_id_for_tuning_scope(panels: &[UiNodeDecl], scope_key: &str) -> Option<String> {
+pub(crate) fn resolve_panel_id_for_tuning_scope(
+    panels: &[UiNodeDecl],
+    scope_key: &str,
+) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     walk_panels_with_path(panels, "", &mut |path, panel| {
         let score = tuning_scope_match_score(
@@ -65,13 +71,15 @@ pub(crate) fn resolve_panel_id_for_tuning_scope(panels: &[UiNodeDecl], scope_key
         if score == 0 {
             return;
         }
-        if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score > *best_score)
+        {
             best = Some((score, panel.id.clone()));
         }
     });
     best.map(|(_, id)| id)
 }
-
 
 fn walk_panels_with_path<F>(panels: &[UiNodeDecl], prefix: &str, visit: &mut F)
 where
@@ -92,7 +100,6 @@ where
     }
 }
 
-
 pub(crate) fn find_panel_mut_for_preview_scope<'a>(
     panels: &'a mut [UiNodeDecl],
     scope: &str,
@@ -107,7 +114,6 @@ pub(crate) fn find_panel_mut_for_preview_scope<'a>(
     }
     find_panel_mut_by_segments(panels, &segments)
 }
-
 
 fn find_panel_mut_by_segments<'a>(
     panels: &'a mut [UiNodeDecl],
@@ -124,7 +130,6 @@ fn find_panel_mut_by_segments<'a>(
     None
 }
 
-
 fn find_panel_mut_by_segments_at<'a>(
     panel: &'a mut UiNodeDecl,
     segments: &[&str],
@@ -137,7 +142,6 @@ fn find_panel_mut_by_segments_at<'a>(
     }
     find_panel_mut_in_children(panel, segments)
 }
-
 
 fn find_panel_mut_in_children<'a>(
     panel: &'a mut UiNodeDecl,
@@ -152,7 +156,6 @@ fn find_panel_mut_in_children<'a>(
     }
     None
 }
-
 
 pub(crate) fn find_panel_mut_by_id<'a>(
     panels: &'a mut [UiNodeDecl],
@@ -172,5 +175,3 @@ pub(crate) fn find_panel_mut_by_id<'a>(
     }
     None
 }
-
-

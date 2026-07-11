@@ -30,7 +30,9 @@ pub const PROTOTYPE_SURFACE_PRESET: PrototypePreset = PrototypePreset {
 
 pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[LAYOUT_PRESET, PROTOTYPE_SURFACE_PRESET];
 
-pub fn preset_for_route_mode(route_mode: crate::ui::route::UiRouteMode) -> Option<&'static PrototypePreset> {
+pub fn preset_for_route_mode(
+    route_mode: crate::ui::route::UiRouteMode,
+) -> Option<&'static PrototypePreset> {
     use crate::ui::route::UiRouteMode;
     match route_mode {
         UiRouteMode::Layout => Some(&LAYOUT_PRESET),

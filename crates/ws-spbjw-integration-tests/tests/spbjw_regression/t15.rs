@@ -265,4 +265,3 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
         }
     }
 }
-

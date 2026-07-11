@@ -1,14 +1,8 @@
-use std::{
-    collections::HashSet,
-    fs,
-    path::Path,
-};
+use std::{collections::HashSet, fs, path::Path};
 
 use anyhow::{bail, Context, Result};
 
-use crate::mei_config::{
-    is_v2_app_root, load_workspace_config, resolve_apps_root,
-};
+use crate::mei_config::{is_v2_app_root, load_workspace_config, resolve_apps_root};
 use crate::model::WorkspaceAppMeta;
 
 fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
@@ -143,9 +137,12 @@ fn perf_lab_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
 /// Discover apps for Build/manage surfaces, including hidden `_stock-catalog` when present.
 pub fn discover_build_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = discover_apps(source_root)?;
-    for hidden in [stock_catalog_app_meta(source_root), perf_lab_app_meta(source_root)]
-        .into_iter()
-        .flatten()
+    for hidden in [
+        stock_catalog_app_meta(source_root),
+        perf_lab_app_meta(source_root),
+    ]
+    .into_iter()
+    .flatten()
     {
         if !apps.iter().any(|app| app.id == hidden.id) {
             apps.push(hidden);

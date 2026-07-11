@@ -39,9 +39,7 @@ impl NavigationMatch {
         if self.legacy_fallback {
             return false;
         }
-        self.entry
-            .as_ref()
-            .is_some_and(NavigationEntry::is_ready)
+        self.entry.as_ref().is_some_and(NavigationEntry::is_ready)
     }
 
     pub fn navigation_key(&self) -> Option<String> {

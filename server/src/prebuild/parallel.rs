@@ -13,7 +13,11 @@ pub(crate) fn prebuild_parallelism(job_count: usize) -> usize {
         .max(1)
 }
 
-pub(crate) fn run_limited_parallel_ordered<T, R, F>(items: Vec<T>, max_parallelism: usize, job: F) -> Vec<R>
+pub(crate) fn run_limited_parallel_ordered<T, R, F>(
+    items: Vec<T>,
+    max_parallelism: usize,
+    job: F,
+) -> Vec<R>
 where
     T: Send,
     R: Send,
@@ -60,7 +64,9 @@ where
         for bucket in buckets.into_iter().filter(|bucket| !bucket.is_empty()) {
             let prebuild_store_override = prebuild_store_override.clone();
             handles.push(scope.spawn(move || {
-                mei_lang_kernel::restore_prebuild_build_root_override(prebuild_store_override.clone());
+                mei_lang_kernel::restore_prebuild_build_root_override(
+                    prebuild_store_override.clone(),
+                );
                 let mut output = Vec::with_capacity(bucket.len());
                 for (index, item) in bucket {
                     let result = job_ref(item);
@@ -79,4 +85,3 @@ where
         output.into_iter().map(|(_, result)| result).collect()
     })
 }
-

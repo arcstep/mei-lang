@@ -28,7 +28,11 @@ pub fn canonicalize_compiled_app_source_paths(compiled: &mut CompiledApp) {
         .collect::<Vec<_>>();
     for old in path_keys {
         let new = canonical_app_source_rel_path(old.as_str());
-        rekey_path_map(&mut compiled.world_semantic_by_file, old.as_str(), new.as_str());
+        rekey_path_map(
+            &mut compiled.world_semantic_by_file,
+            old.as_str(),
+            new.as_str(),
+        );
         rekey_path_map(
             &mut compiled.scene_local_nav_by_target,
             old.as_str(),

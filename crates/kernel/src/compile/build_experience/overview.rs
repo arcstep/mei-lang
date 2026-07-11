@@ -1,12 +1,11 @@
-use super::{backing_refs_from_block_props, find_block_in_panel, find_panel_by_path, split_block_key, split_panel_key};
+use super::{
+    backing_refs_from_block_props, find_block_in_panel, find_panel_by_path, split_block_key,
+    split_panel_key,
+};
 
 use std::collections::BTreeMap;
 
-
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest,
-    UiTreeNode,
-};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, UiTreeNode};
 
 pub fn build_overview_backing(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
     if let Some(manifest) = ExperienceNodeManifest::lookup(compiled, node) {
@@ -80,4 +79,3 @@ pub(super) fn dedupe_preserve_order(items: &mut Vec<String>) {
         }
     });
 }
-

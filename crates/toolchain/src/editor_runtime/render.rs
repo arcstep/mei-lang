@@ -274,7 +274,10 @@ pub(crate) fn render_workspace_runtime_manifest_json(package_root: &Path) -> Res
         .map_err(Into::into)
 }
 
-pub(crate) fn render_workspace_catalog_json(workspace_root: &Path, package_root: &Path) -> Result<String> {
+pub(crate) fn render_workspace_catalog_json(
+    workspace_root: &Path,
+    package_root: &Path,
+) -> Result<String> {
     serde_json::to_string_pretty(
         &crate::capability_catalog::capability_catalog_descriptor_for_workspace_root(
             workspace_root,

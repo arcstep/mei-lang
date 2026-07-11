@@ -2,10 +2,10 @@
 //!
 //! 量化 xlsx 冷/热读、JSON 物化、并发锁等待，对照宿主日志里的 query_api_ms / total_ms 裂口。
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
-use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
     cached_load_xlsx_table_snapshot, clear_runtime_compile_caches, coerce_rows_to_schema,

@@ -3,7 +3,9 @@ use super::*;
 use super::*;
 
 use super::*;
-use mei_lang_kernel::{T2PageFileEntry, CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
+use mei_lang_kernel::{
+    CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl, T2PageFileEntry,
+};
 use serde_json::json;
 
 pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
@@ -196,4 +198,3 @@ fn compile_scopes_follow_explicit_manifest_closure() {
     assert!(scope_keys.contains("dashboard|scenes/02-inspection.mei"));
     assert!(!scope_keys.contains("details|scenes/02-inspection.mei"));
 }
-

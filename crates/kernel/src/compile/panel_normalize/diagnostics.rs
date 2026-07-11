@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity};
+use crate::model::{Diagnostic, Severity, UiNodeDecl};
 
 pub(super) fn emit_panel_head_diagnostics(
     panel: &UiNodeDecl,

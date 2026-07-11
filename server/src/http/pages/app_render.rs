@@ -3,9 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
-use mei_lang_kernel::{
-    discover_apps, load_workspace_config, resolve_app_id, WorkspaceAppMeta,
-};
+use mei_lang_kernel::{discover_apps, load_workspace_config, resolve_app_id, WorkspaceAppMeta};
 use std::fs;
 
 /// 宿主 landing 只认统一 scope gate（L2 MRG + L3 assemble）；不在 HTTP 路径触发 compile。
@@ -81,8 +79,7 @@ fn landing_gate_failure_message(source_root: &Path, apps: &[WorkspaceAppMeta]) -
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let mut lines = vec![
-        "host landing gate failed: no app has default-scope scope gate ready (L2+L3)."
-            .to_string(),
+        "host landing gate failed: no app has default-scope scope gate ready (L2+L3).".to_string(),
         format!("source-root: {}", source_root.display()),
     ];
     if let Some(preferred) = preferred {
@@ -103,10 +100,7 @@ fn landing_gate_failure_message(source_root: &Path, apps: &[WorkspaceAppMeta]) -
     }
     lines.push(String::new());
     lines.push("Run prebuild before serve (host HTTP paths do not compile):".to_string());
-    lines.push(format!(
-        "  {}/deploy/prebuild.sh",
-        source_root.display()
-    ));
+    lines.push(format!("  {}/deploy/prebuild.sh", source_root.display()));
     lines.push("Or with cargo toolchain (dev checkout):".to_string());
     lines.push(format!(
         "  {}/deploy/prebuild.sh --toolchain-mode cargo --json",

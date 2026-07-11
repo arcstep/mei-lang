@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-
 use super::scope::{RequestDag, RuntimeMetricEvalScope};
 
 #[derive(Debug, Clone)]
@@ -141,7 +140,11 @@ fn canonicalize_expr_value(value: &Value) -> Value {
     }
 }
 
-pub(crate) fn expr_cache_key(prefix: &str, scope: &RuntimeMetricEvalScope, expr: &Value) -> Option<String> {
+pub(crate) fn expr_cache_key(
+    prefix: &str,
+    scope: &RuntimeMetricEvalScope,
+    expr: &Value,
+) -> Option<String> {
     let serialized = serde_json::to_string(&canonicalize_expr_value(expr)).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     serialized.hash(&mut hasher);

@@ -2,11 +2,7 @@ use std::collections::BTreeMap;
 
 use mei_lang_kernel::Severity;
 
-use crate::types::{
-    DiagnosticCountSummary,
-    ResourceInventoryItem, WorldRuntimeBundle,
-};
-
+use crate::types::{DiagnosticCountSummary, ResourceInventoryItem, WorldRuntimeBundle};
 
 pub(super) fn top_kind_lines(counts: &BTreeMap<String, usize>, label: &str) -> Option<String> {
     if counts.is_empty() {
@@ -41,4 +37,3 @@ pub(super) fn summarize_diagnostics(bundle: &WorldRuntimeBundle) -> DiagnosticCo
     }
     summary
 }
-

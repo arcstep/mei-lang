@@ -21,9 +21,8 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_pretty_panels_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
-        let bundle = workspace.join(
-            "apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle",
-        );
+        let bundle =
+            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
         if !bundle.is_file() {
             return;
         }

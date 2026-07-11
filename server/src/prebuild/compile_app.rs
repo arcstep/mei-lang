@@ -123,7 +123,10 @@ pub(crate) fn run_prebuild_for_app(
         source_root,
         "mcg_plan",
         Some(app.app_id.as_str()),
-        Some(&format!("hot-only={}", effective_profile == PrebuildScopeProfile::HotOnly)),
+        Some(&format!(
+            "hot-only={}",
+            effective_profile == PrebuildScopeProfile::HotOnly
+        )),
     );
     let components_root = toolchain::resolve_components_root(source_root);
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
@@ -144,11 +147,7 @@ pub(crate) fn run_prebuild_for_app(
             .is_some_and(|scope| scope.should_skip_discover());
     let compile_session = Arc::new(Mutex::new(PrebuildCompileSession {
         hot_only_scene_ids: if effective_profile == PrebuildScopeProfile::HotOnly {
-            Some(
-                hot_scene_ids(app)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>(),
-            )
+            Some(hot_scene_ids(app).into_iter().collect::<BTreeSet<_>>())
         } else {
             None
         },
@@ -206,10 +205,7 @@ pub(crate) fn run_prebuild_for_app(
         )),
     );
     let default_started = Instant::now();
-    prebuild_emit_progress(format!(
-        "[{}] compiling default_scope…",
-        app.app_id
-    ));
+    prebuild_emit_progress(format!("[{}] compiling default_scope…", app.app_id));
     let default_reuse = try_reuse_compile_scope_before_load(
         compile_session.as_ref(),
         diagnostics.as_ref(),
@@ -267,7 +263,11 @@ pub(crate) fn run_prebuild_for_app(
     );
     let mut warnings = Vec::new();
     if block_scoped {
-        if let Some(node) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(node) = block_node
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             compile_block_scoped_node(
                 source_root,
                 app,
@@ -338,7 +338,12 @@ pub(crate) fn run_prebuild_for_app(
                         compile_session
                             .lock()
                             .expect("prebuild compile session lock")
-                            .register(source_root, app.app_id.as_str(), alias, alias_outcome.clone());
+                            .register(
+                                source_root,
+                                app.app_id.as_str(),
+                                alias,
+                                alias_outcome.clone(),
+                            );
                         record_prebuild_scope_compile_with_discovered(
                             source_root,
                             app.app_id.as_str(),
@@ -378,11 +383,11 @@ pub(crate) fn run_prebuild_for_app(
             }
         }
         let _ = hot_total;
-    let deferred_total = deferred_scopes.len();
-    if effective_profile == PrebuildScopeProfile::Full {
-        for (idx, scope) in deferred_scopes.into_iter().enumerate() {
-            if seen_scopes.insert(scope.key()) {
-                tracing::debug!(
+        let deferred_total = deferred_scopes.len();
+        if effective_profile == PrebuildScopeProfile::Full {
+            for (idx, scope) in deferred_scopes.into_iter().enumerate() {
+                if seen_scopes.insert(scope.key()) {
+                    tracing::debug!(
                     "prebuild compile deferred scope queued app_id={} idx={}/{} scene={} target={}",
                     app.app_id,
                     idx + 1,
@@ -390,292 +395,299 @@ pub(crate) fn run_prebuild_for_app(
                     scope.requested_scene_id.as_deref().unwrap_or(""),
                     scope.requested_target_file.as_deref().unwrap_or("")
                 );
-                pending.push_back(scope);
+                    pending.push_back(scope);
+                }
             }
-        }
-    } else if deferred_total > 0 {
-        prebuild_emit_progress(format!(
+        } else if deferred_total > 0 {
+            prebuild_emit_progress(format!(
             "[{}] hot-only 跳过 deferred manifest scope {deferred_total} 个（不进入 discover 队列）",
             app.app_id
         ));
-    }
-    let mut batch_idx = 0usize;
-    if !pending.is_empty() {
-        prebuild_emit_progress(format!(
-            "[{}] scope 队列就绪 | 已完成 {} | 待处理 {}（含 discover 展开）",
-            app.app_id,
-            compile_reports.len(),
-            pending.len()
-        ));
-    }
-    while !pending.is_empty() {
-        batch_idx += 1;
-        let queue_depth = pending.len();
-        let batch = pending.drain(..).collect::<Vec<_>>();
-        let batch_size = batch.len();
-        let scopes_completed_before_batch = compile_reports.len();
-        let mut session_hits = Vec::new();
-        let mut to_compile = Vec::new();
-        {
-            let session = compile_session
-                .lock()
-                .expect("prebuild compile session lock");
-            for scope in batch {
-                if let Some(outcome) = session.try_reuse(source_root, app.app_id.as_str(), &scope) {
-                    session_hits.push((scope, outcome));
-                } else {
-                    to_compile.push(scope);
+        }
+        let mut batch_idx = 0usize;
+        if !pending.is_empty() {
+            prebuild_emit_progress(format!(
+                "[{}] scope 队列就绪 | 已完成 {} | 待处理 {}（含 discover 展开）",
+                app.app_id,
+                compile_reports.len(),
+                pending.len()
+            ));
+        }
+        while !pending.is_empty() {
+            batch_idx += 1;
+            let queue_depth = pending.len();
+            let batch = pending.drain(..).collect::<Vec<_>>();
+            let batch_size = batch.len();
+            let scopes_completed_before_batch = compile_reports.len();
+            let mut session_hits = Vec::new();
+            let mut to_compile = Vec::new();
+            {
+                let session = compile_session
+                    .lock()
+                    .expect("prebuild compile session lock");
+                for scope in batch {
+                    if let Some(outcome) =
+                        session.try_reuse(source_root, app.app_id.as_str(), &scope)
+                    {
+                        session_hits.push((scope, outcome));
+                    } else {
+                        to_compile.push(scope);
+                    }
                 }
             }
-        }
-        let session_hit_count = session_hits.len();
-        for (scope, outcome) in session_hits {
-            diagnostics
-                .compile_preload_reuse_hits
-                .fetch_add(1, Ordering::Relaxed);
-            compile_session
-                .lock()
-                .expect("prebuild compile session lock")
-                .note_scope_alias(&scope, &outcome);
-            record_prebuild_scope_compile(
-                source_root,
-                app.app_id.as_str(),
-                compile_session.as_ref(),
-                &scope,
-                &outcome,
-                &mut seen_scopes,
-                &mut pending,
-                &mut prepared_outcomes,
-                &mut compile_reports,
-            );
-        }
-        let mut index_hits = Vec::new();
-        let mut to_compile_after_index = Vec::new();
-        for scope in to_compile {
-            if let Some(outcome) = try_reuse_persisted_compile_index(
-                compile_session.as_ref(),
-                diagnostics.as_ref(),
-                compile_index.as_ref(),
-                source_root,
-                app.app_id.as_str(),
-                &scope,
-                components_root.as_path(),
-            ) {
-                index_hits.push((scope, outcome));
-            } else {
-                to_compile_after_index.push(scope);
-            }
-        }
-        let index_hit_count = index_hits.len();
-        for (scope, reuse) in index_hits {
-            record_prebuild_scope_compile_with_discovered(
-                source_root,
-                app.app_id.as_str(),
-                compile_session.as_ref(),
-                &scope,
-                &reuse.outcome,
-                Some(reuse.discovered_scopes.as_slice()),
-                reuse.observed_count,
-                &mut seen_scopes,
-                &mut pending,
-                &mut prepared_outcomes,
-                &mut compile_reports,
-            );
-        }
-        let compile_groups = group_scopes_by_compile_target(to_compile_after_index);
-        let unique_keys = compile_groups.len();
-        prebuild_emit_progress(&format!(
-            "[{}] 编译 batch-{batch_idx} | 本批 {batch_size} scope | 入队深度 {queue_depth} | 累计已完成 {scopes_completed_before_batch} | session 复用 {session_hit_count} | index 复用 {index_hit_count} | 唯一 cache key {unique_keys}",
-            app.app_id,
-        ));
-        let batch_started = Instant::now();
-        let batch_done = Arc::new(AtomicUsize::new(0));
-        let batch_new_compile = Arc::new(AtomicUsize::new(0));
-        let batch_cache_hits = Arc::new(AtomicUsize::new(0));
-        let last_progress_emit = Arc::new(Mutex::new(Instant::now()));
-        let representatives = compile_groups
-            .iter()
-            .map(|(scope, _)| scope.clone())
-            .collect::<Vec<_>>();
-        let app_id_for_hook = app.app_id.clone();
-        let batch_done_hook = Arc::clone(&batch_done);
-        let batch_new_hook = Arc::clone(&batch_new_compile);
-        let batch_cache_hook = Arc::clone(&batch_cache_hits);
-        let last_emit_hook = Arc::clone(&last_progress_emit);
-        let last_emit_for_progress = Arc::clone(&last_emit_hook);
-        let unique_key_total = representatives.len();
-        let batch_results = if prebuild_isolate_compile_enabled() {
-            run_limited_parallel_ordered_with_hook(
-                representatives.clone(),
-                max_parallelism,
-                |scope| {
-                    spawn_compile_scope_worker(
-                        source_root,
-                        app.app_id.as_str(),
-                        &scope,
-                        diagnostics.as_ref(),
-                    )
-                },
-                move |_, outcome| {
-                    let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
-                    match outcome {
-                        Ok(outcome) if outcome.cache_hit => {
-                            batch_cache_hook.fetch_add(1, Ordering::Relaxed);
-                        }
-                        Ok(outcome) if outcome.compile_ms > 0 => {
-                            batch_new_hook.fetch_add(1, Ordering::Relaxed);
-                        }
-                        _ => {}
-                    }
-                    emit_compile_batch_progress(
-                        app_id_for_hook.as_str(),
-                        batch_idx,
-                        done,
-                        unique_key_total,
-                        batch_started,
-                        scopes_completed_before_batch,
-                        unique_key_total.saturating_sub(done),
-                        batch_new_hook.load(Ordering::Relaxed),
-                        batch_cache_hook.load(Ordering::Relaxed),
-                        false,
-                        last_emit_for_progress.as_ref(),
-                    );
-                },
-            )
-        } else {
-            run_limited_parallel_ordered_with_hook(
-                representatives.clone(),
-                max_parallelism,
-                |scope| {
-                    BlockOrchestrator::compile_scope_for_prebuild(
-                        compile_session.as_ref(),
-                        diagnostics.as_ref(),
-                        source_root,
-                        app.app_id.as_str(),
-                        &scope,
-                        mode,
-                        components_root.as_path(),
-                    )
-                },
-                move |_, outcome| {
-                    let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
-                    match outcome {
-                        Ok(outcome) if outcome.cache_hit => {
-                            batch_cache_hook.fetch_add(1, Ordering::Relaxed);
-                        }
-                        Ok(outcome) if outcome.compile_ms > 0 => {
-                            batch_new_hook.fetch_add(1, Ordering::Relaxed);
-                        }
-                        _ => {}
-                    }
-                    emit_compile_batch_progress(
-                        app_id_for_hook.as_str(),
-                        batch_idx,
-                        done,
-                        unique_key_total,
-                        batch_started,
-                        scopes_completed_before_batch,
-                        unique_key_total.saturating_sub(done),
-                        batch_new_hook.load(Ordering::Relaxed),
-                        batch_cache_hook.load(Ordering::Relaxed),
-                        false,
-                        last_emit_for_progress.as_ref(),
-                    );
-                },
-            )
-        };
-        let mut batch_compiled = 0usize;
-        let mut batch_cache_hit = 0usize;
-        let mut outcomes_by_key = BTreeMap::<String, SharedCompileOutcome>::new();
-        for (scope, outcome) in representatives.into_iter().zip(batch_results) {
-            let outcome = match outcome {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    if mode == PrebuildMode::Verify {
-                        return Err(error);
-                    }
-                    warnings.push(build_prebuild_warning(
-                        "compile_scope",
-                        scope.requested_scene_id.as_deref(),
-                        scope.requested_target_file.as_deref(),
-                        None,
-                        None,
-                        None,
-                        None,
-                        error.to_string(),
-                    ));
-                    continue;
-                }
-            };
-            if outcome.cache_hit {
-                batch_cache_hit += 1;
-            } else if outcome.compile_ms > 0 {
-                batch_compiled += 1;
-            }
-            outcomes_by_key.insert(scope.key(), outcome);
-        }
-        for (representative, aliases) in compile_groups {
-            let Some(outcome) = outcomes_by_key.get(&representative.key()) else {
-                continue;
-            };
-            record_prebuild_scope_compile(
-                source_root,
-                app.app_id.as_str(),
-                compile_session.as_ref(),
-                &representative,
-                outcome,
-                &mut seen_scopes,
-                &mut pending,
-                &mut prepared_outcomes,
-                &mut compile_reports,
-            );
-            for alias in aliases {
-                let mut alias_outcome = scope_assembled_outcome(
-                    source_root,
-                    app.app_id.as_str(),
-                    outcome,
-                    &alias,
-                    Some(diagnostics.as_ref()),
-                );
-                maybe_shrink_board_projection_outcome(
-                    source_root,
-                    app.app_id.as_str(),
-                    &alias,
-                    &mut alias_outcome,
-                );
+            let session_hit_count = session_hits.len();
+            for (scope, outcome) in session_hits {
+                diagnostics
+                    .compile_preload_reuse_hits
+                    .fetch_add(1, Ordering::Relaxed);
                 compile_session
                     .lock()
                     .expect("prebuild compile session lock")
-                    .register(source_root, app.app_id.as_str(), &alias, alias_outcome.clone());
-                record_prebuild_scope_compile_with_discovered(
+                    .note_scope_alias(&scope, &outcome);
+                record_prebuild_scope_compile(
                     source_root,
                     app.app_id.as_str(),
                     compile_session.as_ref(),
-                    &alias,
-                    &alias_outcome,
-                    Some(&[] as &[CompileScope]),
-                    1,
+                    &scope,
+                    &outcome,
                     &mut seen_scopes,
                     &mut pending,
                     &mut prepared_outcomes,
                     &mut compile_reports,
                 );
             }
+            let mut index_hits = Vec::new();
+            let mut to_compile_after_index = Vec::new();
+            for scope in to_compile {
+                if let Some(outcome) = try_reuse_persisted_compile_index(
+                    compile_session.as_ref(),
+                    diagnostics.as_ref(),
+                    compile_index.as_ref(),
+                    source_root,
+                    app.app_id.as_str(),
+                    &scope,
+                    components_root.as_path(),
+                ) {
+                    index_hits.push((scope, outcome));
+                } else {
+                    to_compile_after_index.push(scope);
+                }
+            }
+            let index_hit_count = index_hits.len();
+            for (scope, reuse) in index_hits {
+                record_prebuild_scope_compile_with_discovered(
+                    source_root,
+                    app.app_id.as_str(),
+                    compile_session.as_ref(),
+                    &scope,
+                    &reuse.outcome,
+                    Some(reuse.discovered_scopes.as_slice()),
+                    reuse.observed_count,
+                    &mut seen_scopes,
+                    &mut pending,
+                    &mut prepared_outcomes,
+                    &mut compile_reports,
+                );
+            }
+            let compile_groups = group_scopes_by_compile_target(to_compile_after_index);
+            let unique_keys = compile_groups.len();
+            prebuild_emit_progress(&format!(
+            "[{}] 编译 batch-{batch_idx} | 本批 {batch_size} scope | 入队深度 {queue_depth} | 累计已完成 {scopes_completed_before_batch} | session 复用 {session_hit_count} | index 复用 {index_hit_count} | 唯一 cache key {unique_keys}",
+            app.app_id,
+        ));
+            let batch_started = Instant::now();
+            let batch_done = Arc::new(AtomicUsize::new(0));
+            let batch_new_compile = Arc::new(AtomicUsize::new(0));
+            let batch_cache_hits = Arc::new(AtomicUsize::new(0));
+            let last_progress_emit = Arc::new(Mutex::new(Instant::now()));
+            let representatives = compile_groups
+                .iter()
+                .map(|(scope, _)| scope.clone())
+                .collect::<Vec<_>>();
+            let app_id_for_hook = app.app_id.clone();
+            let batch_done_hook = Arc::clone(&batch_done);
+            let batch_new_hook = Arc::clone(&batch_new_compile);
+            let batch_cache_hook = Arc::clone(&batch_cache_hits);
+            let last_emit_hook = Arc::clone(&last_progress_emit);
+            let last_emit_for_progress = Arc::clone(&last_emit_hook);
+            let unique_key_total = representatives.len();
+            let batch_results = if prebuild_isolate_compile_enabled() {
+                run_limited_parallel_ordered_with_hook(
+                    representatives.clone(),
+                    max_parallelism,
+                    |scope| {
+                        spawn_compile_scope_worker(
+                            source_root,
+                            app.app_id.as_str(),
+                            &scope,
+                            diagnostics.as_ref(),
+                        )
+                    },
+                    move |_, outcome| {
+                        let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
+                        match outcome {
+                            Ok(outcome) if outcome.cache_hit => {
+                                batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Ok(outcome) if outcome.compile_ms > 0 => {
+                                batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {}
+                        }
+                        emit_compile_batch_progress(
+                            app_id_for_hook.as_str(),
+                            batch_idx,
+                            done,
+                            unique_key_total,
+                            batch_started,
+                            scopes_completed_before_batch,
+                            unique_key_total.saturating_sub(done),
+                            batch_new_hook.load(Ordering::Relaxed),
+                            batch_cache_hook.load(Ordering::Relaxed),
+                            false,
+                            last_emit_for_progress.as_ref(),
+                        );
+                    },
+                )
+            } else {
+                run_limited_parallel_ordered_with_hook(
+                    representatives.clone(),
+                    max_parallelism,
+                    |scope| {
+                        BlockOrchestrator::compile_scope_for_prebuild(
+                            compile_session.as_ref(),
+                            diagnostics.as_ref(),
+                            source_root,
+                            app.app_id.as_str(),
+                            &scope,
+                            mode,
+                            components_root.as_path(),
+                        )
+                    },
+                    move |_, outcome| {
+                        let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
+                        match outcome {
+                            Ok(outcome) if outcome.cache_hit => {
+                                batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Ok(outcome) if outcome.compile_ms > 0 => {
+                                batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {}
+                        }
+                        emit_compile_batch_progress(
+                            app_id_for_hook.as_str(),
+                            batch_idx,
+                            done,
+                            unique_key_total,
+                            batch_started,
+                            scopes_completed_before_batch,
+                            unique_key_total.saturating_sub(done),
+                            batch_new_hook.load(Ordering::Relaxed),
+                            batch_cache_hook.load(Ordering::Relaxed),
+                            false,
+                            last_emit_for_progress.as_ref(),
+                        );
+                    },
+                )
+            };
+            let mut batch_compiled = 0usize;
+            let mut batch_cache_hit = 0usize;
+            let mut outcomes_by_key = BTreeMap::<String, SharedCompileOutcome>::new();
+            for (scope, outcome) in representatives.into_iter().zip(batch_results) {
+                let outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        if mode == PrebuildMode::Verify {
+                            return Err(error);
+                        }
+                        warnings.push(build_prebuild_warning(
+                            "compile_scope",
+                            scope.requested_scene_id.as_deref(),
+                            scope.requested_target_file.as_deref(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            error.to_string(),
+                        ));
+                        continue;
+                    }
+                };
+                if outcome.cache_hit {
+                    batch_cache_hit += 1;
+                } else if outcome.compile_ms > 0 {
+                    batch_compiled += 1;
+                }
+                outcomes_by_key.insert(scope.key(), outcome);
+            }
+            for (representative, aliases) in compile_groups {
+                let Some(outcome) = outcomes_by_key.get(&representative.key()) else {
+                    continue;
+                };
+                record_prebuild_scope_compile(
+                    source_root,
+                    app.app_id.as_str(),
+                    compile_session.as_ref(),
+                    &representative,
+                    outcome,
+                    &mut seen_scopes,
+                    &mut pending,
+                    &mut prepared_outcomes,
+                    &mut compile_reports,
+                );
+                for alias in aliases {
+                    let mut alias_outcome = scope_assembled_outcome(
+                        source_root,
+                        app.app_id.as_str(),
+                        outcome,
+                        &alias,
+                        Some(diagnostics.as_ref()),
+                    );
+                    maybe_shrink_board_projection_outcome(
+                        source_root,
+                        app.app_id.as_str(),
+                        &alias,
+                        &mut alias_outcome,
+                    );
+                    compile_session
+                        .lock()
+                        .expect("prebuild compile session lock")
+                        .register(
+                            source_root,
+                            app.app_id.as_str(),
+                            &alias,
+                            alias_outcome.clone(),
+                        );
+                    record_prebuild_scope_compile_with_discovered(
+                        source_root,
+                        app.app_id.as_str(),
+                        compile_session.as_ref(),
+                        &alias,
+                        &alias_outcome,
+                        Some(&[] as &[CompileScope]),
+                        1,
+                        &mut seen_scopes,
+                        &mut pending,
+                        &mut prepared_outcomes,
+                        &mut compile_reports,
+                    );
+                }
+            }
+            emit_compile_batch_progress(
+                app.app_id.as_str(),
+                batch_idx,
+                unique_key_total,
+                unique_key_total,
+                batch_started,
+                scopes_completed_before_batch,
+                pending.len(),
+                batch_compiled,
+                batch_cache_hit,
+                true,
+                last_emit_hook.as_ref(),
+            );
         }
-        emit_compile_batch_progress(
-            app.app_id.as_str(),
-            batch_idx,
-            unique_key_total,
-            unique_key_total,
-            batch_started,
-            scopes_completed_before_batch,
-            pending.len(),
-            batch_compiled,
-            batch_cache_hit,
-            true,
-            last_emit_hook.as_ref(),
-        );
-    }
     }
     if mode == PrebuildMode::Build {
         let index = build_prebuild_compile_index(
@@ -794,10 +806,7 @@ fn compile_block_scoped_node(
                         app.app_id,
                         started.elapsed().as_secs_f64(),
                         scope.requested_scene_id.as_deref().unwrap_or(""),
-                        scope
-                            .requested_target_file
-                            .as_deref()
-                            .unwrap_or("")
+                        scope.requested_target_file.as_deref().unwrap_or("")
                     ));
                     record_prebuild_scope_compile_with_discovered(
                         source_root,

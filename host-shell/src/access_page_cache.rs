@@ -62,7 +62,8 @@ fn layout_policy_revision_digest(workspace_root: &Path, app_id: &str) -> String 
 pub fn clear_legacy_page_render_cache_for_app(workspace_root: &Path, app_id: &str) -> usize {
     crate::thin_shell_page_cache::clear_for_app(app_id);
     let app_root = resolve_app_root(workspace_root, app_id);
-    let disk_dir = mei_lang_kernel::resolve_app_var_root(app_root.as_path()).join("page-render-cache");
+    let disk_dir =
+        mei_lang_kernel::resolve_app_var_root(app_root.as_path()).join("page-render-cache");
     if !disk_dir.is_dir() {
         return 0;
     }
@@ -132,8 +133,8 @@ fn scene_revision_cache_key_for_route(
     }
     let client_revision = resolve_scene_client_revision(workspace_root, app_id, scene_id)?;
     let app_root = resolve_app_root(workspace_root, app_id);
-    let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id)
-        .data_generation;
+    let data_generation =
+        mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
     let compile_epoch = mei_host_graph::read_client_bootstrap(workspace_root, app_id, scene_id)
         .map(|manifest| manifest.workset_id)
         .filter(|value| !value.trim().is_empty())
@@ -172,7 +173,6 @@ fn scene_revision_cache_key_for_route(
     });
     serde_json::to_string(&extra).ok()
 }
-
 
 pub fn clear_legacy_page_render_cache_for_apps(workspace_root: &Path, app_ids: &[String]) -> usize {
     let mut cleared = 0usize;

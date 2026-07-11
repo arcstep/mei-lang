@@ -317,7 +317,11 @@ fn inspection_trend_year_compare_evaluates_after_bundle_constant_resolve() {
         metric.value
     );
     let rows = metric.value.as_array().expect("trend dataframe rows");
-    assert!(!rows.is_empty(), "expected trend rows, got {:?}", metric.value);
+    assert!(
+        !rows.is_empty(),
+        "expected trend rows, got {:?}",
+        metric.value
+    );
 }
 
 #[test]
@@ -347,7 +351,10 @@ fn indicator_calendar_year_metrics_evaluate_non_zero() {
         RuntimeMetricEvalMode::WithDag,
     )
     .expect("eval indicator calendar metrics");
-    for id in ["inspection_frequency_reduction_rate", "penalty_revenue_growth_rate"] {
+    for id in [
+        "inspection_frequency_reduction_rate",
+        "penalty_revenue_growth_rate",
+    ] {
         let metric = eval.metrics.iter().find(|m| m.id == id).expect(id);
         let value = metric
             .value

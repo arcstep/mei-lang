@@ -104,10 +104,7 @@ pub fn publish_app_data_snapshots(
                             total_written_bytes += metadata.len();
                         }
                     }
-                    written.push(path_for_log(
-                        source_root,
-                        snapshot_path.as_path(),
-                    ));
+                    written.push(path_for_log(source_root, snapshot_path.as_path()));
                 }
             }
             Err(error) => {

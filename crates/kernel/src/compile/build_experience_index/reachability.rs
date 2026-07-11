@@ -1,16 +1,13 @@
 use super::rebuild::snapshot_to_root;
-use super::{build_view_reachability_stale, ensure_board_and_template_roots, rebuild_reachability_tree_from_compiled, root_to_snapshot, source_root_from_app};
+use super::{
+    build_view_reachability_stale, ensure_board_and_template_roots,
+    rebuild_reachability_tree_from_compiled, root_to_snapshot, source_root_from_app,
+};
 
-
-
-use crate::compile::reachability_tree::{
-        ReachabilityTreeNode,
-        ReachabilityTreeRoot,
-    };
+use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp, Diagnostic,
-    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot,
-    Severity,
+    BuildNodeId, BuildNodeKind, CompiledApp, Diagnostic, ReachabilityTreeNodeSnapshot,
+    ReachabilityTreeRootSnapshot, Severity,
 };
 
 pub fn merge_build_view_tree_roots(
@@ -128,7 +125,8 @@ pub fn enrich_reachability_tree_compile_coords(
 
 fn enrich_node_compile_coords(node: &mut ReachabilityTreeNode, compiled: &CompiledApp) {
     if let Some(parsed) = BuildNodeId::parse(&node.node_id) {
-        if let Some(coord) = crate::compile::build_experience::compile_coordinate_for_node(&parsed, compiled)
+        if let Some(coord) =
+            crate::compile::build_experience::compile_coordinate_for_node(&parsed, compiled)
         {
             node.compile_scene = coord.scene_id.unwrap_or_default();
             node.compile_target = coord.preview_target;
@@ -179,7 +177,8 @@ fn annotate_snapshot_preview_availability(
         if matches!(
             parsed.kind,
             BuildNodeKind::Component | BuildNodeKind::Template
-        ) && crate::compile::build_experience::compile_coordinate_for_node(&parsed, compiled).is_none()
+        ) && crate::compile::build_experience::compile_coordinate_for_node(&parsed, compiled)
+            .is_none()
         {
             if !node
                 .badges
@@ -203,4 +202,3 @@ fn annotate_snapshot_preview_availability(
         annotate_snapshot_preview_availability(child, compiled, diagnostics);
     }
 }
-

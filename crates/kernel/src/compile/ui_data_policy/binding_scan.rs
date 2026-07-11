@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::compile::decl_file_cache::evaluate_mei_file_cached;
 use crate::model::{
-    BlockDecl, Diagnostic, LoadedResource, UiNodeDecl, PanelRefEmbedDecl, Severity, UiTreeNode,
+    BlockDecl, Diagnostic, LoadedResource, PanelRefEmbedDecl, Severity, UiNodeDecl, UiTreeNode,
 };
 
 use super::resource_refs::collect_resource_ref_issues;

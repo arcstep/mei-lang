@@ -1,7 +1,9 @@
 use super::prelude::*;
 use super::*;
 
-pub fn ensure_stock_catalog_app_synced(source_root: &Path) -> Result<Option<crate::catalog_app::SyncStockCatalogAppReport>> {
+pub fn ensure_stock_catalog_app_synced(
+    source_root: &Path,
+) -> Result<Option<crate::catalog_app::SyncStockCatalogAppReport>> {
     use crate::catalog_app::sync_stock_catalog_app;
     use mei_lang_kernel::catalog_app_needs_sync;
 
@@ -130,18 +132,33 @@ pub(crate) fn check_stock_catalog_menu_config(source_root: &Path) -> Vec<String>
                 .map(str::to_string)
         })
         .collect();
-    let items = workspace.menu.get("items").and_then(|value| value.as_array());
+    let items = workspace
+        .menu
+        .get("items")
+        .and_then(|value| value.as_array());
     let mut has_stock_catalog_single = false;
     let mut has_legacy_catalog_only = false;
     if let Some(items) = items {
         for item in items {
-            let app_id = item.get("app_id").and_then(|value| value.as_str()).unwrap_or("");
+            let app_id = item
+                .get("app_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             if app_id != "_stock-catalog" {
                 continue;
             }
-            let label = item.get("label").and_then(|value| value.as_str()).unwrap_or("");
-            let catalog = item.get("catalog").and_then(|value| value.as_str()).unwrap_or("");
-            let pack = item.get("pack").and_then(|value| value.as_str()).unwrap_or("");
+            let label = item
+                .get("label")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let catalog = item
+                .get("catalog")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let pack = item
+                .get("pack")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             if label.eq_ignore_ascii_case("stock catalog") {
                 has_stock_catalog_single = true;
             }

@@ -10,8 +10,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::data_snapshot::{
-    access_parquet_import_required, parquet_sidecar_write_allowed,
-    source_file_content_signature, try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
+    access_parquet_import_required, parquet_sidecar_write_allowed, source_file_content_signature,
+    try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
 };
 use super::decls::LegacySourceDecl;
 use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
@@ -388,15 +388,4 @@ pub(crate) fn clear_materialize_cache() {
         lru.clear();
     }
     super::xlsx_singleflight::clear_xlsx_inflight_for_tests();
-}
-
-/// 供测试：清空 L3 缓存。
-#[cfg(test)]
-pub(crate) fn clear_materialize_cache_for_tests() {
-    clear_materialize_cache();
-}
-
-#[cfg(test)]
-pub(crate) fn legacy_rows_cache_len_for_tests() -> usize {
-    LEGACY_ROWS_CACHE.lock().map(|c| c.len()).unwrap_or(0)
 }

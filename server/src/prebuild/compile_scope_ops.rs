@@ -3,18 +3,24 @@ use super::*;
 use crate::block::BlockOrchestrator;
 use crate::graph::types::GraphNodeKind;
 
-pub(crate) fn mcg_scene_payload_registered(source_root: &Path, app_id: &str, target_file: &str) -> bool {
+pub(crate) fn mcg_scene_payload_registered(
+    source_root: &Path,
+    app_id: &str,
+    target_file: &str,
+) -> bool {
     if !crate::graph::feature::graph_registry_dedup_enabled() {
         return true;
     }
     let registry = crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id);
-    mei_lang_kernel::app_source_rel_path_lookup_keys(target_file).into_iter().any(|key| {
-        registry.nodes.iter().any(|node| {
-            node.id.kind == GraphNodeKind::ScenePayload
-                && node.id.key == key
-                && node.state == crate::graph::types::MaterialState::Ready
+    mei_lang_kernel::app_source_rel_path_lookup_keys(target_file)
+        .into_iter()
+        .any(|key| {
+            registry.nodes.iter().any(|node| {
+                node.id.kind == GraphNodeKind::ScenePayload
+                    && node.id.key == key
+                    && node.state == crate::graph::types::MaterialState::Ready
+            })
         })
-    })
 }
 
 fn scope_target_file(scope: &CompileScope, compiled: &mei_lang_kernel::CompiledApp) -> String {
@@ -221,16 +227,27 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
             .map(|outcome| outcome.clone());
         if let Some(base) = base {
             if !compile_outcome_matches_scope(scope, base.compiled.as_ref()) {
-                let board_payload_ready =
-                    !is_board_target_file(target) || mcg_scene_payload_registered(source_root, app_id, target);
+                let board_payload_ready = !is_board_target_file(target)
+                    || mcg_scene_payload_registered(source_root, app_id, target);
                 if assembly_base_matches_scope_target(scope, &base) && board_payload_ready {
-                    let assembled =
-                        scope_assembled_outcome(source_root, app_id, &base, scope, Some(diagnostics));
+                    let assembled = scope_assembled_outcome(
+                        source_root,
+                        app_id,
+                        &base,
+                        scope,
+                        Some(diagnostics),
+                    );
                     session
                         .lock()
                         .expect("prebuild compile session lock")
                         .register(source_root, app_id, scope, assembled.clone());
-                    ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &assembled, mode);
+                    ensure_mcg_scene_payload_for_scope(
+                        source_root,
+                        app_id,
+                        scope,
+                        &assembled,
+                        mode,
+                    );
                     return Ok(assembled);
                 }
             }
@@ -244,12 +261,14 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if let Some((compiled, compile_revision)) = crate::graph::try_assemble_scope_from_scene_payload(
-            source_root,
-            app_id,
-            scope.canonicalized().requested_scene_id.as_deref(),
-            target,
-        ) {
+        if let Some((compiled, compile_revision)) =
+            crate::graph::try_assemble_scope_from_scene_payload(
+                source_root,
+                app_id,
+                scope.canonicalized().requested_scene_id.as_deref(),
+                target,
+            )
+        {
             diagnostics
                 .mcg_assemble_only_count
                 .fetch_add(1, Ordering::Relaxed);
@@ -289,13 +308,7 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
                 diagnostics
                     .compile_index_stale_entries
                     .fetch_add(1, Ordering::Relaxed);
-                BlockOrchestrator::compile_scope(
-                    source_root,
-                    app_id,
-                    scope,
-                    mode,
-                    false,
-                )?
+                BlockOrchestrator::compile_scope(source_root, app_id, scope, mode, false)?
             }
         }
         None => BlockOrchestrator::compile_scope(source_root, app_id, scope, mode, false)?,
@@ -373,11 +386,13 @@ pub(crate) fn record_prebuild_scope_compile_with_discovered(
                 .filter_map(|discovered| compile_scope_to_nav(discovered, &outcome.compiled))
                 .collect::<Vec<_>>();
             if !nav_scopes.is_empty() {
-                if let Err(error) = crate::graph::mrg::navigation::sync_navigation_for_compile_scopes(
-                    source_root,
-                    app_id,
-                    nav_scopes.as_slice(),
-                ) {
+                if let Err(error) =
+                    crate::graph::mrg::navigation::sync_navigation_for_compile_scopes(
+                        source_root,
+                        app_id,
+                        nav_scopes.as_slice(),
+                    )
+                {
                     tracing::debug!(
                         app_id = %app_id,
                         error = %error,
@@ -500,8 +515,9 @@ pub(crate) fn fill_manifest_prepared_outcomes(
                     error = %error,
                     "fill_manifest board compile failed; projection handle only"
                 );
-                let base = fallback_base.clone().unwrap_or_else(|| {
-                    SharedCompileOutcome {
+                let base = fallback_base
+                    .clone()
+                    .unwrap_or_else(|| SharedCompileOutcome {
                         compiled: Arc::new(mei_lang_kernel::CompiledApp {
                             app_id: app_id.to_string(),
                             title: String::new(),
@@ -523,7 +539,7 @@ pub(crate) fn fill_manifest_prepared_outcomes(
                             build_experience_index: Default::default(),
                             build_t2_page_index: Default::default(),
                             build_template_index: Default::default(),
-        ui_layout_index: Default::default(),
+                            ui_layout_index: Default::default(),
                         }),
                         cache_hit: true,
                         artifact_cache_hit: false,
@@ -534,8 +550,7 @@ pub(crate) fn fill_manifest_prepared_outcomes(
                         compile_ms: 0,
                         handle_only: true,
                         assembly_handle: None,
-                    }
-                });
+                    });
                 projection_handle_outcome(scope, &base, None)
             })
         } else {
@@ -785,4 +800,3 @@ pub(crate) fn shrink_prepared_outcomes_with_mcg_handles(
         }
     }
 }
-

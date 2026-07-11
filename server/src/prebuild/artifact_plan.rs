@@ -1,7 +1,11 @@
 use super::prelude::*;
 use super::*;
 
-pub(crate) fn logical_dataframe_artifact_id(owner_resource_id: &str, metric_id: &str, page_size: usize) -> String {
+pub(crate) fn logical_dataframe_artifact_id(
+    owner_resource_id: &str,
+    metric_id: &str,
+    page_size: usize,
+) -> String {
     format!("dataframe|owner={owner_resource_id}|metric={metric_id}|page_size={page_size}")
 }
 
@@ -13,13 +17,14 @@ pub(crate) fn plan_metric_workset(
     metric_ids: &[String],
 ) -> Result<PlannedMetricWorkset> {
     let request_all_metrics = metric_ids.is_empty();
-    let access_plan = plan_access_metric_eval_for_ids(&outcome.compiled, dataset_selector, metric_ids)
-        .with_context(|| {
-            format!(
-                "plan metric response artifact for dataset `{dataset_selector}` metrics [{}]",
-                summarize_metric_ids(metric_ids)
-            )
-        })?;
+    let access_plan =
+        plan_access_metric_eval_for_ids(&outcome.compiled, dataset_selector, metric_ids)
+            .with_context(|| {
+                format!(
+                    "plan metric response artifact for dataset `{dataset_selector}` metrics [{}]",
+                    summarize_metric_ids(metric_ids)
+                )
+            })?;
     let runtime_workset = runtime_metric_workset(
         &access_plan.owner.id,
         &access_plan.request_metric_ids,
@@ -43,8 +48,11 @@ pub(crate) fn plan_metric_workset(
     let (scene_id, scene_path) =
         artifact_scene_context_for_resource(&outcome.compiled, access_plan.owner.id.as_str());
     let scope_id = scope_identity_key(scene_id.as_str(), scene_path.as_deref());
-    let logical_node_id =
-        logical_metric_workset_id(app_id, access_plan.owner.id.as_str(), &access_plan.request_metric_ids);
+    let logical_node_id = logical_metric_workset_id(
+        app_id,
+        access_plan.owner.id.as_str(),
+        &access_plan.request_metric_ids,
+    );
     let materialization_key = materialization_identity(
         logical_node_id.as_str(),
         scope_id.as_str(),
@@ -251,4 +259,3 @@ pub(crate) fn dataset_metric_identity_key(dataset: &DatasetView) -> String {
     let source_path = dataset.source.path.trim().replace('\\', "/");
     format!("{}|{}", source_path, metric_keys.join(","))
 }
-

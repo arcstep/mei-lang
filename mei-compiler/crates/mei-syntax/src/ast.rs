@@ -26,10 +26,7 @@ pub enum Expr {
     Bool(bool),
     None,
     List(Vec<Expr>),
-    Call {
-        path: Vec<String>,
-        args: CallArgs,
-    },
+    Call { path: Vec<String>, args: CallArgs },
 }
 
 impl CallArgs {

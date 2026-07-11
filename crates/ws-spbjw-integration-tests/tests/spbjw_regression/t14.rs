@@ -239,4 +239,3 @@ fn compile_spbjw_left_rail_analytics_projection_slots() {
         );
     }
 }
-

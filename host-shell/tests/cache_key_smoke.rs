@@ -29,7 +29,13 @@ fn page_render_view_axes_include_route_and_projection() {
 
 #[test]
 fn build_view_axes_use_build_route_mode() {
-    let view = build_page_render_view_axes("build", "static", "plane_region_section", None, Some("ops-1".to_string()));
+    let view = build_page_render_view_axes(
+        "build",
+        "static",
+        "plane_region_section",
+        None,
+        Some("ops-1".to_string()),
+    );
     let signature = mei_host_graph::page_render_view_signature(&view).expect("signature");
     assert!(signature.contains("\"route_mode\":\"build\""));
     assert!(signature.contains("plane_region_section"));

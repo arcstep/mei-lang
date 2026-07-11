@@ -1,7 +1,6 @@
 use mei_lang_kernel::{
-    build_experience_path, build_overview_backing, experience_layout_hint,
-    experience_mount_chain, format_experience_path, format_ui_scope_agent_context,
-    BuildNodeKind, ProvenanceAnchor,
+    build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
+    format_experience_path, format_ui_scope_agent_context, BuildNodeKind, ProvenanceAnchor,
 };
 use mei_lang_toolchain::format_semantic_graph_markdown;
 
@@ -271,10 +270,7 @@ pub(super) fn append_registry_graph_sections(
         for slot in registry.slots.iter().take(24) {
             md.push_str(&format!(
                 "- `{}@{}` state=`{:?}` revision=`{}`\n",
-                slot.slot_id.node.key,
-                slot.slot_id.scope_key,
-                slot.state,
-                slot.slot_revision
+                slot.slot_id.node.key, slot.slot_id.scope_key, slot.state, slot.slot_revision
             ));
         }
         md.push('\n');
@@ -331,4 +327,3 @@ pub(super) fn append_suggested_tasks(
         }
     }
 }
-

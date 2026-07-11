@@ -16,7 +16,7 @@ fn normalize_injects_metrics_strip_layout_for_metric_children() {
             metric_card_panel("b"),
             metric_card_panel("c"),
         ],
-        props: json!({}),
+        props: json!({ "__mei_layout_policy": "metrics_strip" }),
         head_props: json!({}),
         body_props: json!({}),
         base: None,
@@ -491,4 +491,3 @@ fn normalize_clamps_metrics_auto_spacing_into_cockpit_budget() {
     assert_eq!(layout.gap.as_deref(), Some("12px"));
     assert_eq!(layout.padding.as_deref(), Some("12px 24px"));
 }
-

@@ -95,7 +95,11 @@ pub fn enforce_memory_pin_limits(
     let max_bytes = max_pinned_mb.saturating_mul(1024 * 1024);
     loop {
         let slot_overflow = max_pinned_slots > 0 && pin_state.pinned.len() > max_pinned_slots;
-        let total_bytes: usize = pin_state.pinned.iter().map(|entry| entry.approx_bytes).sum();
+        let total_bytes: usize = pin_state
+            .pinned
+            .iter()
+            .map(|entry| entry.approx_bytes)
+            .sum();
         let byte_overflow = max_bytes > 0 && total_bytes > max_bytes;
         if !slot_overflow && !byte_overflow {
             break;

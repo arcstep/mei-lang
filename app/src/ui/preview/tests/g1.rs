@@ -78,4 +78,3 @@ fn panel_card_layout_style_emits_grid_justify_content() {
     let style = panel_card_layout_style(Some(&layout), &json!({}));
     assert!(style.contains("justify-content:center;"));
 }
-

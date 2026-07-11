@@ -227,8 +227,7 @@ mod graph_mcg_tests {
 
         use mei_lang_datasets::locate_runtime_metric_resource;
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../workspaces/ws-spbjw");
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
         // Phase 5: apps live under apps/; v1 *.board.mei removed.
         let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {

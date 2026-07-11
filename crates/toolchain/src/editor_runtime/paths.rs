@@ -31,4 +31,3 @@ pub(crate) fn workspace_author_skill_dir(workspace_root: &Path) -> PathBuf {
 pub(crate) fn workspace_access_skill_dir(workspace_root: &Path) -> PathBuf {
     workspace_root.join(crate::meilang_access_skill_package().install_dir_rel)
 }
-

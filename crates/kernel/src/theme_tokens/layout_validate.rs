@@ -113,11 +113,7 @@ fn validate_header_height(
 
 fn is_fr_track(text: &str) -> bool {
     let trimmed = text.trim();
-    trimmed.ends_with("fr")
-        && trimmed
-            .trim_end_matches("fr")
-            .parse::<f64>()
-            .is_ok()
+    trimmed.ends_with("fr") && trimmed.trim_end_matches("fr").parse::<f64>().is_ok()
 }
 
 fn push_layout_diagnostic(
@@ -140,7 +136,12 @@ mod tests {
             "home/T1/left_rail": {"sectionRows": ["120px"]}
         });
         let mut diagnostics = Vec::new();
-        validate_theme_layout_value(&layout, "ops.themes.cockpit", "app.config.json", &mut diagnostics);
+        validate_theme_layout_value(
+            &layout,
+            "ops.themes.cockpit",
+            "app.config.json",
+            &mut diagnostics,
+        );
         assert!(diagnostics
             .iter()
             .any(|d| d.code == "theme_layout_section_rows_px_forbidden"));
@@ -152,7 +153,12 @@ mod tests {
             "home/T1/left_rail": {"sectionRows": ["1fr", "2.52fr"]}
         });
         let mut diagnostics = Vec::new();
-        validate_theme_layout_value(&layout, "ops.themes.cockpit", "app.config.json", &mut diagnostics);
+        validate_theme_layout_value(
+            &layout,
+            "ops.themes.cockpit",
+            "app.config.json",
+            &mut diagnostics,
+        );
         assert!(diagnostics.is_empty());
     }
 }

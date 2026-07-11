@@ -67,8 +67,7 @@ pub fn legacy_resolve_access_entry(source_root: &Path) -> AccessEntry {
         .unwrap_or("home")
         .to_string();
     let target_file = mei_lang_kernel::canonical_app_source_rel_path(
-        cfg
-            .deploy
+        cfg.deploy
             .access_entry
             .target_file
             .as_deref()
@@ -123,8 +122,11 @@ mod tests {
     fn legacy_access_entry_prefers_first_discovered_app_over_zhifa_default() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ws = tmp.path();
-        fs::write(ws.join("workspace.json"), r#"{"schemaVersion":2,"workspace":{"id":"ws-demo"}}"#)
-            .expect("write workspace");
+        fs::write(
+            ws.join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"ws-demo"}}"#,
+        )
+        .expect("write workspace");
         fs::create_dir_all(ws.join("apps/hello/src")).expect("mkdir app");
         fs::write(ws.join("apps/hello/src/main.mei"), "app(id=hello)").expect("write main");
         let entry = legacy_resolve_access_entry(ws);

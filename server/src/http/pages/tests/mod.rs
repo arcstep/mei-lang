@@ -200,6 +200,5 @@ impl Drop for ScopedAccessOnlySurface {
     }
 }
 
-
 #[cfg(test)]
 mod cases;

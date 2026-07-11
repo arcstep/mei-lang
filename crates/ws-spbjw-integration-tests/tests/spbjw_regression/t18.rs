@@ -167,4 +167,3 @@ fn compile_spbjw_home_preview_imported_enforcement_personnel_composition_tab_use
         "composition tab should not bind to raw scalar rowset"
     );
 }
-

@@ -1,19 +1,22 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use crate::http::pages::components::resolve_components_root;
-use crate::http::pages::scene_qualified::{
-    compile_options_from_coords, resolved_scene_context,
-    strict_runtime_query_contract, strict_scene_query_coords,
+use super::execute::execute_metric_query_group;
+use super::helpers::{
+    merge_metric_query_groups, normalize_metric_query_groups, project_metric_group_response,
 };
-use crate::http::pages::util::elapsed_ms;
+use super::types::*;
+use crate::http::compile_cache::{RuntimeAccessPolicies, RuntimeArtifactPolicy};
+use crate::http::observation::CompileObservation;
+use crate::http::pages::components::resolve_components_root;
 use crate::http::pages::metric_api::assembly::{
     MetricQueryGroupResponse, MetricQueryRequest, MetricQueryResponse,
 };
-use crate::http::compile_cache::{
-    RuntimeAccessPolicies, RuntimeArtifactPolicy,
+use crate::http::pages::scene_qualified::{
+    compile_options_from_coords, resolved_scene_context, strict_runtime_query_contract,
+    strict_scene_query_coords,
 };
-use crate::http::observation::CompileObservation;
+use crate::http::pages::util::elapsed_ms;
 use crate::{AppError, AppState};
 use axum::{
     extract::{Path as AxumPath, State},
@@ -21,15 +24,9 @@ use axum::{
     Json,
 };
 use mei_lang_datasets::{
-    normalize_query_filters, normalize_query_search,
-    query_state_from_request,
+    normalize_query_filters, normalize_query_search, query_state_from_request,
 };
 use mei_lang_kernel::resolve_app_root;
-use super::execute::execute_metric_query_group;
-use super::helpers::{
-    merge_metric_query_groups, normalize_metric_query_groups, project_metric_group_response,
-};
-use super::types::*;
 
 fn access_artifact_unavailable_error(
     request_kind: &str,

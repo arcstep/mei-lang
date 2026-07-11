@@ -112,4 +112,3 @@ fn prebuild_dataframe_metric_selector_rewrites_scalar_metric_to_rowset() {
         "scenes/01-执法要素.mei::enforcement_items_count::__scalar_rowset__"
     );
 }
-

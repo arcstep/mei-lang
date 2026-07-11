@@ -162,4 +162,3 @@ fn capability_catalog_rejects_editor_profile_alias() {
     assert!(ai_profile_descriptor("editor").is_none());
     assert!(ai_profile_descriptor("author").is_some());
 }
-

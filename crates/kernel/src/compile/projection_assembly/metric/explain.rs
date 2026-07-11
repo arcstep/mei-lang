@@ -1,4 +1,4 @@
-use super::{component_for_support_role};
+use super::component_for_support_role;
 
 use serde_json::{Map, Value};
 
@@ -215,4 +215,3 @@ pub(super) fn slot_from_explain_block(
     }
     slot
 }
-

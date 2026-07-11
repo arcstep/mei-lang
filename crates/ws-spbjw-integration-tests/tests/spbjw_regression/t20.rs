@@ -376,4 +376,3 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
         "home imported inspection_frequency_reduction_rate should be non-zero, got {value}"
     );
 }
-

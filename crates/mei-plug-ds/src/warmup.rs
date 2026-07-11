@@ -1,8 +1,10 @@
 use std::path::Path;
 
 use mei_host_core::HostContext;
-use mei_host_graph::{collect_eval_frontier, load_block_artifact, GraphNodeKind, McgRegistryWriter};
-use mei_lang_kernel::{load_mei_config_for_app};
+use mei_host_graph::{
+    collect_eval_frontier, load_block_artifact, GraphNodeKind, McgRegistryWriter,
+};
+use mei_lang_kernel::load_mei_config_for_app;
 use serde_json::Value;
 use std::collections::BTreeSet;
 

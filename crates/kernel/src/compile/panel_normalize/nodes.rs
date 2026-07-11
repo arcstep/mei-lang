@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::model::{UiNodeDecl, UiTreeNode};
 
-use super::constants::{LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_METRIC_CARD, CONTENT_ZONE};
+use super::constants::{CONTENT_ZONE, LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_METRIC_CARD};
 use super::css_util::{px_track, value_as_px};
 use super::spacing::panel_layout_policy;
 

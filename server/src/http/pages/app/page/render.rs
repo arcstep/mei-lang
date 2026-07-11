@@ -177,14 +177,15 @@ pub(super) fn render_compiled_success(
         Some(state.source_root.as_path()),
         None,
     );
-    let assembly_scene_id = if route_mode == UiRouteMode::Copilot && copilot_presentation_id.is_some() {
-        "home"
-    } else {
-        manage_scene_resolved
-            .as_deref()
-            .or(compiled.active_scene.as_deref())
-            .unwrap_or("home")
-    };
+    let assembly_scene_id =
+        if route_mode == UiRouteMode::Copilot && copilot_presentation_id.is_some() {
+            "home"
+        } else {
+            manage_scene_resolved
+                .as_deref()
+                .or(compiled.active_scene.as_deref())
+                .unwrap_or("home")
+        };
     let scene_id = assembly_scene_id;
     let scene_bundle_enabled = should_build_scene_bundle(app_root.as_path(), route_mode, scene_id);
     let scene_bundle_marker = scene_bundle_cache_marker(app_root.as_path(), route_mode, scene_id);
@@ -239,10 +240,12 @@ pub(super) fn render_compiled_success(
     let mut scene_bundle_probe_ms = 0u64;
     let mut scene_bundle_build_scheduled = false;
     let runtime_snapshot = if route_mode == UiRouteMode::Runtime {
-        Some(crate::http::runtime_snapshot::build_runtime_observability_snapshot(
-            state.source_root.as_path(),
-            app_id,
-        ))
+        Some(
+            crate::http::runtime_snapshot::build_runtime_observability_snapshot(
+                state.source_root.as_path(),
+                app_id,
+            ),
+        )
     } else {
         None
     };

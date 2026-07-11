@@ -102,7 +102,11 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .filter(|d| d.source_path.as_deref() == Some("scenes/home.mei"))
         .collect();
-    assert!(home_errors.is_empty(), "home preview errors: {:?}", home_errors);
+    assert!(
+        home_errors.is_empty(),
+        "home preview errors: {:?}",
+        home_errors
+    );
     let contract = compiled
         .scene_contract
         .as_ref()
@@ -220,4 +224,3 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
         "main preview should keep resolved metric payloads"
     );
 }
-

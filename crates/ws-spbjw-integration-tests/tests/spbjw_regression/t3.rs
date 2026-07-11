@@ -172,4 +172,3 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         "expected warning_models dataset in resources"
     );
 }
-

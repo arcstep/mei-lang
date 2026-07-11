@@ -1,7 +1,9 @@
 use anyhow::Result;
 
 use crate::cli::args::GraphArgs;
-use crate::cli::util::{print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg};
+use crate::cli::util::{
+    print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg,
+};
 use crate::graph::migrate::{run_graph_migrate, GraphMigrateOptions};
 use crate::graph::{run_graph_doctor, run_graph_inspect, run_graph_status};
 
@@ -91,7 +93,10 @@ pub fn graph_command(args: GraphArgs) -> Result<()> {
                 print_json_output(&report, true)?;
             } else if let Some(nodes) = &report.mcg_nodes {
                 for node in nodes {
-                    println!("MCG {} key={} rev={} state={}", node.kind, node.key, node.revision, node.state);
+                    println!(
+                        "MCG {} key={} rev={} state={}",
+                        node.kind, node.key, node.revision, node.state
+                    );
                 }
             } else if let Some(slots) = &report.mrg_slots {
                 for slot in slots {

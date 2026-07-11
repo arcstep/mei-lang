@@ -19,9 +19,7 @@ pub fn diagnostics_command(args: DiagnosticsArgs) -> Result<()> {
     }
 }
 
-fn diagnostics_summary_command(
-    args: super::super::args::DiagnosticsSummaryArgs,
-) -> Result<()> {
+fn diagnostics_summary_command(args: super::super::args::DiagnosticsSummaryArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     agent_runtime::runtime::load_repo_dotenv(&package_root);
     let raw_source_root =
@@ -43,7 +41,11 @@ fn diagnostics_summary_command(
 }
 
 fn print_human_summary(report: &MaterializationDiagnosticsReport) {
-    let sections = report.sections.iter().map(String::as_str).collect::<Vec<_>>();
+    let sections = report
+        .sections
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let show = |name: &str| sections.iter().any(|section| *section == name);
 
     println!("app={} alerts={}", report.app_id, report.alerts.len());
@@ -60,7 +62,10 @@ fn print_human_summary(report: &MaterializationDiagnosticsReport) {
             format_bytes_human(report.disk.compiled_app_bytes),
             report.disk.compiled_app_file_count
         );
-        println!("  graph               {}", format_bytes_human(report.disk.graph_bytes));
+        println!(
+            "  graph               {}",
+            format_bytes_human(report.disk.graph_bytes)
+        );
         println!(
             "  eval-artifacts      {} ({} files)",
             format_bytes_human(report.disk.eval_artifact_bytes),
@@ -70,7 +75,10 @@ fn print_human_summary(report: &MaterializationDiagnosticsReport) {
             "  data-snapshots      {}",
             format_bytes_human(report.disk.data_snapshots_bytes)
         );
-        println!("  prebuild            {}", format_bytes_human(report.disk.prebuild_bytes));
+        println!(
+            "  prebuild            {}",
+            format_bytes_human(report.disk.prebuild_bytes)
+        );
         println!(
             "  scene_payload       {} files / {}",
             report.disk.scene_payload_file_count,

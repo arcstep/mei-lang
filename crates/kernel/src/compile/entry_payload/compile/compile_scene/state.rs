@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::mei_config::MeiConfig;
 use crate::model::{
-    ComponentAsset, Diagnostic, EntityDecl, FlowDecl, FrameDecl, LayoutDecl, UiNodeDecl,
-    ResourceDecl, SceneDecl, ThemeDecl, WorldDecl, WorldGridDecl,
+    ComponentAsset, Diagnostic, EntityDecl, FlowDecl, FrameDecl, LayoutDecl, ResourceDecl,
+    SceneDecl, ThemeDecl, UiNodeDecl, WorldDecl, WorldGridDecl,
 };
 
 pub(super) struct CompileSceneCtx {

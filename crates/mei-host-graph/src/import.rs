@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::bridge::export_bridge_from_mcg;
 use crate::content_store::{
-    self, APP_SKELETON, METRIC_DEF_BUNDLE, NAVIGATION, CONTENT_PANEL, PROJECTION_ASSEMBLY,
+    self, APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, NAVIGATION, PROJECTION_ASSEMBLY,
     SEMANTIC_SCENE, WARMUP_POLICY,
 };
 use crate::mcg::registry::{McgNodeRecord, McgRegistryWriter};

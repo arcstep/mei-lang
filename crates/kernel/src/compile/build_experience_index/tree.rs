@@ -3,9 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::compile::reachability_tree::ReachabilityTreeNode;
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledSceneRoute, UiNodeDecl, SceneContract,
-};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledSceneRoute, SceneContract, UiNodeDecl};
 
 pub fn panels_for_scene_from_maps(
     scene_id: &str,
@@ -81,7 +79,11 @@ fn tree_label_hint(node: &ReachabilityTreeNode) -> Option<String> {
     }
 }
 
-pub(super) fn projection_children(scene_id: &str, assembly: &Value, kind: &str) -> Vec<ReachabilityTreeNode> {
+pub(super) fn projection_children(
+    scene_id: &str,
+    assembly: &Value,
+    kind: &str,
+) -> Vec<ReachabilityTreeNode> {
     let key = if kind == "board" {
         "boards"
     } else {

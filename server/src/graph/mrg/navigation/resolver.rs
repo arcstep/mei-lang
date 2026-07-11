@@ -97,16 +97,10 @@ pub fn legacy_fallback_scope(source_root: &Path, app_id: &str, mode: UiMode) -> 
     let app_root = resolve_app_root(source_root, app_id);
     if let Ok(Some(default_scene)) = resolve_default_scene_from_root(app_root.as_path()) {
         if let Ok(Some(skeleton)) = load_app_skeleton_from_mcg(source_root, app_id) {
-            if let Some(routes) = skeleton
-                .payload
-                .get("sceneRoutes")
-                .and_then(|value| {
-                    serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(
-                        value.clone(),
-                    )
+            if let Some(routes) = skeleton.payload.get("sceneRoutes").and_then(|value| {
+                serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone())
                     .ok()
-                })
-            {
+            }) {
                 if let Some(route) = routes
                     .iter()
                     .find(|route| route.scene_id == default_scene)
@@ -137,19 +131,10 @@ pub fn legacy_fallback_scope(source_root: &Path, app_id: &str, mode: UiMode) -> 
             }
         }
     }
-    ScopeCoords::new(
-        app_id,
-        mode,
-        "home",
-        "scenes/home.mei",
-    )
+    ScopeCoords::new(app_id, mode, "home", "scenes/home.mei")
 }
 
-pub fn resolve_default_scope(
-    source_root: &Path,
-    app_id: &str,
-    mode: UiMode,
-) -> NavigationMatch {
+pub fn resolve_default_scope(source_root: &Path, app_id: &str, mode: UiMode) -> NavigationMatch {
     resolve_default_scope_with_opts(source_root, app_id, mode, NavigationResolveOpts::default())
 }
 
@@ -207,22 +192,19 @@ pub fn infer_build_scene_for_target(
         return None;
     }
     let app_root = resolve_app_root(source_root, app_id);
-        if let Ok(Some(skeleton)) = load_app_skeleton_from_mcg(source_root, app_id) {
-        if let Some(routes) = skeleton
-            .payload
-            .get("sceneRoutes")
-            .and_then(|value| {
-                serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone()).ok()
-            })
-        {
+    if let Ok(Some(skeleton)) = load_app_skeleton_from_mcg(source_root, app_id) {
+        if let Some(routes) = skeleton.payload.get("sceneRoutes").and_then(|value| {
+            serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone()).ok()
+        }) {
             let canonical_target = mei_lang_kernel::canonical_app_source_rel_path(target_file);
             let matches = routes
                 .iter()
                 .filter(|route| {
                     route.target_file == canonical_target
                         || route.target_file == target_file
-                        || mei_lang_kernel::canonical_app_source_rel_path(route.target_file.as_str())
-                            == canonical_target
+                        || mei_lang_kernel::canonical_app_source_rel_path(
+                            route.target_file.as_str(),
+                        ) == canonical_target
                 })
                 .map(|route| route.scene_id.clone())
                 .collect::<Vec<_>>();
@@ -243,7 +225,8 @@ pub fn infer_build_scene_for_target(
             .filter(|scene| !scene.trim().is_empty());
     }
     if is_stock_catalog_app_for_root(source_root, app_id) {
-        let catalog_routes = mei_lang_kernel::catalog_scene_routes_from_app_root(app_root.as_path());
+        let catalog_routes =
+            mei_lang_kernel::catalog_scene_routes_from_app_root(app_root.as_path());
         let canonical_target = mei_lang_kernel::canonical_app_source_rel_path(target_file);
         let matches = catalog_routes
             .iter()
@@ -387,12 +370,7 @@ pub fn match_request_to_navigation_with_opts(
                 );
             }
             return NavigationMatch {
-                scope: ScopeCoords::new(
-                    app_id,
-                    mode,
-                    scene.unwrap_or_default(),
-                    target_file,
-                ),
+                scope: ScopeCoords::new(app_id, mode, scene.unwrap_or_default(), target_file),
                 entry: None,
                 legacy_fallback: true,
             };
@@ -443,8 +421,8 @@ mod tests {
             chrome: None,
             catalog: None,
             pack: None,
-        data_mode: None,
-        review_projection: None,
+            data_mode: None,
+            review_projection: None,
         };
         let nav = match_request_to_navigation(ws, "demo", UiRouteMode::Layout, None, &query);
         assert!(!nav.legacy_fallback);

@@ -84,25 +84,21 @@ pub async fn api_build_context_export(
     let app_imported = guard.imported;
     drop(guard);
 
-    let assembled = match assemble_enriched_for_build_node(
-        workspace_root.as_path(),
-        app_id,
-        node_raw,
-        None,
-    ) {
-        Ok(value) => value,
-        Err(AssembleBuildError::InvalidNode) => {
-            return markdown_error(StatusCode::BAD_REQUEST, "invalid node id");
-        }
-        Err(error) => {
-            let status = match &error {
-                AssembleBuildError::NotAssembled(_) => StatusCode::NOT_FOUND,
-                AssembleBuildError::AssembleFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                AssembleBuildError::InvalidNode => StatusCode::BAD_REQUEST,
-            };
-            return markdown_error(status, error.message().as_str());
-        }
-    };
+    let assembled =
+        match assemble_enriched_for_build_node(workspace_root.as_path(), app_id, node_raw, None) {
+            Ok(value) => value,
+            Err(AssembleBuildError::InvalidNode) => {
+                return markdown_error(StatusCode::BAD_REQUEST, "invalid node id");
+            }
+            Err(error) => {
+                let status = match &error {
+                    AssembleBuildError::NotAssembled(_) => StatusCode::NOT_FOUND,
+                    AssembleBuildError::AssembleFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                    AssembleBuildError::InvalidNode => StatusCode::BAD_REQUEST,
+                };
+                return markdown_error(status, error.message().as_str());
+            }
+        };
 
     let compiled = &assembled.compiled;
     let ctx = resolve_build_node_context(compiled, &resolved.node);
@@ -119,10 +115,8 @@ pub async fn api_build_context_export(
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(true);
 
-    let surface = resolve_export_surface(
-        query.surface.as_deref(),
-        query.review_projection.as_deref(),
-    );
+    let surface =
+        resolve_export_surface(query.surface.as_deref(), query.review_projection.as_deref());
 
     let build_url = {
         let route = if surface == "prototype" {
@@ -303,8 +297,12 @@ fn append_layout_surface_sections(
     node: &mei_lang_kernel::BuildNodeId,
 ) {
     md.push_str("### 布局工作区提示\n\n");
-    md.push_str("- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 theme.layout。\n");
-    md.push_str("- session draft：`theme.layout.session`；确认后 `POST /api/ops/themes/layout/apply`。\n");
+    md.push_str(
+        "- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 theme.layout。\n",
+    );
+    md.push_str(
+        "- session draft：`theme.layout.session`；确认后 `POST /api/ops/themes/layout/apply`。\n",
+    );
     if let Some(manifest) = (!compiled.ui_layout_index.nodes.is_empty()).then(|| {
         compiled
             .ui_layout_index

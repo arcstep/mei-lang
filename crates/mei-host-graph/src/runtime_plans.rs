@@ -38,7 +38,10 @@ pub struct RuntimePlansDocument {
     pub layout_budget_manifest: Option<LayoutBudgetManifest>,
 }
 
-pub fn runtime_plans_cache_key(semantic_core: &SemanticCacheCore, layout_policy_revision: &str) -> String {
+pub fn runtime_plans_cache_key(
+    semantic_core: &SemanticCacheCore,
+    layout_policy_revision: &str,
+) -> String {
     json!({
         "artifact": RUNTIME_PLANS_KIND,
         "semantic_core": semantic_core,
@@ -121,7 +124,10 @@ pub fn build_runtime_plans_document(
     Ok(runtime_plans_from_outcome(&outcome, workspace_root))
 }
 
-pub fn persist_runtime_plans(app_root: &Path, document: &RuntimePlansDocument) -> Result<PayloadRef> {
+pub fn persist_runtime_plans(
+    app_root: &Path,
+    document: &RuntimePlansDocument,
+) -> Result<PayloadRef> {
     let bytes = serde_json::to_vec(document)?;
     let put = put_if_absent(app_root, RUNTIME_PLANS_KIND, &bytes)?;
     Ok(PayloadRef::new(
@@ -140,7 +146,11 @@ pub fn ensure_runtime_plans_cached(
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         let doc: RuntimePlansDocument = serde_json::from_slice(bytes.as_slice())?;
         let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
-        let pref = PayloadRef::new(RUNTIME_PLANS_KIND, content_hash.as_str(), RUNTIME_PLANS_SCHEMA);
+        let pref = PayloadRef::new(
+            RUNTIME_PLANS_KIND,
+            content_hash.as_str(),
+            RUNTIME_PLANS_SCHEMA,
+        );
         return Ok((doc, pref, true));
     }
     let document = build_runtime_plans_document(

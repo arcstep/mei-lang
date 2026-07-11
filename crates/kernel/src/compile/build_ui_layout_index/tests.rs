@@ -1,6 +1,6 @@
 use crate::{
     build_ui_layout_index, BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, CompiledSceneRoute,
-    LayoutDecl, UiNodeDecl, SceneContract, SceneDecl, UiTreeNode, UiScopeRole,
+    LayoutDecl, SceneContract, SceneDecl, UiNodeDecl, UiScopeRole, UiTreeNode,
 };
 use serde_json::json;
 
@@ -30,23 +30,21 @@ fn sample_left_rail_panel() -> UiNodeDecl {
             align: None,
             justify: None,
         }),
-        blocks: vec![
-            UiTreeNode::Panel(UiNodeDecl {
-                kind: "panel".to_string(),
-                id: "enforcement".to_string(),
-                title: Some("执法要素".to_string()),
-                head: None,
-                area: Some("enforcement".to_string()),
-                layout: None,
-                blocks: vec![UiTreeNode::Panel(compound_micro_panel())],
-                slot: None,
-                props: json!({}),
-                head_props: json!({}),
-                body_props: json!({}),
-                base: None,
-                import_scope: None,
-            }),
-        ],
+        blocks: vec![UiTreeNode::Panel(UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "enforcement".to_string(),
+            title: Some("执法要素".to_string()),
+            head: None,
+            area: Some("enforcement".to_string()),
+            layout: None,
+            blocks: vec![UiTreeNode::Panel(compound_micro_panel())],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        })],
         slot: None,
         props: json!({"__mei_tier": "t1", "__mei_chrome_role": "rail"}),
         head_props: json!({}),
@@ -210,7 +208,9 @@ fn ui_layout_index_builds_section_slotted_layout_and_slots() {
         "home/T1/left_rail/enforcement/metric_triptych_compound_body",
     )
     .encode();
-    let layout = index.lookup_by_encoded(&layout_id).expect("slotted layout node");
+    let layout = index
+        .lookup_by_encoded(&layout_id)
+        .expect("slotted layout node");
     assert_eq!(layout.role, UiScopeRole::Slot);
 
     let compound_slot_id = BuildNodeId::ui_scope(
@@ -376,16 +376,22 @@ fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
         "compound body should exist: {scopes:?}"
     );
     assert!(
-        scopes.iter().any(|scope| scope.contains("enforcement_objects_top")),
+        scopes
+            .iter()
+            .any(|scope| scope.contains("enforcement_objects_top")),
         "compound shell should export top metric card scope, got: {scopes:?}"
     );
     assert!(
-        scopes.iter().any(|scope| scope.contains("enforcement_objects_b0")),
+        scopes
+            .iter()
+            .any(|scope| scope.contains("enforcement_objects_b0")),
         "compound shell should export sub metric cards, got: {scopes:?}"
     );
-    let compound_content = result.index.nodes.values().find(|node| {
-        node.content_kind.as_deref() == Some("compound-metric")
-    });
+    let compound_content = result
+        .index
+        .nodes
+        .values()
+        .find(|node| node.content_kind.as_deref() == Some("compound-metric"));
     assert!(
         compound_content.is_some(),
         "compound body should surface compound-metric content kind"
@@ -540,16 +546,8 @@ fn wide_metric_compound_body_panel() -> UiNodeDecl {
             ]),
             rows: Some(vec!["44%".to_string(), "1fr".to_string()]),
             areas: Some(vec![
-                vec![
-                    "top".to_string(),
-                    "top".to_string(),
-                    "top".to_string(),
-                ],
-                vec![
-                    "b0".to_string(),
-                    "b1".to_string(),
-                    "b2".to_string(),
-                ],
+                vec!["top".to_string(), "top".to_string(), "top".to_string()],
+                vec!["b0".to_string(), "b1".to_string(), "b2".to_string()],
             ]),
             gap: Some("2px".to_string()),
             padding: None,
@@ -1013,7 +1011,12 @@ fn ui_scope_for_block_matches_instance_id_stem() {
             node_id: content_id,
             role: UiScopeRole::Content,
             label: "Stats".to_string(),
-            scope_path: vec!["home".into(), "T1".into(), "left_rail".into(), "stats".into()],
+            scope_path: vec![
+                "home".into(),
+                "T1".into(),
+                "left_rail".into(),
+                "stats".into(),
+            ],
             plane: Some("T1".to_string()),
             parent_id: None,
             children: vec![],
@@ -1051,7 +1054,10 @@ fn ui_scope_for_block_matches_instance_id_stem() {
         },
     };
     let hit = ui_scope_for_block(&compiled, "home", "left_rail/body", "stats~0");
-    assert!(hit.is_some(), "instance block id should match walker preview_scope stem");
+    assert!(
+        hit.is_some(),
+        "instance block id should match walker preview_scope stem"
+    );
     assert_eq!(hit.unwrap().preview_scope, "left_rail/body/stats");
 }
 
@@ -1067,14 +1073,11 @@ fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
             UiScopeRole::Content,
             "content",
         ),
-        (
-            "left_rail/left_top",
-            UiScopeRole::Section,
-            "section",
-        ),
+        ("left_rail/left_top", UiScopeRole::Section, "section"),
         ("map_stage", UiScopeRole::Region, "region"),
     ] {
-        let node_id = BuildNodeId::ui_scope("home", &format!("home/T1/left_rail/{node_key}")).encode();
+        let node_id =
+            BuildNodeId::ui_scope("home", &format!("home/T1/left_rail/{node_key}")).encode();
         nodes.insert(
             node_id.clone(),
             UiScopeNode {
@@ -1157,9 +1160,11 @@ fn ui_scope_annotation_distinguishes_metric_cards_by_panel_area() {
             "second",
         ),
     ] {
-        let node_id =
-            BuildNodeId::ui_scope("home", &format!("home/T1/right_rail/warning/{slot}/metric_card"))
-                .encode();
+        let node_id = BuildNodeId::ui_scope(
+            "home",
+            &format!("home/T1/right_rail/warning/{slot}/metric_card"),
+        )
+        .encode();
         nodes.insert(
             node_id.clone(),
             UiScopeNode {
@@ -1288,8 +1293,7 @@ fn ui_scope_annotation_section_does_not_tag_deep_content_panels() {
         Some("first"),
     );
     assert!(
-        deep.is_none()
-            || deep.as_ref().is_some_and(|hit| hit.role != "section"),
+        deep.is_none() || deep.as_ref().is_some_and(|hit| hit.role != "section"),
         "deep content panel should not inherit section annotation"
     );
 }
@@ -1395,11 +1399,7 @@ fn ui_scope_annotation_tags_inspection_micro_layout_slots() {
 
     let mut nodes = std::collections::BTreeMap::new();
     for (scope, label, role) in [
-        (
-            "left_rail/inspection",
-            "行政检查",
-            UiScopeRole::Section,
-        ),
+        ("left_rail/inspection", "行政检查", UiScopeRole::Section),
         (
             "left_rail/inspection/inspection_counts_layout",
             "inspection_counts_layout",
@@ -1548,7 +1548,11 @@ fn status_flow_panel() -> UiNodeDecl {
             UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "pending", "待办")),
             UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "doing", "在办")),
             UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "done", "已办")),
-            UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "summary", "查实率")),
+            UiTreeNode::Panel(metric_card_panel_fixture(
+                "metric_card",
+                "summary",
+                "查实率",
+            )),
         ],
         slot: None,
         props: json!({}),
@@ -1570,7 +1574,11 @@ fn summary_stack_panel() -> UiNodeDecl {
             layout_type: "grid".to_string(),
             direction: None,
             columns: Some(vec!["1fr".to_string()]),
-            rows: Some(vec!["50px".to_string(), "32px".to_string(), "32px".to_string()]),
+            rows: Some(vec![
+                "50px".to_string(),
+                "32px".to_string(),
+                "32px".to_string(),
+            ]),
             areas: Some(vec![
                 vec!["primary".to_string()],
                 vec!["secondary_a".to_string()],
@@ -1720,9 +1728,11 @@ fn compiled_with_panels(panels: Vec<UiNodeDecl>) -> CompiledApp {
 
 #[test]
 fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
-    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![
-        section_panel("issue", "问题办理", status_flow_panel()),
-    ])]);
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![section_panel(
+        "issue",
+        "问题办理",
+        status_flow_panel(),
+    )])]);
     let result = build_ui_layout_index(&compiled);
     assert!(
         result.duplicate_node_ids.is_empty(),
@@ -1732,10 +1742,18 @@ fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
     let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/issue").encode();
     let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
         .expect("issue section in tree");
-    assert_eq!(section_tree.children.len(), 1, "issue section should have one group");
+    assert_eq!(
+        section_tree.children.len(),
+        1,
+        "issue section should have one group"
+    );
     let group = &section_tree.children[0];
     assert_eq!(group.label, "办理状态");
-    assert_eq!(group.children.len(), 4, "status-flow group should expose four cards");
+    assert_eq!(
+        group.children.len(),
+        4,
+        "status-flow group should expose four cards"
+    );
     let group_scope = "t1/left_rail/issue/issue_status_flow";
     let group_node = result
         .index
@@ -1761,9 +1779,11 @@ fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
 
 #[test]
 fn ui_layout_index_metric_summary_group_labels_penalty_stats() {
-    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![
-        section_panel("penalty", "行政处罚", summary_stack_panel()),
-    ])]);
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![section_panel(
+        "penalty",
+        "行政处罚",
+        summary_stack_panel(),
+    )])]);
     let result = build_ui_layout_index(&compiled);
     assert!(result.duplicate_node_ids.is_empty());
     let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode();
@@ -1838,8 +1858,8 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
     }])]);
     let result = build_ui_layout_index(&compiled);
     let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode();
-    let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
-        .expect("penalty section");
+    let section_tree =
+        find_tree_node(&result.tree_root.children, &section_tree_id).expect("penalty section");
     let labels: Vec<_> = section_tree
         .children
         .iter()
@@ -1968,7 +1988,11 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
             layout_type: "grid".to_string(),
             direction: None,
             columns: None,
-            rows: Some(vec!["1fr".to_string(), "1fr".to_string(), "1fr".to_string()]),
+            rows: Some(vec![
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+            ]),
             areas: Some(vec![
                 vec!["indicator_system".to_string()],
                 vec!["map_viewport".to_string()],
@@ -2137,7 +2161,8 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
         .expect("synthetic default section");
     assert_eq!(section.role, UiScopeRole::Section);
     assert_eq!(section.preview_scope, "t1/stats_rail/_default");
-    let section_tree = find_tree_node(&result.tree_root.children, &section_id).expect("section tree");
+    let section_tree =
+        find_tree_node(&result.tree_root.children, &section_id).expect("section tree");
     assert!(
         !section_tree.children.is_empty(),
         "default section should expose slot/content children"
@@ -2192,7 +2217,7 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         base: None,
         import_scope: None,
     };
-    let mut region = UiNodeDecl {
+    let region = UiNodeDecl {
         kind: "panel".to_string(),
         id: "left_rail".to_string(),
         title: None,
@@ -2301,7 +2326,11 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         ui_layout_index: Default::default(),
     };
     let ui = build_ui_layout_index(&compiled);
-    let section_node = ui.index.nodes.values().find(|n| n.preview_scope.contains("enforcement"));
+    let section_node = ui
+        .index
+        .nodes
+        .values()
+        .find(|n| n.preview_scope.contains("enforcement"));
     assert!(
         section_node
             .and_then(|n| n.budget.as_ref())
@@ -2321,7 +2350,11 @@ fn supervision_stats_triptych_panel() -> UiNodeDecl {
         layout: Some(LayoutDecl {
             layout_type: "grid".to_string(),
             direction: None,
-            columns: Some(vec!["1fr".to_string(), "1fr".to_string(), "1fr".to_string()]),
+            columns: Some(vec![
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+            ]),
             rows: Some(vec!["1fr".to_string()]),
             areas: Some(vec![vec![
                 "items".to_string(),
@@ -2334,9 +2367,18 @@ fn supervision_stats_triptych_panel() -> UiNodeDecl {
             justify: Some("stretch".to_string()),
         }),
         blocks: vec![
-            UiTreeNode::Panel(triptych_metric_card_panel("supervision_items_card", "items")),
-            UiTreeNode::Panel(triptych_metric_card_panel("supervision_models_card", "models")),
-            UiTreeNode::Panel(triptych_metric_card_panel("warnings_count_card", "warnings")),
+            UiTreeNode::Panel(triptych_metric_card_panel(
+                "supervision_items_card",
+                "items",
+            )),
+            UiTreeNode::Panel(triptych_metric_card_panel(
+                "supervision_models_card",
+                "models",
+            )),
+            UiTreeNode::Panel(triptych_metric_card_panel(
+                "warnings_count_card",
+                "warnings",
+            )),
         ],
         slot: None,
         props: json!({
@@ -2493,18 +2535,11 @@ fn content_panel_triptych_projects_grid_manifest_and_slotted_layout_slots() {
     );
     assert_eq!(
         region_entry.grid_template_areas.as_deref(),
-        Some("'warning' '_' '_' '_'")
+        Some("'warning' '.' '.' '.'")
     );
     assert_eq!(
         region_entry.slot_areas.as_deref(),
-        Some(
-            &[
-                "warning".to_string(),
-                "_".to_string(),
-                "_".to_string(),
-                "_".to_string()
-            ][..]
-        )
+        Some(&["warning".to_string()][..])
     );
 
     let section_entry = manifest
@@ -2528,7 +2563,13 @@ fn content_panel_triptych_projects_grid_manifest_and_slotted_layout_slots() {
     assert_eq!(micro_entry.gap.as_deref(), Some("2px"));
     assert_eq!(
         micro_entry.slot_areas.as_deref(),
-        Some(&["items".to_string(), "models".to_string(), "warnings".to_string()][..])
+        Some(
+            &[
+                "items".to_string(),
+                "models".to_string(),
+                "warnings".to_string()
+            ][..]
+        )
     );
 
     let leaked = ui

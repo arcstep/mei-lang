@@ -87,7 +87,11 @@ pub async fn app_bundle(
         return merged_styles_response(&assets_root, &headers);
     }
     let Some(scripts) = app_bundle_scripts(&mode) else {
-        return (StatusCode::NOT_FOUND, format!("unsupported app bundle mode: {mode}")).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            format!("unsupported app bundle mode: {mode}"),
+        )
+            .into_response();
     };
     merged_scripts_response(&assets_root, scripts, &headers)
 }
@@ -113,13 +117,8 @@ pub async fn workspace_app_asset(
     } else {
         PRIVATE_REVALIDATE_CACHE_CONTROL
     };
-    serve_static_asset_with_cache(
-        asset_root,
-        "workspace app asset",
-        &headers,
-        cache_control,
-    )
-    .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
+    serve_static_asset_with_cache(asset_root, "workspace app asset", &headers, cache_control)
+        .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
 }
 
 pub async fn component_asset(
@@ -193,11 +192,7 @@ fn merged_styles_response(assets_root: &Path, headers: &HeaderMap) -> Response {
     response
 }
 
-fn merged_scripts_response(
-    assets_root: &Path,
-    scripts: &[&str],
-    headers: &HeaderMap,
-) -> Response {
+fn merged_scripts_response(assets_root: &Path, scripts: &[&str], headers: &HeaderMap) -> Response {
     let mut merged = String::new();
     merged.push_str("// Runtime merged bundle served by mei-host-shell.\n");
     for script in scripts {

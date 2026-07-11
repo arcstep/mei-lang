@@ -99,14 +99,22 @@ impl CoverageState {
             .cloned()
     }
 
-    pub(crate) fn store_metric_response_exact(&self, key: &str, artifact: &LoadedMetricResponseArtifact) {
+    pub(crate) fn store_metric_response_exact(
+        &self,
+        key: &str,
+        artifact: &LoadedMetricResponseArtifact,
+    ) {
         self.metric_response_exact
             .lock()
             .expect("lock prebuild response exact cache")
             .insert(key.to_string(), artifact.clone());
     }
 
-    pub(crate) fn store_metric_response_shared(&self, key: &str, artifact: &LoadedMetricResponseArtifact) {
+    pub(crate) fn store_metric_response_shared(
+        &self,
+        key: &str,
+        artifact: &LoadedMetricResponseArtifact,
+    ) {
         self.metric_response_shared
             .lock()
             .expect("lock prebuild response shared cache")
@@ -166,10 +174,9 @@ impl CoverageState {
 
     pub(crate) fn active_mcg_bundle_revisions(&self) -> BTreeMap<String, String> {
         let mut revisions = self.pre_mcg_bundle_revisions.clone();
-        if let (Some(source_root), Some(app_id)) = (
-            self.source_root.as_deref(),
-            self.app_id.as_deref(),
-        ) {
+        if let (Some(source_root), Some(app_id)) =
+            (self.source_root.as_deref(), self.app_id.as_deref())
+        {
             revisions.extend(crate::graph::load_mcg_bundle_revisions(source_root, app_id));
         }
         revisions

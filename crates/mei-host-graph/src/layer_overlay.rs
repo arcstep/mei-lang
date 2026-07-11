@@ -96,7 +96,10 @@ pub fn persist_theme_tokens(app_root: &Path, document: &ThemeTokensDocument) -> 
     ))
 }
 
-pub fn persist_layout_overlay(app_root: &Path, document: &LayoutOverlayDocument) -> Result<PayloadRef> {
+pub fn persist_layout_overlay(
+    app_root: &Path,
+    document: &LayoutOverlayDocument,
+) -> Result<PayloadRef> {
     let bytes = serde_json::to_vec(document)?;
     let put = put_if_absent(app_root, LAYOUT_OVERLAY_KIND, &bytes)?;
     Ok(PayloadRef::new(

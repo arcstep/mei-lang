@@ -5,13 +5,13 @@ use std::collections::BTreeMap;
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_access_href, app_scene_href, cross_app_href, home_href, host_config_href, host_runtime_href,
-    host_upload_href, layout_href, mcg_href, prototype_href,
+    app_access_href, app_scene_href, cross_app_href, home_href, host_config_href,
+    host_runtime_href, host_upload_href, layout_href, mcg_href, prototype_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
-use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
 use super::scene_routing::*;
+use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellNavActive {
@@ -268,23 +268,23 @@ pub(crate) fn topbar_view(
             }
         };
         view! {
-        <div class="mode-tabs inline-flex shrink-0 items-center">
-            <sl-button-group class="mode-tab-group" label="应用视图" data-mei-app-view-tabs="1">
-                {surface_tab(AppViewTab::App, "应用", app_href.clone())}
-                {surface_tab(
-                    AppViewTab::Layout,
-                    "布局",
-                    layout_href(active_app_path, None, None),
-                )}
-                {surface_tab(
-                    AppViewTab::Prototype,
-                    "原型",
-                    prototype_href(active_app_path, None, None),
-                )}
-            </sl-button-group>
-        </div>
-    }
-    .into_any()
+            <div class="mode-tabs inline-flex shrink-0 items-center">
+                <sl-button-group class="mode-tab-group" label="应用视图" data-mei-app-view-tabs="1">
+                    {surface_tab(AppViewTab::App, "应用", app_href.clone())}
+                    {surface_tab(
+                        AppViewTab::Layout,
+                        "布局",
+                        layout_href(active_app_path, None, None),
+                    )}
+                    {surface_tab(
+                        AppViewTab::Prototype,
+                        "原型",
+                        prototype_href(active_app_path, None, None),
+                    )}
+                </sl-button-group>
+            </div>
+        }
+        .into_any()
     };
     let launch_title = if access_disabled {
         "当前没有可独立打开的 scene route".to_string()
@@ -432,8 +432,12 @@ fn menu_item_is_active(
     if item.app_id.as_str() != active_app_path {
         return false;
     }
-    let cat = active_catalog.map(str::trim).filter(|value| !value.is_empty());
-    let pack = active_stock_pack.map(str::trim).filter(|value| !value.is_empty());
+    let cat = active_catalog
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let pack = active_stock_pack
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     match (item.catalog.as_deref(), item.pack.as_deref()) {
         (None, None) => cat.is_none() && pack.is_none(),
         (Some(item_cat), None) => cat.unwrap_or("components") == item_cat && pack.is_none(),

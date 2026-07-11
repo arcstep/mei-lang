@@ -16,8 +16,7 @@ mod style;
 mod theme;
 pub use theme::{
     default_shell_body_theme_style, page_body_theme_style, scene_theme_style_for_theme_id,
-    scene_viewport_theme_style,
-    shell_body_theme_style,
+    scene_viewport_theme_style, shell_body_theme_style,
 };
 mod viewport;
 mod world_capsule;
@@ -108,14 +107,13 @@ pub fn build_preview_runtime_context(
     let host_ssr_slim_payload = match (data_mode.as_deref(), route_mode) {
         (Some("static"), UiRouteMode::Prototype) => false,
         (Some("static"), _) => true,
-        (_, UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout) => true,
+        (_, UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout) => {
+            true
+        }
         _ => false,
     };
     let omit_beyond_projection_depth = surface_preview_policy.omits_beyond_projection_depth();
-    let structure_workspace = matches!(
-        route_mode,
-        UiRouteMode::Layout | UiRouteMode::Prototype
-    );
+    let structure_workspace = matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Prototype);
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
         resources: build_runtime_resource_map(compiled),

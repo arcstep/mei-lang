@@ -170,7 +170,11 @@ pub struct ServeArgs {
     #[arg(long)]
     pub auth: bool,
     /// 进程级数据能力上限：eval（默认）| fixture | static
-    #[arg(long = "data-mode-ceiling", value_name = "MODE", default_value = "eval")]
+    #[arg(
+        long = "data-mode-ceiling",
+        value_name = "MODE",
+        default_value = "eval"
+    )]
     pub data_mode_ceiling: String,
 }
 

@@ -6,8 +6,8 @@ mod query;
 mod scene;
 
 pub use page::app_page;
-pub use query::AppQuery;
 pub(crate) use page_cache::clear_page_render_cache;
+pub use query::AppQuery;
 
 use std::path::Path;
 

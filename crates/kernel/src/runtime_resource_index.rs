@@ -409,7 +409,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
-        ui_layout_index: Default::default(),
+            ui_layout_index: Default::default(),
         }
     }
 

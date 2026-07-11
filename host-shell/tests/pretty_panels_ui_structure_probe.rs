@@ -1,10 +1,10 @@
-use std::path::PathBuf;
-use std::sync::Once;
 use mei_host_core::HostContext;
 use mei_host_graph::{
     assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
 };
 use mei_lang_kernel::build_ui_layout_index;
+use std::path::PathBuf;
+use std::sync::Once;
 
 static INIT: Once = Once::new();
 
@@ -18,15 +18,25 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_imported() -> PathBuf {
     let workspace = ws_demo_v2();
     INIT.call_once(|| {
-        let bundle = workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
+        let bundle =
+            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
         let ctx = HostContext::new(workspace.clone(), "pretty-panels");
-        import_bundle(&ctx, &ImportOptions { bundle_path: Some(bundle) }).expect("import");
+        import_bundle(
+            &ctx,
+            &ImportOptions {
+                bundle_path: Some(bundle),
+            },
+        )
+        .expect("import");
         clear_assemble_cache_for_app("pretty-panels");
     });
     workspace
 }
 
-fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::UiNodeDecl], id: &str) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
+fn find_panel_by_id<'a>(
+    panels: &'a [mei_lang_kernel::UiNodeDecl],
+    id: &str,
+) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
     for panel in panels {
         if panel.id == id || panel.id.ends_with(&format!("/{id}")) {
             return Some(panel);
@@ -44,13 +54,18 @@ fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::UiNodeDecl], id: &str) -> 
 
 #[test]
 fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
-    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
-        .expect("assemble")
-        .expect("home");
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+            .expect("assemble")
+            .expect("home");
     let contract = outcome.compiled.scene_contract.as_ref().unwrap();
-    let map_stage = find_panel_by_id(&contract.panels, "map_stage").expect("map_stage region panel");
+    let map_stage =
+        find_panel_by_id(&contract.panels, "map_stage").expect("map_stage region panel");
     assert_eq!(
-        map_stage.props.get("__mei_view_family").and_then(|v| v.as_str()),
+        map_stage
+            .props
+            .get("__mei_view_family")
+            .and_then(|v| v.as_str()),
         Some("map"),
         "map_stage props: {:?}",
         map_stage.props
@@ -67,7 +82,8 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         "map_stage should nest map.maplibre block, blocks={}",
         map_stage.blocks.len()
     );
-    let center_rail = find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region");
+    let center_rail =
+        find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region");
     let map_viewport_section = center_rail
         .blocks
         .iter()
@@ -101,9 +117,8 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
                 child.props.get("__mei_ui_role").and_then(|v| v.as_str()) == Some("content")
                     || panel_has_content_role_child(child)
             }
-            mei_lang_kernel::UiTreeNode::Block(_) | mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => {
-                false
-            }
+            mei_lang_kernel::UiTreeNode::Block(_)
+            | mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => false,
         })
     }
     assert!(
@@ -116,7 +131,9 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
             Some("section") | Some("stage")
         )
     }
-    fn find_section_role_panel(panel: &mei_lang_kernel::UiNodeDecl) -> Option<&mei_lang_kernel::UiNodeDecl> {
+    fn find_section_role_panel(
+        panel: &mei_lang_kernel::UiNodeDecl,
+    ) -> Option<&mei_lang_kernel::UiNodeDecl> {
         if panel_has_section_role(panel) {
             return Some(panel);
         }
@@ -125,22 +142,23 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
             _ => None,
         })
     }
-    let section = find_section_role_panel(map_stage).expect("map_stage should nest a section/stage panel");
-    assert!(panel_has_section_role(section), "map section props: {:?}", section.props);
+    let section =
+        find_section_role_panel(map_stage).expect("map_stage should nest a section/stage panel");
+    assert!(
+        panel_has_section_role(section),
+        "map section props: {:?}",
+        section.props
+    );
 }
 
 #[test]
 fn pretty_panels_ui_structure_includes_header_section() {
-    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
-        .expect("assemble")
-        .expect("home");
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+            .expect("assemble")
+            .expect("home");
     let header = find_panel_by_id(
-        &outcome
-            .compiled
-            .scene_contract
-            .as_ref()
-            .unwrap()
-            .panels,
+        &outcome.compiled.scene_contract.as_ref().unwrap().panels,
         "home_header",
     )
     .expect("home_header region panel");
@@ -169,9 +187,10 @@ fn pretty_panels_ui_structure_includes_header_section() {
 
 #[test]
 fn pretty_panels_ui_structure_includes_left_rail_sections() {
-    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
-        .expect("assemble")
-        .expect("home");
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+            .expect("assemble")
+            .expect("home");
     let left_rail = find_panel_by_id(
         &outcome.compiled.scene_contract.as_ref().unwrap().panels,
         "left_rail",
@@ -180,7 +199,12 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
     eprintln!("left_rail blocks: {}", left_rail.blocks.len());
     for b in &left_rail.blocks {
         if let mei_lang_kernel::UiTreeNode::Panel(p) = b {
-            eprintln!("  section panel id={} title={:?} blocks={}", p.id, p.title, p.blocks.len());
+            eprintln!(
+                "  section panel id={} title={:?} blocks={}",
+                p.id,
+                p.title,
+                p.blocks.len()
+            );
         }
     }
     let ui = build_ui_layout_index(&outcome.compiled);
@@ -208,9 +232,10 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
 
 #[test]
 fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
-    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
-        .expect("assemble")
-        .expect("home");
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+            .expect("assemble")
+            .expect("home");
     let ui = build_ui_layout_index(&outcome.compiled);
     let penalty_scopes: Vec<_> = ui
         .index
@@ -220,14 +245,7 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
             node.preview_scope.contains("left_rail/penalty")
                 || node.preview_scope.contains("t1/left_rail/penalty")
         })
-        .map(|node| {
-            format!(
-                "{} {:?} {}",
-                node.preview_scope,
-                node.role,
-                node.label
-            )
-        })
+        .map(|node| format!("{} {:?} {}", node.preview_scope, node.role, node.label))
         .collect();
     eprintln!("penalty ui scopes:\n{}", penalty_scopes.join("\n"));
     assert!(
@@ -241,7 +259,10 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
         ui.index.nodes.values().any(|node| {
             node.preview_scope.contains("left_rail/penalty")
                 && node.role == mei_lang_kernel::UiScopeRole::Content
-                && (node.label.contains("罚没") || node.label.contains("分组柱图") || node.label.contains("排名图") || node.label.contains("高频"))
+                && (node.label.contains("罚没")
+                    || node.label.contains("分组柱图")
+                    || node.label.contains("排名图")
+                    || node.label.contains("高频"))
         }),
         "penalty contract-level charts should surface in ui index"
     );
@@ -249,9 +270,10 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
 
 #[test]
 fn pretty_panels_assemble_accepts_legacy_assembly_scene_id() {
-    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "assembly")
-        .expect("assemble")
-        .expect("home via assembly alias");
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "assembly")
+            .expect("assemble")
+            .expect("home via assembly alias");
     assert_eq!(
         outcome.compiled.active_scene.as_deref(),
         Some("home"),

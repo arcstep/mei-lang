@@ -376,6 +376,10 @@ pub struct OpsConfig {
     /// Defaults to true (Phase 3 layout purge).
     #[serde(default = "default_strict_fill_down", rename = "strictFillDown")]
     pub strict_fill_down: bool,
+    /// T2 pages remain under Fill-down by default. Content-driven T2 pages must
+    /// opt out explicitly with `ops.fillDown = false`.
+    #[serde(default = "default_fill_down", rename = "fillDown")]
+    pub fill_down: bool,
 }
 
 impl Default for OpsConfig {
@@ -386,11 +390,16 @@ impl Default for OpsConfig {
             basemaps: BTreeMap::new(),
             params: BTreeMap::new(),
             strict_fill_down: true,
+            fill_down: true,
         }
     }
 }
 
 fn default_strict_fill_down() -> bool {
+    true
+}
+
+fn default_fill_down() -> bool {
     true
 }
 
@@ -471,5 +480,21 @@ impl MeiConfig {
         if bootstrap.neighbor_hops == 0 {
             bootstrap.neighbor_hops = 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MeiConfig;
+
+    #[test]
+    fn fill_down_defaults_strict_and_allows_explicit_t2_opt_out() {
+        let default_config: MeiConfig =
+            serde_json::from_str(r#"{"schemaVersion":1}"#).expect("default config");
+        assert!(default_config.ops.fill_down);
+
+        let opted_out: MeiConfig =
+            serde_json::from_str(r#"{"ops":{"fillDown":false}}"#).expect("opt-out config");
+        assert!(!opted_out.ops.fill_down);
     }
 }

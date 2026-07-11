@@ -56,4 +56,3 @@ fn compile_report_revision_matches_cached_outcome() {
     assert!(second.cache_hit);
     assert_eq!(report.revision_token, second.revision_token);
 }
-

@@ -47,12 +47,11 @@ pub(crate) fn materialize_metric_response_sibling_aliases(
         );
         let mut alias_keys = Vec::new();
         let mut seen_alias_keys = BTreeSet::new();
-        let mut push_alias_key =
-            |scene_path: Option<&str>, response_cache_key: String| {
-                if seen_alias_keys.insert(response_cache_key.clone()) {
-                    alias_keys.push((scene_path.map(str::to_string), response_cache_key));
-                }
-            };
+        let mut push_alias_key = |scene_path: Option<&str>, response_cache_key: String| {
+            if seen_alias_keys.insert(response_cache_key.clone()) {
+                alias_keys.push((scene_path.map(str::to_string), response_cache_key));
+            }
+        };
         push_alias_key(
             scene_path.as_deref(),
             metric_response_cache_scope_key(
@@ -279,4 +278,3 @@ pub(crate) fn materialize_metric_response_alias_parts(
         complete,
     )
 }
-

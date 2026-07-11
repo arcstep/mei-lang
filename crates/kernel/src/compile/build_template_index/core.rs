@@ -1,4 +1,7 @@
-use super::{agent_hint_for, categorize_template_key, collect_panel_template_usage, collect_panel_use_keys, default_props_schema, related_variant_keys};
+use super::{
+    agent_hint_for, categorize_template_key, collect_panel_template_usage, collect_panel_use_keys,
+    default_props_schema, related_variant_keys,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -8,8 +11,8 @@ use walkdir::WalkDir;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::mei_config::{resolve_templates_root, stock_path_excluded, StockCatalogKind};
 use crate::model::{
-    BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset,
-    ExperienceNodeManifest, SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor,
+    BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset, ExperienceNodeManifest,
+    SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
 use crate::workspace::load_component_assets;
 
@@ -119,14 +122,16 @@ pub fn build_template_index(
             .or_default()
             .push(ReachabilityTreeNode {
                 id: format!("component-{}", entry.template_key),
-                node_id: if crate::compile::build_experience::is_template_file_node_key(entry.template_key.as_str())
-                {
+                node_id: if crate::compile::build_experience::is_template_file_node_key(
+                    entry.template_key.as_str(),
+                ) {
                     BuildNodeId::template(entry.template_key.as_str()).encode()
                 } else {
                     BuildNodeId::component(entry.template_key.as_str()).encode()
                 },
-                kind: if crate::compile::build_experience::is_template_file_node_key(entry.template_key.as_str())
-                {
+                kind: if crate::compile::build_experience::is_template_file_node_key(
+                    entry.template_key.as_str(),
+                ) {
                     "template_file".to_string()
                 } else {
                     "component".to_string()
@@ -276,7 +281,10 @@ pub fn preview_target_for_template_consumer(
     template_key: &str,
 ) -> Option<String> {
     let anchor = template_primary_consumer(compiled, template_key)?;
-    crate::compile::build_experience::preview_target_for_scene_id(compiled, anchor.scene_id.as_str())
+    crate::compile::build_experience::preview_target_for_scene_id(
+        compiled,
+        anchor.scene_id.as_str(),
+    )
 }
 
 pub fn preview_scene_id_for_template_consumer(
@@ -285,4 +293,3 @@ pub fn preview_scene_id_for_template_consumer(
 ) -> Option<String> {
     template_primary_consumer(compiled, template_key).map(|anchor| anchor.scene_id.clone())
 }
-

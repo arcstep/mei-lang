@@ -124,5 +124,4 @@ pub(crate) fn maybe_load_compiled_app_artifact(
         }
     }
     None
-
 }

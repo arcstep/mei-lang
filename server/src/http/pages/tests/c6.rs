@@ -315,4 +315,3 @@ async fn dataset_query_api_echoes_scene_id() {
     assert_eq!(v["scene_id"], "home");
     assert_eq!(v["dataset_id"], "sales_data");
 }
-

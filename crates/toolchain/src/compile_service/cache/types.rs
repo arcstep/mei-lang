@@ -3,9 +3,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow;
-use mei_lang_kernel::{
-    AnalysisGraph, CompileWatchedFile, CompiledApp,
-};
+use mei_lang_kernel::{AnalysisGraph, CompileWatchedFile, CompiledApp};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

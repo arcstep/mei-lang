@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 
 use crate::graph::content_store::{self, CONTENT_PANEL};
 use crate::graph::feature::graph_registry_enabled;
-use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mcg::content_panel::ContentPanelRecord;
+use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::AppState;
 
 use super::panel_lookup::find_content_panel_node;
@@ -130,7 +130,11 @@ fn resolve_lookup_key(query: &ContentPanelQuery, scene_id: &str) -> Option<Strin
     {
         return Some(panel_key.to_string());
     }
-    let panel_id = query.panel_id.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    let panel_id = query
+        .panel_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
     panel_id.map(|panel_id| format!("{scene_id}:{panel_id}"))
 }
 

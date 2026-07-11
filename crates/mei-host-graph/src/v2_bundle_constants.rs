@@ -173,10 +173,7 @@ pub fn resolve_v2_constants(value: &Value, constants: &BTreeMap<String, Value>) 
             }
         }
         if map.contains_key("__binop") {
-            let op = map
-                .get("__binop")
-                .and_then(Value::as_str)
-                .unwrap_or("Add");
+            let op = map.get("__binop").and_then(Value::as_str).unwrap_or("Add");
             let left = map.get("left").cloned().unwrap_or(Value::Null);
             let right = map.get("right").cloned().unwrap_or(Value::Null);
             return resolve_v2_binop(op, &left, &right, constants);

@@ -1,7 +1,6 @@
 use super::prelude::*;
 use super::*;
 
-
 pub(crate) fn ensure_compiled_app_artifact_alias(
     source_root: &Path,
     app_id: &str,
@@ -67,7 +66,10 @@ pub(crate) fn compiled_app_artifact_lookup_scopes(
                 if target.is_empty() {
                     continue;
                 }
-                if preview_target.as_deref().is_some_and(|requested| requested != target) {
+                if preview_target
+                    .as_deref()
+                    .is_some_and(|requested| requested != target)
+                {
                     continue;
                 }
                 push_scope(WorldScope {

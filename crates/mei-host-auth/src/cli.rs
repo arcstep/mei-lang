@@ -107,25 +107,25 @@ pub fn run_auth_command(args: AuthArgs) -> Result<()> {
 
 pub fn run_legacy_auth_command(args: LegacyAuthArgs) -> Result<()> {
     match args.command {
-        LegacyAuthCommand::EnsureKeys(args) => {
-            auth_ensure_keys_command(AuthEnsureKeysArgs {
+        LegacyAuthCommand::EnsureKeys(args) => auth_ensure_keys_command(AuthEnsureKeysArgs {
+            workspace: args.source_root,
+            json: args.json,
+        }),
+        LegacyAuthCommand::BootstrapUsers(args) => {
+            auth_bootstrap_users_command(AuthBootstrapUsersArgs {
                 workspace: args.source_root,
+                super_username: args.super_username,
+                super_profile: args.super_profile,
+                admin_username: args.admin_username,
+                admin_profile: args.admin_profile,
+                guest_username: args.guest_username,
+                guest_profile: args.guest_profile,
+                guest_app_allow: args.guest_app_allow,
+                guest_scene_allow: args.guest_scene_allow,
+                default_password_stdin: args.default_password_stdin,
                 json: args.json,
             })
         }
-        LegacyAuthCommand::BootstrapUsers(args) => auth_bootstrap_users_command(AuthBootstrapUsersArgs {
-            workspace: args.source_root,
-            super_username: args.super_username,
-            super_profile: args.super_profile,
-            admin_username: args.admin_username,
-            admin_profile: args.admin_profile,
-            guest_username: args.guest_username,
-            guest_profile: args.guest_profile,
-            guest_app_allow: args.guest_app_allow,
-            guest_scene_allow: args.guest_scene_allow,
-            default_password_stdin: args.default_password_stdin,
-            json: args.json,
-        }),
         LegacyAuthCommand::AddUser(args) => auth_add_user_command(AuthAddUserArgs {
             workspace: args.source_root,
             username: args.username,

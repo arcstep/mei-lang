@@ -2,12 +2,9 @@ use super::{non_empty_path, split_file_symbol, split_world_explain_key};
 
 use std::path::Path;
 
-
-use crate::mei_config::{resolve_templates_root, resolve_workspace_source_root_from_app_root};
 use crate::catalog_app::catalog_scene_route_for_build_node;
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp,
-};
+use crate::mei_config::{resolve_templates_root, resolve_workspace_source_root_from_app_root};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
 
 pub fn scene_id_from_ui_node_key(key: &str) -> Option<String> {
     key.split('/')
@@ -156,7 +153,10 @@ fn template_consumer_preview_target(compiled: &CompiledApp, template_key: &str) 
             template_key,
         )
     } else {
-        crate::compile::build_template_index::preview_target_for_template_consumer(compiled, template_key)
+        crate::compile::build_template_index::preview_target_for_template_consumer(
+            compiled,
+            template_key,
+        )
     }
 }
 
@@ -191,7 +191,10 @@ pub fn compile_scene_from_build_node_with_app(
     node: &BuildNodeId,
     compiled: Option<&CompiledApp>,
 ) -> Option<String> {
-    if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template) {
+    if matches!(
+        node.kind,
+        BuildNodeKind::Component | BuildNodeKind::Template
+    ) {
         if let Some(app) = compiled {
             if let Some(route) = catalog_scene_route_for_build_node(app, node) {
                 return Some(route.scene_id.clone());
@@ -252,4 +255,3 @@ pub struct BuildCompileCoordinate {
     pub preview_target: String,
     pub preview_kind: BuildPreviewKind,
 }
-

@@ -30,7 +30,9 @@ pub fn board_warmup_autogen_enabled() -> bool {
     )
 }
 
-pub fn discover_board_warmup_suggestions(app_root: &Path) -> Result<Vec<SuggestedWarmupDatasetRequest>> {
+pub fn discover_board_warmup_suggestions(
+    app_root: &Path,
+) -> Result<Vec<SuggestedWarmupDatasetRequest>> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     for entry in WalkDir::new(app_root)
@@ -124,8 +126,7 @@ fn split_scene_export_blocks(source: &str) -> Vec<&str> {
     let mut rest = source;
     while let Some(idx) = rest.find("scene_export(") {
         let tail = &rest[idx..];
-        let end = find_matching_paren_end(tail, "scene_export(".len() - 1)
-            .unwrap_or(tail.len());
+        let end = find_matching_paren_end(tail, "scene_export(".len() - 1).unwrap_or(tail.len());
         blocks.push(&tail[..end]);
         rest = &tail[end..];
     }

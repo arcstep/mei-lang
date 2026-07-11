@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::model::{
-    BlockDecl, BuildNodeId, LayoutDecl, UiNodeDecl, UiBudgetSummary, UiScopeNode, UiScopeRole,
+    BlockDecl, BuildNodeId, LayoutDecl, UiBudgetSummary, UiNodeDecl, UiScopeNode, UiScopeRole,
     UiSourceAnchor, UiTreeNode,
 };
 
@@ -365,10 +365,7 @@ fn walk_section_body(
     parent_segments: &[String],
     preview_prefix: &str,
 ) {
-    let file_hint = panel
-        .import_scope
-        .as_deref()
-        .filter(|v| !v.is_empty());
+    let file_hint = panel.import_scope.as_deref().filter(|v| !v.is_empty());
     for layout_panel in slotted_layout_panels_in_deep(panel) {
         walk_slotted_layout(
             builder,
@@ -577,6 +574,23 @@ fn walk_slot(
             if walked_compound_group {
                 return;
             }
+            for group in layout_content_group_panels_in_deep(panel) {
+                if let Some(kind) = content_group_kind(group) {
+                    walk_layout_content_group(
+                        builder,
+                        group,
+                        tier,
+                        &slot_node_id,
+                        &slot_segments,
+                        preview_scope.as_str(),
+                        kind,
+                    );
+                    walked_compound_group = true;
+                }
+            }
+            if walked_compound_group {
+                return;
+            }
             for metric_panel in metric_card_panels_exclusive(panel) {
                 walk_content_panel(
                     builder,
@@ -588,6 +602,46 @@ fn walk_slot(
                     None,
                 );
             }
+            let file_hint = panel.import_scope.as_deref().filter(|v| !v.is_empty());
+            for (block, content_label) in content_blocks_in(panel) {
+                walk_content_block(
+                    builder,
+                    block,
+                    content_label.as_str(),
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                    file_hint,
+                );
+            }
+            // Single-content slot shells place leaf blocks in the `content` area.
+            for (block, content_label) in contract_level_content_blocks(panel) {
+                walk_content_block(
+                    builder,
+                    block,
+                    content_label.as_str(),
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                    file_hint,
+                );
+            }
+            if slot.area == "chart" {
+                for (block, content_label) in chart_blocks_in_deep(panel) {
+                    walk_content_block(
+                        builder,
+                        block,
+                        content_label.as_str(),
+                        tier,
+                        &slot_node_id,
+                        &slot_segments,
+                        preview_scope.as_str(),
+                        file_hint,
+                    );
+                }
+            }
         } else if is_slotted_layout_panel(panel) {
             walk_slotted_layout(
                 builder,
@@ -598,10 +652,7 @@ fn walk_slot(
                 preview_scope.as_str(),
             );
         } else {
-            let file_hint = panel
-                .import_scope
-                .as_deref()
-                .filter(|v| !v.is_empty());
+            let file_hint = panel.import_scope.as_deref().filter(|v| !v.is_empty());
             for layout_panel in slotted_layout_panels_in_deep(panel) {
                 walk_slotted_layout(
                     builder,
@@ -611,6 +662,19 @@ fn walk_slot(
                     &slot_segments,
                     preview_scope.as_str(),
                 );
+            }
+            for group in layout_content_group_panels_in_deep(panel) {
+                if let Some(kind) = content_group_kind(group) {
+                    walk_layout_content_group(
+                        builder,
+                        group,
+                        tier,
+                        &slot_node_id,
+                        &slot_segments,
+                        preview_scope.as_str(),
+                        kind,
+                    );
+                }
             }
             for metric_panel in metric_card_panels_exclusive(panel) {
                 walk_content_panel(
@@ -624,6 +688,18 @@ fn walk_slot(
                 );
             }
             for (block, content_label) in content_blocks_in_deep(panel) {
+                walk_content_block(
+                    builder,
+                    block,
+                    content_label.as_str(),
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                    file_hint,
+                );
+            }
+            for (block, content_label) in contract_level_content_blocks(panel) {
                 walk_content_block(
                     builder,
                     block,
@@ -667,7 +743,11 @@ fn walk_slot(
 
 /// Join slot prefix with optional block/panel area and content key without duplicating area.
 /// Grid cell names like `content` are layout plumbing, not logical preview scopes.
-fn join_content_preview_scope(preview_prefix: &str, area: Option<&str>, content_key: &str) -> String {
+fn join_content_preview_scope(
+    preview_prefix: &str,
+    area: Option<&str>,
+    content_key: &str,
+) -> String {
     let prefix = preview_prefix.trim().trim_end_matches('/');
     let area = area
         .map(str::trim)
@@ -756,11 +836,7 @@ fn walk_contract_level_content_block(
             .map(str::trim)
             .filter(|value| !value.is_empty() && *value != "auto")
             .unwrap_or("slot");
-        let slot_preview = format!(
-            "{}/{}",
-            preview_prefix.trim().trim_end_matches('/'),
-            area
-        );
+        let slot_preview = format!("{}/{}", preview_prefix.trim().trim_end_matches('/'), area);
         let slot_segments =
             scope_segments_from_preview(builder.scene_id, tier, slot_preview.as_str());
         let slot_label = contract_grid_slot_label(area, block);
@@ -803,7 +879,11 @@ fn walk_contract_level_content_block(
 }
 
 fn contract_grid_slot_label(area: &str, block: &BlockDecl) -> String {
-    if let Some(title) = block.title.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(title) = block
+        .title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         return title.to_string();
     }
     let content_label = content_label_from_block(block);
@@ -835,11 +915,8 @@ fn walk_content_block(
     } else {
         label.to_string()
     };
-    let preview_scope = join_content_preview_scope(
-        preview_prefix,
-        block.area.as_deref(),
-        content_key.as_str(),
-    );
+    let preview_scope =
+        join_content_preview_scope(preview_prefix, block.area.as_deref(), content_key.as_str());
     let content_segments =
         scope_segments_from_preview(builder.scene_id, tier, preview_scope.as_str());
     let content_kind = Some(block_content_use_key(block));
@@ -872,11 +949,8 @@ fn walk_content_panel(
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| metric_card_label(panel));
-    let preview_scope = join_content_preview_scope(
-        preview_prefix,
-        panel.area.as_deref(),
-        content_key.as_str(),
-    );
+    let preview_scope =
+        join_content_preview_scope(preview_prefix, panel.area.as_deref(), content_key.as_str());
     let content_segments =
         scope_segments_from_preview(builder.scene_id, tier, preview_scope.as_str());
     let content_kind = if is_viewport_chrome_panel(panel) {
@@ -917,11 +991,7 @@ fn walk_layout_content_group(
 ) {
     let group_key = panel.id.clone();
     let group_label = layout_content_group_label(panel);
-    let group_preview = format!(
-        "{}/{}",
-        preview_prefix.trim_end_matches('/'),
-        group_key
-    );
+    let group_preview = format!("{}/{}", preview_prefix.trim_end_matches('/'), group_key);
     let group_segments =
         scope_segments_from_preview(builder.scene_id, tier, group_preview.as_str());
     let budget = budget_from_panel(panel);
@@ -961,7 +1031,11 @@ fn layout_content_group_label(panel: &UiNodeDecl) -> String {
     {
         return label.to_string();
     }
-    if let Some(title) = panel.title.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(title) = panel
+        .title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         return title.to_string();
     }
     for (id_hint, label) in GROUP_LABEL_OVERRIDES {
@@ -996,7 +1070,11 @@ fn chart_blocks_in_deep<'a>(panel: &'a UiNodeDecl) -> Vec<(&'a BlockDecl, String
 fn collect_chart_blocks<'a>(panel: &'a UiNodeDecl, out: &mut Vec<(&'a BlockDecl, String)>) {
     for ui_node in &panel.blocks {
         match ui_node {
-            UiTreeNode::Block(block) if block_content_use_key(block).starts_with("chart.") => {
+            UiTreeNode::Block(block)
+                if block_content_use_key(block).starts_with("chart.")
+                    || block.area.as_deref() == Some("chart")
+                    || block.id.as_deref() == Some("chart") =>
+            {
                 out.push((block, content_label_from_block(block)));
             }
             UiTreeNode::Panel(child) => collect_chart_blocks(child, out),
@@ -1030,7 +1108,11 @@ struct SlotWalkItem {
 
 fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
     let mut sections = Vec::new();
-    if let Some(areas) = region.layout.as_ref().and_then(|layout| layout.areas.as_ref()) {
+    if let Some(areas) = region
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+    {
         for area_row in areas {
             for area in area_row {
                 if let Some(panel) = find_nested_panel_by_area(region, area.as_str()) {
@@ -1068,7 +1150,11 @@ fn panel_is_section(panel: &UiNodeDecl) -> bool {
     {
         return true;
     }
-    if panel.title.as_deref().is_some_and(|title| !title.trim().is_empty()) {
+    if panel
+        .title
+        .as_deref()
+        .is_some_and(|title| !title.trim().is_empty())
+    {
         return true;
     }
     if panel
@@ -1079,9 +1165,8 @@ fn panel_is_section(panel: &UiNodeDecl) -> bool {
     {
         return true;
     }
-    layout_macro_hint(panel).is_some_and(|macro_name| {
-        macro_name.ends_with("_body") && !is_slotted_layout_panel(panel)
-    })
+    layout_macro_hint(panel)
+        .is_some_and(|macro_name| macro_name.ends_with("_body") && !is_slotted_layout_panel(panel))
 }
 
 fn find_nested_panel_by_area<'a>(region: &'a UiNodeDecl, area: &str) -> Option<&'a UiNodeDecl> {
@@ -1281,12 +1366,12 @@ fn is_slot_shell_panel(panel: &UiNodeDecl) -> bool {
     {
         return true;
     }
+    // Generic slot shell: a single `content` area hosting nested panels or blocks.
+    if is_single_content_slot_shell(panel) {
+        return true;
+    }
     if metric_card_panels_in(panel).len() == 1 {
-        let areas = panel
-            .layout
-            .as_ref()
-            .map(flat_areas)
-            .unwrap_or_default();
+        let areas = panel.layout.as_ref().map(flat_areas).unwrap_or_default();
         if areas.is_empty() || areas == ["content"] {
             return true;
         }
@@ -1294,24 +1379,35 @@ fn is_slot_shell_panel(panel: &UiNodeDecl) -> bool {
     false
 }
 
+fn is_single_content_slot_shell(panel: &UiNodeDecl) -> bool {
+    let areas = panel.layout.as_ref().map(flat_areas).unwrap_or_default();
+    if areas != ["content"] {
+        return false;
+    }
+    !child_panels(panel).is_empty()
+        || panel
+            .blocks
+            .iter()
+            .any(|node| matches!(node, UiTreeNode::Block(_)))
+}
+
 fn is_slotted_layout_panel(panel: &UiNodeDecl) -> bool {
     if is_content_group_panel(panel) {
         return false;
     }
+    let areas = panel.layout.as_ref().map(flat_areas).unwrap_or_default();
+    // Legacy chrome wrappers: single `content` area + slot frame bg. Author panels with
+    // surface=compound also set __mei_slot_frame_bg but keep real multi-area layouts.
     if panel
         .props
         .get("__mei_slot_frame_bg")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+        && (areas.is_empty() || areas == ["content"])
     {
         return false;
     }
     if metric_card_panels_in(panel).len() == 1 {
-        let areas = panel
-            .layout
-            .as_ref()
-            .map(flat_areas)
-            .unwrap_or_default();
         if areas.is_empty() || areas == ["content"] {
             return false;
         }
@@ -1351,17 +1447,21 @@ fn panel_has_slotted_layout_children(panel: &UiNodeDecl, areas: &[String]) -> bo
         return false;
     }
     panel.blocks.iter().any(|ui_node| match ui_node {
-        UiTreeNode::Block(block) => block
-            .area
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty() && *value != "auto")
-            .is_some_and(|area| areas.iter().any(|slot| slot == area)),
+        UiTreeNode::Block(block) => {
+            let area = block
+                .area
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && *value != "auto")
+                .or_else(|| block.id.as_deref().map(str::trim).filter(|v| !v.is_empty()));
+            area.is_some_and(|area| areas.iter().any(|slot| slot == area))
+        }
         UiTreeNode::Panel(nested) => nested
             .area
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
+            .or(Some(nested.id.as_str()))
             .is_some_and(|area| areas.iter().any(|slot| slot == area)),
         _ => false,
     })
@@ -1404,7 +1504,8 @@ fn is_status_flow_panel(panel: &UiNodeDecl) -> bool {
 }
 
 fn is_progress_triptych_panel(panel: &UiNodeDecl) -> bool {
-    layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("primary_progress_triptych"))
+    layout_macro_hint(panel)
+        .is_some_and(|macro_name| macro_name.contains("primary_progress_triptych"))
         || layout_has_areas(panel, &["primary", "triptych"])
 }
 
@@ -1455,11 +1556,7 @@ fn macro_implies_slotted_layout(macro_name: &str) -> bool {
 }
 
 fn layout_has_areas(panel: &UiNodeDecl, required: &[&str]) -> bool {
-    let areas = panel
-        .layout
-        .as_ref()
-        .map(flat_areas)
-        .unwrap_or_default();
+    let areas = panel.layout.as_ref().map(flat_areas).unwrap_or_default();
     required
         .iter()
         .all(|area| areas.iter().any(|value| value == area))
@@ -1567,7 +1664,12 @@ fn contract_level_content_blocks(panel: &UiNodeDecl) -> Vec<(&BlockDecl, String)
 }
 
 fn is_slot_area_block(block: &BlockDecl, panel: &UiNodeDecl) -> bool {
-    let Some(area) = block.area.as_deref().filter(|v| !v.is_empty() && *v != "auto") else {
+    let area = block
+        .area
+        .as_deref()
+        .filter(|v| !v.is_empty() && *v != "auto")
+        .or_else(|| block.id.as_deref().filter(|v| !v.is_empty()));
+    let Some(area) = area else {
         return false;
     };
     panel
@@ -1585,7 +1687,10 @@ fn is_content_block(block: &BlockDecl) -> bool {
     if key.contains("data-table") {
         return true;
     }
-    !matches!(key.as_str(), "label" | "value" | "unit" | "icon" | "component")
+    !matches!(
+        key.as_str(),
+        "label" | "value" | "unit" | "icon" | "component"
+    )
 }
 
 fn block_content_use_key(block: &BlockDecl) -> String {
@@ -1690,12 +1795,7 @@ fn flat_areas(layout: &LayoutDecl) -> Vec<String> {
     layout
         .areas
         .as_ref()
-        .map(|areas| {
-            areas
-                .iter()
-                .flat_map(|row| row.iter().cloned())
-                .collect()
-        })
+        .map(|areas| areas.iter().flat_map(|row| row.iter().cloned()).collect())
         .unwrap_or_default()
 }
 
@@ -1740,9 +1840,7 @@ fn region_label(panel: &UiNodeDecl) -> String {
 }
 
 fn ui_role_from_props(props: &Value) -> Option<&str> {
-    props
-        .get("__mei_ui_role")
-        .and_then(|v| v.as_str())
+    props.get("__mei_ui_role").and_then(|v| v.as_str())
 }
 
 fn budget_from_chart_block(_block: &BlockDecl) -> Option<UiBudgetSummary> {
@@ -1772,7 +1870,10 @@ fn merged_section_budget(section: &UiNodeDecl) -> Option<UiBudgetSummary> {
     }
 }
 
-fn merge_section_shell_budget(mut base: UiBudgetSummary, overlay: UiBudgetSummary) -> UiBudgetSummary {
+fn merge_section_shell_budget(
+    mut base: UiBudgetSummary,
+    overlay: UiBudgetSummary,
+) -> UiBudgetSummary {
     if overlay.padding.is_some() {
         base.padding = overlay.padding;
     }
@@ -1816,7 +1917,7 @@ fn budget_from_panel(panel: &UiNodeDecl) -> Option<UiBudgetSummary> {
             }
             let slot_areas = flat_areas(layout)
                 .into_iter()
-                .filter(|area| !area.trim().is_empty() && area != ".")
+                .filter(|area| !is_css_null_grid_area(area))
                 .collect::<Vec<_>>();
             if !slot_areas.is_empty() {
                 budget.slot_areas = Some(slot_areas);
@@ -1881,13 +1982,30 @@ fn budget_from_panel(panel: &UiNodeDecl) -> Option<UiBudgetSummary> {
 fn budget_is_empty(budget: &UiBudgetSummary) -> bool {
     budget.gap.is_none()
         && budget.padding.is_none()
-                && budget.widths.is_empty()
-                        && budget.section_derived_height_px.is_none()
+        && budget.widths.is_empty()
+        && budget.section_derived_height_px.is_none()
         && budget.padding_profile.is_none()
         && budget.grid_template_columns.is_none()
         && budget.grid_template_rows.is_none()
         && budget.grid_template_areas.is_none()
         && budget.slot_areas.is_none()
+}
+
+fn css_grid_area_token(area: &str) -> &str {
+    let area = area.trim();
+    // MeiLang uses `_` as an empty/discard cell; CSS null cells must be `.`.
+    // Emitting `_` as a named area breaks when the same token appears in
+    // non-contiguous cells (e.g. `'_ main _'` → browser drops the whole property).
+    if area.is_empty() || area == "_" {
+        "."
+    } else {
+        area
+    }
+}
+
+fn is_css_null_grid_area(area: &str) -> bool {
+    let area = area.trim();
+    area.is_empty() || area == "_" || area == "."
 }
 
 fn grid_template_areas_css(layout: &LayoutDecl) -> Option<String> {
@@ -1898,10 +2016,7 @@ fn grid_template_areas_css(layout: &LayoutDecl) -> Option<String> {
         .map(|row| {
             let template = row
                 .iter()
-                .map(|area| {
-                    let area = area.trim();
-                    if area.is_empty() { "." } else { area }
-                })
+                .map(|area| css_grid_area_token(area))
                 .collect::<Vec<_>>()
                 .join(" ");
             format!("'{template}'")
@@ -1943,10 +2058,12 @@ fn source_anchor_for_panel(panel: &UiNodeDecl) -> Vec<UiSourceAnchor> {
         .import_scope
         .as_deref()
         .filter(|v| !v.is_empty())
-        .map(|file| vec![UiSourceAnchor {
-            file: file.to_string(),
-            symbol_id: panel.id.clone(),
-        }])
+        .map(|file| {
+            vec![UiSourceAnchor {
+                file: file.to_string(),
+                symbol_id: panel.id.clone(),
+            }]
+        })
         .unwrap_or_default()
 }
 

@@ -304,11 +304,7 @@ fn prebuild_emit_stderr_line(prefix: &str, message: &str, prefix_style: &str) {
         }
         *last = Some((now, message.to_string(), 1));
     }
-    eprintln!(
-        "{} {}",
-        ansi_wrap(prefix, prefix_style),
-        message
-    );
+    eprintln!("{} {}", ansi_wrap(prefix, prefix_style), message);
     let _ = std::io::stderr().flush();
 }
 
@@ -380,7 +376,11 @@ pub(crate) fn prebuild_emit_progress_detail(message: impl AsRef<str>) {
     prebuild_emit_progress(message);
 }
 
-pub(crate) fn format_scope_file(scene: &str, requested_target: &str, active_target: Option<&str>) -> String {
+pub(crate) fn format_scope_file(
+    scene: &str,
+    requested_target: &str,
+    active_target: Option<&str>,
+) -> String {
     if !requested_target.is_empty() {
         return requested_target.to_string();
     }

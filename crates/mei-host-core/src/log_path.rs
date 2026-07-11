@@ -2,7 +2,9 @@ use std::path::{Component, Path};
 
 /// RFC3339 UTC timestamp for CLI / prebuild logs.
 pub fn log_timestamp_rfc3339() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
+    chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.6fZ")
+        .to_string()
 }
 
 /// Human-readable byte size (binary units).
@@ -46,7 +48,9 @@ fn normalize_log_path(path: &Path) -> String {
                 parts.pop();
             }
             Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::RootDir | Component::Prefix(_) => parts.push(component.as_os_str().to_string_lossy().into_owned()),
+            Component::RootDir | Component::Prefix(_) => {
+                parts.push(component.as_os_str().to_string_lossy().into_owned())
+            }
         }
     }
     parts.join("/")

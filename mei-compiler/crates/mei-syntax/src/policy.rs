@@ -19,10 +19,8 @@ const GLOBAL_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
     ("board_assembly(", "board_assembly(...)"),
     ("panel_contract(", "panel_contract(...)"),
 ];
-const GRID_ONLY_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
-    ("flex(", "flex(...)"),
-    ("layout_policy", "layout_policy"),
-];
+const GRID_ONLY_DEPRECATED_PATTERNS: &[(&str, &str)] =
+    &[("flex(", "flex(...)"), ("layout_policy", "layout_policy")];
 
 fn sanitize_for_policy(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
@@ -265,9 +263,7 @@ mod tests {
 
     #[test]
     fn grid_only_policy_rejects_flex_in_cockpit_templates() {
-        let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/stock/templates/cockpit/example.mei",
-        );
+        let path = Path::new("/tmp/workspaces/ws-demo-v2/stock/templates/cockpit/example.mei");
         let err = validate_authoring_policy_for_path(
             path,
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
@@ -302,10 +298,14 @@ mod tests {
     #[test]
     fn global_policy_rejects_titled_shell_and_panel_slot() {
         let path = Path::new("/tmp/any.mei");
-        assert!(validate_authoring_policy_for_path(path, "shell = titled_shell(title = \"x\")")
-            .is_err());
-        assert!(validate_authoring_policy_for_path(path, "slot = panel_slot(kind = \"filter\")")
-            .is_err());
+        assert!(
+            validate_authoring_policy_for_path(path, "shell = titled_shell(title = \"x\")")
+                .is_err()
+        );
+        assert!(
+            validate_authoring_policy_for_path(path, "slot = panel_slot(kind = \"filter\")")
+                .is_err()
+        );
         assert!(validate_authoring_policy_for_path(path, "row_budgets = [70, 70]").is_err());
     }
 

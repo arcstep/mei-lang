@@ -1,4 +1,4 @@
-use super::{slot_from_explain_block};
+use super::slot_from_explain_block;
 
 use serde_json::{Map, Value};
 

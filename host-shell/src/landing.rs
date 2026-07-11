@@ -66,9 +66,7 @@ pub fn build_discovered_app_summaries(shell: &crate::state::ShellState) -> Vec<s
         .collect()
 }
 
-pub fn discover_workspace_apps(
-    source_root: &Path,
-) -> anyhow::Result<Vec<WorkspaceAppMeta>> {
+pub fn discover_workspace_apps(source_root: &Path) -> anyhow::Result<Vec<WorkspaceAppMeta>> {
     discover_apps(source_root)
 }
 
@@ -134,9 +132,7 @@ mod tests {
             r#"{"schemaVersion":1,"app":{"id":"mini-park"}}"#,
         )
         .expect("mini-park config");
-        let mrg_dir = tmp
-            .path()
-            .join("apps/data-demo/build/active/registry");
+        let mrg_dir = tmp.path().join("apps/data-demo/build/active/registry");
         std::fs::create_dir_all(&mrg_dir).expect("registry dir");
         std::fs::write(
             mrg_dir.join("mcg-registry.json"),

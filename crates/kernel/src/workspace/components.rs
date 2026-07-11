@@ -1,16 +1,10 @@
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::Path,
-};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use walkdir::WalkDir;
 
-use crate::mei_config::{
-    resolve_components_root, stock_path_excluded, StockCatalogKind,
-};
+use crate::mei_config::{resolve_components_root, stock_path_excluded, StockCatalogKind};
 use crate::model::ComponentAsset;
 
 #[derive(Debug, Deserialize)]
@@ -106,9 +100,7 @@ fn resolve_component_preview_workspace_path(
     {
         manifest_dir.join(rel)
     } else {
-        manifest_dir
-            .join("previews")
-            .join(format!("{use_key}.mei"))
+        manifest_dir.join("previews").join(format!("{use_key}.mei"))
     };
     if !preview_abs.is_file() {
         return None;

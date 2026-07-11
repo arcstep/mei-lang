@@ -5,9 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use mei_lang_app::render_build_preview_fragment;
-use mei_lang_kernel::{
-    resolve_app_root, resolve_components_root, CompileOptions,
-};
+use mei_lang_kernel::{resolve_app_root, resolve_components_root, CompileOptions};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -83,12 +81,8 @@ pub async fn api_build_panel_render(
         preview_target: Some(preview_target.clone()),
         ..Default::default()
     };
-    let compile_result = resolve_build_preview_compile(
-        &state,
-        app_id,
-        &compile_options,
-        components_root.as_path(),
-    );
+    let compile_result =
+        resolve_build_preview_compile(&state, app_id, &compile_options, components_root.as_path());
     let outcome = match compile_result {
         Ok(Some(outcome)) => outcome,
         Ok(None) => {

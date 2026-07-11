@@ -248,4 +248,3 @@ fn spbjw_penalty_filter_prefetch_does_not_cap_rowset_materialization() {
         "week detail rowset total should match card metric value"
     );
 }
-

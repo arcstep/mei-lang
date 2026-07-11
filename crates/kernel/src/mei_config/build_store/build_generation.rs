@@ -82,9 +82,7 @@ pub fn is_build_generation_tag(raw: &str) -> bool {
 
 pub fn require_build_generation_tag(raw: &str) -> Result<BuildGenerationSpec> {
     parse_build_generation_tag(raw).ok_or_else(|| {
-        anyhow::anyhow!(
-            "invalid build generation `{raw}` (expected WS-yyyymmdd.fixver)"
-        )
+        anyhow::anyhow!("invalid build generation `{raw}` (expected WS-yyyymmdd.fixver)")
     })
 }
 
@@ -99,7 +97,9 @@ pub fn resolve_build_generation_for_prebuild(source_root: &Path) -> BuildGenerat
     resolve_build_generation_from_config(&cfg.build.generation)
 }
 
-fn resolve_build_generation_from_config(gen: &WorkspaceBuildGenerationConfig) -> BuildGenerationSpec {
+fn resolve_build_generation_from_config(
+    gen: &WorkspaceBuildGenerationConfig,
+) -> BuildGenerationSpec {
     let fixver = gen.fixver.unwrap_or(0);
     let date = match gen.date_source.as_deref().map(str::trim) {
         Some("manual") => gen

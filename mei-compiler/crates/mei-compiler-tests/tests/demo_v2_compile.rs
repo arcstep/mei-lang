@@ -6,8 +6,7 @@ use mei_bundle::{
 use mei_graph::compile_app;
 
 fn ws_demo_v2_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../workspaces/ws-demo-v2")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../workspaces/ws-demo-v2")
 }
 
 #[test]
@@ -25,9 +24,10 @@ fn demo_v2_compiles_graph_blocks() {
         "expected many graph blocks, got {}",
         outcome.blocks.len()
     );
-    let home_map_stage = outcome.blocks.iter().find(|block| {
-        block.block_id.contains("map-stage") || block.block_id.contains("map_stage")
-    });
+    let home_map_stage = outcome
+        .blocks
+        .iter()
+        .find(|block| block.block_id.contains("map-stage") || block.block_id.contains("map_stage"));
     if let Some(block) = home_map_stage {
         let payload = &block.payload;
         let tier = payload

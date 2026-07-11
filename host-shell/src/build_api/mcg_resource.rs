@@ -74,12 +74,24 @@ pub async fn api_build_graph_mcg_node(
         .filter(|value| !value.is_empty())
         .unwrap_or("home");
 
-    let node = if let Some(node_id) = query.node_id.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    let node = if let Some(node_id) = query
+        .node_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
     {
         resolve_mcg_node(&mcg, node_id, scene_id)
     } else {
-        let kind = query.kind.as_deref().map(str::trim).filter(|v| !v.is_empty());
-        let key = query.key.as_deref().map(str::trim).filter(|v| !v.is_empty());
+        let kind = query
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        let key = query
+            .key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
         match (kind, key) {
             (Some(kind), Some(key)) => find_node_by_kind_key(&mcg, kind, key, scene_id),
             _ => None,
@@ -163,7 +175,9 @@ fn resolve_mcg_node<'a>(
         return find_content_panel_node_local(mcg, node_id, scene_id);
     }
 
-    mcg.nodes.iter().find(|node| node.id.stable_key() == node_id)
+    mcg.nodes
+        .iter()
+        .find(|node| node.id.stable_key() == node_id)
 }
 
 fn find_node_by_kind_key<'a>(
@@ -199,9 +213,11 @@ fn find_content_panel_node_local<'a>(
         }
     }
     for key in keys {
-        if let Some(node) = mcg.nodes.iter().find(|node| {
-            node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key
-        }) {
+        if let Some(node) = mcg
+            .nodes
+            .iter()
+            .find(|node| node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key)
+        {
             return Some(node);
         }
     }
@@ -234,17 +250,9 @@ fn load_payload_json(app_root: &Path, pref: Option<&PayloadRef>) -> Option<Value
 }
 
 fn bad_request_json(message: &str) -> axum::response::Response {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(json!({ "error": message })),
-    )
-        .into_response()
+    (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
 }
 
 fn not_found_json(message: &str) -> axum::response::Response {
-    (
-        StatusCode::NOT_FOUND,
-        Json(json!({ "error": message })),
-    )
-        .into_response()
+    (StatusCode::NOT_FOUND, Json(json!({ "error": message }))).into_response()
 }

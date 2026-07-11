@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::graph::io::{read_json_registry, write_json_registry};
-use crate::graph::paths::mrg_registry_path;
 use crate::graph::mrg::nodes::{deserialize_mrg_nodes, serialize_mrg_nodes, MrgNodeRecord};
-use crate::graph::types::{GraphNodeId, MaterialState, PayloadRef, stable_hash};
+use crate::graph::paths::mrg_registry_path;
+use crate::graph::types::{stable_hash, GraphNodeId, MaterialState, PayloadRef};
 
 pub const MRG_REGISTRY_SCHEMA_VERSION: &str = "mei-mrg-registry-v2";
 
@@ -120,12 +120,7 @@ impl MrgRegistry {
     pub fn dirty_slots(&self) -> Vec<&MrgSlotRecord> {
         self.slots
             .iter()
-            .filter(|slot| {
-                matches!(
-                    slot.state,
-                    MaterialState::Stale | MaterialState::Missing
-                )
-            })
+            .filter(|slot| matches!(slot.state, MaterialState::Stale | MaterialState::Missing))
             .collect()
     }
 
@@ -151,7 +146,10 @@ impl MrgRegistry {
             .collect()
     }
 
-    pub fn navigation_by_key(&self, key: &str) -> Option<crate::graph::mrg::navigation::types::NavigationEntry> {
+    pub fn navigation_by_key(
+        &self,
+        key: &str,
+    ) -> Option<crate::graph::mrg::navigation::types::NavigationEntry> {
         self.navigation_entries()
             .into_iter()
             .find(|entry| entry.key == key)
@@ -200,7 +198,11 @@ impl MrgRegistry {
             | MrgNodeRecord::Workset { id, .. }
             | MrgNodeRecord::DataSource { id, .. } => id.key.as_str(),
         };
-        if let Some(existing) = self.nodes.iter_mut().find(|entry| node_key(entry) == Some(key)) {
+        if let Some(existing) = self
+            .nodes
+            .iter_mut()
+            .find(|entry| node_key(entry) == Some(key))
+        {
             *existing = record;
         } else {
             self.nodes.push(record);

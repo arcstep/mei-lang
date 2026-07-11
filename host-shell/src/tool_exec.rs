@@ -46,9 +46,7 @@ fn resolve_tool_binary(
         return Ok(path);
     }
 
-    anyhow::bail!(
-        "{name} not found; set {env_var}, install to deploy/bin, or add to PATH"
-    )
+    anyhow::bail!("{name} not found; set {env_var}, install to deploy/bin, or add to PATH")
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {

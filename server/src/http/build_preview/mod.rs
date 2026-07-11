@@ -7,9 +7,7 @@ use mei_lang_kernel::{
 };
 use std::path::Path;
 
-use crate::http::compile_cache::{
-    resolve_runtime_compile_shared, RuntimeAccessPolicies,
-};
+use crate::http::compile_cache::{resolve_runtime_compile_shared, RuntimeAccessPolicies};
 use crate::AppState;
 use mei_lang_app::UiRouteMode;
 

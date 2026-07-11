@@ -40,7 +40,11 @@ fn slot_stretch_background(image: &str) -> Value {
 }
 
 fn grid_layout(rows: Value, columns: Value, areas: Value, gap: &str, align: &str) -> Value {
-    let justify = if align == "stretch" { "stretch" } else { "center" };
+    let justify = if align == "stretch" {
+        "stretch"
+    } else {
+        "center"
+    };
     json!({
         "__call": "grid",
         "__args": {
@@ -322,10 +326,7 @@ fn rewrite_long_metric_compound_fill_body(args: &Map<String, Value>) -> Value {
         Some("sub"),
     );
     for metric in [&mut top_metric, &mut bottom_metric] {
-        if let Some(metric_args) = metric
-            .get_mut("__args")
-            .and_then(Value::as_object_mut)
-        {
+        if let Some(metric_args) = metric.get_mut("__args").and_then(Value::as_object_mut) {
             metric_args.insert("label_vertical_align".to_string(), json!("center"));
             metric_args.insert("value_vertical_align".to_string(), json!("center"));
             metric_args.insert("unit_vertical_align".to_string(), json!("center"));
@@ -373,7 +374,11 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
     let top_band_fr = args
         .get("top_band_fr")
         .and_then(Value::as_f64)
-        .or_else(|| args.get("top_band_fr").and_then(Value::as_i64).map(|n| n as f64))
+        .or_else(|| {
+            args.get("top_band_fr")
+                .and_then(Value::as_i64)
+                .map(|n| n as f64)
+        })
         .unwrap_or(48.0);
     let top_band_ratio = json!(format!("{top_band_fr}%"));
     let gap = json!("2px");
@@ -497,11 +502,11 @@ fn rewrite_content_strip_props(_args: &Map<String, Value>) -> Value {
     rewrite_content_fill_props(_args)
 }
 
-fn metric_atom(id: Value, layout_role: &str, source: Value, variant: Option<&str>) -> Value {
+fn metric_atom(id: Value, surface: &str, source: Value, variant: Option<&str>) -> Value {
     let mut args = json!({
         "id": id,
         "area": "content",
-        "layout_role": layout_role,
+        "surface": surface,
         "source": source,
         "props": {
             "width": "100%",

@@ -65,9 +65,10 @@ mod tests {
         };
         let mut compiled = compiled_with_scene(Some("home"));
         compiled.active_target_file = "scenes/02-行政检查.board.mei".to_string();
-        compiled
-            .scene_projection_assembly_by_id
-            .insert("ai_warning_cockpit_board".to_string(), Value::Object(Default::default()));
+        compiled.scene_projection_assembly_by_id.insert(
+            "ai_warning_cockpit_board".to_string(),
+            Value::Object(Default::default()),
+        );
         assert!(!artifact_matches_compile_scene_request(&options, &compiled));
     }
 

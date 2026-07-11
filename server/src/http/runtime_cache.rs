@@ -73,8 +73,7 @@ pub(crate) fn invalidate_after_data_reload(
     source_ids: Option<&[String]>,
 ) -> anyhow::Result<(RuntimeCacheInvalidateReport, CacheGenerationRecord)> {
     let app_root = resolve_app_root(state.source_root.as_path(), app_id);
-    let generation =
-        bump_cache_generation(app_root.as_path(), app_id, source_ids)?;
+    let generation = bump_cache_generation(app_root.as_path(), app_id, source_ids)?;
     if let Some(ids) = source_ids {
         if !ids.is_empty() && crate::graph::feature::graph_registry_dedup_enabled() {
             let mut registry = crate::graph::load_mrg_registry(state.source_root.as_path(), app_id);
@@ -177,10 +176,8 @@ mod tests {
 
     #[test]
     fn invalidate_app_runtime_caches_preserves_prebuild_disk_artifacts() {
-        let source_root = std::env::temp_dir().join(format!(
-            "mei-runtime-cache-test-{}",
-            std::process::id()
-        ));
+        let source_root =
+            std::env::temp_dir().join(format!("mei-runtime-cache-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&source_root);
         fs::create_dir_all(&source_root).expect("temp source root");
         let app_id = "zhifa";

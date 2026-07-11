@@ -103,28 +103,21 @@ pub(crate) fn warmup_pending_user_message() -> String {
         .map(|guard| guard.clone())
         .unwrap_or_default();
     let started_at_ms = host_started_at_ms_from_registry(&snapshot);
-    let elapsed_ms = started_at_ms.map(|started| {
-        startup_run::now_ms_for_host_message()
-            .saturating_sub(started)
-    });
+    let elapsed_ms =
+        started_at_ms.map(|started| startup_run::now_ms_for_host_message().saturating_sub(started));
     let ago = elapsed_ms
         .map(format_elapsed_zh)
         .unwrap_or_else(|| "刚刚".to_string());
     let detail = if snapshot.deferred_warmup_pending {
         "后台仍在装载 deferred 指标"
-    } else if matches!(
-        snapshot.phase.as_str(),
-        "building" | "verifying" | "bound"
-    ) {
+    } else if matches!(snapshot.phase.as_str(), "building" | "verifying" | "bound") {
         "后台正在编译与预热"
     } else if !snapshot.access_ready {
         "启动预热尚未完成"
     } else {
         "访问态产物仍在装载"
     };
-    format!(
-        "系统于 {ago} 前刚刚启动，{detail}，该指标尚未装载，请稍候刷新页面。"
-    )
+    format!("系统于 {ago} 前刚刚启动，{detail}，该指标尚未装载，请稍候刷新页面。")
 }
 
 pub(crate) fn is_warmup_transient_runtime_error(message: &str) -> bool {
@@ -150,7 +143,9 @@ pub(crate) fn normalize_scope_key(scene_id: Option<&str>, target_file: Option<&s
     )
 }
 
-pub(crate) fn scope_response_from_state(scope: HostScopeReadinessState) -> HostScopeReadinessResponse {
+pub(crate) fn scope_response_from_state(
+    scope: HostScopeReadinessState,
+) -> HostScopeReadinessResponse {
     HostScopeReadinessResponse {
         scene_id: scope.scene_id,
         target_file: scope.target_file,
@@ -164,7 +159,10 @@ pub(crate) fn scope_response_from_state(scope: HostScopeReadinessState) -> HostS
     }
 }
 
-pub(crate) fn app_response(app_id: String, state: HostAppReadinessState) -> HostAppReadinessResponse {
+pub(crate) fn app_response(
+    app_id: String,
+    state: HostAppReadinessState,
+) -> HostAppReadinessResponse {
     let scopes = state
         .scopes
         .into_values()
@@ -198,4 +196,3 @@ pub(crate) fn app_response(app_id: String, state: HostAppReadinessState) -> Host
         scopes,
     }
 }
-

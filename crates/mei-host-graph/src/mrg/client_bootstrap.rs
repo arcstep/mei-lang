@@ -154,8 +154,7 @@ pub fn scene_bootstrap_artifact_path(
     scope: &str,
     client_revision: &str,
 ) -> PathBuf {
-    scene_bootstrap_artifact_root(app_root)
-        .join(format!("{scope}.{client_revision}.json"))
+    scene_bootstrap_artifact_root(app_root).join(format!("{scope}.{client_revision}.json"))
 }
 
 pub fn scene_bootstrap_artifact_public_url(
@@ -163,9 +162,7 @@ pub fn scene_bootstrap_artifact_public_url(
     scope: &str,
     client_revision: &str,
 ) -> String {
-    format!(
-        "/api/host/scene-bootstrap?app={app_id}&scene={scope}&revision={client_revision}"
-    )
+    format!("/api/host/scene-bootstrap?app={app_id}&scene={scope}&revision={client_revision}")
 }
 
 pub fn write_scene_bootstrap_artifact(
@@ -272,7 +269,8 @@ pub fn bootstrap_embed_status_for_manifest(
             expected_revision: None,
         };
     }
-    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation) else {
+    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation)
+    else {
         return BootstrapEmbedStatus {
             allowed: false,
             reason: "revision_unavailable".to_string(),
@@ -342,9 +340,10 @@ pub fn scene_requires_client_bootstrap(
     scene_id: &str,
 ) -> bool {
     let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
-    registry.slots.iter().any(|slot| {
-        slot.client_eligible && slot.slot_id.scope_key == scene_id
-    })
+    registry
+        .slots
+        .iter()
+        .any(|slot| slot.client_eligible && slot.slot_id.scope_key == scene_id)
 }
 
 fn client_bootstrap_embed_inline(workspace_root: &Path, app_id: &str) -> bool {
@@ -475,8 +474,7 @@ pub fn build_client_bootstrap_payload(
         .find(|scope| scope.bootstrap_scope == scene_id)
         .cloned()
         .or_else(|| scope_payloads.first().cloned())?;
-    let layout_budget_manifest =
-        layout_budget_manifest_for_scope(workspace_root, app_id, scene_id);
+    let layout_budget_manifest = layout_budget_manifest_for_scope(workspace_root, app_id, scene_id);
     Some(ClientBootstrapPayload {
         client_revision: primary.client_revision.clone(),
         bootstrap_scope: primary.bootstrap_scope.clone(),
@@ -1094,7 +1092,10 @@ mod tests {
         let fragment =
             build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
         assert!(fragment.contains("mei-bootstrap-inlined"));
-        assert!(fragment.contains("mei-bootstrap-client-revision") || fragment.contains("mei-client-bootstrap"));
+        assert!(
+            fragment.contains("mei-bootstrap-client-revision")
+                || fragment.contains("mei-client-bootstrap")
+        );
     }
 
     #[test]

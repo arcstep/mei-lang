@@ -45,7 +45,9 @@ pub(crate) fn prebuild_isolate_compile_enabled() -> bool {
     })
 }
 
-pub(crate) fn run_prebuild_worker_if_requested(args: &crate::cli::args::PrebuildArgs) -> Result<bool> {
+pub(crate) fn run_prebuild_worker_if_requested(
+    args: &crate::cli::args::PrebuildArgs,
+) -> Result<bool> {
     let Some(task) = std::env::var("MEI_PREBUILD_WORKER")
         .ok()
         .map(|value| value.trim().to_string())
@@ -68,7 +70,8 @@ pub(crate) fn run_prebuild_worker_if_requested(args: &crate::cli::args::Prebuild
             let plan_file = std::env::var("MEI_PREBUILD_WORKER_PLAN_FILE")
                 .context("MEI_PREBUILD_WORKER_PLAN_FILE required")?;
             let scope_plan = serde_json::from_str::<ScopeArtifactPlanWire>(
-                &fs::read_to_string(plan_file.as_str()).with_context(|| format!("read {plan_file}"))?,
+                &fs::read_to_string(plan_file.as_str())
+                    .with_context(|| format!("read {plan_file}"))?,
             )?
             .into_scope_plan();
             let report = materialize_scope_worker(
@@ -87,8 +90,12 @@ pub(crate) fn run_prebuild_worker_if_requested(args: &crate::cli::args::Prebuild
             let app_id = std::env::var("MEI_PREBUILD_WORKER_APP_ID").context("worker app id")?;
             let scope_scene = std::env::var("MEI_PREBUILD_WORKER_SCOPE_SCENE").ok();
             let scope_target = std::env::var("MEI_PREBUILD_WORKER_SCOPE_TARGET").ok();
-            let report =
-                compile_scope_worker(source_root.as_path(), app_id.as_str(), scope_scene, scope_target)?;
+            let report = compile_scope_worker(
+                source_root.as_path(),
+                app_id.as_str(),
+                scope_scene,
+                scope_target,
+            )?;
             println!("{}", serde_json::to_string(&report)?);
             if !report.ok {
                 std::process::exit(1);
@@ -126,13 +133,9 @@ fn materialize_scope_worker(
         .filter(|value| !value.is_empty())
         .unwrap_or("");
     let scene = scope.requested_scene_id.as_deref();
-    let (mut compiled, compile_revision) = crate::graph::try_assemble_scope_from_scene_payload(
-        source_root,
-        app_id,
-        scene,
-        target,
-    )
-    .with_context(|| format!("assemble scope `{}` for worker", scope.key()))?;
+    let (mut compiled, compile_revision) =
+        crate::graph::try_assemble_scope_from_scene_payload(source_root, app_id, scene, target)
+            .with_context(|| format!("assemble scope `{}` for worker", scope.key()))?;
     let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
         source_root,
         app_id,
@@ -262,11 +265,7 @@ pub(crate) fn spawn_materialize_scope_worker(
         .env("MEI_PREBUILD_WORKER_APP_ID", app_id)
         .env(
             "MEI_PREBUILD_WORKER_SCOPE_SCENE",
-            prepared
-                .scope
-                .requested_scene_id
-                .as_deref()
-                .unwrap_or(""),
+            prepared.scope.requested_scene_id.as_deref().unwrap_or(""),
         )
         .env(
             "MEI_PREBUILD_WORKER_SCOPE_TARGET",
@@ -278,7 +277,12 @@ pub(crate) fn spawn_materialize_scope_worker(
         )
         .env("MEI_PREBUILD_WORKER_PLAN_FILE", plan_path.as_os_str())
         .output()
-        .with_context(|| format!("spawn materialize worker for scope `{}`", prepared.scope.key()))?;
+        .with_context(|| {
+            format!(
+                "spawn materialize worker for scope `{}`",
+                prepared.scope.key()
+            )
+        })?;
     let _ = fs::remove_file(plan_path.as_path());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let report = serde_json::from_str::<PrebuildWorkerReport>(stdout.trim())
@@ -473,16 +477,15 @@ pub(crate) fn spawn_compile_scope_worker(
         .with_context(|| format!("parse compile worker stdout: {stdout}"))?;
     diagnostics.note_worker_peak_rss(report.worker_peak_rss_bytes);
     if !report.ok {
-        anyhow::bail!(
-            report
-                .error
-                .unwrap_or_else(|| "compile scope worker failed".to_string())
-        );
+        anyhow::bail!(report
+            .error
+            .unwrap_or_else(|| "compile scope worker failed".to_string()));
     }
     let components_root = toolchain::resolve_components_root(source_root);
     let session = Mutex::new(PrebuildCompileSession::default());
     let diag = PrebuildDiagnostics::default();
-    let compile_index = load_prebuild_compile_index(resolve_app_root(source_root, app_id).as_path())?;
+    let compile_index =
+        load_prebuild_compile_index(resolve_app_root(source_root, app_id).as_path())?;
     try_reuse_persisted_compile_index(
         &session,
         &diag,

@@ -40,9 +40,11 @@ fn workspace_init_creates_config_and_stock() {
 }
 
 fn ws_demo_v2() -> Option<std::path::PathBuf> {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-demo-v2");
-    path.canonicalize().ok().filter(|p| p.join("workspace.json").is_file())
+    let path =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+    path.canonicalize()
+        .ok()
+        .filter(|p| p.join("workspace.json").is_file())
 }
 
 #[test]

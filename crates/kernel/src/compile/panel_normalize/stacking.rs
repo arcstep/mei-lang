@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 
 const LAYOUT_STACK_MAX: u64 = 99;
 
@@ -61,7 +61,9 @@ fn parse_layout_stack(value: &Value) -> Result<i64, String> {
         .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
         .ok_or_else(|| "layout_stack must be an integer 0–99".to_string())?;
     if raw > LAYOUT_STACK_MAX {
-        return Err(format!("layout_stack {raw} exceeds maximum {LAYOUT_STACK_MAX}"));
+        return Err(format!(
+            "layout_stack {raw} exceeds maximum {LAYOUT_STACK_MAX}"
+        ));
     }
     Ok(i64::try_from(raw).unwrap_or(i64::MAX))
 }

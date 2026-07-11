@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::compile::load_external::load_flow_from_file;
 use crate::compile::scene_binding::{parse_flow_binding, SceneBinding};
-use crate::model::{Diagnostic, FlowDecl, FrameDecl, UiNodeDecl, Severity};
+use crate::model::{Diagnostic, FlowDecl, FrameDecl, Severity, UiNodeDecl};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::clone_merge::{normalize_flow_decl, resolve_panel_slot};

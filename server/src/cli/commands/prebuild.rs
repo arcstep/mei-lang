@@ -11,9 +11,9 @@ use super::super::util::{
 use crate::agent_runtime;
 use crate::prebuild::{
     clean_workspace_prebuild_artifacts, persist_prebuild_report, prebuild_emit_notice,
-    prebuild_set_output_quiet, run_prebuild_worker_if_requested, PrebuildPhaseSession, PrebuildPhaseTracker, PrebuildProgressSession,
-    run_prebuild, PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
-    PrebuildWarningSummary,
+    prebuild_set_output_quiet, run_prebuild, run_prebuild_worker_if_requested, PrebuildMode,
+    PrebuildOptions, PrebuildPhaseSession, PrebuildPhaseTracker, PrebuildProgressSession,
+    PrebuildReport, PrebuildScopeProfile, PrebuildWarningSummary,
 };
 
 pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
@@ -46,8 +46,7 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
         .filter(|value| !value.is_empty());
 
     if clean_only {
-        let clean_report =
-            clean_workspace_prebuild_artifacts(source_root.as_path(), app_filter)?;
+        let clean_report = clean_workspace_prebuild_artifacts(source_root.as_path(), app_filter)?;
         if json_mode {
             let payload = json!({
                 "schema_version": "mei-cli-v1",
@@ -329,11 +328,7 @@ fn emit_prebuild_json_footer(report: &PrebuildReport, full_report_path: Option<&
     if let Some(path) = full_report_path {
         eprintln!("  full report: {}", path.display());
     }
-    emit_prebuild_diagnostic_hints(
-        Path::new(&report.source_root),
-        report,
-        true,
-    );
+    emit_prebuild_diagnostic_hints(Path::new(&report.source_root), report, true);
 }
 
 fn emit_warning_summary_lines(summary: &PrebuildWarningSummary, emit: &dyn Fn(&str)) {
@@ -409,7 +404,11 @@ fn emit_prebuild_diagnostic_hints(source_root: &Path, report: &PrebuildReport, t
                 tracing::info!(target: "mei.prebuild.hint", hint = %hint, "prebuild warning hint");
                 emit(&format!("    {hint}"));
             }
-            if let Some(chain) = warning.error_chain.as_deref().filter(|value| !value.is_empty()) {
+            if let Some(chain) = warning
+                .error_chain
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
                 let first_line = chain.lines().next().unwrap_or(chain);
                 emit(&format!("    error_chain: {first_line}"));
             }

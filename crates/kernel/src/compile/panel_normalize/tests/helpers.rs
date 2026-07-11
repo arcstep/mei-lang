@@ -94,4 +94,3 @@ pub(super) fn metric_card_panel_with_extra_props(
         import_scope: None,
     })
 }
-

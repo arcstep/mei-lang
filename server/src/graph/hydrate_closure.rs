@@ -82,13 +82,11 @@ pub fn hydrate_assembled_scope_closure(
         }
         if seed.ends_with(".mei") && !seed.ends_with(".world.mei") {
             if let Some(world_capsule) = world_capsule_path_for_scene(seed.as_str()) {
-                if let Some(donor) =
-                    load_scene_payload_compiled_from_mcg(
-                        app_root.as_path(),
-                        &mcg,
-                        world_capsule.as_str(),
-                    )
-                {
+                if let Some(donor) = load_scene_payload_compiled_from_mcg(
+                    app_root.as_path(),
+                    &mcg,
+                    world_capsule.as_str(),
+                ) {
                     merge_compiled_runtime_catalog(compiled, &donor);
                 }
             }
@@ -133,7 +131,11 @@ mod tests {
         let mcg = McgRegistry::default();
         let seeds = closure_seed_scene_files(&compiled, &mcg, &[], &[]);
         assert!(seeds.contains("scenes/x.board.mei"));
-        assert!(seeds.len() <= 5, "board closure seeds should stay small: {:?}", seeds);
+        assert!(
+            seeds.len() <= 5,
+            "board closure seeds should stay small: {:?}",
+            seeds
+        );
     }
 
     #[test]

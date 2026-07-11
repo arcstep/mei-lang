@@ -111,4 +111,3 @@ fn panel_scale_factor_parses_numeric_and_percent_values() {
     assert_eq!(panel_scale_factor(&json!({"scale": 1})), None);
     assert_eq!(panel_scale_factor(&json!({})), None);
 }
-

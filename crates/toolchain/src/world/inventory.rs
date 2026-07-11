@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use mei_lang_kernel::{decode_ref_value, UiNodeDecl, RefKind, UiTreeNode};
+use mei_lang_kernel::{decode_ref_value, RefKind, UiNodeDecl, UiTreeNode};
 use serde_json::Value;
 
 use crate::types::{

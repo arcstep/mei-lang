@@ -88,12 +88,9 @@ fn scene_routes_for_ui_tree<'a>(
     routes
         .iter()
         .filter(|route| {
-            !route.target_file.ends_with(".board.mei")
-                && !route.target_file.ends_with(".page.mei")
+            !route.target_file.ends_with(".board.mei") && !route.target_file.ends_with(".page.mei")
         })
-        .filter(|route| {
-            active_scene.is_none_or(|scene| route.scene_id.as_str() == scene)
-        })
+        .filter(|route| active_scene.is_none_or(|scene| route.scene_id.as_str() == scene))
         .collect()
 }
 
@@ -119,7 +116,10 @@ fn append_t2_board_structure(index: &mut UiLayoutIndex, compiled: &CompiledApp, 
         .pages
         .values()
         .filter(|entry| {
-            entry.popup_consumers.iter().any(|consumer| consumer == scene_id)
+            entry
+                .popup_consumers
+                .iter()
+                .any(|consumer| consumer == scene_id)
                 || entry.scene_id == scene_id
         })
         .collect();
@@ -185,10 +185,7 @@ fn append_t2_board_structure(index: &mut UiLayoutIndex, compiled: &CompiledApp, 
             let section_node = UiScopeNode {
                 node_id: BuildNodeId::ui_scope(scene_id, section_segments.join("/")).encode(),
                 role: UiScopeRole::Section,
-                label: slot
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| slot.slot_id.clone()),
+                label: slot.label.clone().unwrap_or_else(|| slot.slot_id.clone()),
                 scope_path: section_segments.clone(),
                 plane: Some("T2".to_string()),
                 parent_id: Some(region_id.clone()),
@@ -275,7 +272,10 @@ fn merge_build_result(
     }
 }
 
-fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<ReachabilityTreeNode> {
+fn ui_scope_to_tree_node(
+    node: &UiScopeNode,
+    index: &UiLayoutIndex,
+) -> Option<ReachabilityTreeNode> {
     if matches!(node.role, UiScopeRole::Budget) {
         return None;
     }
@@ -394,7 +394,7 @@ fn content_has_content_children(node: &UiScopeNode, index: &UiLayoutIndex) -> bo
 fn scene_contracts_from_compiled(
     compiled: &CompiledApp,
 ) -> BTreeMap<String, crate::model::SceneContract> {
-    use crate::model::{UiNodeDecl, SceneContract, SceneDecl};
+    use crate::model::{SceneContract, SceneDecl, UiNodeDecl};
     use serde_json::Value;
 
     let mut map = BTreeMap::new();
@@ -459,7 +459,11 @@ pub fn ui_structure_root_snapshot(root: ReachabilityTreeRoot) -> ReachabilityTre
         group: root.group,
         label: root.label,
         default_open: root.default_open,
-        children: root.children.into_iter().map(node_to_snapshot_local).collect(),
+        children: root
+            .children
+            .into_iter()
+            .map(node_to_snapshot_local)
+            .collect(),
     }
 }
 
@@ -478,7 +482,11 @@ fn node_to_snapshot_local(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSna
         plane_tier: node.plane_tier,
         source_file: node.source_file,
         source_symbol: node.source_symbol,
-        children: node.children.into_iter().map(node_to_snapshot_local).collect(),
+        children: node
+            .children
+            .into_iter()
+            .map(node_to_snapshot_local)
+            .collect(),
     }
 }
 
@@ -490,7 +498,10 @@ pub fn merge_ui_structure_root(
         return;
     }
     let ui_snapshot = ui_structure_root_snapshot(ui_root);
-    if let Some(existing) = snapshot.iter().position(|root| root.group == "ui_structure") {
+    if let Some(existing) = snapshot
+        .iter()
+        .position(|root| root.group == "ui_structure")
+    {
         snapshot[existing] = ui_snapshot;
     } else {
         snapshot.insert(0, ui_snapshot);

@@ -61,10 +61,8 @@ pub fn render_build_preview_fragment(
     };
     let build_preview_scope =
         mei_lang_kernel::resolve_build_preview_scope_for_ssr(compiled, &resolved.node);
-    let build_preview_component_use_key_owned =
-        build_preview_component_use_key(&resolved.node);
-    let build_preview_component_use_key =
-        build_preview_component_use_key_owned.as_deref();
+    let build_preview_component_use_key_owned = build_preview_component_use_key(&resolved.node);
+    let build_preview_component_use_key = build_preview_component_use_key_owned.as_deref();
     let preview_route = route_mode.unwrap_or(UiRouteMode::Layout);
     let preview = preview::preview_view(
         compiled,

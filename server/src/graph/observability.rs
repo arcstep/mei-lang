@@ -7,10 +7,10 @@ use mei_lang_kernel::{resolve_app_root, resolve_runtime_warmup_manifest};
 use serde::Serialize;
 
 use crate::graph::content_store::{content_store_root, resolve_payload_ref};
-use crate::graph::mcg::scene_payload::load_scene_payload_artifact;
 use crate::graph::mcg::registry::{McgRegistry, McgRegistryWriter, MCG_REGISTRY_SCHEMA_VERSION};
-use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter, MRG_REGISTRY_SCHEMA_VERSION};
+use crate::graph::mcg::scene_payload::load_scene_payload_artifact;
 use crate::graph::mrg::navigation_contract;
+use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter, MRG_REGISTRY_SCHEMA_VERSION};
 use crate::graph::types::MaterialState;
 use crate::readiness::scope_gate;
 
@@ -105,7 +105,12 @@ fn graph_app_status(source_root: &Path, app_id: &str) -> GraphAppStatus {
             navigation_count: mrg
                 .nodes
                 .iter()
-                .filter(|node| matches!(node, crate::graph::mrg::nodes::MrgNodeRecord::Navigation { .. }))
+                .filter(|node| {
+                    matches!(
+                        node,
+                        crate::graph::mrg::nodes::MrgNodeRecord::Navigation { .. }
+                    )
+                })
                 .count(),
             slot_ready: mrg
                 .slots
@@ -160,13 +165,19 @@ pub fn run_graph_doctor(source_root: &Path, app_id: &str) -> GraphDoctorReport {
         if !nav.missing_access_keys.is_empty() {
             alerts.push(GraphDoctorAlert {
                 layer: "L2".to_string(),
-                message: format!("navigation missing access keys: {}", nav.missing_access_keys.join(", ")),
+                message: format!(
+                    "navigation missing access keys: {}",
+                    nav.missing_access_keys.join(", ")
+                ),
             });
         }
         if !nav.duplicate_keys.is_empty() {
             alerts.push(GraphDoctorAlert {
                 layer: "L2".to_string(),
-                message: format!("navigation duplicate keys: {}", nav.duplicate_keys.join(", ")),
+                message: format!(
+                    "navigation duplicate keys: {}",
+                    nav.duplicate_keys.join(", ")
+                ),
             });
         }
     }
@@ -237,7 +248,8 @@ fn check_data_source_parquet(source_root: &Path, app_id: &str, alerts: &mut Vec<
     let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Ok(manifest) = serde_json::from_str::<mei_lang_kernel::DataSnapshotImportManifest>(&raw) else {
+    let Ok(manifest) = serde_json::from_str::<mei_lang_kernel::DataSnapshotImportManifest>(&raw)
+    else {
         return;
     };
     for entry in manifest.entries {
@@ -251,7 +263,11 @@ fn check_data_source_parquet(source_root: &Path, app_id: &str, alerts: &mut Vec<
     }
 }
 
-fn payload_ref_exists(app_root: &Path, pref: &crate::graph::types::PayloadRef, node_key: &str) -> bool {
+fn payload_ref_exists(
+    app_root: &Path,
+    pref: &crate::graph::types::PayloadRef,
+    node_key: &str,
+) -> bool {
     if resolve_payload_ref(app_root, pref).is_some() {
         return true;
     }
@@ -397,9 +413,10 @@ pub fn run_graph_inspect(
                         key: node.id.key.clone(),
                         revision: node.revision.clone(),
                         state: format!("{:?}", node.state),
-                        content_hash_prefix: node.payload_ref.as_ref().map(|pref| {
-                            pref.content_hash.chars().take(8).collect()
-                        }),
+                        content_hash_prefix: node
+                            .payload_ref
+                            .as_ref()
+                            .map(|pref| pref.content_hash.chars().take(8).collect()),
                     })
                     .collect(),
             );
@@ -416,9 +433,10 @@ pub fn run_graph_inspect(
                         owner: slot.owner_resource_id.clone(),
                         scope_key: slot.slot_id.scope_key.clone(),
                         state: format!("{:?}", slot.state),
-                        content_hash_prefix: slot.payload_ref.as_ref().map(|pref| {
-                            pref.content_hash.chars().take(8).collect()
-                        }),
+                        content_hash_prefix: slot
+                            .payload_ref
+                            .as_ref()
+                            .map(|pref| pref.content_hash.chars().take(8).collect()),
                     })
                     .collect(),
             );

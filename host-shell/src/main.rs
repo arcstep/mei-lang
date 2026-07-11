@@ -1,57 +1,60 @@
+mod access_page_cache;
 mod api_error;
 mod api_stubs;
+mod app_surface;
+mod artifact_observability;
 mod assets;
 mod build_api;
-mod build_info;
 mod build_fragment_cache;
-mod thin_shell_page_cache;
-mod access_page_cache;
-mod artifact_observability;
-mod scene_bundle;
-mod scene_manifest;
-mod startup;
-mod startup_banner;
-mod page_observability;
+mod build_info;
 mod build_ops;
 mod cache_diagnostics;
 mod cli;
+mod client_trace;
 mod commands;
+mod draft_session;
 mod gis_config;
 mod gis_proxy;
-mod app_surface;
 mod host_home;
 mod host_mcg;
 mod host_runtime_hub;
 mod host_scoped;
-mod shell_redirects;
-mod workspace_page;
-mod landing;
 mod http;
-mod draft_session;
+mod landing;
 mod light_pages;
 mod managed_plug;
 mod ops_api;
 mod ops_config_api;
 mod ops_theme_layout_api;
+mod page_observability;
+mod pages;
+mod plug_proxy;
 mod presentation_compile;
 mod presentation_scripts;
+mod request_logging;
 mod review_axes;
 mod runtime_api;
 mod runtime_snapshot;
-mod pages;
-mod plug_proxy;
-mod client_trace;
-mod request_logging;
+mod scene_bundle;
+mod scene_manifest;
+mod shell_redirects;
+mod startup;
+mod startup_banner;
 mod state;
+mod thin_shell_page_cache;
 mod tool_exec;
-mod view_revision;
 mod upload_api;
 mod upload_support;
+mod view_revision;
+mod workspace_page;
 
 use clap::{CommandFactory, Parser};
 
 #[derive(Parser, Debug)]
-#[command(name = "mei-host-shell", about = "MeiLang v2 host (workspace init / prebuild / import / reload / serve)")]
+#[command(
+    name = "mei-host-shell",
+    about = "MeiLang v2 host (workspace init / prebuild / import / reload / serve)"
+)]
 struct Cli {
     /// Print shell binary build identity and exit
     #[arg(short = 'V', long = "version", global = true)]

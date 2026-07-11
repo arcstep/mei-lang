@@ -38,10 +38,16 @@ pub fn apply_scope_to_compiled_app(
     active_scene: Option<&str>,
     active_target: Option<&str>,
 ) {
-    if let Some(scene) = active_scene.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(scene) = active_scene
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         compiled.active_scene = Some(scene.to_string());
     }
-    if let Some(target) = active_target.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(target) = active_target
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         compiled.active_target_file = target.to_string();
     }
 }
@@ -106,11 +112,7 @@ mod tests {
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         };
-        let view = assemble_scope_view(
-            compiled,
-            Some("export_scene"),
-            Some("scenes/a.board.mei"),
-        );
+        let view = assemble_scope_view(compiled, Some("export_scene"), Some("scenes/a.board.mei"));
         assert_eq!(view.active_scene.as_deref(), Some("export_scene"));
     }
 }

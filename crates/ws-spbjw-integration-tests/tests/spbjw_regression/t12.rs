@@ -182,4 +182,3 @@ fn query_spbjw_inspection_total_analytics_board_resolves_local_dataset() {
         "inspection total analytics board should resolve dashboard rowset"
     );
 }
-

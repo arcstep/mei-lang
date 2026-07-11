@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 
 mod audit;
 mod constants;
@@ -18,9 +18,9 @@ mod tests;
 
 use audit::emit_layout_audit_diagnostics;
 use constants::{
-    DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING, LAYOUT_POLICY_METRICS_2X2,
-    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO, LAYOUT_POLICY_METRICS_STRIP,
-    LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_HAS_HEAD, CONTENT_ZONE, TITLE_ZONE,
+    CONTENT_ZONE, DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING,
+    LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,
+    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_HAS_HEAD, TITLE_ZONE,
 };
 use diagnostics::emit_panel_head_diagnostics;
 use layout_policy::{

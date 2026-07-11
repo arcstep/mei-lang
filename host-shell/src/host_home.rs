@@ -11,14 +11,14 @@ use mei_host_auth::{
 use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
 use mei_lang_kernel::{load_workspace_config, WorkspaceAppMeta};
 
-use crate::landing::{app_has_prebuilt_access_entry, choose_default_app, discover_workspace_apps, enrich_discovered_apps};
+use crate::landing::{
+    app_has_prebuilt_access_entry, choose_default_app, discover_workspace_apps,
+    enrich_discovered_apps,
+};
 use crate::state::SharedState;
 use crate::workspace_page::render_workspace_shell_page;
 
-pub fn render_host_home_body_html(
-    workspace_root: &Path,
-    apps: &[WorkspaceAppMeta],
-) -> String {
+pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMeta]) -> String {
     let workspace = load_workspace_config(workspace_root);
     let workspace_label = workspace
         .workspace
@@ -49,7 +49,11 @@ pub fn render_host_home_body_html(
                 let access_href = format!("/apps/{}/view?surface=app", app.id);
                 let build_href = format!("/apps/{}/view?surface=layout", app.id);
                 let status = if access_ready { "ready" } else { "missing" };
-                let status_label = if access_ready { "已编译" } else { "待预构建" };
+                let status_label = if access_ready {
+                    "已编译"
+                } else {
+                    "待预构建"
+                };
                 let default_mark = if default_app == Some(app.id.as_str()) {
                     r#"<span class="mei-host-shell__card-badge">默认</span>"#
                 } else {
@@ -198,9 +202,7 @@ mod tests {
         );
         assert!(html.contains("app-tab") || html.contains("app-group-trigger"));
         assert!(html.contains("shell-nav-link"));
-        let app_toolbar = html
-            .find("topbar-app-toolbar")
-            .expect("app toolbar region");
+        let app_toolbar = html.find("topbar-app-toolbar").expect("app toolbar region");
         let system_toolbar = html
             .find("topbar-system-toolbar")
             .expect("system toolbar region");

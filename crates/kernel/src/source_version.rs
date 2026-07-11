@@ -489,23 +489,12 @@ mod tests {
 
     #[test]
     fn resolve_versioned_source_path_falls_back_to_assets_upload() {
-        let root = std::env::temp_dir().join(format!(
-            "mei-upload-legacy-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("mei-upload-legacy-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("assets/upload")).expect("mkdir assets upload");
-        fs::write(
-            root.join("assets/upload/8.行政处罚结果清单.xlsx"),
-            b"xlsx",
-        )
-        .expect("write xlsx");
-        let resolved =
-            resolve_versioned_source_path(&root, "upload/8.行政处罚结果清单.xlsx");
-        assert_eq!(
-            resolved,
-            root.join("assets/upload/8.行政处罚结果清单.xlsx")
-        );
+        fs::write(root.join("assets/upload/8.行政处罚结果清单.xlsx"), b"xlsx").expect("write xlsx");
+        let resolved = resolve_versioned_source_path(&root, "upload/8.行政处罚结果清单.xlsx");
+        assert_eq!(resolved, root.join("assets/upload/8.行政处罚结果清单.xlsx"));
         let _ = fs::remove_dir_all(&root);
     }
 }

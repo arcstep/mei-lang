@@ -17,7 +17,10 @@ pub fn resolve_draft_session_id(headers: &HeaderMap) -> String {
     {
         return value.to_string();
     }
-    if let Some(cookie) = headers.get(http::header::COOKIE).and_then(|v| v.to_str().ok()) {
+    if let Some(cookie) = headers
+        .get(http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    {
         for part in cookie.split(';') {
             let piece = part.trim();
             if let Some(value) = piece.strip_prefix(&format!("{DRAFT_SESSION_COOKIE}=")) {
@@ -28,8 +31,5 @@ pub fn resolve_draft_session_id(headers: &HeaderMap) -> String {
             }
         }
     }
-    format!(
-        "host-{}",
-        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
-    )
+    format!("host-{}", SESSION_COUNTER.fetch_add(1, Ordering::Relaxed))
 }

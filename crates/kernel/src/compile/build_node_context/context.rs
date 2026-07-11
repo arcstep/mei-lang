@@ -1,14 +1,11 @@
-use super::{world_file_symbol_id};
-
+use super::world_file_symbol_id;
 
 use crate::compile::build_template_index::{
     authoring_preview_target_for_template, preview_scene_id_for_template_consumer,
     preview_scene_id_for_template_file_consumer, preview_target_for_template_consumer,
     preview_target_for_template_file_consumer,
 };
-use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor,
-};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor};
 
 /// Resolved preview / routing context for a build-view node selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,11 +135,10 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
         }
         BuildNodeKind::Component => {
             let component_key = node.key.as_str();
-            let authoring =
-                authoring_preview_target_for_template(compiled, component_key);
-            let target_file = authoring.clone().unwrap_or_else(|| {
-                template_target_file(compiled, node)
-            });
+            let authoring = authoring_preview_target_for_template(compiled, component_key);
+            let target_file = authoring
+                .clone()
+                .unwrap_or_else(|| template_target_file(compiled, node));
             BuildNodeContext {
                 node: node.clone(),
                 target_file,
@@ -207,19 +203,19 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
                 provenance,
             }
         }
-        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval
-        | BuildNodeKind::McgNode => {
-            BuildNodeContext {
-                node: node.clone(),
-                target_file: compiled.active_target_file.clone(),
-                scene_id: compiled.active_scene.clone(),
-                world_metric: None,
-                world_dataset: None,
-                explain: None,
-                projection_id: None,
-                provenance,
-            }
-        }
+        BuildNodeKind::Artifact
+        | BuildNodeKind::GraphSemantic
+        | BuildNodeKind::GraphEval
+        | BuildNodeKind::McgNode => BuildNodeContext {
+            node: node.clone(),
+            target_file: compiled.active_target_file.clone(),
+            scene_id: compiled.active_scene.clone(),
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
+            projection_id: None,
+            provenance,
+        },
         BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
             let (scene_id, _rest) = node
                 .key
@@ -416,7 +412,9 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
         BuildNodeKind::Template => ProvenanceAnchor {
             file: authoring_preview_target_for_template(compiled, node.key.as_str())
                 .or_else(|| {
-                    if crate::compile::build_experience::is_template_file_node_key(node.key.as_str()) {
+                    if crate::compile::build_experience::is_template_file_node_key(
+                        node.key.as_str(),
+                    ) {
                         crate::compile::build_experience::template_file_preview_target(
                             compiled,
                             node.key.as_str(),
@@ -510,4 +508,3 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
         }
     }
 }
-

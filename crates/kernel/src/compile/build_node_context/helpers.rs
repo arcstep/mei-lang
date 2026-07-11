@@ -1,4 +1,3 @@
-
 use crate::model::CompiledApp;
 
 pub(super) fn world_file_symbol_id(compiled: &CompiledApp, file: &str) -> String {
@@ -10,4 +9,3 @@ pub(super) fn world_file_symbol_id(compiled: &CompiledApp, file: &str) -> String
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| file.to_string())
 }
-

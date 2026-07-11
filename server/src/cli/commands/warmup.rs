@@ -1,5 +1,7 @@
 use anyhow::Result;
-use mei_lang_kernel::{discover_board_warmup_suggestions, resolve_app_root, resolve_runtime_warmup_manifest};
+use mei_lang_kernel::{
+    discover_board_warmup_suggestions, resolve_app_root, resolve_runtime_warmup_manifest,
+};
 use serde_json::json;
 use std::collections::BTreeSet;
 

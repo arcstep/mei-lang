@@ -12,6 +12,56 @@ pub struct MacroDef {
     pub module_consts: BTreeMap<String, V2Expr>,
 }
 
+/// Template search roots for `use template` (app-first, then workspace stock).
+#[derive(Debug, Clone)]
+pub struct TemplateRoots {
+    pub app_templates: PathBuf,
+    pub app_src: PathBuf,
+    pub stock: PathBuf,
+}
+
+impl TemplateRoots {
+    pub fn from_app_and_stock(app_root: &Path, stock: PathBuf) -> Self {
+        Self {
+            app_templates: app_root.join("src/templates"),
+            app_src: app_root.join("src"),
+            stock,
+        }
+    }
+
+    pub fn stock_only(stock: PathBuf) -> Self {
+        Self {
+            app_templates: PathBuf::new(),
+            app_src: PathBuf::new(),
+            stock,
+        }
+    }
+
+    /// Resolve import path to an on-disk `.mei` file (app templates → app src → stock).
+    pub fn resolve_file(&self, import_path: &str) -> Option<PathBuf> {
+        for root in self.search_roots() {
+            if !root.is_dir() {
+                continue;
+            }
+            let candidate = template_file_path(root, import_path);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn search_roots(&self) -> impl Iterator<Item = &Path> {
+        [
+            self.app_templates.as_path(),
+            self.app_src.as_path(),
+            self.stock.as_path(),
+        ]
+        .into_iter()
+        .filter(|p| !p.as_os_str().is_empty())
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct MacroRegistry {
     by_name: BTreeMap<String, MacroDef>,
@@ -47,7 +97,10 @@ impl MacroRegistry {
                 );
             }
         }
-        if names.len() == 1 {
+        if !names.is_empty() {
+            // Multi-template files (e.g. geometry.mei) must still resolve by import path
+            // so `use template "scene/.../geometry" as geo` succeeds; qualified calls
+            // then resolve via template name (`geo.focus_inset`).
             self.by_import_path
                 .insert(file_path.clone(), names[0].clone());
         }
@@ -55,25 +108,22 @@ impl MacroRegistry {
 
     pub fn load_dir(root: &Path) -> std::io::Result<Self> {
         let mut registry = Self::new();
-        if !root.is_dir() {
-            return Ok(registry);
+        load_dir_into(&mut registry, root, false)?;
+        Ok(registry)
+    }
+
+    /// Load stock first, then app `src` (excluding `templates/`), then `src/templates`.
+    /// Later layers overwrite same import path / template name (app wins).
+    pub fn load_layered(roots: &TemplateRoots) -> std::io::Result<Self> {
+        let mut registry = Self::new();
+        if roots.stock.is_dir() {
+            load_dir_into(&mut registry, &roots.stock, false)?;
         }
-        for entry in walkdir::WalkDir::new(root)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "mei"))
-        {
-            let path = entry.path();
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let rel = rel.strip_suffix(".mei").unwrap_or(&rel).to_string();
-            let source = std::fs::read_to_string(path)?;
-            if let Ok(file) = mei_syntax::v2::parse_v2_source(&source) {
-                registry.register_file(&rel, &file);
-            }
+        if roots.app_src.is_dir() {
+            load_dir_into(&mut registry, &roots.app_src, true)?;
+        }
+        if roots.app_templates.is_dir() {
+            load_dir_into(&mut registry, &roots.app_templates, false)?;
         }
         Ok(registry)
     }
@@ -96,6 +146,50 @@ impl MacroRegistry {
     }
 }
 
+fn load_dir_into(
+    registry: &mut MacroRegistry,
+    root: &Path,
+    skip_templates_subdir: bool,
+) -> std::io::Result<()> {
+    if !root.is_dir() {
+        return Ok(());
+    }
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "mei"))
+    {
+        let path = entry.path();
+        if skip_templates_subdir {
+            let rel_check = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel_check == "templates"
+                || rel_check.starts_with("templates/")
+                || rel_check
+                    .split('/')
+                    .next()
+                    .is_some_and(|seg| seg == "templates")
+            {
+                continue;
+            }
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let rel = rel.strip_suffix(".mei").unwrap_or(&rel).to_string();
+        let source = std::fs::read_to_string(path)?;
+        if let Ok(file) = mei_syntax::v2::parse_v2_source(&source) {
+            registry.register_file(&rel, &file);
+        }
+    }
+    Ok(())
+}
+
 pub fn normalize_template_path(path: &str) -> String {
     path.trim()
         .replace('\\', "/")
@@ -107,6 +201,9 @@ pub fn template_file_path(stock_templates: &Path, import_path: &str) -> PathBuf 
     let rel = import_path.trim().trim_matches('"');
     let mut path = stock_templates.to_path_buf();
     for segment in rel.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
         path.push(segment);
     }
     if path.extension().is_none() {

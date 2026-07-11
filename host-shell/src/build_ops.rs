@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use mei_host_core::ImportReport;
 use mei_lang_kernel::{
-    finalize_and_promote_build, prepare_dev_build_generation_with_hint, read_links_state,
-    discover_apps, resolve_active_build_identity, resolve_app_build_generation_from_current,
+    discover_apps, finalize_and_promote_build, prepare_dev_build_generation_with_hint,
+    read_links_state, resolve_active_build_identity, resolve_app_build_generation_from_current,
     resolve_app_root, resolve_build_footer_label, resolve_toolchain_version_with_hint,
     resolve_workspace_version, PrebuildGeneration,
 };
@@ -18,7 +18,9 @@ pub fn toolchain_hint() -> &'static str {
 }
 
 pub fn canonical_workspace(workspace: &Path) -> PathBuf {
-    workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf())
+    workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf())
 }
 
 pub fn resolve_app_id(workspace: &Path, app: Option<&str>) -> anyhow::Result<String> {
@@ -82,8 +84,11 @@ pub fn import_with_options(
     let workspace = canonical_workspace(workspace);
     crate::build_info::log_host_identity(Some(workspace.as_path()), "import");
     let ctx = mei_host_core::HostContext::new(workspace, app.to_string());
-    let options = mei_host_graph::ImportOptions { bundle_path: bundle };
-    let report = mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let options = mei_host_graph::ImportOptions {
+        bundle_path: bundle,
+    };
+    let report =
+        mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))?;
     let _ = crate::access_page_cache::clear_legacy_page_render_cache_for_app(
         ctx.workspace_root.as_path(),
         app,
@@ -136,11 +141,8 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
         .ok()
         .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false);
-    let invalidation = mei_host_graph::invalidate_app_eval_cache(
-        workspace.as_path(),
-        app,
-        force_clear,
-    )?;
+    let invalidation =
+        mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app, force_clear)?;
     tracing::info!(
         app_id = %app,
         force_cleared = invalidation.force_cleared,
@@ -195,10 +197,8 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
     let workspace = shell.ctx.workspace_root.as_path();
     let identity = resolve_active_build_identity(workspace);
     let links = read_links_state(workspace).ok();
-    let version = crate::build_info::version_descriptor(
-        Some(workspace),
-        Some(shell.host_started_at_ms),
-    );
+    let version =
+        crate::build_info::version_descriptor(Some(workspace), Some(shell.host_started_at_ms));
     let access_ready = shell.imported;
     let warmup_ready = shell.warmed_up;
     let phase = if !shell.imported {
@@ -271,10 +271,7 @@ pub fn begin_ops_job(shell: &mut ShellState, kind: &str) -> Result<(), String> {
     if shell.ops_job.as_ref().is_some_and(OpsJobState::is_running) {
         return Err("another host-shell ops job is already running".to_string());
     }
-    shell.ops_job = Some(OpsJobState::running(
-        kind,
-        crate::state::current_time_ms(),
-    ));
+    shell.ops_job = Some(OpsJobState::running(kind, crate::state::current_time_ms()));
     Ok(())
 }
 

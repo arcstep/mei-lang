@@ -30,7 +30,11 @@ impl ArtifactHitMatrix {
 }
 
 fn hit(value: bool) -> &'static str {
-    if value { "hit" } else { "miss" }
+    if value {
+        "hit"
+    } else {
+        "miss"
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -41,16 +45,10 @@ pub struct LayerArtifactObservability {
 impl LayerArtifactObservability {
     pub fn response_headers(&self) -> [(&'static str, String); 5] {
         [
-            (
-                "x-mei-structure-hit",
-                bool_header(self.hits.structure_hit),
-            ),
+            ("x-mei-structure-hit", bool_header(self.hits.structure_hit)),
             ("x-mei-eval-hit", bool_header(self.hits.eval_hit)),
             ("x-mei-theme-hit", bool_header(self.hits.theme_hit)),
-            (
-                "x-mei-overlay-hit",
-                bool_header(self.hits.overlay_hit),
-            ),
+            ("x-mei-overlay-hit", bool_header(self.hits.overlay_hit)),
             ("x-mei-shell-hit", bool_header(self.hits.shell_hit)),
         ]
     }
@@ -60,9 +58,7 @@ fn bool_header(value: bool) -> String {
     if value { "1" } else { "0" }.to_string()
 }
 
-pub fn parse_artifact_hits_from_headers(
-    headers: &axum::http::HeaderMap,
-) -> ArtifactHitMatrix {
+pub fn parse_artifact_hits_from_headers(headers: &axum::http::HeaderMap) -> ArtifactHitMatrix {
     ArtifactHitMatrix {
         structure_hit: header_bool(headers, "x-mei-structure-hit"),
         eval_hit: header_bool(headers, "x-mei-eval-hit"),

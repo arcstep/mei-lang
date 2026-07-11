@@ -28,7 +28,8 @@ pub fn serve_static_asset_with_cache(
             .body(Body::empty())?;
         response.headers_mut().insert(
             ETAG,
-            HeaderValue::from_str(etag.as_str()).unwrap_or_else(|_| HeaderValue::from_static("\"0\"")),
+            HeaderValue::from_str(etag.as_str())
+                .unwrap_or_else(|_| HeaderValue::from_static("\"0\"")),
         );
         response.headers_mut().insert(
             HeaderName::from_static("cache-control"),

@@ -1,7 +1,7 @@
-mod support;
-mod compile_cache;
-mod world_query;
 mod capability;
-mod knowledge;
+mod compile_cache;
 mod editor_runtime;
+mod knowledge;
+mod support;
 mod workspace;
+mod world_query;

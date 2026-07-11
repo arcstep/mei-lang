@@ -273,7 +273,9 @@ fn hot_only_artifact_outcomes_keep_default_and_warmup_scopes_only() {
     assert!(filtered
         .iter()
         .any(|entry| entry.scope.key() == CompileScope::default_scope().key()));
-    assert!(filtered.iter().any(|entry| entry.scope.key() == "home|scenes/panel.mei"));
+    assert!(filtered
+        .iter()
+        .any(|entry| entry.scope.key() == "home|scenes/panel.mei"));
 }
 
 #[test]
@@ -328,4 +330,3 @@ fn compile_scope_excludes_board_focus_and_deferred_datasets() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].dataset_id, "hot_ds");
 }
-

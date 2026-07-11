@@ -7,10 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
-use crate::mei_config::{
-    resolve_app_entry_main, APP_CONFIG_FILENAME,
-    MEI_CONFIG_FILENAME,
-};
+use crate::mei_config::{resolve_app_entry_main, APP_CONFIG_FILENAME, MEI_CONFIG_FILENAME};
 use crate::model::WorkspaceNode;
 
 pub fn read_source_file(path: &Path) -> Result<String> {

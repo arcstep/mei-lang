@@ -114,4 +114,3 @@ fn knowledge_bundle_exports_access_assets() {
         .iter()
         .any(|item| item["descriptor"]["id"] == "access_workflow"));
 }
-

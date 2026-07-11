@@ -36,7 +36,9 @@ pub fn block_inspect(source_root: &Path, app_id: &str, block_id: &BlockId) -> Re
             let slot = mrg
                 .slots
                 .iter()
-                .find(|slot| slot.slot_id.node.key == block_id.key && slot.slot_id.scope_key == scope_key)
+                .find(|slot| {
+                    slot.slot_id.node.key == block_id.key && slot.slot_id.scope_key == scope_key
+                })
                 .ok_or_else(|| anyhow!("MRG slot not found: {}", block_id.stable_key()))?;
             details.insert("owner".to_string(), slot.owner_resource_id.clone());
             details.insert("state".to_string(), format!("{:?}", slot.state));

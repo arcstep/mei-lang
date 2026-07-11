@@ -32,9 +32,7 @@ pub fn host_runtime_capabilities_json(app_path: &str, data_mode: Option<&str>) -
 }
 
 pub fn scene_drilldown_artifact_public_url(app_id: &str, scene_id: &str) -> String {
-    format!(
-        "/api/host/scene-drilldown-context?app={app_id}&scene={scene_id}"
-    )
+    format!("/api/host/scene-drilldown-context?app={app_id}&scene={scene_id}")
 }
 
 fn html_escape_attr(value: &str) -> String {
@@ -52,7 +50,8 @@ pub fn render_host_ssr_bootstrap_head_revision_only(
     preview_scene_id: Option<&str>,
     data_mode: Option<&str>,
 ) -> String {
-    let artifact_url = scene_drilldown_artifact_public_url(app_id, preview_scene_id.unwrap_or("home"));
+    let artifact_url =
+        scene_drilldown_artifact_public_url(app_id, preview_scene_id.unwrap_or("home"));
     let runtime_payload = host_runtime_capabilities_json(app_path, data_mode);
     let scope = html_escape_attr(preview_scene_id.unwrap_or("home"));
     let app_attr = html_escape_attr(app_id);

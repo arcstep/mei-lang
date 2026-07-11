@@ -2,8 +2,8 @@ use serde_json::{Map, Value};
 
 use crate::model::{Diagnostic, LoadedResource, Severity};
 
-use super::params::synthesize_board_payload_from_bindings;
 use super::super::metric::{expand_page_instance, parse_metric_ref_id};
+use super::params::synthesize_board_payload_from_bindings;
 
 /// Host-graph runtime：用 `examples[0].params` + `bindings` 展开 `projection_slots`。
 pub fn enrich_runtime_page_instance_projection_slots(

@@ -34,7 +34,11 @@ pub fn parse_data_mode_ceiling_arg(value: &str) -> Result<DataModeCeiling, Strin
     })
 }
 
-pub fn resolve_page_render_axes(shell: &ShellState, query: &AppQuery, route_mode: UiRouteMode) -> PageRenderAxes {
+pub fn resolve_page_render_axes(
+    shell: &ShellState,
+    query: &AppQuery,
+    route_mode: UiRouteMode,
+) -> PageRenderAxes {
     resolve_page_render_axes_detailed(shell, query, route_mode).axes
 }
 
@@ -51,10 +55,7 @@ pub fn resolve_page_render_axes_with_ceiling_detailed(
     query: &AppQuery,
     route_mode: UiRouteMode,
 ) -> PageRenderAxesResolution {
-    let from_query = query
-        .data_mode
-        .as_deref()
-        .and_then(DataMode::parse);
+    let from_query = query.data_mode.as_deref().and_then(DataMode::parse);
     let requested = from_query.unwrap_or_else(|| default_data_mode_for_route(route_mode, ceiling));
     let data_mode = DataMode::clamp_to_ceiling(requested, ceiling).unwrap_or(DataMode::Static);
     let review_projection =
@@ -187,7 +188,10 @@ mod tests {
     #[test]
     fn build_default_axes_use_plane_region_section_slot() {
         let axes = default_page_render_axes_for_route(UiRouteMode::Layout, DataModeCeiling::Eval);
-        assert_eq!(axes.review_projection, ReviewProjection::PlaneRegionSectionSlot);
+        assert_eq!(
+            axes.review_projection,
+            ReviewProjection::PlaneRegionSectionSlot
+        );
     }
 
     #[test]
@@ -222,7 +226,8 @@ mod tests {
 
     #[test]
     fn prototype_defaults_static_full_without_query() {
-        let axes = default_page_render_axes_for_route(UiRouteMode::Prototype, DataModeCeiling::Eval);
+        let axes =
+            default_page_render_axes_for_route(UiRouteMode::Prototype, DataModeCeiling::Eval);
         assert_eq!(axes.review_projection, ReviewProjection::StaticFull);
     }
 

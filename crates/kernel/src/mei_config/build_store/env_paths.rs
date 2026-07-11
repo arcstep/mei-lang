@@ -10,11 +10,10 @@ use crate::mei_config::types::{
 use crate::mei_config::workspace_paths::{resolve_app_root, resolve_symlink_target_from_link};
 
 use super::build_generation::{
-    is_build_generation_tag, require_build_generation_tag,
-    resolve_build_generation_config, resolve_build_generation_for_prebuild,
-    resolve_version_display_identity_for_app,
+    is_build_generation_tag, require_build_generation_tag, resolve_build_generation_config,
+    resolve_build_generation_for_prebuild, resolve_version_display_identity_for_app,
 };
-use super::types::{DEV_TOOLCHAIN_ALIAS, DEV_TOOLCHAIN_VERSION, is_dev_toolchain_alias};
+use super::types::{is_dev_toolchain_alias, DEV_TOOLCHAIN_ALIAS, DEV_TOOLCHAIN_VERSION};
 
 /// Toolchain segment only (dev alias → `latest`).
 pub fn resolve_toolchain_segment(toolchain_version: &str) -> String {

@@ -8,17 +8,15 @@ use crate::mei_config::workspace_paths::{
 };
 
 use super::prebuild_override::{prebuild_build_root_override, prebuild_var_root_override};
-use super::types::{
-    read_links_state, BuildManifest, DEV_TOOLCHAIN_ALIAS,
-};
+use super::types::{read_links_state, BuildManifest, DEV_TOOLCHAIN_ALIAS};
 
 use std::fs;
 
 use crate::mei_config::types::{APP_ENV_BUILD_REL, APP_ENV_VAR_REL, TOOLCHAIN_ACTIVE_REL};
 
 use super::env_paths::{
-    build_manifest_path, env_generation_from_env_dir,
-    require_app_env_dir_following_current, resolve_app_env_dir_following_current,
+    build_manifest_path, env_generation_from_env_dir, require_app_env_dir_following_current,
+    resolve_app_env_dir_following_current,
 };
 
 fn read_manifest_version(path: &Path) -> Option<String> {
@@ -70,7 +68,13 @@ pub fn resolve_toolchain_version_with_hint(
         }
     }
     let cfg = load_workspace_config(source_root);
-    if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(pin) = cfg
+        .toolchain
+        .pin
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         return pin.to_string();
     }
     if let Ok(links) = read_links_state(source_root) {

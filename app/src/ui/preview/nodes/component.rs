@@ -1,13 +1,11 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    block_instance_id, ui_scope_for_block, BlockDecl, BuildNodeId, CompiledApp, UiNodeDecl,
-    PanelRefEmbedDecl, SceneContract,
+    block_instance_id, ui_scope_for_block, BlockDecl, BuildNodeId, CompiledApp, PanelRefEmbedDecl,
+    SceneContract, UiNodeDecl,
 };
 use serde_json::Value;
 
-use crate::ui::preview::style::{
-    block_style, metric_slot_vertical_host_class,
-};
+use crate::ui::preview::style::{block_style, metric_slot_vertical_host_class};
 use crate::ui::preview::theme::ThemeResolved;
 use crate::ui::preview::{
     resolve::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor},
@@ -189,16 +187,19 @@ pub(crate) fn block_view_for_decl(
         return view! { <></> }.into_any();
     }
     let build_node_id = if runtime_ctx.structure_anchors_enabled {
-        ui_scope_annotation.as_ref().map(|annotation| annotation.node_id.clone()).or_else(|| {
-            parent_panel_id.map(|panel_id| {
-                BuildNodeId::scene_block(
-                    scene_contract.scene.id.clone(),
-                    panel_id,
-                    block_id.as_str(),
-                )
-                .encode()
+        ui_scope_annotation
+            .as_ref()
+            .map(|annotation| annotation.node_id.clone())
+            .or_else(|| {
+                parent_panel_id.map(|panel_id| {
+                    BuildNodeId::scene_block(
+                        scene_contract.scene.id.clone(),
+                        panel_id,
+                        block_id.as_str(),
+                    )
+                    .encode()
+                })
             })
-        })
     } else {
         None
     };

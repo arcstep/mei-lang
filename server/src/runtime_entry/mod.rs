@@ -1,12 +1,12 @@
-mod prelude;
-mod types;
 mod cli_dispatch;
-mod startup;
+mod prelude;
 mod request_logging;
+mod startup;
+mod types;
 
 pub use cli_dispatch::run_cli_for_flavor;
-pub use types::BinaryFlavor;
-pub(crate) use types::{AppState, SessionContextSnapshot};
-pub(crate) use request_logging::AppError;
 #[cfg(test)]
 pub(crate) use request_logging::test_support;
+pub(crate) use request_logging::AppError;
+pub use types::BinaryFlavor;
+pub(crate) use types::{AppState, SessionContextSnapshot};

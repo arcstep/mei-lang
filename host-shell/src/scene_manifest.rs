@@ -132,7 +132,9 @@ fn ensure_materialize_assembled(ctx: &mut MaterializeContext<'_>) -> anyhow::Res
     }
     let assemble_outcome =
         mei_host_graph::assemble_scope_from_registry(ctx.workspace_root, ctx.app_id, ctx.scene_id)?;
-    ctx.compiled = assemble_outcome.as_ref().map(|outcome| outcome.compiled.clone());
+    ctx.compiled = assemble_outcome
+        .as_ref()
+        .map(|outcome| outcome.compiled.clone());
     ctx.assemble_outcome = assemble_outcome;
     Ok(())
 }
@@ -189,8 +191,7 @@ fn materialize_structure_document(ctx: &mut MaterializeContext<'_>) -> Option<Va
     }
     ensure_materialize_assembled(ctx).ok()?;
     let compiled = ctx.compiled.as_ref()?;
-    let document =
-        mei_host_graph::build_structure_full_document(compiled, structure_key.as_str());
+    let document = mei_host_graph::build_structure_full_document(compiled, structure_key.as_str());
     Some(serde_json::to_value(document).unwrap_or(Value::Null))
 }
 
@@ -306,7 +307,10 @@ fn materialize_runtime_plans(
     }))
 }
 
-fn materialize_theme(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix) -> anyhow::Result<Value> {
+fn materialize_theme(
+    ctx: &MaterializeContext<'_>,
+    hits: &mut ArtifactHitMatrix,
+) -> anyhow::Result<Value> {
     let (doc, hit) = mei_host_graph::ensure_theme_tokens_cached(
         ctx.workspace_root,
         ctx.app_id,
@@ -322,7 +326,10 @@ fn materialize_theme(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix)
     }))
 }
 
-fn materialize_overlay(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix) -> anyhow::Result<Value> {
+fn materialize_overlay(
+    ctx: &MaterializeContext<'_>,
+    hits: &mut ArtifactHitMatrix,
+) -> anyhow::Result<Value> {
     let draft_ref = ctx.draft.as_ref();
     let (doc, hit) = mei_host_graph::ensure_layout_overlay_cached(
         ctx.workspace_root,
@@ -341,8 +348,7 @@ fn materialize_overlay(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatri
         draft_ref,
     )?;
     hits.overlay_hit = hit;
-    let persisted =
-        mei_host_graph::layout_overlay_persisted_cache_key(ctx.layout_rev.as_str());
+    let persisted = mei_host_graph::layout_overlay_persisted_cache_key(ctx.layout_rev.as_str());
     let session_key = if ctx.draft_digest.is_empty() {
         None
     } else {
@@ -352,9 +358,7 @@ fn materialize_overlay(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatri
             ctx.draft_digest,
         ))
     };
-    let artifact_id = session_key
-        .clone()
-        .unwrap_or_else(|| persisted.clone());
+    let artifact_id = session_key.clone().unwrap_or_else(|| persisted.clone());
     let content_hash = if ctx.draft_digest.is_empty() {
         format!("overlay:persisted:{}", ctx.layout_rev)
     } else {
@@ -406,14 +410,10 @@ fn materialize_shell(
             Some(review_projection),
             ctx.chrome == "none",
         );
-        topbar_html = crate::build_info::fill_page_shell_placeholders(
-            topbar_html,
-            ctx.workspace_root,
-        );
-        statusbar_html = crate::build_info::fill_page_shell_placeholders(
-            statusbar_html,
-            ctx.workspace_root,
-        );
+        topbar_html =
+            crate::build_info::fill_page_shell_placeholders(topbar_html, ctx.workspace_root);
+        statusbar_html =
+            crate::build_info::fill_page_shell_placeholders(statusbar_html, ctx.workspace_root);
         let doc = mei_host_graph::ShellLayerDocument {
             schema_version: mei_host_graph::SHELL_LAYER_SCHEMA.to_string(),
             route_mode: route_slug.clone(),
@@ -439,8 +439,9 @@ fn materialize_shell(
             auth_sig,
             mei_host_graph::SHELL_LAYER_SCHEMA,
         );
-        let content_hash =
-            mei_host_graph::content_hash_bytes(serde_json::to_vec(&doc).unwrap_or_default().as_slice());
+        let content_hash = mei_host_graph::content_hash_bytes(
+            serde_json::to_vec(&doc).unwrap_or_default().as_slice(),
+        );
         return json!({
             "artifact_id": key,
             "content_hash": content_hash,
@@ -489,7 +490,8 @@ fn manifest_index_needs_shell_rebuild(index: &mei_host_graph::ManifestIndexDocum
             let Some(bytes) = mei_host_graph::take_layer(layer_ref.artifact_id.as_str()) else {
                 return true;
             };
-            let Ok(doc) = serde_json::from_slice::<mei_host_graph::ShellLayerDocument>(bytes.as_slice())
+            let Ok(doc) =
+                serde_json::from_slice::<mei_host_graph::ShellLayerDocument>(bytes.as_slice())
             else {
                 return true;
             };
@@ -593,7 +595,10 @@ fn build_and_store_manifest_index(
 
     let mut semantic_layers = std::collections::BTreeMap::new();
     for (name, layer_ref) in &semantic_layer_refs {
-        semantic_layers.insert(name.clone(), serde_json::to_value(layer_ref).unwrap_or(Value::Null));
+        semantic_layers.insert(
+            name.clone(),
+            serde_json::to_value(layer_ref).unwrap_or(Value::Null),
+        );
     }
     let semantic_manifest = mei_host_graph::SceneViewManifest {
         schema_version: mei_host_graph::SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
@@ -740,10 +745,7 @@ pub(crate) fn build_scene_view_manifest(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            crate::review_axes::ssr_review_projection(route_mode, data_mode)
-                .slug()
-        });
+        .unwrap_or_else(|| crate::review_axes::ssr_review_projection(route_mode, data_mode).slug());
     let index = ensure_manifest_index(
         workspace_root,
         app_id,
@@ -752,9 +754,8 @@ pub(crate) fn build_scene_view_manifest(
         hits,
         chrome_host,
     )?;
-    let mut manifest = manifest_for_surface(&index, route_mode).ok_or_else(|| {
-        anyhow::anyhow!("manifest surface missing for route `{route_slug}`")
-    })?;
+    let mut manifest = manifest_for_surface(&index, route_mode)
+        .ok_or_else(|| anyhow::anyhow!("manifest surface missing for route `{route_slug}`"))?;
     let effective_draft_digest = String::new();
     let mut ctx = load_materialize_context(
         workspace_root,
@@ -809,8 +810,11 @@ fn materialize_layer_name(
         "structure.full" => {
             if let Some(doc) = materialize_structure_document(ctx) {
                 hits.structure_hit = mei_host_graph::take_layer(
-                    mei_host_graph::structure_full_cache_key(&ctx.semantic_core, ctx.layout_rev.as_str())
-                        .as_str(),
+                    mei_host_graph::structure_full_cache_key(
+                        &ctx.semantic_core,
+                        ctx.layout_rev.as_str(),
+                    )
+                    .as_str(),
                 )
                 .is_some();
                 if !hits.structure_hit {
@@ -826,12 +830,20 @@ fn materialize_layer_name(
         "layout.overlay" => materialize_overlay(ctx, hits),
         "runtime.plans" => materialize_runtime_plans(ctx, hits),
         name if name.starts_with("eval.slot_group.") => {
-            let slot_group_id = name.strip_prefix("eval.slot_group.").unwrap_or("scene:default");
+            let slot_group_id = name
+                .strip_prefix("eval.slot_group.")
+                .unwrap_or("scene:default");
             materialize_eval_group(ctx, slot_group_id, hits)
         }
         name if name.starts_with("shell.") => {
             ensure_materialize_assembled(ctx)?;
-            Ok(materialize_shell(ctx, hits, route_mode, chrome_host, auth_sig))
+            Ok(materialize_shell(
+                ctx,
+                hits,
+                route_mode,
+                chrome_host,
+                auth_sig,
+            ))
         }
         _ => Ok(Value::Null),
     }
@@ -1077,7 +1089,11 @@ pub async fn api_host_layer_batch(
     };
 
     let obs = LayerArtifactObservability { hits };
-    let status = if body.local_miss { "refetch" } else { "refetch" };
+    let status = if body.local_miss {
+        "refetch"
+    } else {
+        "refetch"
+    };
     let mut response = Json(LayerBatchResponse {
         layers,
         hits: obs.hits,
@@ -1184,7 +1200,10 @@ mod cross_surface_manifest_tests {
             )
             .expect("scene manifest");
             let artifact_id = structure_artifact_id(&manifest);
-            assert!(!artifact_id.is_empty(), "missing structure.full for {route_mode:?}");
+            assert!(
+                !artifact_id.is_empty(),
+                "missing structure.full for {route_mode:?}"
+            );
             structure_ids.push(artifact_id);
         }
         assert_eq!(structure_ids[0], structure_ids[1]);
@@ -1308,10 +1327,7 @@ mod cross_surface_manifest_tests {
             .compose_defaults
             .as_ref()
             .expect("compose_defaults");
-        assert_eq!(
-            defaults.review_projection.as_deref(),
-            Some("live_full")
-        );
+        assert_eq!(defaults.review_projection.as_deref(), Some("live_full"));
     }
 
     #[test]
@@ -1334,8 +1350,7 @@ mod cross_surface_manifest_tests {
             None,
         )
         .expect("scene manifest");
-        let serialized =
-            serde_json::to_string(&manifest).expect("manifest should serialize");
+        let serialized = serde_json::to_string(&manifest).expect("manifest should serialize");
         assert!(
             serialized.len() < 512 * 1024,
             "SSR manifest refs should be compact (got {} bytes)",
@@ -1365,7 +1380,10 @@ mod cross_surface_manifest_tests {
             resolve_route_mode_from_surface(Some("manage")),
             UiRouteMode::Layout
         );
-        assert_eq!(resolve_route_mode_from_surface(Some("run")), UiRouteMode::App);
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("run")),
+            UiRouteMode::App
+        );
         assert_eq!(
             resolve_route_mode_from_surface(Some("copilot")),
             UiRouteMode::App
@@ -1440,7 +1458,8 @@ mod cross_surface_manifest_tests {
         let route_mode = UiRouteMode::App;
         let tab = "scene";
         let chrome = "full";
-        let placeholder = mei_host_graph::build_shell_layer_document(route_mode.slug(), tab, chrome);
+        let placeholder =
+            mei_host_graph::build_shell_layer_document(route_mode.slug(), tab, chrome);
         assert!(mei_host_graph::is_placeholder_shell_document(&placeholder));
         mei_host_graph::store_shell_layer_document(
             app_id,

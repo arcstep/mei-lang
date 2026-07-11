@@ -14,12 +14,9 @@ pub fn scene_id_from_build_node(node_raw: &str) -> String {
             .next()
             .unwrap_or(parsed.key.as_str())
             .to_string(),
-        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => parsed
-            .key
-            .split('#')
-            .nth(1)
-            .unwrap_or("")
-            .to_string(),
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
+            parsed.key.split('#').nth(1).unwrap_or("").to_string()
+        }
         _ => String::new(),
     }
 }

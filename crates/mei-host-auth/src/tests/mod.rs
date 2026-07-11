@@ -2,7 +2,10 @@
 fn sanitize_next_path_rejects_external_urls() {
     use crate::sanitize_next_path;
     assert_eq!(sanitize_next_path(Some("//evil.example")), "/");
-    assert_eq!(sanitize_next_path(Some("/apps/app/demo/scene/home")), "/apps/app/demo/scene/home");
+    assert_eq!(
+        sanitize_next_path(Some("/apps/app/demo/scene/home")),
+        "/apps/app/demo/scene/home"
+    );
 }
 
 #[test]

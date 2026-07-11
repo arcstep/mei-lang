@@ -1,16 +1,16 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    ui_scope_annotation_for_preview_panel, BlockDecl, BuildNodeId, CompiledApp, UiNodeDecl,
-    SceneContract, UiTreeNode,
+    ui_scope_annotation_for_preview_panel, BlockDecl, BuildNodeId, CompiledApp, SceneContract,
+    UiNodeDecl, UiTreeNode,
 };
 
 use crate::ui::preview::style::container_visual_style;
 use crate::ui::preview::style::{
-    panel_body_layout_centered,
-    panel_card_layout_style, panel_chrome_bare, panel_head_caret_style, panel_head_carets_enabled,
-    panel_head_carets_slot_mode, panel_heading_config, panel_heading_style,
-    panel_layout_content_on_body_slot, panel_scale_factor, panel_scaled_outer_style,
-    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
+    panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare, panel_head_caret_style,
+    panel_head_carets_enabled, panel_head_carets_slot_mode, panel_heading_config,
+    panel_heading_style, panel_layout_content_on_body_slot, panel_scale_factor,
+    panel_scaled_outer_style, panel_show_heading, panel_slot_area_style,
+    panel_slot_typography_style, panel_style,
 };
 use crate::ui::preview::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props,
@@ -296,9 +296,8 @@ pub(crate) fn panel_view(
         None => (None, None, None),
     };
     let role_for_projection = ui_role_attr.as_deref().unwrap_or("content");
-    let force_viewport_chrome =
-        viewport_chrome_panel_always_visible(panel)
-            || structure_workspace_runtime_panel_always_visible(panel);
+    let force_viewport_chrome = viewport_chrome_panel_always_visible(panel)
+        || structure_workspace_runtime_panel_always_visible(panel);
     if !force_viewport_chrome && !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
         if runtime_ctx.omit_beyond_projection_depth {
             return view! { <></> }.into_any();
@@ -314,11 +313,8 @@ pub(crate) fn panel_view(
     let build_node_id = if runtime_ctx.structure_anchors_enabled {
         build_node_id.or_else(|| {
             Some(
-                BuildNodeId::scene_panel(
-                    scene_contract.scene.id.clone(),
-                    panel_path.as_str(),
-                )
-                .encode(),
+                BuildNodeId::scene_panel(scene_contract.scene.id.clone(), panel_path.as_str())
+                    .encode(),
             )
         })
     } else {
@@ -331,24 +327,24 @@ pub(crate) fn panel_view(
             view! { <></> }.into_any()
         } else {
             head_nodes
-            .iter()
-            .map(|node| {
-                node_view(
-                    node,
-                    panel.layout.as_ref(),
-                    compiled,
-                    app_path,
-                    scene_contract,
-                    runtime_ctx,
-                    theme,
-                    embed_depth,
-                    preview_scene_path,
-                    Some(panel_path.as_str()),
-                    Some(panel),
-                )
-            })
-            .collect_view()
-            .into_any()
+                .iter()
+                .map(|node| {
+                    node_view(
+                        node,
+                        panel.layout.as_ref(),
+                        compiled,
+                        app_path,
+                        scene_contract,
+                        runtime_ctx,
+                        theme,
+                        embed_depth,
+                        preview_scene_path,
+                        Some(panel_path.as_str()),
+                        Some(panel),
+                    )
+                })
+                .collect_view()
+                .into_any()
         }
     };
     let render_body_blocks = || {
@@ -356,24 +352,24 @@ pub(crate) fn panel_view(
             layout_slot_chrome_body_view()
         } else {
             body_nodes
-            .iter()
-            .map(|node| {
-                node_view(
-                    node,
-                    panel.layout.as_ref(),
-                    compiled,
-                    app_path,
-                    scene_contract,
-                    runtime_ctx,
-                    theme,
-                    embed_depth,
-                    preview_scene_path,
-                    Some(panel_path.as_str()),
-                    Some(panel),
-                )
-            })
-            .collect_view()
-            .into_any()
+                .iter()
+                .map(|node| {
+                    node_view(
+                        node,
+                        panel.layout.as_ref(),
+                        compiled,
+                        app_path,
+                        scene_contract,
+                        runtime_ctx,
+                        theme,
+                        embed_depth,
+                        preview_scene_path,
+                        Some(panel_path.as_str()),
+                        Some(panel),
+                    )
+                })
+                .collect_view()
+                .into_any()
         }
     };
 
@@ -637,4 +633,3 @@ fn node_view(
         UiTreeNode::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
 }
-

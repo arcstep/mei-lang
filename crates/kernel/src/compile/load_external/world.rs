@@ -1,15 +1,13 @@
-use super::{load_scene_from_file};
+use super::load_scene_from_file;
 
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-
 use super::super::decl_file_cache::evaluate_mei_file_cached;
 use super::super::decls::{
-    WorldAddEntityDecl, WorldAddMetricDecl, WorldAddResourceDecl,
-    WorldSetTopologyDecl,
+    WorldAddEntityDecl, WorldAddMetricDecl, WorldAddResourceDecl, WorldSetTopologyDecl,
 };
 use super::super::mutations::apply_world_mutations_to_decl;
 use super::super::scene_binding::{parse_world_binding, SceneBinding};

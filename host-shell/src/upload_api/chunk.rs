@@ -15,8 +15,8 @@ use crate::api_error::ApiError;
 use crate::state::SharedState;
 use crate::upload_support::invalidate_after_upload;
 
-use super::types::*;
 use super::path::*;
+use super::types::*;
 
 pub async fn upload_file_post(
     State(state): State<SharedState>,
@@ -280,4 +280,3 @@ pub async fn upload_chunk_complete_post(
         "compileCacheCleared": false,
     })))
 }
-

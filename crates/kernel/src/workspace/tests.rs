@@ -1,9 +1,9 @@
 use super::*;
 
-use std::fs;
-use std::path::{Path, PathBuf};
 use crate::mei_config::{write_mei_config, MeiConfig, MEI_CONFIG_FILENAME};
 use crate::WorkspaceNode;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 fn temp_test_root(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -36,8 +36,7 @@ fn discover_prefers_mei_config_over_nested_main() {
     fs::create_dir_all(&segment).expect("mkdir segment");
     let app = segment.join("myapp");
     fs::create_dir_all(app.join("nested")).expect("mkdir");
-    write_mei_config(&app.join(MEI_CONFIG_FILENAME), &MeiConfig::default())
-        .expect("write config");
+    write_mei_config(&app.join(MEI_CONFIG_FILENAME), &MeiConfig::default()).expect("write config");
     write_main_mei(&app.join("nested"), "nested-app");
     write_main_mei(&segment.join("legacy"), "legacy-app");
 
@@ -132,10 +131,9 @@ fn load_component_assets_resolves_pack_path_and_preview() {
     let asset = assets.get("chart.donut").expect("chart.donut");
     assert_eq!(asset.pack_path, "chart/echarts");
     assert!(
-        asset
-            .preview_mei
-            .as_deref()
-            .is_some_and(|path| path.ends_with("stock/components/chart/echarts/previews/chart.donut.mei")),
+        asset.preview_mei.as_deref().is_some_and(
+            |path| path.ends_with("stock/components/chart/echarts/previews/chart.donut.mei")
+        ),
         "preview path missing for chart.donut"
     );
     let missing = audit_component_preview_coverage(package_root.as_path()).expect("audit");

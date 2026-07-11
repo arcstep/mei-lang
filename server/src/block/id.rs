@@ -91,9 +91,6 @@ mod tests {
         )
         .expect("parse");
         assert_eq!(id.kind, GraphNodeKind::MaterialSlot);
-        assert_eq!(
-            id.scope_key.as_deref(),
-            Some("home@src/scenes/home.mei")
-        );
+        assert_eq!(id.scope_key.as_deref(), Some("home@src/scenes/home.mei"));
     }
 }

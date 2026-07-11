@@ -20,8 +20,8 @@ use crate::{AppError, AppState};
 
 use crate::http::pages::content_type_for_path;
 
-use super::types::*;
 use super::path::*;
+use super::types::*;
 
 pub async fn upload_dir_create_post(
     State(state): State<AppState>,
@@ -101,8 +101,16 @@ pub(super) fn upload_supports_inline_preview(path: &Path) -> bool {
             .and_then(|value| value.to_str())
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("pdf") | Some("mp4") | Some("webm") | Some("mov") | Some("m4v") | Some("png")
-            | Some("jpg") | Some("jpeg") | Some("webp") | Some("gif")
+        Some("pdf")
+            | Some("mp4")
+            | Some("webm")
+            | Some("mov")
+            | Some("m4v")
+            | Some("png")
+            | Some("jpg")
+            | Some("jpeg")
+            | Some("webp")
+            | Some("gif")
     )
 }
 
@@ -285,4 +293,3 @@ pub async fn upload_file_download_get(
     );
     Ok(response)
 }
-

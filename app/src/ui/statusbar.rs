@@ -82,7 +82,10 @@ fn workspace_relative_path(app_path: &str, target: &str) -> String {
 
 fn collapse_parent_path_segments(raw: &str) -> String {
     let mut stack: Vec<&str> = Vec::new();
-    for part in raw.split('/').filter(|part| !part.is_empty() && *part != ".") {
+    for part in raw
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+    {
         if part == ".." {
             stack.pop();
         } else {

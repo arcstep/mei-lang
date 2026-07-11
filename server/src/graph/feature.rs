@@ -11,12 +11,14 @@ pub fn graph_registry_dedup_enabled() -> bool {
 }
 
 pub fn graph_registry_dedup_env_override_detected() -> Option<String> {
-    std::env::var(GRAPH_REGISTRY_DEDUP_ENV).ok().and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
-            Some(format!("{GRAPH_REGISTRY_DEDUP_ENV}={trimmed}"))
-        } else {
-            None
-        }
-    })
+    std::env::var(GRAPH_REGISTRY_DEDUP_ENV)
+        .ok()
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
+                Some(format!("{GRAPH_REGISTRY_DEDUP_ENV}={trimmed}"))
+            } else {
+                None
+            }
+        })
 }

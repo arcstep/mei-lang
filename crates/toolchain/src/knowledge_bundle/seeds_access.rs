@@ -1,5 +1,3 @@
-
-
 use super::types::*;
 
 pub(super) fn access_assets() -> Vec<AssetSeed> {
@@ -36,4 +34,3 @@ pub(super) fn access_assets() -> Vec<AssetSeed> {
         },
     ]
 }
-

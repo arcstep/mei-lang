@@ -6,9 +6,9 @@ use std::collections::{BTreeMap, HashSet};
 use serde_json::Value;
 
 use crate::compile::reachability_tree::{
-        artifacts_root, datasets_root, routes_root, world_root, ReachabilityTreeNode,
-        ReachabilityTreeRoot,
-    };
+    artifacts_root, datasets_root, routes_root, world_root, ReachabilityTreeNode,
+    ReachabilityTreeRoot,
+};
 use crate::model::{
     BuildExperienceIndex, BuildNodeId, CompiledApp, CompiledSceneRoute, SceneContract,
 };
@@ -19,8 +19,7 @@ fn scene_routes_for_build_tree<'a>(
     routes
         .iter()
         .filter(|route| {
-            !route.target_file.ends_with(".board.mei")
-                && !route.target_file.ends_with(".page.mei")
+            !route.target_file.ends_with(".board.mei") && !route.target_file.ends_with(".page.mei")
         })
         .collect()
 }
@@ -83,4 +82,3 @@ pub fn build_experience_index(
     index.reachability_snapshot = runtime_roots.into_iter().map(root_to_snapshot).collect();
     index
 }
-

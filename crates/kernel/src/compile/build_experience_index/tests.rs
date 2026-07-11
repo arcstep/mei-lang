@@ -1,9 +1,8 @@
 use super::*;
 
 use crate::model::{
-    BuildExperienceIndex, CompiledApp, CompiledSceneRoute,
-    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
-    UiNodeDecl,
+    BuildExperienceIndex, CompiledApp, CompiledSceneRoute, ReachabilityTreeNodeSnapshot,
+    ReachabilityTreeRootSnapshot, SceneContract, SceneDecl, UiNodeDecl,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -104,7 +103,11 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
     };
     let index = build_experience_index(&routes, &BTreeMap::new(), &contracts, &compiled_stub);
     let scenes = &index.reachability_snapshot[0];
-    assert_eq!(scenes.children.len(), 1, "duplicate scene_id routes should collapse");
+    assert_eq!(
+        scenes.children.len(),
+        1,
+        "duplicate scene_id routes should collapse"
+    );
     let home = scenes.children.first().expect("home scene");
     assert!(
         !home.children.iter().any(|node| node.label == "Panels"),
@@ -133,8 +136,10 @@ fn business_app_strips_legacy_templates_snapshot_on_read() {
         compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
             .expect("compile hello");
     let mut legacy = compiled.clone();
-    legacy.build_experience_index.reachability_snapshot.push(
-        ReachabilityTreeRootSnapshot {
+    legacy
+        .build_experience_index
+        .reachability_snapshot
+        .push(ReachabilityTreeRootSnapshot {
             group: "templates".to_string(),
             label: "Components".to_string(),
             default_open: false,
@@ -154,8 +159,7 @@ fn business_app_strips_legacy_templates_snapshot_on_read() {
                 source_symbol: String::new(),
                 children: Vec::new(),
             }],
-        },
-    );
+        });
     let roots = reachability_roots_from_compiled(&legacy);
     assert!(
         roots.iter().all(|root| root.group != "templates"),
@@ -308,12 +312,9 @@ fn v2_app_root_hydrates_stock_components_and_templates_in_build_tree() {
     if !app_root.is_dir() {
         return;
     }
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile hello");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile hello");
     let roots = reachability_roots_from_compiled(&compiled);
     assert!(
         roots.iter().all(|root| root.group != "templates"),
@@ -345,12 +346,9 @@ fn stock_catalog_app_hydrates_components_and_templates_in_build_tree() {
     if !app_root.is_dir() {
         return;
     }
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile stock catalog");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile stock catalog");
     let roots = reachability_roots_from_compiled(&compiled);
     let templates = roots
         .iter()

@@ -181,4 +181,3 @@ fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
         "filter_detail board layout areas should be filter+detail only, got {areas:?}"
     );
 }
-

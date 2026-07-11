@@ -115,8 +115,7 @@ pub(crate) fn access_ai_floating_entry(
     panel_tab: &str,
 ) -> AnyView {
     if let Some(external) = resolve_access_ai_external(compiled) {
-        external_access_ai_floating_entry(app_path, &external)
-            .into_any()
+        external_access_ai_floating_entry(app_path, &external).into_any()
     } else {
         builtin_access_ai_floating_entry(compiled, app_path, current_target, panel_tab).into_any()
     }

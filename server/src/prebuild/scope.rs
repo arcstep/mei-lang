@@ -90,7 +90,9 @@ pub(crate) fn warning_quoted_value(error: &str, marker: &str) -> Option<String> 
     }
 }
 
-pub(crate) fn warning_category_from_error(error: &str) -> (&'static str, Option<String>, Option<String>) {
+pub(crate) fn warning_category_from_error(
+    error: &str,
+) -> (&'static str, Option<String>, Option<String>) {
     if error.contains("MRG default_access missing") {
         return ("navigation_default_access_missing", None, None);
     }
@@ -125,7 +127,11 @@ pub(crate) fn warning_category_from_error(error: &str) -> (&'static str, Option<
     if error.contains("missing metric response artifact")
         || error.contains("missing metric dataframe artifact")
     {
-        return ("artifact_index_miss", warning_quoted_value(error, "dataset `"), None);
+        return (
+            "artifact_index_miss",
+            warning_quoted_value(error, "dataset `"),
+            None,
+        );
     }
     if error.contains("metric response index preload failed") {
         return ("metric_response_index_preload_failed", None, None);
@@ -200,7 +206,11 @@ pub(crate) fn build_prebuild_warning_with_mrg(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let message = match (scene_id.as_deref(), target_file.as_deref(), dataset_selector.as_deref()) {
+    let message = match (
+        scene_id.as_deref(),
+        target_file.as_deref(),
+        dataset_selector.as_deref(),
+    ) {
         (Some(scene), Some(target), Some(dataset)) => {
             format!("{phase} scene=`{scene}` target=`{target}` dataset=`{dataset}` failed: {error}")
         }

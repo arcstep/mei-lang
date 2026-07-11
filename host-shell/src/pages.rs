@@ -4,13 +4,12 @@ use axum::{
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
-    account_view_for_principal, filter_apps_for_principal,
-    AuthEnforcement, AuthPrincipal, AuthServeState,
+    account_view_for_principal, filter_apps_for_principal, AuthEnforcement, AuthPrincipal,
+    AuthServeState,
 };
 use mei_lang_app::{
-    load_topbar_menu_context, page_body_theme_style,
-    render_host_ssr_bootstrap_head_revision_only, render_page,
-    scene_drilldown_context_json_for_host_ssr, UiRouteMode,
+    load_topbar_menu_context, page_body_theme_style, render_host_ssr_bootstrap_head_revision_only,
+    render_page, scene_drilldown_context_json_for_host_ssr, UiRouteMode,
 };
 use mei_lang_kernel::{
     load_workspace_config, resolve_app_root, resolve_build_view_query, LegacyBuildQuery,
@@ -63,13 +62,8 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
         explain: None,
         tab: query.tab.clone(),
     };
-    resolve_build_view_query(
-        None,
-        query.scope.as_deref(),
-        query.tab.as_deref(),
-        &legacy,
-    )
-    .map(|resolved| resolved.node.encode())
+    resolve_build_view_query(None, query.scope.as_deref(), query.tab.as_deref(), &legacy)
+        .map(|resolved| resolved.node.encode())
 }
 
 pub async fn app_view_page(
@@ -87,7 +81,13 @@ pub async fn app_view_page(
         .unwrap_or("")
         .trim_start_matches('/');
     if let Some(scene) = crate::app_surface::parse_view_scene_tail(tail) {
-        if query.scene.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        if query
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
             query.scene = Some(scene);
         }
     }
@@ -199,7 +199,11 @@ pub async fn app_page(
         (id, scene, None)
     } else if route_mode.is_app_surface() {
         crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
-        crate::app_surface::parse_app_surface_tail(app_tail.as_str(), query.scene.as_deref(), route_mode)
+        crate::app_surface::parse_app_surface_tail(
+            app_tail.as_str(),
+            query.scene.as_deref(),
+            route_mode,
+        )
     } else {
         parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode)
     };
@@ -220,8 +224,8 @@ pub async fn app_page(
             .unwrap_or_else(|| "home".to_string());
     }
     let _copilot_presentation_id = tour_id.as_deref();
-    let needs_access_readiness_gate = route_mode.is_access_like()
-        || (mode == "view" && route_mode.uses_workspace_tree());
+    let needs_access_readiness_gate =
+        route_mode.is_access_like() || (mode == "view" && route_mode.uses_workspace_tree());
     if needs_access_readiness_gate {
         let starting_location = {
             let workspace_root = {
@@ -240,8 +244,7 @@ pub async fn app_page(
             }
             let mut guard = state.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
-        let axes =
-                crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
+            let axes = crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
             let readiness = crate::startup::evaluate_access_readiness(
                 &guard,
                 app_id.as_str(),
@@ -327,8 +330,8 @@ pub async fn app_page(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        if let Some(response) = crate::light_pages::try_render_light_page(
-            crate::light_pages::LightPageContext {
+        if let Some(response) =
+            crate::light_pages::try_render_light_page(crate::light_pages::LightPageContext {
                 workspace_root,
                 _package_root: package_root,
                 route_mode,
@@ -340,8 +343,8 @@ pub async fn app_page(
                 request_file: query.file.as_deref(),
                 auth_enabled,
                 account_view: account_view.as_ref(),
-            },
-        ) {
+            })
+        {
             return response;
         }
         return (
@@ -398,7 +401,11 @@ pub async fn app_page(
         };
         if let Some(ref key) = cache_key {
             if let Some(cached_html) = crate::thin_shell_page_cache::get(key.as_str()) {
-                (cached_html, render_started.elapsed().as_millis() as u64, true)
+                (
+                    cached_html,
+                    render_started.elapsed().as_millis() as u64,
+                    true,
+                )
             } else {
                 let template = render_thin_view_shell(
                     thin_view_shell_document(
@@ -490,9 +497,7 @@ pub async fn app_page(
                 tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
                 return (
                     StatusCode::NOT_FOUND,
-                    format!(
-                        "scene not assembled for app `{app_id}`; run prebuild for this app"
-                    ),
+                    format!("scene not assembled for app `{app_id}`; run prebuild for this app"),
                 )
                     .into_response();
             }
@@ -524,7 +529,8 @@ pub async fn app_page(
             let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard, app_id.as_str());
             runtime_snapshot_json_owned =
                 serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
-            runtime_roots_owned = crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
+            runtime_roots_owned =
+                crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
         } else {
             runtime_snapshot_json_owned = String::new();
             runtime_roots_owned = Vec::new();
@@ -541,62 +547,61 @@ pub async fn app_page(
         };
         let render_started = Instant::now();
         let rendered = crate::gis_config::fill_gis_tiles_placeholders(
-                inject_layer_plane_scripts(
-                    inject_client_bootstrap_script(
-                        fill_page_shell_placeholders(
-                            render_page(
-                                apps.as_slice(),
-                                &outcome.compiled,
-                                app_id.as_str(),
-                                Some(&topbar_menu),
-                                route_mode,
-                                Some(target_file),
-                                None,
-                                None,
-                                Some(scene_id.as_str()),
-                                None,
-                                query.tab.as_deref(),
-                                None,
-                                None,
-                                None,
-                                None,
-                                query.node.as_deref(),
-                                query.scope.as_deref(),
-                                query.focus.as_deref(),
-                                None,
-                                None,
-                                chrome_hidden,
-                                false,
-                                None,
-                                &[],
-                                auth_enabled,
-                                account_view.as_ref(),
-                                None,
-                                theme_style.as_str(),
-                                runtime_roots_ref,
-                                runtime_json_ref,
-                                Some(axes.data_mode.slug()),
-                                Some(
-                                    crate::review_axes::ssr_review_projection_for_axes(
-                                        route_mode,
-                                        axes,
-                                    )
-                                    .slug(),
-                                ),
-                                data_mode_ceiling_notice_owned.as_deref(),
-                                query.tree_max.as_deref(),
-                                None,
+            inject_layer_plane_scripts(
+                inject_client_bootstrap_script(
+                    fill_page_shell_placeholders(
+                        render_page(
+                            apps.as_slice(),
+                            &outcome.compiled,
+                            app_id.as_str(),
+                            Some(&topbar_menu),
+                            route_mode,
+                            Some(target_file),
+                            None,
+                            None,
+                            Some(scene_id.as_str()),
+                            None,
+                            query.tab.as_deref(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            query.node.as_deref(),
+                            query.scope.as_deref(),
+                            query.focus.as_deref(),
+                            None,
+                            None,
+                            chrome_hidden,
+                            false,
+                            None,
+                            &[],
+                            auth_enabled,
+                            account_view.as_ref(),
+                            None,
+                            theme_style.as_str(),
+                            runtime_roots_ref,
+                            runtime_json_ref,
+                            Some(axes.data_mode.slug()),
+                            Some(
+                                crate::review_axes::ssr_review_projection_for_axes(
+                                    route_mode, axes,
+                                )
+                                .slug(),
                             ),
-                            workspace_root,
+                            data_mode_ceiling_notice_owned.as_deref(),
+                            query.tree_max.as_deref(),
+                            None,
                         ),
                         workspace_root,
-                        app_id.as_str(),
-                        scene_id.as_str(),
                     ),
-                    &outcome,
+                    workspace_root,
+                    app_id.as_str(),
+                    scene_id.as_str(),
                 ),
-                &gis,
-            );
+                &outcome,
+            ),
+            &gis,
+        );
         let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
         (rendered, ssr_emit_ms, false)
     };
@@ -647,10 +652,9 @@ pub async fn app_page(
         );
         let page_cache_status = if page_cache_hit { "hit" } else { "miss" };
         if let Ok(value) = HeaderValue::from_str(page_cache_status) {
-            response.headers_mut().insert(
-                HeaderName::from_static("x-mei-page-cache"),
-                value,
-            );
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static("x-mei-page-cache"), value);
         }
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
@@ -733,7 +737,11 @@ pub async fn host_starting_page(
         let raw = query.return_path.trim();
         crate::startup::sanitize_return_path(if raw.is_empty() { "/" } else { raw })
     };
-    let (poll_app, poll_scene, poll_mode) = if query.app.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+    let (poll_app, poll_scene, poll_mode) = if query
+        .app
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
         (
             query.app.unwrap_or(default_app.clone()),
             query
@@ -778,11 +786,8 @@ pub async fn host_starting_page(
         }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
-        let axes = crate::review_axes::resolve_page_render_axes(
-            &guard,
-            &AppQuery::default(),
-            route_mode,
-        );
+        let axes =
+            crate::review_axes::resolve_page_render_axes(&guard, &AppQuery::default(), route_mode);
         let readiness = crate::startup::evaluate_access_readiness(
             &guard,
             poll_app.as_str(),
@@ -855,10 +860,9 @@ pub async fn api_host_access_readiness(
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
         };
-        if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
-            workspace_root.as_path(),
-            app_id,
-        ) {
+        if let Err(error) =
+            crate::startup::try_ensure_app_registry_materialized(workspace_root.as_path(), app_id)
+        {
             tracing::warn!(
                 app_id = %app_id,
                 error = %error,
@@ -875,13 +879,8 @@ pub async fn api_host_access_readiness(
             },
             route_mode,
         );
-        let readiness = crate::startup::evaluate_access_readiness(
-            &guard,
-            app_id,
-            scene_id,
-            route_mode,
-            axes,
-        );
+        let readiness =
+            crate::startup::evaluate_access_readiness(&guard, app_id, scene_id, route_mode, axes);
         let bootstrap_reason = if route_mode.is_access_like() {
             Some(
                 mei_host_graph::bootstrap_embed_status(
@@ -979,7 +978,8 @@ pub async fn api_scene_bootstrap(
         )
             .into_response();
     }
-    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id.as_str());
+    let bootstrap =
+        mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id.as_str());
     if bootstrap.allowed && bootstrap.reason == "no_client_bootstrap_required" {
         return Json(mei_host_graph::empty_client_bootstrap_payload(
             workspace_root,
@@ -1010,11 +1010,9 @@ pub async fn api_scene_bootstrap(
         )
             .into_response();
     }
-    let Some(payload) = mei_host_graph::build_client_bootstrap_payload(
-        workspace_root,
-        app_id,
-        scene_id.as_str(),
-    ) else {
+    let Some(payload) =
+        mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id.as_str())
+    else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "bootstrap unavailable"})),
@@ -1152,13 +1150,13 @@ pub async fn api_scene_eval_pack(
             app_id,
             scene_id.as_str(),
         )
-            .unwrap_or_else(|| {
-                mei_host_graph::empty_client_bootstrap_payload(
-                    workspace_root.as_path(),
-                    app_id,
-                    scene_id.as_str(),
-                )
-            }),
+        .unwrap_or_else(|| {
+            mei_host_graph::empty_client_bootstrap_payload(
+                workspace_root.as_path(),
+                app_id,
+                scene_id.as_str(),
+            )
+        }),
     );
     let mut response = Json(pack).into_response();
     if let Some(fingerprint) = query
@@ -1230,7 +1228,8 @@ pub async fn api_scene_drilldown_context(
     };
     let payload_text =
         scene_drilldown_context_json_for_host_ssr(&outcome.compiled, Some(scene_id.as_str()));
-    let payload: serde_json::Value = serde_json::from_str(payload_text.as_str()).unwrap_or(json!({}));
+    let payload: serde_json::Value =
+        serde_json::from_str(payload_text.as_str()).unwrap_or(json!({}));
     let etag = format!(
         "\"{app_id}:{scene_id}:{}\"",
         outcome.compile_revision.trim()
@@ -1248,13 +1247,15 @@ pub async fn api_scene_drilldown_context(
     response
 }
 
-
 fn parse_app_scene_path(
     app_tail: &str,
     scene_query: Option<&str>,
     route_mode: UiRouteMode,
 ) -> (String, String, Option<String>) {
-    let parts: Vec<&str> = app_tail.split('/').filter(|part| !part.is_empty()).collect();
+    let parts: Vec<&str> = app_tail
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
     if parts.is_empty() {
         return (String::new(), "home".to_string(), None);
     }
@@ -1506,10 +1507,7 @@ const THIN_WORKSPACE_ROOT_INNER: &str = concat!(
     r#"</div></section></main></div>"#,
 );
 
-fn thin_workspace_shell_main(
-    data_mode: &str,
-    review_projection: &str,
-) -> String {
+fn thin_workspace_shell_main(data_mode: &str, review_projection: &str) -> String {
     THIN_WORKSPACE_ROOT_INNER
         .replace("{data_mode}", data_mode)
         .replace("{review_projection}", review_projection)
@@ -1911,7 +1909,8 @@ mod inject_scene_manifest_tests {
         let env_v1 = tmp.path().join("apps/demo/env/v1/var");
         std::fs::create_dir_all(&env_v1).expect("env var dir");
         #[cfg(unix)]
-        std::os::unix::fs::symlink("v1", tmp.path().join("apps/demo/env/current")).expect("symlink");
+        std::os::unix::fs::symlink("v1", tmp.path().join("apps/demo/env/current"))
+            .expect("symlink");
         #[cfg(not(unix))]
         std::fs::create_dir_all(tmp.path().join("apps/demo/env/current/var")).expect("env current");
         let compose = mei_host_graph::ComposeRequest {
@@ -1977,7 +1976,10 @@ pub(crate) fn inject_presentation_manifest_script(
     }
 }
 
-pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {
+pub(crate) fn inject_layer_plane_scripts(
+    html: String,
+    outcome: &mei_host_graph::AssembleOutcome,
+) -> String {
     let layer_plan =
         serde_json::to_string(&outcome.layer_plan).unwrap_or_else(|_| "{}".to_string());
     let presentation_map =
@@ -1986,8 +1988,8 @@ pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph:
         serde_json::to_string(&outcome.world_plan).unwrap_or_else(|_| "{}".to_string());
     let map_projection =
         serde_json::to_string(&outcome.map_projection).unwrap_or_else(|_| "{}".to_string());
-    let overlay_defaults = serde_json::to_string(&outcome.overlay_defaults)
-        .unwrap_or_else(|_| "{}".to_string());
+    let overlay_defaults =
+        serde_json::to_string(&outcome.overlay_defaults).unwrap_or_else(|_| "{}".to_string());
     let component_assets = serde_json::to_string(&outcome.compiled.component_assets)
         .unwrap_or_else(|_| "[]".to_string());
     let scripts = format!(
@@ -2018,11 +2020,9 @@ pub(crate) fn inject_client_bootstrap_script(
     app_id: &str,
     scene_id: &str,
 ) -> String {
-    let Some(fragment) = mei_host_graph::build_client_bootstrap_head_fragment(
-        workspace_root,
-        app_id,
-        scene_id,
-    ) else {
+    let Some(fragment) =
+        mei_host_graph::build_client_bootstrap_head_fragment(workspace_root, app_id, scene_id)
+    else {
         let status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
         if status.allowed {
             if status.reason == "no_client_bootstrap_required" {

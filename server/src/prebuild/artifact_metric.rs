@@ -7,10 +7,8 @@ fn mrg_slot_and_artifact_ready(
     plan: &PlannedMetricWorkset,
     bundle_revision: &str,
 ) -> bool {
-    let scope_key = crate::graph::mrg_eval_scope_key(
-        plan.scene_id.as_str(),
-        plan.scene_path.as_deref(),
-    );
+    let scope_key =
+        crate::graph::mrg_eval_scope_key(plan.scene_id.as_str(), plan.scene_path.as_deref());
     let canonical = slot_cache_key_for_plan(plan, bundle_revision);
     let mrg_covers = crate::graph::mrg_slot_covers_eval(
         registry,
@@ -46,10 +44,9 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             plan.owner_resource_id.as_str(),
             current_rev.as_str(),
         ) {
-            if let (Some(source_root), Some(stored_app_id)) = (
-                state.source_root.as_deref(),
-                state.app_id.as_deref(),
-            ) {
+            if let (Some(source_root), Some(stored_app_id)) =
+                (state.source_root.as_deref(), state.app_id.as_deref())
+            {
                 let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
                 if mrg_slot_and_artifact_ready(&registry, app_root, plan, current_rev.as_str()) {
                     promote_prebuild_metric_response_slot(
@@ -64,10 +61,9 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
                 }
             }
         }
-        if let (Some(source_root), Some(stored_app_id)) = (
-            state.source_root.as_deref(),
-            state.app_id.as_deref(),
-        ) {
+        if let (Some(source_root), Some(stored_app_id)) =
+            (state.source_root.as_deref(), state.app_id.as_deref())
+        {
             let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
             if mrg_slot_and_artifact_ready(&registry, app_root, plan, current_rev.as_str()) {
                 promote_prebuild_metric_response_slot(
@@ -198,7 +194,8 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             plan.scene_path.as_deref().unwrap_or("")
         );
     }
-    if let Some((artifact, _)) = load_metric_response_result_artifact(app_root, &plan.shared_cache_key)?
+    if let Some((artifact, _)) =
+        load_metric_response_result_artifact(app_root, &plan.shared_cache_key)?
     {
         let artifact_covers_request = metric_response_artifact_covers_request(
             &artifact,
@@ -252,11 +249,9 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
         }
     }
     let metric_started = Instant::now();
-    let primary_resource = mei_lang_kernel::locate_dataset_resource(
-        &outcome.compiled,
-        plan.dataset_selector.as_str(),
-    )
-    .with_context(|| format!("locate warmup dataset `{}`", plan.dataset_selector))?;
+    let primary_resource =
+        mei_lang_kernel::locate_dataset_resource(&outcome.compiled, plan.dataset_selector.as_str())
+            .with_context(|| format!("locate warmup dataset `{}`", plan.dataset_selector))?;
     let primary_dataset = primary_resource
         .dataset
         .as_ref()
@@ -279,11 +274,18 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
         RuntimeMetricEvalMode::WithDag,
         plan.request_all_metrics,
     )
-    .with_context(|| format!("build metric response artifact for dataset `{}`", plan.dataset_selector));
+    .with_context(|| {
+        format!(
+            "build metric response artifact for dataset `{}`",
+            plan.dataset_selector
+        )
+    });
     let eval_outcome = match eval_outcome {
         Ok(eval_outcome) => eval_outcome,
         Err(error) => {
-            state.metric_response_jobs.finish(&plan.shared_cache_key, false);
+            state
+                .metric_response_jobs
+                .finish(&plan.shared_cache_key, false);
             if let Some(source_root) = state.source_root.as_deref() {
                 let bundle_revision =
                     current_bundle_revision_for_plan(plan, &mcg_revisions).unwrap_or_default();
@@ -391,16 +393,18 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
     if let Some(source_root) = state.source_root.as_deref() {
         let bundle_revision =
             current_bundle_revision_for_plan(plan, &mcg_revisions).unwrap_or_default();
-        let scope_key = crate::graph::mrg_eval_scope_key(
-            plan.scene_id.as_str(),
-            plan.scene_path.as_deref(),
-        );
+        let scope_key =
+            crate::graph::mrg_eval_scope_key(plan.scene_id.as_str(), plan.scene_path.as_deref());
         let _ = crate::graph::mrg::eval_nodes::persist_workset_node(
             source_root,
             app_id,
             plan.logical_node_id.as_str(),
             plan.owner_resource_id.as_str(),
-            plan.covered_metric_ids.iter().cloned().collect::<Vec<_>>().as_slice(),
+            plan.covered_metric_ids
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .as_slice(),
         );
         let _ = crate::graph::mrg::eval_nodes::persist_eval_plan_node(
             source_root,
@@ -440,7 +444,9 @@ pub(crate) fn ensure_metric_response_artifact_for_request(
     state: &CoverageState,
 ) -> Result<()> {
     let plan = plan_metric_workset(app_id, app_root, outcome, dataset_selector, metric_ids)?;
-    ensure_metric_response_artifact_for_plan(app_id, app_root, outcome, &plan, mode, coverage, state)
+    ensure_metric_response_artifact_for_plan(
+        app_id, app_root, outcome, &plan, mode, coverage, state,
+    )
 }
 
 pub(crate) fn dataframe_scope_metric_token(
@@ -477,4 +483,3 @@ pub(crate) fn prebuild_dataframe_metric_selector(
     }
     resolved_metric_id.to_string()
 }
-

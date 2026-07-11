@@ -6,8 +6,7 @@ use anyhow::Result;
 use crate::semantic_summary::summarize_compiled_app_semantics;
 use crate::types::{
     CompiledRouteSummary, ComponentAssetSummary, LoadedResourceSummary, WorldBusinessEntitySummary,
-    WorldBusinessResourceSummary, WorldBusinessSummary,
-    WorldRuntimeSummary, WorldScope,
+    WorldBusinessResourceSummary, WorldBusinessSummary, WorldRuntimeSummary, WorldScope,
 };
 
 use super::super::bundle::{load_world_runtime_bundle, normalize_path};
@@ -331,4 +330,3 @@ pub fn build_world_business_summary(
         query_tools,
     })
 }
-

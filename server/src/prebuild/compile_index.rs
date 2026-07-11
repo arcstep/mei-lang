@@ -188,7 +188,10 @@ pub(crate) fn prebuild_compile_index_path(app_root: &Path) -> PathBuf {
         .join("compile-index.json")
 }
 
-pub(crate) fn write_prebuild_compile_index(app_root: &Path, index: &PrebuildCompileIndex) -> Result<()> {
+pub(crate) fn write_prebuild_compile_index(
+    app_root: &Path,
+    index: &PrebuildCompileIndex,
+) -> Result<()> {
     let path = prebuild_compile_index_path(app_root);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -273,7 +276,10 @@ pub(crate) fn build_prebuild_compile_index(
         }
     }
     let mcg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
-        Some(crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id))
+        Some(crate::graph::mcg::registry::McgRegistryWriter::load(
+            source_root,
+            app_id,
+        ))
     } else {
         None
     };
@@ -299,8 +305,16 @@ pub(crate) fn build_prebuild_compile_index(
             registry.node_revision(
                 "page_instance",
                 &page_instance_index_key(
-                    canonical.scope.canonicalized().requested_scene_id.as_deref(),
-                    canonical.scope.canonicalized().requested_target_file.as_deref(),
+                    canonical
+                        .scope
+                        .canonicalized()
+                        .requested_scene_id
+                        .as_deref(),
+                    canonical
+                        .scope
+                        .canonicalized()
+                        .requested_target_file
+                        .as_deref(),
                     outcome.compile_revision.as_str(),
                 ),
             )
@@ -351,7 +365,10 @@ pub(crate) fn patch_prebuild_compile_index_entry(
     let app_root = resolve_app_root(source_root, app_id);
     let mut index = load_prebuild_compile_index(app_root.as_path())?.unwrap_or_default();
     let mcg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
-        Some(crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id))
+        Some(crate::graph::mcg::registry::McgRegistryWriter::load(
+            source_root,
+            app_id,
+        ))
     } else {
         None
     };
@@ -445,8 +462,7 @@ pub(crate) fn scope_assembled_outcome(
                     &[],
                 );
                 if let Some(diag) = diagnostics {
-                    diag.mcg_assemble_only_count
-                        .fetch_add(1, Ordering::Relaxed);
+                    diag.mcg_assemble_only_count.fetch_add(1, Ordering::Relaxed);
                 }
                 return SharedCompileOutcome {
                     compiled: Arc::new(compiled),
@@ -486,8 +502,7 @@ pub(crate) fn scope_assembled_outcome(
                     &[],
                 );
                 if let Some(diag) = diagnostics {
-                    diag.mcg_assemble_only_count
-                        .fetch_add(1, Ordering::Relaxed);
+                    diag.mcg_assemble_only_count.fetch_add(1, Ordering::Relaxed);
                     diag.compile_target_overlay_reuse_hits
                         .fetch_add(1, Ordering::Relaxed);
                 }
@@ -523,11 +538,7 @@ pub(crate) fn scope_assembled_outcome(
     }
     let compiled = match Arc::try_unwrap(Arc::clone(&base.compiled)) {
         Ok(mut owned) => {
-            crate::graph::mcg::assemble::apply_scope_to_compiled_app(
-                &mut owned,
-                scene,
-                target,
-            );
+            crate::graph::mcg::assemble::apply_scope_to_compiled_app(&mut owned, scene, target);
             owned
         }
         Err(shared) => {
@@ -538,10 +549,15 @@ pub(crate) fn scope_assembled_outcome(
         }
     };
     let mut hydrated = compiled;
-    let _ = crate::graph::hydrate_compiled_for_prebuild_eval(source_root, app_id, &mut hydrated, &[], &[]);
+    let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
+        source_root,
+        app_id,
+        &mut hydrated,
+        &[],
+        &[],
+    );
     if let Some(diag) = diagnostics {
-        diag.mcg_assemble_only_count
-            .fetch_add(1, Ordering::Relaxed);
+        diag.mcg_assemble_only_count.fetch_add(1, Ordering::Relaxed);
         diag.compile_target_overlay_reuse_hits
             .fetch_add(1, Ordering::Relaxed);
     }

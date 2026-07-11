@@ -434,4 +434,3 @@ async fn access_page_launch_button_targets_presentation_route() {
 
     let _ = fs::remove_dir_all(&root);
 }
-

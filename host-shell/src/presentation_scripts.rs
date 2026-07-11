@@ -115,7 +115,10 @@ fn read_library(root: &Path) -> PresentationLibraryDocument {
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
-fn write_library(root: &Path, library: &PresentationLibraryDocument) -> Result<(), (StatusCode, String)> {
+fn write_library(
+    root: &Path,
+    library: &PresentationLibraryDocument,
+) -> Result<(), (StatusCode, String)> {
     fs::create_dir_all(root).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -156,20 +159,14 @@ fn script_rel_path(script_id: &str) -> String {
 
 fn resolve_script_path(root: &Path, script_id: &str) -> Result<PathBuf, (StatusCode, String)> {
     let rel = sanitize_rel_dir(&script_rel_path(script_id))?;
-    let canonical_root = root.canonicalize().map_err(|error| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("演说稿目录不可用: {error}"),
-        )
-    })?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| (StatusCode::NOT_FOUND, format!("演说稿目录不可用: {error}")))?;
     let target = root.join(&rel);
     if target.exists() {
-        let canonical_target = target.canonicalize().map_err(|error| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("演说稿路径不可用: {error}"),
-            )
-        })?;
+        let canonical_target = target
+            .canonicalize()
+            .map_err(|error| (StatusCode::NOT_FOUND, format!("演说稿路径不可用: {error}")))?;
         if !canonical_target.starts_with(&canonical_root) {
             return Err((StatusCode::BAD_REQUEST, "演说稿路径越界".to_string()));
         }
@@ -222,7 +219,10 @@ fn read_script_title(path: &Path, source: &str) -> String {
         .unwrap_or_else(|| "未命名演说稿".to_string())
 }
 
-fn list_script_entries(root: &Path, default_script_id: &str) -> Result<Vec<PresentationScriptEntry>, (StatusCode, String)> {
+fn list_script_entries(
+    root: &Path,
+    default_script_id: &str,
+) -> Result<Vec<PresentationScriptEntry>, (StatusCode, String)> {
     if !root.is_dir() {
         return Ok(Vec::new());
     }
@@ -362,8 +362,8 @@ pub async fn api_get_presentation_script(
             )
         }
     };
-    let default_script_id = read_default_script_id(workspace_root.as_path(), app_id)
-        .unwrap_or_default();
+    let default_script_id =
+        read_default_script_id(workspace_root.as_path(), app_id).unwrap_or_default();
     Json(json!({
         "appId": app_id,
         "id": script_id,

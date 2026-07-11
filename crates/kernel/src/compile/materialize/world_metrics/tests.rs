@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{
-    imported_capsule_path_from_world_metrics_resource_id, resolve_runtime_metric_def_key,
-};
+use super::{imported_capsule_path_from_world_metrics_resource_id, resolve_runtime_metric_def_key};
 use serde_json::json;
 
 #[test]
@@ -13,9 +11,7 @@ fn imported_capsule_path_from_world_metrics_resource_id_parses_scoped_owner() {
         ),
         Some("scenes/5_问题办理/问题办理.mei".to_string())
     );
-    assert!(
-        imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none()
-    );
+    assert!(imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none());
 }
 
 #[test]
@@ -23,8 +19,7 @@ fn resolve_runtime_metric_def_key_namespaces_rowset_suffix_keys() {
     let resource_id = "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics";
     let mut defs = BTreeMap::new();
     defs.insert(
-        "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"
-            .to_string(),
+        "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__".to_string(),
         json!({"id": "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"}),
     );
     assert_eq!(
@@ -34,8 +29,7 @@ fn resolve_runtime_metric_def_key_namespaces_rowset_suffix_keys() {
             &defs,
         ),
         Some(
-            "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"
-                .to_string()
+            "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__".to_string()
         )
     );
 }

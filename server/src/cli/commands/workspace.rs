@@ -232,8 +232,7 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty());
-                let report =
-                    clean_workspace_prebuild_artifacts(source_root.as_path(), app_filter)?;
+                let report = clean_workspace_prebuild_artifacts(source_root.as_path(), app_filter)?;
                 let output = json!({
                     "schema_version": "mei-cli-v1",
                     "command": "workspace.build.clean",
@@ -314,9 +313,9 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 for app in &apps {
                     let app_root =
                         mei_lang_kernel::resolve_app_root(source_root.as_path(), app.id.as_str());
-                    if let Ok(current) =
-                        mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
-                    {
+                    if let Ok(current) = mei_lang_kernel::resolve_app_build_generation_from_current(
+                        app_root.as_path(),
+                    ) {
                         current_by_app.insert(app.id.clone(), json!(current));
                         let env_dir =
                             mei_lang_kernel::app_env_dir(app_root.as_path(), current.as_str());

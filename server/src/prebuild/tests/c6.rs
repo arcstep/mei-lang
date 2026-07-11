@@ -42,11 +42,18 @@ fn warmup_request_matches_active_scene_without_exact_scope_key() {
     };
     let mut outcome = test_outcome("home", "scenes/home.mei");
     let mut resource = test_dataset_resource("penalty_result_dashboard_ds");
-    resource.dataset.as_mut().expect("dataset").runtime_metric_defs.insert(
-        "penalties_total_count::__scalar_rowset__".to_string(),
-        json!({"shape": "scalar_map"}),
-    );
-    Arc::make_mut(&mut outcome.compiled).resources.push(resource);
+    resource
+        .dataset
+        .as_mut()
+        .expect("dataset")
+        .runtime_metric_defs
+        .insert(
+            "penalties_total_count::__scalar_rowset__".to_string(),
+            json!({"shape": "scalar_map"}),
+        );
+    Arc::make_mut(&mut outcome.compiled)
+        .resources
+        .push(resource);
     assert!(warmup_request_matches_outcome(&request, &outcome));
     assert_eq!(
         matching_warmup_requests_for_outcome(&[request], &outcome).len(),
@@ -67,9 +74,7 @@ fn warmup_request_does_not_match_outcome_without_dataset_resource() {
     };
     let outcome = test_outcome("home", "scenes/10-地图.mei");
     assert!(!warmup_request_matches_outcome(&request, &outcome));
-    assert!(
-        matching_warmup_requests_for_outcome(&[request], &outcome).is_empty()
-    );
+    assert!(matching_warmup_requests_for_outcome(&[request], &outcome).is_empty());
 }
 
 #[test]

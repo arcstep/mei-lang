@@ -350,10 +350,7 @@ fn template_pack_descriptors_in_root(
 }
 
 fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor> {
-    template_pack_descriptors_in_root(
-        stock_templates_source(package_root).as_path(),
-        package_root,
-    )
+    template_pack_descriptors_in_root(stock_templates_source(package_root).as_path(), package_root)
 }
 
 pub fn platform_asset_catalog_descriptor() -> PlatformAssetCatalogDescriptor {

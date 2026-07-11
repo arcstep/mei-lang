@@ -1,6 +1,4 @@
-
 use serde_json::Value;
-
 
 pub(crate) const INFERRED_SCALAR_ROWSET_LOCAL_ID: &str = "__scalar_rowset__";
 

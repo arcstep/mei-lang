@@ -157,4 +157,3 @@ fn frame_stage_content_bounds_treats_max_width_as_cap() {
     let viewport_bounds = frame_stage_content_bounds_for_viewport(&props, &vp);
     assert_eq!(viewport_bounds.max_width, Some(520.0));
 }
-

@@ -69,18 +69,11 @@ pub(crate) fn render_host_hub_html(source_root: &Path) -> String {
         .collect::<std::collections::BTreeMap<_, _>>();
     let rows = apps
         .iter()
-        .map(|app| {
-            app_row_from_discover(
-                source_root,
-                app,
-                registry_by_id.get(app.id.as_str()),
-            )
-        })
+        .map(|app| app_row_from_discover(source_root, app, registry_by_id.get(app.id.as_str())))
         .collect::<Vec<_>>();
     let ready_landing = choose_default_app(source_root, &apps).is_some();
     let any_ready = rows.iter().any(|row| row.access_ready);
-    let footer_html =
-        host_error_page::render_host_shell_footer_for_source_root(source_root);
+    let footer_html = host_error_page::render_host_shell_footer_for_source_root(source_root);
     let shell_theme = host_error_page::host_shell_body_theme_style(source_root);
     let prebuild_cmd = format!("./deploy/prebuild.sh");
     let table_rows = if rows.is_empty() {
@@ -101,11 +94,7 @@ pub(crate) fn render_host_hub_html(source_root: &Path) -> String {
                         )
                     })
                     .unwrap_or_else(|| "—".to_string());
-                let ready_label = if row.access_ready {
-                    "是"
-                } else {
-                    "否"
-                };
+                let ready_label = if row.access_ready { "是" } else { "否" };
                 let phase_label = if row.warning_count > 0 {
                     format!("{} ({} warnings)", row.phase, row.warning_count)
                 } else {

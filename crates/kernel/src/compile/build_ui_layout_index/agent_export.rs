@@ -68,10 +68,14 @@ pub fn ui_scope_annotation_for_preview_panel(
         if scope.is_empty() {
             continue;
         }
-        let Some(score) = scope_match_score(normalized, scope.as_str(), panel_area, node.role) else {
+        let Some(score) = scope_match_score(normalized, scope.as_str(), panel_area, node.role)
+        else {
             continue;
         };
-        if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score > *best_score)
+        {
             best = Some((
                 score,
                 UiScopePanelAnnotation {
@@ -106,9 +110,7 @@ fn scope_match_score(
         UiScopeRole::Content => {
             content_path_align_score(panel_path, preview_scope.as_str(), panel_area)
         }
-        UiScopeRole::Slot => {
-            slot_path_align_score(panel_path, preview_scope.as_str(), panel_area)
-        }
+        UiScopeRole::Slot => slot_path_align_score(panel_path, preview_scope.as_str(), panel_area),
         UiScopeRole::Section => {
             if let Some(area) = panel_area.filter(|value| is_section_area(value)) {
                 if preview_scope.ends_with(&format!("/{area}")) {
@@ -140,7 +142,10 @@ fn scope_match_score(
 }
 
 fn normalize_preview_scope_segments(scope: &str) -> String {
-    let segments: Vec<&str> = scope.split('/').filter(|segment| !segment.is_empty()).collect();
+    let segments: Vec<&str> = scope
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     let mut out: Vec<&str> = Vec::new();
     for segment in segments {
         if out.last().copied() != Some(segment) {
@@ -200,8 +205,7 @@ fn path_segments_align(panel_path: &str, preview_scope: &str, require_prefix: bo
 }
 
 fn is_ambiguous_content_leaf(leaf: &str) -> bool {
-    matches!(leaf, "metric_card" | "panel" | "body")
-        || (leaf.len() < 10 && !leaf.contains('_'))
+    matches!(leaf, "metric_card" | "panel" | "body") || (leaf.len() < 10 && !leaf.contains('_'))
 }
 
 fn content_path_align_score(
@@ -310,10 +314,34 @@ fn slot_path_align_score(
 fn is_optional_slot_segment(segment: &str) -> bool {
     matches!(
         segment,
-        "first" | "second" | "third" | "fourth" | "fifth" | "sixth" | "compound" | "main" | "top"
-            | "bottom" | "primary" | "sub_a" | "sub_b" | "sub_c" | "b0" | "b1" | "b2" | "rtop"
-            | "rbottom" | "summary" | "chart" | "table" | "triptych" | "secondary_a"
-            | "secondary_b" | "pending" | "doing" | "done"
+        "first"
+            | "second"
+            | "third"
+            | "fourth"
+            | "fifth"
+            | "sixth"
+            | "compound"
+            | "main"
+            | "top"
+            | "bottom"
+            | "primary"
+            | "sub_a"
+            | "sub_b"
+            | "sub_c"
+            | "b0"
+            | "b1"
+            | "b2"
+            | "rtop"
+            | "rbottom"
+            | "summary"
+            | "chart"
+            | "table"
+            | "triptych"
+            | "secondary_a"
+            | "secondary_b"
+            | "pending"
+            | "doing"
+            | "done"
     )
 }
 
@@ -381,7 +409,10 @@ pub fn ui_scope_for_block(
             continue;
         }
         let score = scope.len();
-        if best.as_ref().is_none_or(|(best_score, _)| score >= *best_score) {
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _)| score >= *best_score)
+        {
             best = Some((
                 score,
                 UiScopeBlockAnnotation {
@@ -406,7 +437,10 @@ fn block_match_keys(block_key: &str) -> Vec<String> {
 }
 
 /// Technical slot/budget metadata for region/section/content inspector.
-pub fn format_ui_scope_technical_detail(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
+pub fn format_ui_scope_technical_detail(
+    compiled: &CompiledApp,
+    node: &BuildNodeId,
+) -> Option<String> {
     let entry = compiled.ui_layout_index.lookup(node)?;
     if !matches!(
         entry.role,
@@ -460,10 +494,7 @@ fn collect_technical_nodes<'a>(
     compiled: &'a CompiledApp,
     out: &mut Vec<&'a crate::model::UiScopeNode>,
 ) {
-    if matches!(
-        entry.role,
-        UiScopeRole::Slot | UiScopeRole::Budget
-    ) {
+    if matches!(entry.role, UiScopeRole::Slot | UiScopeRole::Budget) {
         out.push(entry);
     }
     for child_id in &entry.children {

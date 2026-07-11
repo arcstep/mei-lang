@@ -2,11 +2,9 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
-use crate::model::{
-    Diagnostic, SceneContract, Severity,
-};
-use crate::typed_refs::{decode_ref_value, RefKind};
 use super::super::metric::parse_metric_ref_id;
+use crate::model::{Diagnostic, SceneContract, Severity};
+use crate::typed_refs::{decode_ref_value, RefKind};
 
 use super::super::metric::expand_drilldown_tabs;
 
@@ -142,9 +140,10 @@ pub(super) fn synthesize_scene_first_board_payload(
     shell_contract: &Map<String, Value>,
     params: &Map<String, Value>,
 ) -> Option<Map<String, Value>> {
-    let context = params.get("metric").cloned().filter(|value| {
-        parse_metric_ref_id(value).is_some()
-    })?;
+    let context = params
+        .get("metric")
+        .cloned()
+        .filter(|value| parse_metric_ref_id(value).is_some())?;
     let resolved_bindings = resolve_scene_bindings(target_scene_contract, &params);
     let Some(bindings_map) = resolved_bindings.as_object() else {
         return None;
@@ -266,9 +265,10 @@ pub(crate) fn synthesize_board_payload_from_bindings(
     params: &Map<String, Value>,
     scene: Option<&str>,
 ) -> Option<Map<String, Value>> {
-    let context = params.get("metric").cloned().filter(|value| {
-        parse_metric_ref_id(value).is_some()
-    })?;
+    let context = params
+        .get("metric")
+        .cloned()
+        .filter(|value| parse_metric_ref_id(value).is_some())?;
     let bindings_map = resolve_scene_param_refs(&Value::Object(bindings.clone()), params)
         .as_object()
         .cloned()?;
@@ -550,4 +550,3 @@ fn binding_value_for_zone(
     keys.into_iter()
         .find_map(|key| bindings.get(&key).cloned().filter(|value| !value.is_null()))
 }
-

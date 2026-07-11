@@ -4,9 +4,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde_json::json;
 
-use super::types::*;
-use super::seeds_author::author_assets;
 use super::seeds_access::access_assets;
+use super::seeds_author::author_assets;
+use super::types::*;
 
 pub(super) fn build_assets(surface: &str, seeds: Vec<AssetSeed>) -> Vec<KnowledgeAssetDescriptor> {
     seeds

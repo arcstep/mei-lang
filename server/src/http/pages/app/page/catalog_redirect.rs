@@ -56,8 +56,10 @@ pub(super) fn try_catalog_redirect(
         }
     }
     if let Some(node) = query.node.as_deref().and_then(BuildNodeId::parse) {
-        if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template)
-            && !is_stock_catalog_app_for_root(state.source_root.as_path(), app_id)
+        if matches!(
+            node.kind,
+            BuildNodeKind::Component | BuildNodeKind::Template
+        ) && !is_stock_catalog_app_for_root(state.source_root.as_path(), app_id)
         {
             let catalog_id = stock_catalog_app_id(state.source_root.as_path());
             let mut redirected = query.clone();

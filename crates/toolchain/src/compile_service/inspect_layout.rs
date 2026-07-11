@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use mei_lang_kernel::{
-    resolve_app_main_path, resolve_app_root, resolve_templates_root as kernel_resolve_templates_root,
+    resolve_app_main_path, resolve_app_root,
+    resolve_templates_root as kernel_resolve_templates_root,
 };
 use serde::Serialize;
 

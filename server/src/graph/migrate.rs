@@ -41,7 +41,9 @@ fn resolve_app_ids(source_root: &Path, app_filter: Option<&str>) -> anyhow::Resu
     let apps_dir = source_root.join("apps");
     let mut apps = Vec::new();
     if apps_dir.is_dir() {
-        for entry in fs::read_dir(&apps_dir).with_context(|| format!("read {}", apps_dir.display()))? {
+        for entry in
+            fs::read_dir(&apps_dir).with_context(|| format!("read {}", apps_dir.display()))?
+        {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 apps.push(entry.file_name().to_string_lossy().to_string());

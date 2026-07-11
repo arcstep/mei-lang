@@ -50,8 +50,8 @@ mod tests {
             chrome: None,
             catalog: None,
             pack: None,
-        data_mode: None,
-        review_projection: None,
+            data_mode: None,
+            review_projection: None,
         };
         assert!(compile_bootstrap_probe_requested(&probe));
     }

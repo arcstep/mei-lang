@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
 
 use super::IMPORTED_RESOURCE_DOC;
 

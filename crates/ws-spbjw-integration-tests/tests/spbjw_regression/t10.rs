@@ -98,4 +98,3 @@ fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
         .expect("analytics drilldown preview should yield scene contract");
     assert_eq!(contract.scene.id, "analytics_drilldown_board");
 }
-

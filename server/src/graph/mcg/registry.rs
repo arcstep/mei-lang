@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::io::{read_json_registry, write_json_registry};
 use crate::graph::paths::mcg_registry_path;
-use crate::graph::types::{GraphNodeId, MaterialState, PayloadRef, stable_hash};
+use crate::graph::types::{stable_hash, GraphNodeId, MaterialState, PayloadRef};
 
 pub const MCG_REGISTRY_SCHEMA_VERSION: &str = "mei-mcg-registry-v2";
 
@@ -25,11 +25,23 @@ pub struct McgNodeRecord {
     pub payload_ref: Option<PayloadRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deps: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "defsFingerprint")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defsFingerprint"
+    )]
     pub defs_fingerprint: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "ownerResourceId")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ownerResourceId"
+    )]
     pub owner_resource_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "assemblyInputs")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "assemblyInputs"
+    )]
     pub assembly_inputs: Vec<AssemblyInputRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<BTreeMap<String, u64>>,
@@ -77,11 +89,7 @@ impl McgRegistry {
     }
 
     pub fn upsert_node(&mut self, record: McgNodeRecord) {
-        if let Some(existing) = self
-            .nodes
-            .iter_mut()
-            .find(|node| node.id == record.id)
-        {
+        if let Some(existing) = self.nodes.iter_mut().find(|node| node.id == record.id) {
             *existing = record;
         } else {
             self.nodes.push(record);
@@ -112,7 +120,10 @@ impl McgRegistryWriter {
     }
 
     pub fn save(source_root: &std::path::Path, registry: &McgRegistry) -> anyhow::Result<()> {
-        write_json_registry(&mcg_registry_path(source_root, app_id_from_registry(registry)), registry)
+        write_json_registry(
+            &mcg_registry_path(source_root, app_id_from_registry(registry)),
+            registry,
+        )
     }
 }
 

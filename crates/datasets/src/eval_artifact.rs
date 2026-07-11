@@ -416,9 +416,7 @@ mod tests {
     }
 
     fn workset_artifact_file(app_root: &Path) -> PathBuf {
-        fs::read_dir(
-            mei_lang_kernel::resolve_app_eval_cache_root(app_root).join("workset"),
-        )
+        fs::read_dir(mei_lang_kernel::resolve_app_eval_cache_root(app_root).join("workset"))
             .expect("workset dir")
             .next()
             .expect("workset artifact")

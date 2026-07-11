@@ -64,9 +64,14 @@ pub fn persist_app_skeleton_artifact(
     })
 }
 
-pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &AppSkeletonArtifact) {
+pub fn merge_app_skeleton_into_compiled(
+    compiled: &mut CompiledApp,
+    skeleton: &AppSkeletonArtifact,
+) {
     let payload = &skeleton.payload;
-    if let Ok(tree) = serde_json::from_value(payload.get("fileTree").cloned().unwrap_or(Value::Null)) {
+    if let Ok(tree) =
+        serde_json::from_value(payload.get("fileTree").cloned().unwrap_or(Value::Null))
+    {
         compiled.file_tree = tree;
     }
     if let Ok(index) = serde_json::from_value(
@@ -93,12 +98,9 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
     ) {
         compiled.build_template_index = index;
     }
-    if let Ok(routes) = serde_json::from_value(
-        payload
-            .get("sceneRoutes")
-            .cloned()
-            .unwrap_or(Value::Null),
-    ) {
+    if let Ok(routes) =
+        serde_json::from_value(payload.get("sceneRoutes").cloned().unwrap_or(Value::Null))
+    {
         compiled.scene_routes = routes;
     }
     if let Some(app_id) = payload
@@ -110,18 +112,19 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
             compiled.app_id = app_id;
         }
     }
-    if let Ok(title) = serde_json::from_value::<String>(payload.get("title").cloned().unwrap_or(Value::Null)) {
+    if let Ok(title) =
+        serde_json::from_value::<String>(payload.get("title").cloned().unwrap_or(Value::Null))
+    {
         compiled.title = title;
     }
-    if let Ok(resources) = serde_json::from_value(payload.get("resources").cloned().unwrap_or(Value::Null)) {
+    if let Ok(resources) =
+        serde_json::from_value(payload.get("resources").cloned().unwrap_or(Value::Null))
+    {
         compiled.resources = resources;
     }
-    if let Ok(world_metrics) = serde_json::from_value(
-        payload
-            .get("worldMetrics")
-            .cloned()
-            .unwrap_or(Value::Null),
-    ) {
+    if let Ok(world_metrics) =
+        serde_json::from_value(payload.get("worldMetrics").cloned().unwrap_or(Value::Null))
+    {
         compiled.world_metrics = world_metrics;
     }
     if let Ok(semantic) = serde_json::from_value(

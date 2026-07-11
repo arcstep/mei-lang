@@ -19,9 +19,8 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_pretty_panels_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
-        let bundle = workspace.join(
-            "apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle",
-        );
+        let bundle =
+            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
         if !bundle.is_file() {
             return;
         }
@@ -52,9 +51,7 @@ fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
 }
 
 fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
-    panels
-        .iter()
-        .find_map(|panel| find_panel(panel, id))
+    panels.iter().find_map(|panel| find_panel(panel, id))
 }
 
 #[test]
@@ -69,7 +66,8 @@ fn pretty_panels_enforcement_body_includes_triptych_and_compound_shell() {
         .as_ref()
         .expect("scene contract")
         .panels;
-    let strip = find_panel_in_tree(panels, "enforcement_strip_layout").expect("enforcement_strip_layout");
+    let strip =
+        find_panel_in_tree(panels, "enforcement_strip_layout").expect("enforcement_strip_layout");
     let areas = strip
         .layout
         .as_ref()
@@ -111,11 +109,7 @@ fn pretty_panels_issue_body_exports_four_status_metric_cards() {
             card.props
                 .get("__mei_metric_template")
                 .and_then(|v| v.as_str()),
-            Some(if suffix == "_summary" {
-                "row"
-            } else {
-                "stack"
-            }),
+            Some(if suffix == "_summary" { "row" } else { "stack" }),
             "issue card {card_id} template mismatch: {:?}",
             card.props
         );

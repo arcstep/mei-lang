@@ -75,7 +75,11 @@ pub struct PayloadRef {
 }
 
 impl PayloadRef {
-    pub fn new(kind: impl Into<String>, content_hash: impl Into<String>, schema_version: impl Into<String>) -> Self {
+    pub fn new(
+        kind: impl Into<String>,
+        content_hash: impl Into<String>,
+        schema_version: impl Into<String>,
+    ) -> Self {
         Self {
             kind: kind.into(),
             content_hash: content_hash.into(),

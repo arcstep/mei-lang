@@ -28,26 +28,25 @@ pub(crate) fn query_xlsx_rows(
     let import_entry =
         resolve_data_snapshot_import_entry(app_root, source.path.as_str(), sheet, header_row);
     let snapshot_started = Instant::now();
-    let (columns, coerced_source_rows, cache_hit, table_handle_hit) =
-        if import_entry.is_some() {
-            let (handle, handle_cache_hit) =
-                load_table_handle(app_root, source.path.as_str(), sheet, header_row)?;
-            let (columns, rows) = materialize_rows_from_handle(handle.as_ref(), schema);
-            (columns, rows, handle_cache_hit, true)
+    let (columns, coerced_source_rows, cache_hit, table_handle_hit) = if import_entry.is_some() {
+        let (handle, handle_cache_hit) =
+            load_table_handle(app_root, source.path.as_str(), sheet, header_row)?;
+        let (columns, rows) = materialize_rows_from_handle(handle.as_ref(), schema);
+        (columns, rows, handle_cache_hit, true)
+    } else {
+        let (snapshot, cache_hit) =
+            cached_load_xlsx_table_snapshot(app_root, source.path.as_str(), sheet, header_row)?;
+        let rows = if schema.is_empty() {
+            coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
         } else {
-            let (snapshot, cache_hit) =
-                cached_load_xlsx_table_snapshot(app_root, source.path.as_str(), sheet, header_row)?;
-            let rows = if schema.is_empty() {
-                coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
-            } else {
-                snapshot
-                    .rows
-                    .iter()
-                    .map(|row| coerce_row_to_schema(row, schema))
-                    .collect()
-            };
-            (snapshot.columns.clone(), rows, cache_hit, false)
+            snapshot
+                .rows
+                .iter()
+                .map(|row| coerce_row_to_schema(row, schema))
+                .collect()
         };
+        (snapshot.columns.clone(), rows, cache_hit, false)
+    };
     let snapshot_ms = elapsed_ms(snapshot_started);
     if can_return_snapshot_directly(meta, options, schema) {
         let row_count = coerced_source_rows.len();

@@ -9,7 +9,9 @@ pub(crate) fn normalized_optional_scope(value: Option<String>) -> Option<String>
         .map(str::to_string)
 }
 
-pub(crate) fn compile_feedback_from_compiled(compiled: &CompiledApp) -> (usize, usize, Option<String>) {
+pub(crate) fn compile_feedback_from_compiled(
+    compiled: &CompiledApp,
+) -> (usize, usize, Option<String>) {
     let diagnostic_error_count = compiled
         .diagnostics
         .iter()
@@ -189,8 +191,12 @@ pub(crate) fn host_build_response_from_scoped_feedback(
         artifact_cache_hit,
         scope_artifacts_ms: materialize.as_ref().map(|report| report.scope_artifacts_ms),
         mrg_slots_ready: materialize.as_ref().map(|report| report.mrg_slots_ready),
-        eval_artifacts_warmed: materialize.as_ref().map(|report| report.eval_artifacts_warmed),
-        block_eval_hint: materialize.as_ref().and_then(|report| report.block_eval_hint.clone()),
+        eval_artifacts_warmed: materialize
+            .as_ref()
+            .map(|report| report.eval_artifacts_warmed),
+        block_eval_hint: materialize
+            .as_ref()
+            .and_then(|report| report.block_eval_hint.clone()),
     }
 }
 
@@ -239,11 +245,7 @@ pub(crate) fn run_scoped_build(
         &feedback,
     );
     if let Some(scene) = scene_id.as_deref() {
-        crate::graph::schedule_warmup_frontier(
-            state.source_root.as_path(),
-            app_id,
-            scene,
-        );
+        crate::graph::schedule_warmup_frontier(state.source_root.as_path(), app_id, scene);
     }
     Ok(host_build_response_from_scoped_feedback(
         app_id,
@@ -295,4 +297,3 @@ pub(crate) fn mark_access_artifact_degraded(
         sync_registry_phase(registry);
     });
 }
-

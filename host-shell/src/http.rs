@@ -13,38 +13,37 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
+use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_api::{
     api_build_context_export, api_build_graph_mcg, api_build_graph_mcg_artifact,
     api_build_graph_mcg_node,
 };
-use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
-use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
 use crate::host_home::host_home_page;
 use crate::host_mcg::host_mcg_page;
 use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
-use crate::shell_redirects::{
-    redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_to_view,
-    redirect_apps_config, redirect_apps_layout_to_view, redirect_apps_prototype_to_view,
-    redirect_apps_runtime, redirect_apps_upload, redirect_host_config, redirect_host_runtime,
-    redirect_host_upload, redirect_root_to_home,
-};
+use crate::landing::build_discovered_app_summaries;
+use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
+use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::pages::{
-    api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_drilldown_context,
-    api_scene_eval_pack,
-    app_page, app_view_page, host_starting_page,
+    api_host_access_readiness, api_presentation_map, api_scene_bootstrap,
+    api_scene_drilldown_context, api_scene_eval_pack, app_page, app_view_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
-    api_get_presentation_script, api_list_presentation_scripts,
-    api_put_presentation_script, api_set_default_presentation_script,
+    api_get_presentation_script, api_list_presentation_scripts, api_put_presentation_script,
+    api_set_default_presentation_script,
 };
-use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{
     api_host_mrg_activate, api_host_mrg_status, api_host_runtime_activate_env, api_runtime_snapshot,
 };
+use crate::shell_redirects::{
+    redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_to_view, redirect_apps_config,
+    redirect_apps_layout_to_view, redirect_apps_prototype_to_view, redirect_apps_runtime,
+    redirect_apps_upload, redirect_host_config, redirect_host_runtime, redirect_host_upload,
+    redirect_root_to_home,
+};
 use crate::state::{HostHttpState, SharedState};
-use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::upload_api::{
     upload_chunk_complete_post, upload_chunk_init_post, upload_chunk_put, upload_chunk_status_get,
     upload_dir_create_post, upload_entry_rename_post, upload_file_delete, upload_file_download_get,
@@ -78,7 +77,10 @@ pub fn router(state: HostHttpState) -> Router {
             "/account/password",
             get(mei_host_auth::account_change_password_page),
         )
-        .route("/api/host/client-trace", post(crate::client_trace::api_host_client_trace))
+        .route(
+            "/api/host/client-trace",
+            post(crate::client_trace::api_host_client_trace),
+        )
         .route("/api/host/heartbeat", get(api_host_heartbeat))
         .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
@@ -92,27 +94,27 @@ pub fn router(state: HostHttpState) -> Router {
             post(api_host_runtime_activate_env),
         )
         .route("/api/runtime/snapshot", get(api_runtime_snapshot))
-        .route(
-            "/api/build/graph/mcg",
-            get(api_build_graph_mcg),
-        )
-        .route(
-            "/api/build/graph/mcg/node",
-            get(api_build_graph_mcg_node),
-        )
+        .route("/api/build/graph/mcg", get(api_build_graph_mcg))
+        .route("/api/build/graph/mcg/node", get(api_build_graph_mcg_node))
         .route(
             "/api/build/graph/mcg/artifact",
             get(api_build_graph_mcg_artifact),
         )
-        .route(
-            "/api/build/context/export",
-            get(api_build_context_export),
-        )
+        .route("/api/build/context/export", get(api_build_context_export))
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
-        .route("/api/host/view-revision", get(crate::view_revision::api_host_view_revision))
-        .route("/api/host/scene-manifest", get(crate::scene_manifest::api_host_scene_manifest))
-        .route("/api/host/layer-batch", post(crate::scene_manifest::api_host_layer_batch))
+        .route(
+            "/api/host/view-revision",
+            get(crate::view_revision::api_host_view_revision),
+        )
+        .route(
+            "/api/host/scene-manifest",
+            get(crate::scene_manifest::api_host_scene_manifest),
+        )
+        .route(
+            "/api/host/layer-batch",
+            post(crate::scene_manifest::api_host_layer_batch),
+        )
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
         .route("/api/host/scene-eval-pack", get(api_scene_eval_pack))
         .route(
@@ -142,10 +144,7 @@ pub fn router(state: HostHttpState) -> Router {
         )
         .route("/api/datasets/query", post(api_datasets_query))
         .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
-        .route(
-            "/api/datasets/fixture/:app_id",
-            post(api_datasets_fixture),
-        )
+        .route("/api/datasets/fixture/:app_id", post(api_datasets_fixture))
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route(
             "/api/ops/themes/layout/overlay/:app_id",
@@ -170,10 +169,7 @@ pub fn router(state: HostHttpState) -> Router {
             post(api_set_default_presentation_script),
         )
         .route("/api/ops/boundary", get(ops_boundary_get))
-        .route(
-            "/api/ops/journal/:app_id",
-            get(ops_journal_get),
-        )
+        .route("/api/ops/journal/:app_id", get(ops_journal_get))
         .route(
             "/api/ops/config/:app_id",
             get(ops_config_get).put(ops_config_put),
@@ -182,10 +178,7 @@ pub fn router(state: HostHttpState) -> Router {
             "/api/upload/init/:app_id",
             post(upload_chunk_init_post).layer(DefaultBodyLimit::max(256 * 1024)),
         )
-        .route(
-            "/api/upload/status/:app_id",
-            get(upload_chunk_status_get),
-        )
+        .route("/api/upload/status/:app_id", get(upload_chunk_status_get))
         .route(
             "/api/upload/chunk/:app_id",
             put(upload_chunk_put).layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
@@ -222,9 +215,18 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/apps/:app_id/app", get(redirect_apps_app_to_view))
         .route("/apps/:app_id/app/*tail", get(redirect_apps_app_scene))
         .route("/apps/:app_id/layout", get(redirect_apps_layout_to_view))
-        .route("/apps/:app_id/layout/*tail", get(redirect_apps_layout_to_view))
-        .route("/apps/:app_id/prototype", get(redirect_apps_prototype_to_view))
-        .route("/apps/:app_id/prototype/*tail", get(redirect_apps_prototype_to_view))
+        .route(
+            "/apps/:app_id/layout/*tail",
+            get(redirect_apps_layout_to_view),
+        )
+        .route(
+            "/apps/:app_id/prototype",
+            get(redirect_apps_prototype_to_view),
+        )
+        .route(
+            "/apps/:app_id/prototype/*tail",
+            get(redirect_apps_prototype_to_view),
+        )
         .route("/apps/:mode/*app_id", get(app_page))
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))
@@ -430,7 +432,9 @@ async fn api_datasets_fixture(
         .filter(|value| !value.is_empty())
         .unwrap_or("home");
     let workspace = guard.ctx.workspace_root.as_path();
-    let Some(manifest) = mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id) else {
+    let Some(manifest) =
+        mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id)
+    else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("fixture bootstrap missing for scene `{scene_id}`")})),
@@ -909,12 +913,20 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
-            .oneshot(Request::builder().uri("/").body(Body::empty()).expect("request"))
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/home")
         );
     }
@@ -934,7 +946,10 @@ mod tests {
             .expect("response");
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/upload?app=demo")
         );
     }
@@ -954,7 +969,10 @@ mod tests {
             .expect("response");
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/apps/pretty-panels/view?surface=app")
         );
     }
@@ -974,7 +992,10 @@ mod tests {
             .expect("response");
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/apps/demo/view?surface=layout&scene=home")
         );
     }
@@ -994,7 +1015,10 @@ mod tests {
             .expect("response");
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/apps/demo/view?surface=app&scene=home")
         );
     }

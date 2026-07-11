@@ -22,7 +22,9 @@ pub struct PutResult {
 }
 
 pub fn content_store_root(app_root: &Path) -> PathBuf {
-    resolve_app_build_root(app_root).join("store").join("content")
+    resolve_app_build_root(app_root)
+        .join("store")
+        .join("content")
 }
 
 pub fn content_hash_bytes(bytes: &[u8]) -> String {
@@ -34,7 +36,8 @@ pub fn content_hash_bytes(bytes: &[u8]) -> String {
 pub fn put_if_absent(app_root: &Path, kind: &str, bytes: &[u8]) -> anyhow::Result<PutResult> {
     let content_hash = content_hash_bytes(bytes);
     let dir = content_store_root(app_root).join(kind);
-    std::fs::create_dir_all(&dir).with_context(|| format!("create content store dir {}", dir.display()))?;
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("create content store dir {}", dir.display()))?;
     let path = dir.join(format!("{content_hash}.json"));
     if path.is_file() {
         return Ok(PutResult {

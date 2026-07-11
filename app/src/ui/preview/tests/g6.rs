@@ -176,4 +176,3 @@ fn resolve_panel_props_merges_theme_panel_defaults() {
         Some("1px solid #334155")
     );
 }
-

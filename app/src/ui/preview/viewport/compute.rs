@@ -61,9 +61,7 @@ pub(crate) fn effective_viewport_overflow(
         | UiRouteMode::Prototype
         | UiRouteMode::Config
         | UiRouteMode::Upload
-        | UiRouteMode::Runtime => {
-            "debug".to_string()
-        }
+        | UiRouteMode::Runtime => "debug".to_string(),
         UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot => "clip".to_string(),
     }
 }

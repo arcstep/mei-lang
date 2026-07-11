@@ -8,8 +8,8 @@ use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
     canonical_app_source_rel_path, load_workspace_config, resolve_app_entry_main, resolve_app_root,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
-    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
+    LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::workspace::discover_build_apps;
 
@@ -78,12 +78,13 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 focuses.push(entry_main);
             }
         }
-        let merged_datasets = crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
-            app_config
-                .map(|config| config.datasets.as_slice())
-                .unwrap_or(&[]),
-            app_root.as_path(),
-        )?;
+        let merged_datasets =
+            crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
+                app_config
+                    .map(|config| config.datasets.as_slice())
+                    .unwrap_or(&[]),
+                app_root.as_path(),
+            )?;
         let datasets = normalize_warmup_dataset_requests(merged_datasets.as_slice());
         let xlsx_sources = normalize_warmup_xlsx_sources(
             app_config
@@ -114,10 +115,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
 }
 
 /// Overlay T2 page autogen datasets and page-file focuses onto a manifest app entry.
-pub fn enrich_runtime_warmup_app(
-    source_root: &Path,
-    app: &mut RuntimeWarmupApp,
-) -> Result<()> {
+pub fn enrich_runtime_warmup_app(source_root: &Path, app: &mut RuntimeWarmupApp) -> Result<()> {
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
     let manual_configs = runtime_dataset_requests_as_workspace_configs(&app.datasets);
     let merged_datasets = crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
@@ -177,11 +175,7 @@ fn overlay_workspace_warmup_app_config(source_root: &Path, app: &mut RuntimeWarm
     let Some(cfg) = workspace.warmup.apps.get(app.app_id.as_str()) else {
         return;
     };
-    if let Some(scope) = cfg
-        .compile_scope
-        .clone()
-        .filter(|entry| entry.is_active())
-    {
+    if let Some(scope) = cfg.compile_scope.clone().filter(|entry| entry.is_active()) {
         app.compile_scope = Some(scope);
     }
     if !cfg.hot_scenes.is_empty() {

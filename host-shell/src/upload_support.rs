@@ -7,12 +7,7 @@ use crate::api_error::ApiError;
 use crate::state::SharedState;
 
 pub(crate) fn workspace_root_from_state(state: &SharedState) -> PathBuf {
-    state
-        .read()
-        .expect("state lock")
-        .ctx
-        .workspace_root
-        .clone()
+    state.read().expect("state lock").ctx.workspace_root.clone()
 }
 
 pub(crate) fn resolve_upload_root(state: &SharedState, app_id: &str) -> Result<PathBuf, ApiError> {

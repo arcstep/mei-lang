@@ -7,10 +7,7 @@ pub trait Plugin: Send + Sync {
 
 /// Data-source plugin: parquet, query, metric eval.
 pub trait DsPlugin: Plugin {
-    fn materialize(
-        &self,
-        request: &MaterializeRequest,
-    ) -> anyhow::Result<MaterializeResult>;
+    fn materialize(&self, request: &MaterializeRequest) -> anyhow::Result<MaterializeResult>;
 }
 
 #[derive(Debug, Clone)]

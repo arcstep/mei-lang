@@ -141,7 +141,7 @@ template slot_metric_shell(
 template slot_metric_card(
     id = "metric_slot_card",
     area = "auto",
-    layout_role = "plain",
+    surface = "plain",
     template = None,
     source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
     desc = "",
@@ -169,7 +169,7 @@ template slot_metric_card(
         child = metric(
             id = id + "_content",
             area = "content",
-            layout_role = layout_role,
+            surface = surface,
             variant = variant,
             height_px = height_px,
             source = source,
@@ -197,7 +197,7 @@ template solid_metric_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "solid_stack",
+        surface = "solid_stack",
         source = source,
         popup = popup,
         presentation = presentation,
@@ -218,7 +218,7 @@ template solid_row_accent_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "solid_row_accent",
+        surface = "solid_row_accent",
         source = source,
         popup = popup,
         presentation = presentation,
@@ -244,7 +244,7 @@ template solid_row_compact_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "solid_row_compact",
+        surface = "solid_row_compact",
         source = source,
         variant = variant,
         popup = popup,
@@ -265,7 +265,7 @@ template narrow_metric_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "plain",
+        surface = "plain",
         source = source,
         variant = variant,
         shell_padding = shell_padding,
@@ -285,7 +285,7 @@ template plain_metric_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "plain",
+        surface = "plain",
         source = source,
         variant = variant,
         popup = popup,
@@ -303,7 +303,7 @@ template desc_metric_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "stack_desc",
+        surface = "stack_desc",
         desc = desc,
         source = source,
         height_px = height_px,
@@ -320,7 +320,7 @@ template desc_metric_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "stack_desc",
+        surface = "stack_desc",
         desc = desc,
         source = source,
         shell_height = "100%",
@@ -339,7 +339,7 @@ template progress_metric_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "stack_progress",
+        surface = "stack_progress",
         desc = desc,
         source = source,
         variant = variant,
@@ -359,7 +359,7 @@ template progress_metric_fill_slot(
     slot_metric_card(
         id = id,
         area = area,
-        layout_role = "stack_progress",
+        surface = "stack_progress",
         desc = desc,
         source = source,
         variant = variant,
@@ -455,7 +455,7 @@ template metric_triptych_body(
             slot_metric_card(
                 id = id + "_first",
                 area = "first",
-                layout_role = "solid_stack",
+                surface = "solid_stack",
                 height_px = card_height,
                 source = first,
                 card_props = {"label_vertical_align": "center"},
@@ -465,7 +465,7 @@ template metric_triptych_body(
             slot_metric_card(
                 id = id + "_second",
                 area = "second",
-                layout_role = "solid_stack",
+                surface = "solid_stack",
                 height_px = card_height,
                 source = second,
                 card_props = {"label_vertical_align": "center"},
@@ -475,7 +475,7 @@ template metric_triptych_body(
             slot_metric_card(
                 id = id + "_third",
                 area = "third",
-                layout_role = "solid_stack",
+                surface = "solid_stack",
                 height_px = card_height,
                 source = third,
                 card_props = {"label_vertical_align": "center"},
@@ -684,7 +684,7 @@ template summary_stack_body(
             slot_metric_card(
                 id = id + "_primary",
                 area = "primary",
-                layout_role = "solid_row_accent",
+                surface = "solid_row_accent",
                 height_px = 50,
                 source = primary,
                 shell_background = CORNER_DECOR_BG,
@@ -693,7 +693,7 @@ template summary_stack_body(
             slot_metric_card(
                 id = id + "_secondary_a",
                 area = "secondary_a",
-                layout_role = "solid_row_compact",
+                surface = "solid_row_compact",
                 variant = "sub",
                 height_px = 32,
                 source = secondary_a,
@@ -702,7 +702,7 @@ template summary_stack_body(
             slot_metric_card(
                 id = id + "_secondary_b",
                 area = "secondary_b",
-                layout_role = "solid_row_compact",
+                surface = "solid_row_compact",
                 variant = "sub",
                 height_px = 32,
                 source = secondary_b,
@@ -907,7 +907,7 @@ template status_triptych_summary_body(
             slot_metric_card(
                 id = id + "_pending",
                 area = "pending",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 height_px = top_height,
                 shell_height = str(top_height) + "px",
                 source = pending,
@@ -917,7 +917,7 @@ template status_triptych_summary_body(
             slot_metric_card(
                 id = id + "_doing",
                 area = "doing",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 height_px = top_height,
                 shell_height = str(top_height) + "px",
                 source = doing,
@@ -927,7 +927,7 @@ template status_triptych_summary_body(
             slot_metric_card(
                 id = id + "_done",
                 area = "done",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 height_px = top_height,
                 shell_height = str(top_height) + "px",
                 source = done,
@@ -937,7 +937,7 @@ template status_triptych_summary_body(
             slot_metric_card(
                 id = id + "_summary",
                 area = "summary",
-                layout_role = "strip_icon_left",
+                surface = "strip_icon_left",
                 height_px = summary_height,
                 shell_height = str(summary_height) + "px",
                 source = summary,
@@ -1298,7 +1298,7 @@ template status_triptych_summary_fill_body(
             slot_metric_card(
                 id = id + "_pending",
                 area = "pending",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 source = pending,
                 shell_height = "100%",
                 shell_padding = "10px 8px 10px 70px",
@@ -1307,7 +1307,7 @@ template status_triptych_summary_fill_body(
             slot_metric_card(
                 id = id + "_doing",
                 area = "doing",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 source = doing,
                 shell_height = "100%",
                 shell_padding = "10px 8px 10px 70px",
@@ -1316,7 +1316,7 @@ template status_triptych_summary_fill_body(
             slot_metric_card(
                 id = id + "_done",
                 area = "done",
-                layout_role = "icon_left",
+                surface = "icon_left",
                 source = done,
                 shell_height = "100%",
                 shell_padding = "10px 8px 10px 70px",
@@ -1325,7 +1325,7 @@ template status_triptych_summary_fill_body(
             slot_metric_card(
                 id = id + "_summary",
                 area = "summary",
-                layout_role = "strip_icon_left",
+                surface = "strip_icon_left",
                 source = summary,
                 shell_height = "100%",
                 shell_padding = "0 16px 0 92px",
@@ -1373,7 +1373,7 @@ template compound_only_fill_body(
                     child = metric(
                         id = id + "_top_content",
                         area = "content",
-                        layout_role = "compound_top_row",
+                        surface = "compound_top_row",
                         source = top_source,
                     ),
                 ),
@@ -1383,7 +1383,7 @@ template compound_only_fill_body(
                     child = metric(
                         id = id + "_b0_content",
                         area = "content",
-                        layout_role = "compound_sub_stack",
+                        surface = "compound_sub_stack",
                         source = sub_a_source,
                     ),
                 ),
@@ -1393,7 +1393,7 @@ template compound_only_fill_body(
                     child = metric(
                         id = id + "_b1_content",
                         area = "content",
-                        layout_role = "compound_sub_stack",
+                        surface = "compound_sub_stack",
                         source = sub_b_source,
                     ),
                 ),
@@ -1403,7 +1403,7 @@ template compound_only_fill_body(
                     child = metric(
                         id = id + "_b2_content",
                         area = "content",
-                        layout_role = "compound_sub_stack",
+                        surface = "compound_sub_stack",
                         source = sub_c_source,
                     ),
                 ),
@@ -1472,7 +1472,7 @@ template metric_triptych_compound_fill_body(
                             child = metric(
                                 id = id + "_top_content",
                                 area = "content",
-                                layout_role = "compound_top_row",
+                                surface = "compound_top_row",
                                 source = top_source,
                             ),
                         ),
@@ -1482,7 +1482,7 @@ template metric_triptych_compound_fill_body(
                             child = metric(
                                 id = id + "_b0_content",
                                 area = "content",
-                                layout_role = "compound_sub_stack",
+                                surface = "compound_sub_stack",
                                 variant = "sub",
                                 source = sub_a_source,
                             ),
@@ -1493,7 +1493,7 @@ template metric_triptych_compound_fill_body(
                             child = metric(
                                 id = id + "_b1_content",
                                 area = "content",
-                                layout_role = "compound_sub_stack",
+                                surface = "compound_sub_stack",
                                 variant = "sub",
                                 source = sub_b_source,
                             ),
@@ -1504,7 +1504,7 @@ template metric_triptych_compound_fill_body(
                             child = metric(
                                 id = id + "_b2_content",
                                 area = "content",
-                                layout_role = "compound_sub_stack",
+                                surface = "compound_sub_stack",
                                 variant = "sub",
                                 source = sub_c_source,
                             ),
@@ -1538,7 +1538,7 @@ template long_metric_compound_fill_body(
                 child = metric(
                     id = id + "_main_content",
                     area = "content",
-                    layout_role = "plain",
+                    surface = "plain",
                     source = main_source,
                 ),
             ),
@@ -1548,7 +1548,7 @@ template long_metric_compound_fill_body(
                 child = metric(
                     id = id + "_top_content",
                     area = "content",
-                    layout_role = "compound_top_row",
+                    surface = "compound_top_row",
                     variant = "sub",
                     source = top_source,
                     card_props = {
@@ -1564,7 +1564,7 @@ template long_metric_compound_fill_body(
                 child = metric(
                     id = id + "_bottom_content",
                     area = "content",
-                    layout_role = "compound_top_row",
+                    surface = "compound_top_row",
                     variant = "sub",
                     source = bottom_source,
                     card_props = {

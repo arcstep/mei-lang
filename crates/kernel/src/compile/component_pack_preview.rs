@@ -82,10 +82,7 @@ mod tests {
 
     #[test]
     fn audit_reports_missing_pack_previews() {
-        let root = std::env::temp_dir().join(format!(
-            "mei-audit-preview-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("mei-audit-preview-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("stock/components/chart/echarts")).expect("mkdir");
         fs::write(
@@ -94,8 +91,8 @@ mod tests {
         )
         .expect("manifest");
         fs::write(root.join("stock/components/chart/echarts/line.js"), "//").expect("script");
-        let missing = crate::workspace::audit_component_preview_coverage(root.as_path())
-            .expect("audit");
+        let missing =
+            crate::workspace::audit_component_preview_coverage(root.as_path()).expect("audit");
         assert_eq!(missing, vec!["chart.line".to_string()]);
         let _ = fs::remove_dir_all(&root);
     }

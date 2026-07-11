@@ -45,15 +45,29 @@ pub struct SceneEvalPackResponse {
     pub query_fingerprint: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub metrics: Vec<ClientBootstrapMetric>,
-    #[serde(rename = "bootstrapScopes", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "bootstrapScopes",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub bootstrap_scopes: Vec<ClientBootstrapScopePayload>,
-    #[serde(rename = "layoutBudgetManifest", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "layoutBudgetManifest",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub layout_budget_manifest: Option<LayoutBudgetManifest>,
     #[serde(rename = "neighborHops", skip_serializing_if = "Option::is_none")]
     pub neighbor_hops: Option<usize>,
-    #[serde(rename = "evalLayerRefs", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "evalLayerRefs",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub eval_layer_refs: Vec<SceneEvalPackEvalLayerRef>,
-    #[serde(rename = "deliveryClassCounts", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "deliveryClassCounts",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delivery_class_counts: Option<BTreeMap<String, usize>>,
     #[serde(rename = "bootstrapScope", skip_serializing_if = "Option::is_none")]
     pub bootstrap_scope: Option<String>,
@@ -142,9 +156,7 @@ pub fn build_scene_eval_pack(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let status = if let Some(expected) = requested_revision {
-        if expected != payload.client_revision()
-            && expected != NO_CLIENT_BOOTSTRAP_REVISION
-        {
+        if expected != payload.client_revision() && expected != NO_CLIENT_BOOTSTRAP_REVISION {
             SceneEvalPackStatus::RevisionStale
         } else {
             SceneEvalPackStatus::PackHit
@@ -167,10 +179,8 @@ mod tests {
 
     #[test]
     fn empty_scope_returns_pack_hit_with_no_bootstrap_revision() {
-        let workspace = std::env::temp_dir().join(format!(
-            "mei-scene-eval-pack-{}",
-            std::process::id()
-        ));
+        let workspace =
+            std::env::temp_dir().join(format!("mei-scene-eval-pack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(workspace.as_path());
         let app_root = workspace.join("apps").join("missing-app");
         let env_dir = app_root.join("env/WS-20260101.0");

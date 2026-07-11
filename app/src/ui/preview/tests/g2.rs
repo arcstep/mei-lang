@@ -91,4 +91,3 @@ fn metric_slot_vertical_host_class_maps_metric_v_align() {
         "component-card--slot-v-center"
     );
 }
-

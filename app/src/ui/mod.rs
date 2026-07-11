@@ -15,19 +15,19 @@ mod preview;
 mod preview_chrome;
 pub mod prototype_preset;
 mod route;
+mod runtime_panels;
+mod runtime_snapshot_view;
+mod runtime_tree;
 mod scene_drilldown_context;
 mod shell_access;
 mod shell_config;
+mod shell_copilot;
 mod shell_manage;
 mod shell_presentation;
-mod shell_copilot;
 mod shell_preview_layout;
 mod shell_runtime;
 mod shell_upload;
 mod shell_workspace;
-mod runtime_panels;
-mod runtime_snapshot_view;
-mod runtime_tree;
 mod source_tree;
 mod statusbar;
 mod topbar;
@@ -39,16 +39,16 @@ pub use shell_upload::UploadFileEntry;
 pub use shell_workspace::{render_workspace_page, WorkspaceShellNav};
 
 use preview_chrome::{component_script_preloads, component_scripts};
+pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
 use shell_access::access_shell;
 pub use shell_access::{
     render_access_preview_surface_html, render_access_shell_chrome_html,
     render_host_ssr_bootstrap_head_revision_only, render_host_ssr_bootstrap_html,
 };
-pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
 use shell_config::config_shell;
+use shell_copilot::copilot_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;
-use shell_copilot::copilot_shell;
 use shell_upload::upload_shell;
 
 pub use preview::{
@@ -57,8 +57,8 @@ pub use preview::{
     PreviewRuntimeContext,
 };
 pub use shell_manage::{render_build_preview_fragment, BuildPreviewFragment};
-pub use topbar::load_topbar_menu_context;
 use shell_runtime::runtime_shell;
+pub use topbar::load_topbar_menu_context;
 
 use document::render_document;
 

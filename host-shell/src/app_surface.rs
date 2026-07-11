@@ -63,7 +63,10 @@ pub fn parse_app_surface_tail(
     scene_query: Option<&str>,
     route_mode: UiRouteMode,
 ) -> (String, String, Option<String>) {
-    let parts: Vec<&str> = app_tail.split('/').filter(|part| !part.is_empty()).collect();
+    let parts: Vec<&str> = app_tail
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
     if parts.is_empty() {
         return (String::new(), "home".to_string(), None);
     }

@@ -5,14 +5,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::compile::reachability_tree::{
-        ReachabilityTreeNode,
-        ReachabilityTreeRoot,
-    };
+use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::model::{
-    CompiledApp,
-    ComponentAsset, UiNodeDecl,
-    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
+    CompiledApp, ComponentAsset, ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot,
+    SceneContract, SceneDecl, UiNodeDecl,
 };
 
 pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
@@ -26,7 +22,9 @@ pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
     }
     if compiled.ui_layout_index.nodes.is_empty() {
         let contracts = scene_contracts_from_compiled(compiled);
-        let has_panels = contracts.values().any(|contract| !contract.panels.is_empty());
+        let has_panels = contracts
+            .values()
+            .any(|contract| !contract.panels.is_empty());
         if has_panels && !has_ui_structure {
             return true;
         }
@@ -51,7 +49,9 @@ fn file_tree_has_board_capsules(nodes: &[crate::model::WorkspaceNode]) -> bool {
     })
 }
 
-pub(super) fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
+pub(super) fn rebuild_reachability_tree_from_compiled(
+    compiled: &CompiledApp,
+) -> Vec<ReachabilityTreeRoot> {
     let contracts = scene_contracts_from_compiled(compiled);
     let mut file_tree = compiled.file_tree.clone();
     let app_root = Path::new(compiled.app_root.as_str());
@@ -79,9 +79,10 @@ pub(super) fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) ->
                 &contracts,
                 &experience.node_manifest,
             );
-            let template_files = crate::compile::build_template_index::build_stock_template_files_root(
-                &source_root_from_app(compiled),
-            );
+            let template_files =
+                crate::compile::build_template_index::build_stock_template_files_root(
+                    &source_root_from_app(compiled),
+                );
             (template.tree_root, template_files)
         } else {
             let empty = |group: &str, label: &str| ReachabilityTreeRoot {
@@ -90,7 +91,10 @@ pub(super) fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) ->
                 default_open: false,
                 children: Vec::new(),
             };
-            (empty("templates", "Components"), empty("template_files", "Templates"))
+            (
+                empty("templates", "Components"),
+                empty("template_files", "Templates"),
+            )
         };
     let ui_layout = crate::compile::build_ui_layout_index::build_ui_layout_index(compiled);
     let mut merged_snapshot = merge_build_view_tree_roots(
@@ -165,7 +169,10 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
     map
 }
 
-pub(super) fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
+pub(super) fn ensure_board_and_template_roots(
+    roots: &mut Vec<ReachabilityTreeRoot>,
+    compiled: &CompiledApp,
+) {
     if !roots.iter().any(|root| root.group == "boards") {
         let board_root = if !compiled.build_t2_page_index.pages.is_empty() {
             Some(
@@ -202,8 +209,7 @@ pub(super) fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRo
     }
     let template_root = {
         let contracts = scene_contracts_from_compiled(compiled);
-        let catalog =
-            template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
+        let catalog = template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
         if catalog.is_empty() {
             None
         } else {
@@ -343,4 +349,3 @@ fn node_snapshot_to_runtime(node: &ReachabilityTreeNodeSnapshot) -> Reachability
         children: node.children.iter().map(node_snapshot_to_runtime).collect(),
     }
 }
-

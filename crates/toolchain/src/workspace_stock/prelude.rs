@@ -13,11 +13,11 @@ pub(crate) use mei_lang_kernel::{
     resolve_authoring_root, resolve_components_root, resolve_stock_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_runtime_root, stock_authoring_source,
     stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
-    APP_CONFIG_FILENAME, WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile,
-    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig,
-    WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
-    DEFAULT_APPS_REL, DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL,
-    DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
+    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
+    WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
+    WorkspaceStockConfig, WorkspaceStockPreviewConfig, APP_CONFIG_FILENAME, DEFAULT_APPS_REL,
+    DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
+    WORKSPACE_HOSTS_DIR_REL,
 };
 pub(crate) use walkdir::WalkDir;
 

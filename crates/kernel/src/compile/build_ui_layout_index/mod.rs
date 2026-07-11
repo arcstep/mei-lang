@@ -11,6 +11,4 @@ pub use agent_export::{
     ui_scope_annotation_for_preview_path, ui_scope_for_block, UiScopeBlockAnnotation,
     UiScopePanelAnnotation,
 };
-pub use index::{
-    build_ui_layout_index, filter_roots_for_tree_mode, merge_ui_structure_root,
-};
+pub use index::{build_ui_layout_index, filter_roots_for_tree_mode, merge_ui_structure_root};

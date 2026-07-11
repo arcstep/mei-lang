@@ -26,10 +26,8 @@ pub fn merge_theme_layout_into_compiled(
         return;
     }
     let index = compiled.ui_layout_index.clone();
-    let entries: Vec<(String, Value)> = layout
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let entries: Vec<(String, Value)> =
+        layout.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let Some(panels) = compiled
         .scene_contract
         .as_mut()
@@ -41,7 +39,8 @@ pub fn merge_theme_layout_into_compiled(
     let mut targets: Vec<(String, Value)> = Vec::new();
     for (scope_path, patch) in entries {
         let tuning_key = layout_scope_to_tuning_key(scope_path.as_str());
-        if let Some(panel_scope) = resolve_preview_scope_for_tuning_key(&index, tuning_key.as_str()) {
+        if let Some(panel_scope) = resolve_preview_scope_for_tuning_key(&index, tuning_key.as_str())
+        {
             targets.push((panel_scope, patch));
             continue;
         }
@@ -96,7 +95,9 @@ fn resolve_region_panel_id_for_layout_scope(
 
 fn find_region_panel_by_id(panel: &UiNodeDecl, region_id: &str, snake_id: &str) -> Option<String> {
     if ui_role(panel) == Some("region")
-        && (panel.id == region_id || panel.id == snake_id || panel.id.replace('_', "-") == region_id)
+        && (panel.id == region_id
+            || panel.id == snake_id
+            || panel.id.replace('_', "-") == region_id)
     {
         return Some(panel.id.clone());
     }
@@ -179,11 +180,7 @@ fn apply_theme_layout_patch(panel: &mut UiNodeDecl, patch: &Value) {
             );
         }
         if let Some(padding) = padding_profile_css(profile) {
-            let mut body_map = panel
-                .body_props
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
+            let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
             body_map.insert("padding".to_string(), Value::String(padding.to_string()));
             panel.body_props = Value::Object(body_map);
         }
@@ -191,10 +188,7 @@ fn apply_theme_layout_patch(panel: &mut UiNodeDecl, patch: &Value) {
 }
 
 /// Map `ops.themes.*.layout` keys (`home/T1/left_rail`) to client `preview_scope` (`t1/left_rail`).
-pub fn theme_layout_client_patches(
-    themes: &BTreeMap<String, Value>,
-    theme_id: &str,
-) -> Value {
+pub fn theme_layout_client_patches(themes: &BTreeMap<String, Value>, theme_id: &str) -> Value {
     let Some(layout) = themes
         .get(theme_id)
         .and_then(|theme| theme.get("layout"))
@@ -303,10 +297,7 @@ mod tests {
                 "3fr".to_string()
             ])
         );
-        assert_eq!(
-            region.layout.as_ref().unwrap().gap.as_deref(),
-            Some("8px")
-        );
+        assert_eq!(region.layout.as_ref().unwrap().gap.as_deref(), Some("8px"));
     }
 
     #[test]
@@ -390,10 +381,7 @@ mod tests {
             base: None,
             import_scope: None,
         };
-        apply_theme_layout_patch(
-            &mut section,
-            &json!({"paddingProfile": "dense_strip_100"}),
-        );
+        apply_theme_layout_patch(&mut section, &json!({"paddingProfile": "dense_strip_100"}));
         assert_eq!(
             section
                 .props

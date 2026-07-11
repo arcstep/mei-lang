@@ -63,9 +63,9 @@ impl PageInstanceHandle {
     ) -> Self {
         let target = compiled.active_target_file.trim();
         let canonical_target = mei_lang_kernel::canonical_app_source_rel_path(target);
-        let scene_payload_hash = payload_hash_for_kind_key(mcg, GraphNodeKind::ScenePayload, &canonical_target);
-        let skeleton_hash =
-            payload_hash_for_kind_key(mcg, GraphNodeKind::AppSkeleton, app_id);
+        let scene_payload_hash =
+            payload_hash_for_kind_key(mcg, GraphNodeKind::ScenePayload, &canonical_target);
+        let skeleton_hash = payload_hash_for_kind_key(mcg, GraphNodeKind::AppSkeleton, app_id);
         let scene_id = compiled
             .active_scene
             .as_deref()
@@ -99,11 +99,7 @@ impl PageInstanceHandle {
     }
 }
 
-fn payload_hash_for_kind_key(
-    mcg: &McgRegistry,
-    kind: GraphNodeKind,
-    key: &str,
-) -> Option<String> {
+fn payload_hash_for_kind_key(mcg: &McgRegistry, kind: GraphNodeKind, key: &str) -> Option<String> {
     mcg.nodes
         .iter()
         .find(|node| node.id.kind == kind && node.id.key == key)
@@ -123,10 +119,7 @@ pub fn hydrate_handle_for_eval(
         scene,
         target,
     )
-    .ok_or_else(|| anyhow::anyhow!(
-        "assemble from handle failed for target `{}`",
-        target
-    ))?;
+    .ok_or_else(|| anyhow::anyhow!("assemble from handle failed for target `{}`", target))?;
     crate::graph::hydrate_compiled_for_prebuild_eval(
         source_root,
         handle.app_id.as_str(),

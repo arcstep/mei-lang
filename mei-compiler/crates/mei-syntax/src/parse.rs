@@ -47,9 +47,10 @@ pub fn parse_source(source: &str) -> Result<SourceFile, ParseError> {
     let stripped = strip_comments(source);
     let parser = source_file_parser();
     parser.parse(stripped.as_str()).map_err(|errors| {
-        let error = errors.first().cloned().unwrap_or_else(|| {
-            Simple::custom(0..0, "parse error")
-        });
+        let error = errors
+            .first()
+            .cloned()
+            .unwrap_or_else(|| Simple::custom(0..0, "parse error"));
         let span = error.span();
         ParseError {
             message: format!("{error}"),
@@ -165,29 +166,26 @@ fn call_args_parser(
         .then(expr.clone().padded())
         .map(|(name, value)| (name, value));
     let positional = expr.padded();
-    choice((
-        kw.map(Either::Right),
-        positional.map(Either::Left),
-    ))
-    .padded()
-    .separated_by(just(',').padded())
-    .allow_trailing()
-    .collect::<Vec<_>>()
-    .delimited_by(just('(').padded(), just(')').padded())
-    .map(|items| {
-        let mut positional = Vec::new();
-        let mut keywords = Vec::new();
-        for item in items {
-            match item {
-                Either::Left(value) => positional.push(value),
-                Either::Right((name, value)) => keywords.push((name, value)),
+    choice((kw.map(Either::Right), positional.map(Either::Left)))
+        .padded()
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(|items| {
+            let mut positional = Vec::new();
+            let mut keywords = Vec::new();
+            for item in items {
+                match item {
+                    Either::Left(value) => positional.push(value),
+                    Either::Right((name, value)) => keywords.push((name, value)),
+                }
             }
-        }
-        CallArgs {
-            positional,
-            keywords,
-        }
-    })
+            CallArgs {
+                positional,
+                keywords,
+            }
+        })
 }
 
 enum Either<L, R> {
@@ -231,7 +229,8 @@ mod tests {
 
     #[test]
     fn parses_hello_home() {
-        let source = include_str!("../../../../../workspaces/ws-hello/apps/hello/src/scenes/home.mei");
+        let source =
+            include_str!("../../../../../workspaces/ws-hello/apps/hello/src/scenes/home.mei");
         let file = parse_source(source).expect("parse home.mei");
         assert_eq!(file.statements.len(), 4);
         assert_eq!(file.statements[3].path, vec!["frame", "add_panel"]);

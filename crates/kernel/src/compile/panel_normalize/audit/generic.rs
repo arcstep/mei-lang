@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::model::{Diagnostic, LayoutDecl, UiNodeDecl, Severity, UiTreeNode};
+use crate::model::{Diagnostic, LayoutDecl, Severity, UiNodeDecl, UiTreeNode};
 
 use super::super::constants::{
-    LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,
-    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, CONTENT_ZONE, TITLE_ZONE,
+    CONTENT_ZONE, LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,
+    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, TITLE_ZONE,
 };
 use super::super::css_util::{
     css_scalar_numbers, is_degenerate_track, layout_gap_y_px, layout_padding_horizontal_px,
@@ -126,17 +126,30 @@ pub(super) fn audit_layout_area_mapping(
     if declared.is_empty() {
         return;
     }
+    let mut assigned_counts = BTreeMap::<String, usize>::new();
     for node in &panel.blocks {
         let Some(area) = node_area(node) else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "layout_eval_unassigned_area".to_string(),
+                message: format!("panel `{}`: direct child has no area assignment", panel.id),
+                source_path: Some(source_path.to_string()),
+            });
             continue;
         };
         let area = area.trim();
         if area.is_empty() || area.eq_ignore_ascii_case("auto") {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "layout_eval_unassigned_area".to_string(),
+                message: format!("panel `{}`: direct child has no area assignment", panel.id),
+                source_path: Some(source_path.to_string()),
+            });
             continue;
         }
         if !declared.contains(area) {
             diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
+                severity: Severity::Error,
                 code: "layout_eval_unknown_block_area".to_string(),
                 message: format!(
                     "panel `{}`: block area `{area}` not declared in layout.areas",
@@ -144,6 +157,31 @@ pub(super) fn audit_layout_area_mapping(
                 ),
                 source_path: Some(source_path.to_string()),
             });
+            continue;
+        }
+        *assigned_counts.entry(area.to_string()).or_default() += 1;
+    }
+    for area in &declared {
+        match assigned_counts.get(area).copied().unwrap_or_default() {
+            0 => diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "layout_eval_orphan_area".to_string(),
+                message: format!(
+                    "panel `{}`: layout area `{area}` has no direct child",
+                    panel.id
+                ),
+                source_path: Some(source_path.to_string()),
+            }),
+            count if count > 1 => diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "layout_eval_duplicate_area_conflict".to_string(),
+                message: format!(
+                    "panel `{}`: layout area `{area}` is assigned to {count} direct children",
+                    panel.id
+                ),
+                source_path: Some(source_path.to_string()),
+            }),
+            _ => {}
         }
     }
 }

@@ -15,8 +15,20 @@ use crate::semantic_scene::collect_world_payloads_from_scene;
 use crate::types::GraphNodeKind;
 
 const PRIMITIVE_CALLS: &[&str] = &[
-    "ground", "pool", "green", "route", "road", "building", "building_import", "floor", "wall_ring",
-    "wall", "roof", "ceiling", "opening", "prop",
+    "ground",
+    "pool",
+    "green",
+    "route",
+    "road",
+    "building",
+    "building_import",
+    "floor",
+    "wall_ring",
+    "wall",
+    "roof",
+    "ceiling",
+    "opening",
+    "prop",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -45,10 +57,7 @@ pub fn build_world_exchange(
     })
 }
 
-fn load_world_payloads(
-    app_root: &Path,
-    registry: &McgRegistry,
-) -> Result<BTreeMap<String, Value>> {
+fn load_world_payloads(app_root: &Path, registry: &McgRegistry) -> Result<BTreeMap<String, Value>> {
     let mut out = BTreeMap::new();
     for node in registry
         .nodes
@@ -102,8 +111,9 @@ fn load_world_payloads(
             let file = parse_v2_source_file(path)
                 .with_context(|| format!("parse world file {}", path.display()))?;
             let catalog = WorldContextCatalog::load_from_app(app_root);
-            let expanded = expand_world_v2_file(&file, &catalog)
-                .map_err(|error| anyhow::anyhow!("expand world file {}: {error}", path.display()))?;
+            let expanded = expand_world_v2_file(&file, &catalog).map_err(|error| {
+                anyhow::anyhow!("expand world file {}: {error}", path.display())
+            })?;
             let rel = path
                 .strip_prefix(app_root)
                 .unwrap_or(path)
@@ -114,8 +124,8 @@ fn load_world_payloads(
                 if block.kind != "world" {
                     continue;
                 }
-                let world_id =
-                    string_field_value(&block.payload, &["id"]).unwrap_or_else(|| block.block_id.clone());
+                let world_id = string_field_value(&block.payload, &["id"])
+                    .unwrap_or_else(|| block.block_id.clone());
                 // 作者态 `src/world/*.world.mei` 优先于 MCG 缓存 artifact。
                 out.insert(world_id, block.payload);
             }
@@ -136,7 +146,9 @@ pub fn build_world_plan(payload: &Value, app_root: &Path, app_id: &str) -> Resul
             continue;
         };
         match call {
-            "spatial_source" => spatial_sources.push(lower_spatial_source(value, app_root, app_id)?),
+            "spatial_source" => {
+                spatial_sources.push(lower_spatial_source(value, app_root, app_id)?)
+            }
             "site" => site = lower_site(value),
             "view_layer" => view_layers.push(lower_view_layer(value)?),
             _ if PRIMITIVE_CALLS.contains(&call) => {
@@ -196,14 +208,20 @@ pub fn build_map_projection(world_plan: &Value, app_id: &str) -> Result<Value> {
         for prim in primitives {
             let prim_kind = prim.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             if prim_kind == "building_import" {
-                let id = prim.get("id").and_then(|v| v.as_str()).unwrap_or("building_import");
+                let id = prim
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("building_import");
                 let label = prim.get("label").and_then(|v| v.as_str()).unwrap_or(id);
                 let map_view = prim
                     .get("mapView")
                     .filter(|v| !v.is_null())
                     .cloned()
                     .unwrap_or_else(|| json!({ "kind": "fill_extrusion", "fillOpacity": 0.78 }));
-                let mv_kind = map_view.get("kind").and_then(|v| v.as_str()).unwrap_or("fill_extrusion");
+                let mv_kind = map_view
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("fill_extrusion");
                 let height_property = prim
                     .get("heightProperty")
                     .and_then(|v| v.as_str())
@@ -285,9 +303,12 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
         .or_else(|| material.get("opacity"))
         .cloned();
     let fill_color = if prim_kind == "building" || prim_kind == "building_import" {
-        ssot_color
-            .clone()
-            .unwrap_or_else(|| map_view.get("fillColor").cloned().unwrap_or(json!("#5d8fd6")))
+        ssot_color.clone().unwrap_or_else(|| {
+            map_view
+                .get("fillColor")
+                .cloned()
+                .unwrap_or(json!("#5d8fd6"))
+        })
     } else {
         map_view
             .get("fillColor")
@@ -366,7 +387,10 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
 
 fn merge_world_enter_fields(layer: &mut Map<String, Value>, prim: &Value) {
     let enterable = prim.get("worldEnterable").and_then(|v| v.as_bool()) == Some(true)
-        || prim.get("worldEnterViewpoint").and_then(|v| v.as_str()).is_some();
+        || prim
+            .get("worldEnterViewpoint")
+            .and_then(|v| v.as_str())
+            .is_some();
     if !enterable {
         return;
     }
@@ -498,7 +522,10 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
             map_view.insert("ssotDerived".to_string(), json!(true));
         }
     }
-    if let Some(world_view) = building.get_mut("worldView").and_then(|v| v.as_object_mut()) {
+    if let Some(world_view) = building
+        .get_mut("worldView")
+        .and_then(|v| v.as_object_mut())
+    {
         if world_view.get("kind").and_then(|v| v.as_str()) == Some("footprint_shell") {
             if let Some(h) = height {
                 world_view.insert("shellHeight".to_string(), json!(h));
@@ -525,10 +552,14 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
                 let expected = wall_height + roof_thickness;
                 if (envelope - expected).abs() > 0.05 {
                     building.insert("height".to_string(), json!(expected));
-                    if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut()) {
+                    if let Some(map_view) =
+                        building.get_mut("mapView").and_then(|v| v.as_object_mut())
+                    {
                         map_view.insert("height".to_string(), json!(expected));
                     }
-                    if let Some(world_view) = building.get_mut("worldView").and_then(|v| v.as_object_mut())
+                    if let Some(world_view) = building
+                        .get_mut("worldView")
+                        .and_then(|v| v.as_object_mut())
                     {
                         world_view.insert("shellHeight".to_string(), json!(expected));
                     }
@@ -558,9 +589,10 @@ fn enrich_roof_ssot(roof: &mut Map<String, Value>, by_id: &BTreeMap<String, Valu
     let Some(building) = by_id.get(&building_id) else {
         return;
     };
-    let profile = building.get("interiorProfile").cloned().or_else(|| {
-        collect_interior_profile(&building_id, by_id)
-    });
+    let profile = building
+        .get("interiorProfile")
+        .cloned()
+        .or_else(|| collect_interior_profile(&building_id, by_id));
     let Some(profile) = profile else {
         return;
     };
@@ -664,9 +696,8 @@ fn collect_interior_profile(building_id: &str, by_id: &BTreeMap<String, Value>) 
     if let Some(v) = roof_thickness {
         profile.insert("roofThickness".to_string(), json!(v));
     }
-    let roof_y = roof_elevation.or_else(|| {
-        wall_height.map(|h| h + roof_thickness.unwrap_or(0.18) * 0.5)
-    });
+    let roof_y =
+        roof_elevation.or_else(|| wall_height.map(|h| h + roof_thickness.unwrap_or(0.18) * 0.5));
     if let Some(v) = roof_y {
         profile.insert("roofElevation".to_string(), json!(v));
     }
@@ -730,13 +761,12 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
         .get("geometry")
         .or_else(|| args.get("footprint"))
         .cloned();
-    let feature_entity_id = resolve_feature_entity_id(&geometry)
-        .or_else(|| {
-            geometry
-                .as_ref()
-                .and_then(lower_inline_geometry)
-                .map(|_| id.clone())
-        });
+    let feature_entity_id = resolve_feature_entity_id(&geometry).or_else(|| {
+        geometry
+            .as_ref()
+            .and_then(lower_inline_geometry)
+            .map(|_| id.clone())
+    });
     let inline_geometry = geometry.as_ref().and_then(lower_inline_geometry);
     let material = lower_material(
         args.get("material")
@@ -805,11 +835,15 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
             obj.insert("mapOnly".to_string(), json!(true));
             obj.insert(
                 "featureMatch".to_string(),
-                lower_feature_match(args.get("feature_match").or_else(|| args.get("featureMatch"))),
+                lower_feature_match(
+                    args.get("feature_match")
+                        .or_else(|| args.get("featureMatch")),
+                ),
             );
             obj.insert(
                 "heightProperty".to_string(),
-                json!(string_field(args, &["height_property", "heightProperty"]).unwrap_or_else(|| "height".to_string())),
+                json!(string_field(args, &["height_property", "heightProperty"])
+                    .unwrap_or_else(|| "height".to_string())),
             );
             obj.insert(
                 "shellMaterial".to_string(),
@@ -828,8 +862,7 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
     }
     if args.get("world_enterable").and_then(|v| v.as_bool()) == Some(true)
         || args.get("worldEnterable").and_then(|v| v.as_bool()) == Some(true)
-        || resolve_ref_string(args.get("world_enter").or_else(|| args.get("worldEnter")))
-            .is_some()
+        || resolve_ref_string(args.get("world_enter").or_else(|| args.get("worldEnter"))).is_some()
     {
         if let Some(obj) = out.as_object_mut() {
             obj.insert("worldEnterable".to_string(), json!(true));
@@ -842,11 +875,9 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
             );
             obj.insert(
                 "worldEnterViewpoint".to_string(),
-                resolve_ref_string(
-                    args.get("world_enter").or_else(|| args.get("worldEnter")),
-                )
-                .map(Value::String)
-                .unwrap_or(Value::Null),
+                resolve_ref_string(args.get("world_enter").or_else(|| args.get("worldEnter")))
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
             );
         }
     }
@@ -1024,8 +1055,12 @@ fn parse_geo_point(value: &Value) -> Option<Vec<f64>> {
     }
     if let Some(arr) = value.as_array() {
         if arr.len() >= 2 {
-            let lng = arr[0].as_f64().or_else(|| arr[0].as_i64().map(|n| n as f64))?;
-            let lat = arr[1].as_f64().or_else(|| arr[1].as_i64().map(|n| n as f64))?;
+            let lng = arr[0]
+                .as_f64()
+                .or_else(|| arr[0].as_i64().map(|n| n as f64))?;
+            let lat = arr[1]
+                .as_f64()
+                .or_else(|| arr[1].as_i64().map(|n| n as f64))?;
             return Some(vec![lng, lat]);
         }
     }
@@ -1177,7 +1212,8 @@ fn emit_footprint_exchange(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let mut collection = load_imported_footprint_collection(&Value::Object(plan.clone()), app_root, app_id)?;
+    let mut collection =
+        load_imported_footprint_collection(&Value::Object(plan.clone()), app_root, app_id)?;
     let features = collection
         .as_object_mut()
         .and_then(|o| o.get_mut("features"))
@@ -1233,21 +1269,24 @@ fn emit_footprint_exchange(
         }
     }
 
-    plan.insert(
-        "emittedFootprint".to_string(),
-        collection.clone(),
-    );
+    plan.insert("emittedFootprint".to_string(), collection.clone());
     if let Some(url) = persist_emitted_footprint_asset(
         &collection,
         app_root,
         app_id,
-        plan.get("id").and_then(|v| v.as_str()).unwrap_or("park_world"),
+        plan.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("park_world"),
     )? {
         plan.insert("emittedFootprintUrl".to_string(), json!(url));
     }
     plan.insert(
         "footprintSource".to_string(),
-        json!(if plan.get("spatialSources").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
+        json!(if plan
+            .get("spatialSources")
+            .and_then(|v| v.as_array())
+            .is_some_and(|a| !a.is_empty())
+        {
             "world-merge-import"
         } else {
             "world-native"
@@ -1276,7 +1315,9 @@ fn load_imported_footprint_collection(
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("read footprint {}", path.display()))?;
             let value: Value = serde_json::from_str(&text)?;
-            return Ok(normalize_imported_footprint_collection(normalize_feature_collection(value)));
+            return Ok(normalize_imported_footprint_collection(
+                normalize_feature_collection(value),
+            ));
         }
     }
     Ok(json!({ "type": "FeatureCollection", "features": [] }))
@@ -1340,7 +1381,10 @@ fn reproject_geometry_inplace(geometry: &mut Value, reproject: bool) {
     };
     match geom_type {
         "Polygon" => {
-            if let Some(rings) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+            if let Some(rings) = geometry
+                .get_mut("coordinates")
+                .and_then(|v| v.as_array_mut())
+            {
                 for ring in rings.iter_mut() {
                     if let Some(ring_arr) = ring.as_array_mut() {
                         reproject_ring(ring_arr, reproject);
@@ -1349,7 +1393,10 @@ fn reproject_geometry_inplace(geometry: &mut Value, reproject: bool) {
             }
         }
         "MultiPolygon" => {
-            if let Some(polys) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+            if let Some(polys) = geometry
+                .get_mut("coordinates")
+                .and_then(|v| v.as_array_mut())
+            {
                 for poly in polys.iter_mut() {
                     if let Some(rings) = poly.as_array_mut() {
                         for ring in rings.iter_mut() {
@@ -1362,7 +1409,10 @@ fn reproject_geometry_inplace(geometry: &mut Value, reproject: bool) {
             }
         }
         "LineString" => {
-            if let Some(coords) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+            if let Some(coords) = geometry
+                .get_mut("coordinates")
+                .and_then(|v| v.as_array_mut())
+            {
                 for coord in coords.iter_mut() {
                     if let Some(pair) = coord.as_array_mut() {
                         reproject_coordinate_pair(pair, reproject);
@@ -1416,7 +1466,10 @@ fn normalize_imported_feature_properties(feature: &mut Value) {
             obj.insert("properties".to_string(), json!({}));
         }
     }
-    let Some(props) = feature.get_mut("properties").and_then(|v| v.as_object_mut()) else {
+    let Some(props) = feature
+        .get_mut("properties")
+        .and_then(|v| v.as_object_mut())
+    else {
         return;
     };
     let resolved_id = existing_id.or_else(|| {
@@ -1481,7 +1534,13 @@ fn persist_emitted_footprint_asset(
 ) -> Result<Option<String>> {
     let safe_id = world_id
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect::<String>();
     let rel = format!("assets/{safe_id}-emitted-footprint.geojson");
     let path = app_root.join(&rel);
@@ -1500,7 +1559,10 @@ fn normalize_imported_footprint_collection(mut collection: Value) -> Value {
     if let Some(obj) = collection.as_object_mut() {
         obj.remove("crs");
     }
-    if let Some(features) = collection.get_mut("features").and_then(|v| v.as_array_mut()) {
+    if let Some(features) = collection
+        .get_mut("features")
+        .and_then(|v| v.as_array_mut())
+    {
         for feature in features.iter_mut() {
             if let Some(geometry) = feature.get_mut("geometry") {
                 reproject_geometry_inplace(geometry, reproject);
@@ -1568,7 +1630,12 @@ fn feature_entity_id(feature: &Value) -> Option<String> {
         .and_then(|p| p.get("entityId").or_else(|| p.get("entity_id")))
         .and_then(|v| v.as_str())
         .map(str::to_string)
-        .or_else(|| feature.get("id").and_then(|v| v.as_str()).map(str::to_string))
+        .or_else(|| {
+            feature
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
 }
 
 fn enrich_feature_from_primitive(feature: &mut Value, prim: &Value) {
@@ -1742,18 +1809,30 @@ mod tests {
                     .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
             })
             .expect("lake_pavilion primitive");
-        assert_eq!(building.get("hasInterior").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            building.get("hasInterior").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         let map_view = building.get("mapView").expect("mapView");
         assert_eq!(map_view.get("height").and_then(|v| v.as_f64()), Some(3.38));
         assert_eq!(
             map_view.get("fillColor").and_then(|v| v.as_str()),
             Some("#f5f0e6")
         );
-        assert_eq!(map_view.get("ssotDerived").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            map_view.get("ssotDerived").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         let world_view = building.get("worldView").expect("worldView");
-        assert_eq!(world_view.get("shellHeight").and_then(|v| v.as_f64()), Some(3.38));
+        assert_eq!(
+            world_view.get("shellHeight").and_then(|v| v.as_f64()),
+            Some(3.38)
+        );
         let profile = building.get("interiorProfile").expect("interiorProfile");
-        assert_eq!(profile.get("wallHeight").and_then(|v| v.as_f64()), Some(3.2));
+        assert_eq!(
+            profile.get("wallHeight").and_then(|v| v.as_f64()),
+            Some(3.2)
+        );
         assert_eq!(
             profile.get("roofElevation").and_then(|v| v.as_f64()),
             Some(3.29)
@@ -1769,10 +1848,12 @@ mod tests {
                     .find(|l| l.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
             })
             .expect("lake_pavilion layer");
-        assert_eq!(layer.get("extrusionHeight").and_then(|v| v.as_f64()), Some(3.38));
         assert_eq!(
-            layer.pointer("/style/fillColor")
-                .and_then(|v| v.as_str()),
+            layer.get("extrusionHeight").and_then(|v| v.as_f64()),
+            Some(3.38)
+        );
+        assert_eq!(
+            layer.pointer("/style/fillColor").and_then(|v| v.as_str()),
             Some("#f5f0e6")
         );
     }
@@ -1825,18 +1906,24 @@ mod tests {
         let feature = emitted
             .pointer("/features/0/properties")
             .expect("feature properties");
-        assert_eq!(feature.get("worldEnterable").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            feature.get("worldEnterable").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(
             feature.get("enterViewpoint").and_then(|v| v.as_str()),
             Some("lake_pavilion_world_entry")
         );
-        assert_eq!(plan.get("footprintSource").and_then(|v| v.as_str()), Some("world-merge-import"));
+        assert_eq!(
+            plan.get("footprintSource").and_then(|v| v.as_str()),
+            Some("world-merge-import")
+        );
     }
 
     #[test]
     fn mini_park_load_world_payloads_from_world_mei() {
-        use std::path::PathBuf;
         use crate::mcg::registry::McgRegistryWriter;
+        use std::path::PathBuf;
 
         let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../workspaces/ws-demo-v2")
@@ -1844,7 +1931,8 @@ mod tests {
             .expect("ws-demo-v2");
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
         let registry = McgRegistryWriter::load(workspace.as_path(), "mini-park");
-        let exchange = build_world_exchange(app_root.as_path(), &registry, "mini-park").expect("exchange");
+        let exchange =
+            build_world_exchange(app_root.as_path(), &registry, "mini-park").expect("exchange");
         let worlds = exchange
             .world_plan
             .get("worlds")
@@ -1950,9 +2038,15 @@ mod tests {
             }
         });
         let plan = build_world_plan(&payload, Path::new("."), "mini-park").expect("plan");
-        assert_eq!(plan.get("footprintSource").and_then(|v| v.as_str()), Some("world-native"));
+        assert_eq!(
+            plan.get("footprintSource").and_then(|v| v.as_str()),
+            Some("world-native")
+        );
         let emitted = plan.get("emittedFootprint").expect("emittedFootprint");
-        let features = emitted.get("features").and_then(|v| v.as_array()).expect("features");
+        let features = emitted
+            .get("features")
+            .and_then(|v| v.as_array())
+            .expect("features");
         assert_eq!(features.len(), 2);
         let kiosk = features
             .iter()
@@ -1962,26 +2056,22 @@ mod tests {
             kiosk.pointer("/geometry/type").and_then(|v| v.as_str()),
             Some("Polygon")
         );
-        assert!(
-            kiosk
-                .pointer("/geometry/coordinates/0")
-                .and_then(|v| v.as_array())
-                .is_some_and(|ring| ring.len() >= 4)
-        );
+        assert!(kiosk
+            .pointer("/geometry/coordinates/0")
+            .and_then(|v| v.as_array())
+            .is_some_and(|ring| ring.len() >= 4));
         let projection = build_map_projection(&plan, "mini-park").expect("projection");
         assert!(projection.get("emittedFootprint").is_some());
-        assert!(
-            projection
-                .get("layers")
-                .and_then(|v| v.as_array())
-                .is_some_and(|layers| layers.len() >= 2)
-        );
+        assert!(projection
+            .get("layers")
+            .and_then(|v| v.as_array())
+            .is_some_and(|layers| layers.len() >= 2));
     }
 
     #[test]
     fn plaza_native_world_mei_compiles_without_import() {
-        use std::path::PathBuf;
         use crate::mcg::registry::McgRegistryWriter;
+        use std::path::PathBuf;
 
         let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../workspaces/ws-demo-v2")
@@ -2002,7 +2092,10 @@ mod tests {
             .map(|b| b.payload.clone())
             .expect("world block");
         let plan = build_world_plan(&payload, app_root.as_path(), "mini-park").expect("plan");
-        assert_eq!(plan.get("footprintSource").and_then(|v| v.as_str()), Some("world-native"));
+        assert_eq!(
+            plan.get("footprintSource").and_then(|v| v.as_str()),
+            Some("world-native")
+        );
         assert_eq!(
             plan.get("emittedFootprint")
                 .and_then(|v| v.get("features"))
@@ -2011,7 +2104,8 @@ mod tests {
             Some(2)
         );
         let registry = McgRegistryWriter::load(workspace.as_path(), "mini-park");
-        let exchange = build_world_exchange(app_root.as_path(), &registry, "mini-park").expect("exchange");
+        let exchange =
+            build_world_exchange(app_root.as_path(), &registry, "mini-park").expect("exchange");
         let plaza = exchange
             .world_plan
             .pointer("/worlds/plaza_native")
@@ -2076,20 +2170,29 @@ mod tests {
         );
         assert!(
             features.iter().any(|f| {
-                f.pointer("/properties/featureKind").and_then(|v| v.as_str()) == Some("building")
+                f.pointer("/properties/featureKind")
+                    .and_then(|v| v.as_str())
+                    == Some("building")
             }),
             "shixi import should tag building features"
         );
         let first = features
             .iter()
-            .find(|f| f.pointer("/properties/featureKind").and_then(|v| v.as_str()) == Some("building"))
+            .find(|f| {
+                f.pointer("/properties/featureKind")
+                    .and_then(|v| v.as_str())
+                    == Some("building")
+            })
             .expect("building feature");
         let lng = first
             .pointer("/geometry/coordinates/0/0/0/0")
             .or_else(|| first.pointer("/geometry/coordinates/0/0/0"))
             .and_then(|v| v.as_f64())
             .expect("wgs lng");
-        assert!(lng > 110.0 && lng < 115.0, "coordinates should be WGS84, got {lng}");
+        assert!(
+            lng > 110.0 && lng < 115.0,
+            "coordinates should be WGS84, got {lng}"
+        );
         let projection = build_map_projection(&plan, "mini-park").expect("projection");
         let layers = projection
             .get("layers")
