@@ -46,8 +46,7 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
             .iter()
             .map(|app| {
                 let access_ready = app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
-                let access_href = format!("/apps/{}/view?surface=app", app.id);
-                let build_href = format!("/apps/{}/view?surface=layout", app.id);
+                let access_href = format!("/apps/{}/home", app.id);
                 let status = if access_ready { "ready" } else { "missing" };
                 let status_label = if access_ready {
                     "已编译"
@@ -70,7 +69,6 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
   <p class="mei-host-shell__card-status" data-status="{status}">{status_label}</p>
   <div class="mei-host-shell__card-actions">
     <a class="mei-host-shell__btn" href="{access_href}">进入应用</a>
-    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{build_href}">开发</a>
   </div>
 </article>"#,
                     title = html_escape(app.title.as_str()),
@@ -80,7 +78,6 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
                     status = status,
                     status_label = status_label,
                     access_href = html_escape(access_href.as_str()),
-                    build_href = html_escape(build_href.as_str()),
                 )
             })
             .collect::<Vec<_>>()

@@ -36,6 +36,34 @@
     return String(segments[1] || "").trim().toLowerCase();
   }
 
+  const RESERVED_STAGE_SEGMENTS = new Set([
+    "view",
+    "layout",
+    "prototype",
+    "app",
+    "access",
+    "access-only",
+    "access_only",
+    "build",
+    "manage",
+    "run",
+    "copilot",
+    "presentation",
+    "speaker",
+    "slides",
+    "upload",
+    "config",
+    "runtime",
+  ]);
+
+  function isAccessStageRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) return false;
+    if (segments.length === 2) return !RESERVED_STAGE_SEGMENTS.has(String(segments[1] || "").toLowerCase());
+    const stage = String(segments[2] || "").trim().toLowerCase();
+    return stage.length > 0 && !RESERVED_STAGE_SEGMENTS.has(stage);
+  }
+
   function isUnifiedViewRoute(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
@@ -65,6 +93,7 @@
   }
 
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return "app";
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";
     if (segments[2] === "view") {
@@ -73,16 +102,21 @@
       }
       return "app";
     }
-    return String(segments[2] || "").trim().toLowerCase();
+    const slug = String(segments[2] || "").trim().toLowerCase();
+    if (RESERVED_STAGE_SEGMENTS.has(slug)) return slug;
+    // 非保留第二段是 stage id，不是 surface
+    return "app";
   }
 
   function appRouteSlugFromPathname(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return "app";
     const surface = appSurfaceSlugFromPathname(pathname);
     if (surface) return surface;
     return legacyRouteSlugFromPathname(pathname);
   }
 
   function isAppSurfaceRoute(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return true;
     if (isUnifiedViewRoute(pathname)) {
       const surface =
         global.location?.pathname === pathname
@@ -187,7 +221,7 @@
   }
 
   function shouldMountDrilldownHost(pathname = global.location?.pathname) {
-    if (isUnifiedViewRoute(pathname)) {
+    if (isAccessStageRoute(pathname) || isUnifiedViewRoute(pathname)) {
       return true;
     }
     const slug = appRouteSlugFromPathname(pathname);
@@ -238,6 +272,9 @@
     if (segments[0] !== "apps" || segments.length < 2) {
       return "";
     }
+    if (isAccessStageRoute(pathname)) {
+      return String(segments[1] || "").trim();
+    }
     const surface = appSurfaceSlugFromPathname(pathname);
     if (
       surface === "view" ||
@@ -266,6 +303,12 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isAccessStageRoute(pathname)) {
+      const segments = pathSegments(pathname);
+      if (segments.length >= 3) {
+        return decodeURIComponent(segments[2]);
+      }
+    }
     if (isUnifiedViewRoute(pathname)) {
       try {
         const url = new URL(pathname + (search || ""), global.location?.href || "http://localhost");
@@ -289,6 +332,7 @@
 
   function isRevisionFirstShellPage(pathname = global.location?.pathname) {
     if (globalThis.__mei?.thin_shell === true) return true;
+    if (isAccessStageRoute(pathname)) return true;
     if (isUnifiedViewRoute(pathname)) return true;
     if (isAppWorkspaceSurfaceRoute(pathname)) return true;
     if (isAccessRoute(pathname)) return true;
@@ -307,30 +351,43 @@
       const url = raw.startsWith("/") ? new URL(raw, base) : new URL(raw);
       let path = url.pathname;
       let rewritten = false;
+      const stageFromScene = (rest) => {
+        const match = String(rest || "").match(/\/scene\/([^/]+)/);
+        return match ? match[1] : "home";
+      };
       const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
       if (runMatch) {
-        path = `/apps/${runMatch[1]}/view?surface=app`;
+        path = `/apps/${runMatch[1]}/${stageFromScene(runMatch[2])}`;
         rewritten = true;
       }
       const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
       if (copilotMatch) {
-        path = `/apps/${copilotMatch[1]}/view?surface=app`;
+        path = `/apps/${copilotMatch[1]}/${stageFromScene(copilotMatch[2])}`;
         rewritten = true;
       }
       const legacyAppMatch = path.match(
         /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
       );
       if (legacyAppMatch) {
-        path = `/apps/${legacyAppMatch[1]}/view?surface=app`;
+        path = `/apps/${legacyAppMatch[1]}/${stageFromScene(legacyAppMatch[2])}`;
         rewritten = true;
       }
       const legacySurfaceMatch = path.match(/^\/apps\/([^/]+)\/(layout|prototype)(\/.*)?$/);
       if (legacySurfaceMatch) {
-        path = `/apps/${legacySurfaceMatch[1]}/view?surface=${legacySurfaceMatch[2]}`;
+        path = `/apps/${legacySurfaceMatch[1]}/home`;
+        rewritten = true;
+      }
+      const viewMatch = path.match(/^\/apps\/([^/]+)\/view$/);
+      if (viewMatch) {
+        const scene = String(url.searchParams.get("scene") || "home").trim() || "home";
+        path = `/apps/${viewMatch[1]}/${scene}`;
+        url.searchParams.delete("surface");
+        url.searchParams.delete("scene");
         rewritten = true;
       }
       if (!rewritten) return raw;
-      return `${path}${url.search}${url.hash}`;
+      const qs = url.searchParams.toString();
+      return `${path}${qs ? `?${qs}` : ""}${url.hash}`;
     } catch (_) {
       return raw;
     }
@@ -342,7 +399,9 @@
     APP_WORKSPACE_SURFACE_SLUGS,
     RUNTIME_ROUTE_SLUGS,
     LEGACY_REMOVED_ROUTE_SLUGS,
+    RESERVED_STAGE_SEGMENTS,
     pathSegments,
+    isAccessStageRoute,
     isUnifiedViewRoute,
     surfaceSlugFromViewUrl,
     legacyRouteSlugFromPathname,
@@ -390,6 +449,7 @@
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
+  global.isAccessStageRoute = isAccessStageRoute;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;

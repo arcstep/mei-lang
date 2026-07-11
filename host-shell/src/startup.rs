@@ -407,7 +407,15 @@ pub(crate) fn parse_warm_poll_from_path(path: &str, default_app: &str) -> (Strin
         .split('/')
         .filter(|segment| !segment.is_empty())
         .collect();
-    if segments.len() >= 3 && segments[0] == "apps" {
+    if segments.first().copied() != Some("apps") {
+        return (
+            default_app.to_string(),
+            "home".to_string(),
+            "app".to_string(),
+        );
+    }
+    // Legacy: /apps/{mode}/{app}/scene/{stage} where mode is reserved (app/view/…)
+    if segments.len() >= 3 && crate::shell_redirects::is_reserved_stage_segment(segments[1]) {
         let mode = segments[1].to_string();
         let app = segments.get(2).unwrap_or(&default_app).to_string();
         let scene = if segments.len() >= 5 && segments[3] == "scene" {
@@ -416,6 +424,22 @@ pub(crate) fn parse_warm_poll_from_path(path: &str, default_app: &str) -> (Strin
             "home".to_string()
         };
         return (app, scene, mode);
+    }
+    // Canonical: /apps/{app}/{stage}
+    if segments.len() >= 3 && !crate::shell_redirects::is_reserved_stage_segment(segments[2]) {
+        return (
+            segments[1].to_string(),
+            segments[2].to_string(),
+            "app".to_string(),
+        );
+    }
+    // /apps/{app}
+    if segments.len() >= 2 {
+        return (
+            segments[1].to_string(),
+            "home".to_string(),
+            "app".to_string(),
+        );
     }
     (
         default_app.to_string(),
@@ -786,6 +810,10 @@ mod tests {
         assert_eq!(sanitize_return_path("https://evil.test/x"), "/");
         assert_eq!(sanitize_return_path("//evil.test/x"), "/");
         assert_eq!(
+            sanitize_return_path("/apps/mini-data/home"),
+            "/apps/mini-data/home"
+        );
+        assert_eq!(
             sanitize_return_path("/apps/app/data-demo"),
             "/apps/app/data-demo"
         );
@@ -793,11 +821,11 @@ mod tests {
 
     #[test]
     fn build_starting_location_preserves_return_target() {
-        let uri: Uri = "/apps/app/data-demo/scene/home?tab=board"
+        let uri: Uri = "/apps/mini-data/home?chrome=none"
             .parse()
             .expect("uri");
-        let location = build_starting_location(&uri, "data-demo", "home", "app");
-        assert!(location.contains("return=%2Fapps%2Fapp%2Fdata-demo%2Fscene%2Fhome%3Ftab%3Dboard"));
+        let location = build_starting_location(&uri, "mini-data", "home", "app");
+        assert!(location.contains("return=%2Fapps%2Fmini-data%2Fhome%3Fchrome%3Dnone"));
     }
 
     #[test]

@@ -389,6 +389,128 @@
     return true;
   }
 
+  function deckPageIds() {
+    return ["s-mission", "s-chain", "s-path", "s-handoff"];
+  }
+
+  function resolveDeckPageNode(pageId) {
+    const normalized = String(pageId || "").trim();
+    if (!normalized) return null;
+    const selectors = [
+      `[data-mei-panel-name="${CSS.escape(normalized)}"]`,
+      `[data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
+      `[data-preview-scope$="/${CSS.escape(normalized)}"]`,
+      `[data-preview-scope="${CSS.escape(normalized)}"]`,
+      `[data-mei-panel-id$="/${CSS.escape(normalized)}"]`,
+      `[data-mei-structure-label="${CSS.escape(normalized)}"]`,
+    ];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      if (node instanceof HTMLElement) return node;
+    }
+    return null;
+  }
+
+  function listDeckPageNodes() {
+    const nodes = [];
+    const seen = new Set();
+    for (const id of deckPageIds()) {
+      const node = resolveDeckPageNode(id);
+      if (!(node instanceof HTMLElement) || seen.has(node)) continue;
+      seen.add(node);
+      nodes.push(node);
+    }
+    if (nodes.length) return nodes;
+    const deck =
+      document.querySelector('[data-preview-scope$="/r-deck"], [data-preview-scope$="/deck"]') ||
+      document.querySelector(
+        '[data-mei-panel-name="r-deck"], [data-mei-panel-name="deck"], [data-mei-structure-label="r-deck"]',
+      );
+    if (!(deck instanceof HTMLElement)) return [];
+    const directSections = Array.from(deck.children).filter(
+      (node) =>
+        node instanceof HTMLElement &&
+        String(node.getAttribute("data-mei-ui-role") || "") === "section",
+    );
+    const candidates = directSections.length
+      ? directSections
+      : Array.from(
+          deck.querySelectorAll(
+            '[data-preview-scope], [data-mei-panel-name], [data-mei-structure-label]',
+          ),
+        );
+    return candidates.filter((node) => {
+      if (!(node instanceof HTMLElement) || node === deck) return false;
+      const name = String(
+        node.getAttribute("data-mei-panel-name") ||
+          node.getAttribute("data-mei-structure-label") ||
+          node.getAttribute("data-preview-scope") ||
+          "",
+      );
+      const leaf = name.split("/").pop() || name;
+      return /^s-/.test(leaf);
+    });
+  }
+
+  function currentDeckPageIndex() {
+    const pages = listDeckPageNodes();
+    const active = pages.findIndex((node) => !node.hasAttribute("hidden"));
+    return active >= 0 ? active : 0;
+  }
+
+  function showDeckPage(pageIdOrIndex) {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    let targetIndex = -1;
+    if (typeof pageIdOrIndex === "number" && Number.isFinite(pageIdOrIndex)) {
+      targetIndex = Math.max(0, Math.min(pages.length - 1, pageIdOrIndex));
+    } else {
+      const wanted = String(pageIdOrIndex || "").trim();
+      targetIndex = pages.findIndex((node) => {
+        const name = String(node.getAttribute("data-mei-panel-name") || "");
+        return name === wanted || name.endsWith(`/${wanted}`);
+      });
+      if (targetIndex < 0) {
+        const byId = resolveDeckPageNode(wanted);
+        targetIndex = byId ? pages.indexOf(byId) : -1;
+      }
+    }
+    if (targetIndex < 0) return false;
+    pages.forEach((node, index) => {
+      const active = index === targetIndex;
+      node.toggleAttribute("hidden", !active);
+      node.classList.toggle("mei-deck-page-active", active);
+    });
+    document.documentElement.setAttribute(
+      "data-mei-active-deck-page",
+      String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
+    );
+    document.documentElement.setAttribute("data-mei-active-deck-page-index", String(targetIndex));
+    return true;
+  }
+
+  function ensureDeckPageVisibility() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const visible = pages.filter((node) => !node.hasAttribute("hidden"));
+    if (visible.length === 1) return true;
+    return showDeckPage(0);
+  }
+
+  function showNextDeckPage() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const next = Math.min(pages.length - 1, currentDeckPageIndex() + 1);
+    return showDeckPage(next);
+  }
+
+  function showPrevDeckPage() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const prev = Math.max(0, currentDeckPageIndex() - 1);
+    return showDeckPage(prev);
+  }
+
   function dispatchPresentationAction(action) {
     if (!action || typeof action !== "object") return false;
     const type = String(action.type || action.kind || "").trim();
@@ -399,6 +521,9 @@
       case "hide_plane":
       case "hidePlane":
         return setPlaneVisibility(action.plane || action.tier || action.planeId, false);
+      case "show_page":
+      case "showPage":
+        return showDeckPage(action.pageId || action.page || action.sectionId || action.id);
       case "highlight":
       case "focus": {
         const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
@@ -494,6 +619,11 @@
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
+    root.MeiPresentation.showPage = showDeckPage;
+    root.MeiPresentation.nextPage = showNextDeckPage;
+    root.MeiPresentation.prevPage = showPrevDeckPage;
+    root.MeiPresentation.ensureDeckPages = ensureDeckPageVisibility;
+    root.MeiPresentation.listDeckPages = listDeckPageNodes;
     root.MeiPresentation.openT2Panel = openT2Panel;
     root.MeiPresentation.resetT2Panels = resetT2Panels;
     root.MeiPresentation.resetStages = resetStageVisibility;
@@ -505,7 +635,12 @@
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
     boot.dispatchPresentationAction = dispatchPresentationAction;
     boot.openT2Panel = openT2Panel;
+    boot.showDeckPage = showDeckPage;
+    boot.nextDeckPage = showNextDeckPage;
+    boot.prevDeckPage = showPrevDeckPage;
+    boot.ensureDeckPageVisibility = ensureDeckPageVisibility;
     resetPlaneVisibility();
+    ensureDeckPageVisibility();
   }
 
   installFocusController();

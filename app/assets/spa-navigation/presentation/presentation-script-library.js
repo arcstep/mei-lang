@@ -12,13 +12,32 @@
 
   function parseAppIdFromPath() {
     const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run|presentation)\/([^/]+)/,
+      /^\/apps\/([^/]+)(?:\/|$)/,
     );
     return match ? String(match[1] || "").trim() : "";
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
     return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
@@ -185,6 +204,10 @@
       stepIndex: options.stepIndex,
       apply: options.apply !== false,
     });
+    const fabContext = boot.copilotFabContext;
+    if (fabContext && typeof fabContext.revealFabForScript === "function") {
+      fabContext.revealFabForScript();
+    }
     if (toolbar && typeof toolbar.renderAll === "function") {
       toolbar.renderAll();
     }
@@ -202,6 +225,14 @@
   }
 
   async function tryAutoStartPresentation(options = {}) {
+    // 讲稿改为显式选择；不再进舞台自动挂稿（force=true 时仍可用于测试）
+    if (options.force !== true) {
+      const fabContext = boot.copilotFabContext;
+      if (fabContext && typeof fabContext.syncFabVisibility === "function") {
+        fabContext.syncFabVisibility();
+      }
+      return false;
+    }
     const eng = boot.presentationStepEngine;
     if (!eng) return false;
     if (typeof eng.hasManifest === "function" && eng.hasManifest()) {

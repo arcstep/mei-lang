@@ -309,6 +309,11 @@ export function parseActionDirective(directive) {
   if (name === "hidePlane") {
     return { type: "hide_plane", plane: normalizePlane(directive.args[0]) };
   }
+  if (name === "showPage") {
+    const pageId = String(directive.args[0] || "").trim();
+    if (!pageId) throw new Error("@showPage requires a page/section id");
+    return { type: "show_page", pageId };
+  }
   if (name === "highlight") {
     const viewpoint = String(directive.args[0] || "").trim();
     if (!viewpoint) throw new Error("@highlight requires a viewpoint id");
@@ -435,6 +440,7 @@ export function parseStepChunk(chunk, defaults = {}) {
     };
     step.slide.html = renderSlideFromLayout(effectiveLayout, slots);
   }
+  // 无 layout/slot 时允许纯动作讲稿（cockpit_only / presentation .mei 页）
   if (actions.length) {
     step.actions = actions;
     step.cockpit = {
@@ -449,8 +455,11 @@ export function compileMdxToManifest(source, options = {}) {
   const defaults = options && typeof options === "object" ? options : {};
   const { meta, body } = parseFrontmatter(source);
   const manifest = {
-    id: String(meta.presentation || defaults.id || "ephemeral").trim(),
+    id: String(
+      meta.script_id || meta.presentation || defaults.id || "ephemeral",
+    ).trim(),
     title: String(meta.title || defaults.title || "").trim(),
+    targetStage: String(meta.target_stage || defaults.targetStage || "").trim(),
     defaultLayout: String(meta.default_layout || defaults.defaultLayout || "").trim(),
     defaultComposition: normalizeComposition(
       meta.default_composition || defaults.defaultComposition || "",

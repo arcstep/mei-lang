@@ -135,29 +135,38 @@
     return "";
   }
 
-  function resolveAppIdFromUnifiedView(pathname = window.location.pathname) {
-    if (typeof isUnifiedViewRoute !== "function" || !isUnifiedViewRoute(pathname)) {
-      return "";
+  function resolveAppIdFromAppsRoute(pathname = window.location.pathname) {
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromApps = nonEmptyString(appIdFromAppsPathname(pathname));
+      if (fromApps) return fromApps;
     }
-    if (typeof appIdFromAppsPathname !== "function") {
-      return "";
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
+      // fallback kept for older bundles without appIdFromAppsPathname stage support
     }
-    return nonEmptyString(appIdFromAppsPathname(pathname));
+    return "";
   }
 
   function resolveAccessAppPath(pathname = window.location.pathname) {
-    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
-    if (unifiedAppId) return unifiedAppId;
+    const appsRouteAppId = resolveAppIdFromAppsRoute(pathname);
+    if (appsRouteAppId) return appsRouteAppId;
     return resolveAppPathByPrefixes(pathname, appRoutePrefixesFromSlugs(ACCESS_LIKE_ROUTE_SLUGS));
   }
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
-    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
-    if (unifiedAppId) return unifiedAppId;
+    const appsRouteAppId = resolveAppIdFromAppsRoute(pathname);
+    if (appsRouteAppId) return appsRouteAppId;
     const slug = appRouteSlugFromPathname(pathname);
+    // 旧路径 /apps/app/{appId}/…：slug 仍是 surface，appId 在第三段
     if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);
+    return resolveAppPathByPrefixes(pathname, [
+      "/upload",
+      "/upload?",
+      "/apps/upload/",
+      "/config",
+      "/config?",
+      "/apps/config/",
+    ]);
   }
 

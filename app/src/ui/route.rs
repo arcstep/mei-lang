@@ -17,7 +17,7 @@ pub enum UiRouteMode {
 impl UiRouteMode {
     pub fn from_slug(value: &str) -> Self {
         match value {
-            "app" | "access" | "access-only" | "access_only" => Self::App,
+            "app" | "access" | "access-only" | "access_only" | "view" => Self::App,
             "layout" => Self::Layout,
             "prototype" => Self::Prototype,
             "run" | "presentation" | "slides" => Self::Run,
@@ -26,7 +26,7 @@ impl UiRouteMode {
             "config" => Self::Config,
             "upload" => Self::Upload,
             "runtime" => Self::Runtime,
-            _ => Self::Layout,
+            _ => Self::App,
         }
     }
 
@@ -49,7 +49,8 @@ impl UiRouteMode {
     }
 
     pub fn app_surface_href(self, app_path: &str) -> String {
-        super::view_routing::app_surface_href(app_path, self)
+        // 布局/原型产品入口已封口：一律 Access 默认舞台
+        super::view_routing::app_access_href(app_path)
     }
 
     /// 技术/历史显示名（兼容旧文案与内部日志）。

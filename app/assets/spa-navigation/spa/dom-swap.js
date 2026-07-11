@@ -562,26 +562,14 @@
     const appId = resolvePageAppId();
     if (!appId) return;
     try {
-      document.querySelectorAll("sl-button[data-mei-app-view][href]").forEach((btn) => {
-        if (!(btn instanceof HTMLElement)) return;
-        const rawHref = btn.getAttribute("href") || "";
-        if (!rawHref) return;
-        const url = new URL(rawHref, window.location.href);
-        const segments = url.pathname.split("/").filter(Boolean);
-        if (segments[0] === "apps" && segments[1] && segments[1] !== appId) {
-          url.pathname = `/apps/${appId}/view`;
-          btn.setAttribute("href", `${url.pathname}${url.search}`);
-        }
-      });
       document.querySelectorAll("a.app-tab, a.app-tab-sub").forEach((link) => {
         if (!(link instanceof HTMLAnchorElement)) return;
         const tabAppId = String(link.getAttribute("data-app-id") || "").trim();
         if (tabAppId) {
           const url = new URL(link.href, window.location.href);
-          url.pathname = `/apps/${tabAppId}/view`;
-          if (!url.searchParams.get("surface")) {
-            url.searchParams.set("surface", "app");
-          }
+          url.pathname = `/apps/${tabAppId}/home`;
+          url.searchParams.delete("surface");
+          url.searchParams.delete("scene");
           link.href = url.toString();
         }
         let linkApp = tabAppId;

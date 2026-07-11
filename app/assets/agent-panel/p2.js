@@ -145,8 +145,10 @@
     return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
   }
 
-  if (els.accessFab) {
+  if (els.accessFab && !boot.copilotFabInteractionBound) {
+    // 完整 shell：由 agent-panel 接管拖拽/点击；thin shell 无 author-panel 时改由 copilot-fab-context 绑定
     els.accessFab.addEventListener("pointerdown", AF.beginAccessFloatingDrag);
+    boot.copilotFabInteractionBound = true;
   }
 
   if (els.accessClose) {

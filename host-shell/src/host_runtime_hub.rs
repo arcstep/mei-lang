@@ -76,7 +76,7 @@ fn render_runtime_hub_body_html(
                     })
                     .collect::<Vec<_>>()
                     .join("");
-                let access_href = format!("/apps/app/{}/access", app.id);
+                let access_href = format!("/apps/{}/home", app.id);
                 let observe_href = format!("/runtime?app={}", app.id);
                 let prebuild_btn = if access_ready {
                     String::new()

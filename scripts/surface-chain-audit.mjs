@@ -174,44 +174,61 @@ async function main() {
     }
   });
 
-  const surfaces = ["app", "layout", "prototype"];
-  for (const surface of surfaces) {
-    netLog.length = 0;
-    const url = `${base}/apps/${appId}/view?surface=${surface}`;
-    const t0 = Date.now();
-    let navError = null;
-    try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
-      await page.waitForTimeout(surface === "app" ? 3000 : 4000);
-    } catch (e) {
-      navError = String(e.message || e);
-    }
-    const state = await readSurfaceState(page);
-    report.steps.push({
-      mode: "F5",
-      surface,
-      url,
-      ms: Date.now() - t0,
-      navError,
-      network: [...netLog],
-      state,
-      pass:
-        !navError &&
-        state.ready === true &&
-        !state.dom.fallbackVisible &&
-        (surface === "app" ? state.dom.appScopes > 0 : state.dom.wsScopes > 0),
+  // Access stage path (canonical). layout/prototype product surfaces are sealed → 301 to stage.
+  const stageUrl = `${base}/apps/${appId}/home`;
+  netLog.length = 0;
+  const t0 = Date.now();
+  let navError = null;
+  try {
+    await page.goto(stageUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.waitForTimeout(3000);
+  } catch (e) {
+    navError = String(e.message || e);
+  }
+  const state = await readSurfaceState(page);
+  report.steps.push({
+    mode: "F5",
+    surface: "app",
+    url: stageUrl,
+    ms: Date.now() - t0,
+    navError,
+    network: [...netLog],
+    state,
+    pass:
+      !navError &&
+      state.ready === true &&
+      !state.dom.fallbackVisible &&
+      state.dom.appScopes > 0,
+  });
+  if (navError) report.failures.push(`F5 stage: ${navError}`);
+  else if (state.ready !== true) report.failures.push(`F5 stage: isSurfaceMaterialized=false`);
+  else if (state.dom.appScopes === 0) report.failures.push(`F5 stage: preview empty`);
+
+  for (const sealed of ["layout", "prototype"]) {
+    const sealedUrl = `${base}/apps/${appId}/view?surface=${sealed}`;
+    const resp = await page.goto(sealedUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
     });
-    if (navError) report.failures.push(`F5 ${surface}: ${navError}`);
-    else if (state.ready !== true) report.failures.push(`F5 ${surface}: isSurfaceMaterialized=false`);
-    else if (surface === "app" && state.dom.appScopes === 0)
-      report.failures.push(`F5 app: preview empty`);
-    else if (surface !== "app" && state.dom.wsScopes === 0)
-      report.failures.push(`F5 ${surface}: workspace preview empty`);
+    const finalUrl = page.url();
+    const redirectedToStage =
+      /\/apps\/[^/]+\/[^/?]+/.test(finalUrl) && !finalUrl.includes("/view?");
+    report.steps.push({
+      mode: "seal-redirect",
+      surface: sealed,
+      url: sealedUrl,
+      finalUrl,
+      status: resp?.status?.() ?? null,
+      pass: redirectedToStage,
+    });
+    if (!redirectedToStage) {
+      report.failures.push(`seal ${sealed}: expected redirect to /apps/{id}/{stage}, got ${finalUrl}`);
+    }
   }
 
   report.bundle = await bundleFingerprint(page);
 
-  await page.goto(`${base}/apps/${appId}/view?surface=app`, {
+  await page.goto(`${base}/apps/${appId}/home`, {
     waitUntil: "domcontentloaded",
     timeout: 120000,
   });

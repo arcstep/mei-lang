@@ -18,6 +18,9 @@
   }
 
   function resolveSurface(pathname, searchParams) {
+    if (typeof isAccessStageRoute === "function" && isAccessStageRoute(pathname)) {
+      return "app";
+    }
     if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
       const fromQuery = String(searchParams?.get("surface") || "app")
         .trim()
@@ -43,7 +46,8 @@
       return slug === "speaker" ? "copilot" : slug;
     }
     if (slug === "layout" || slug === "prototype") return slug;
-    return slug || "app";
+    // 未知 slug（含 stage id）一律按 Access app 面处理
+    return "app";
   }
 
   function parseViewContext(urlLike) {

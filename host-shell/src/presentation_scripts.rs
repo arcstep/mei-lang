@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,8 +18,21 @@ use crate::presentation_compile::presentation_image_assets_for_app;
 use crate::state::SharedState;
 
 const LIBRARY_FILE: &str = ".mei-presentation-library.json";
-const SCRIPT_SUFFIX: &str = ".presentation.mdx";
+const SCRIPT_SUFFIX_PRESENTATION: &str = ".presentation.mdx";
+const SCRIPT_SUFFIX_SCENE: &str = ".scene.mdx";
 const MAX_SCRIPT_BYTES: usize = 512 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PresentationLibraryScript {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    file: String,
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    title: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct PresentationLibraryDocument {
@@ -26,6 +40,10 @@ struct PresentationLibraryDocument {
     schema_version: u32,
     #[serde(rename = "defaultScriptId", default)]
     default_script_id: String,
+    #[serde(default)]
+    scripts: Vec<PresentationLibraryScript>,
+    #[serde(rename = "defaultByStage", default)]
+    default_by_stage: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,6 +55,8 @@ struct PresentationScriptEntry {
     modified_ms: Option<i64>,
     #[serde(rename = "isDefault", default)]
     is_default: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    target: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +162,9 @@ fn write_library(
 
 fn script_id_from_file_name(file_name: &str) -> Option<String> {
     let name = file_name.trim();
-    let stem = name.strip_suffix(SCRIPT_SUFFIX)?;
+    let stem = name
+        .strip_suffix(SCRIPT_SUFFIX_PRESENTATION)
+        .or_else(|| name.strip_suffix(SCRIPT_SUFFIX_SCENE))?;
     if stem.is_empty() {
         return None;
     }
@@ -150,20 +172,49 @@ fn script_id_from_file_name(file_name: &str) -> Option<String> {
 }
 
 fn script_file_name(script_id: &str) -> String {
-    format!("{script_id}{SCRIPT_SUFFIX}")
+    format!("{script_id}{SCRIPT_SUFFIX_PRESENTATION}")
 }
 
 fn script_rel_path(script_id: &str) -> String {
     script_file_name(script_id)
 }
 
+fn resolve_script_rel_from_library(
+    library: &PresentationLibraryDocument,
+    script_id: &str,
+) -> Option<String> {
+    library
+        .scripts
+        .iter()
+        .find(|entry| entry.id.trim() == script_id)
+        .map(|entry| entry.file.trim().to_string())
+        .filter(|file| !file.is_empty())
+}
+
 fn resolve_script_path(root: &Path, script_id: &str) -> Result<PathBuf, (StatusCode, String)> {
-    let rel = sanitize_rel_dir(&script_rel_path(script_id))?;
+    let library = read_library(root);
+    let candidates = {
+        let mut list = Vec::new();
+        if let Some(rel) = resolve_script_rel_from_library(&library, script_id) {
+            list.push(rel);
+        }
+        list.push(format!("{script_id}{SCRIPT_SUFFIX_PRESENTATION}"));
+        list.push(format!("{script_id}{SCRIPT_SUFFIX_SCENE}"));
+        // home-tour -> try home.scene.mdx
+        if let Some(stem) = script_id.strip_suffix("-tour") {
+            list.push(format!("{stem}{SCRIPT_SUFFIX_SCENE}"));
+        }
+        list
+    };
     let canonical_root = root
         .canonicalize()
         .map_err(|error| (StatusCode::NOT_FOUND, format!("演说稿目录不可用: {error}")))?;
-    let target = root.join(&rel);
-    if target.exists() {
+    for rel_raw in candidates {
+        let rel = sanitize_rel_dir(&rel_raw)?;
+        let target = root.join(&rel);
+        if !target.exists() {
+            continue;
+        }
         let canonical_target = target
             .canonicalize()
             .map_err(|error| (StatusCode::NOT_FOUND, format!("演说稿路径不可用: {error}")))?;
@@ -172,15 +223,7 @@ fn resolve_script_path(root: &Path, script_id: &str) -> Result<PathBuf, (StatusC
         }
         return Ok(canonical_target);
     }
-    for component in Path::new(&rel).components() {
-        match component {
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err((StatusCode::BAD_REQUEST, "演说稿路径越界".to_string()));
-            }
-            Component::CurDir | Component::Normal(_) => {}
-        }
-    }
-    Ok(target)
+    Ok(root.join(script_file_name(script_id)))
 }
 
 fn system_time_to_epoch_ms(time: SystemTime) -> Option<i64> {
@@ -226,7 +269,53 @@ fn list_script_entries(
     if !root.is_dir() {
         return Ok(Vec::new());
     }
+    let library = read_library(root);
     let mut entries = Vec::new();
+    let mut seen = BTreeMap::<String, ()>::new();
+    let mut seen_files = BTreeMap::<String, ()>::new();
+
+    if !library.scripts.is_empty() {
+        for script in &library.scripts {
+            let script_id = script.id.trim();
+            if script_id.is_empty() {
+                continue;
+            }
+            let Ok(id) = sanitize_script_id(script_id) else {
+                continue;
+            };
+            let rel = if script.file.trim().is_empty() {
+                script_rel_path(&id)
+            } else {
+                script.file.trim().replace('\\', "/").to_string()
+            };
+            let path = root.join(&rel);
+            if !path.is_file() {
+                continue;
+            }
+            let source = fs::read_to_string(&path).unwrap_or_default();
+            let modified_ms = path
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(system_time_to_epoch_ms);
+            let title = if !script.title.trim().is_empty() {
+                script.title.trim().to_string()
+            } else {
+                read_script_title(&path, &source)
+            };
+            seen.insert(id.clone(), ());
+            seen_files.insert(rel.clone(), ());
+            entries.push(PresentationScriptEntry {
+                id: id.clone(),
+                title,
+                path: rel,
+                modified_ms,
+                is_default: default_script_id == id,
+                target: script.target.trim().to_string(),
+            });
+        }
+    }
+
     let read_dir = fs::read_dir(root).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -241,21 +330,34 @@ fn list_script_entries(
         let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
+        if !(file_name.ends_with(SCRIPT_SUFFIX_PRESENTATION)
+            || file_name.ends_with(SCRIPT_SUFFIX_SCENE))
+        {
+            continue;
+        }
+        if seen_files.contains_key(file_name) {
+            continue;
+        }
         let Some(script_id) = script_id_from_file_name(file_name) else {
             continue;
         };
+        if seen.contains_key(&script_id) {
+            continue;
+        }
         let source = fs::read_to_string(&path).unwrap_or_default();
         let modified_ms = item
             .metadata()
             .ok()
             .and_then(|meta| meta.modified().ok())
             .and_then(system_time_to_epoch_ms);
+        seen.insert(script_id.clone(), ());
         entries.push(PresentationScriptEntry {
             id: script_id.clone(),
             title: read_script_title(&path, &source),
-            path: script_rel_path(&script_id),
+            path: file_name.to_string(),
             modified_ms,
             is_default: default_script_id == script_id,
+            target: String::new(),
         });
     }
     entries.sort_by(|left, right| left.id.cmp(&right.id));
@@ -315,6 +417,7 @@ pub async fn api_list_presentation_scripts(
             .and_then(|value| value.to_str())
             .unwrap_or(default_presentation_rel_path()),
         "defaultScriptId": default_script_id,
+        "defaultByStage": library.default_by_stage,
         "scripts": scripts,
         "imageAssets": presentation_image_assets_for_app(workspace_root.as_path(), app_id),
     }))

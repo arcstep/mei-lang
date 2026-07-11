@@ -81,6 +81,7 @@ pub(crate) fn runtime_shell(
         None,
         None,
         None,
+        None,
         Some(ShellNavActive::Runtime),
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::Runtime.slug(), "", None);

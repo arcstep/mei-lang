@@ -134,6 +134,7 @@ pub(crate) fn access_shell(
         data_mode,
         review_projection,
         None,
+        Some(compiled.scene_routes.as_slice()),
         None,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
@@ -229,6 +230,7 @@ pub fn render_access_shell_chrome_html(
         data_mode,
         review_projection,
         None,
+        Some(compiled.scene_routes.as_slice()),
         None,
     );
     let statusbar = statusbar_view(app_path, route_mode.slug(), current_target, None);

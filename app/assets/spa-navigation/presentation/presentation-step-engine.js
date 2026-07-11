@@ -275,6 +275,12 @@
     if (!normalized.plane && normalized.planeId) {
       normalized.plane = normalized.planeId;
     }
+    if (!normalized.pageId && (normalized.page || normalized.sectionId || normalized.id)) {
+      normalized.pageId = normalized.page || normalized.sectionId || normalized.id;
+    }
+    if (normalized.type === "showPage") {
+      normalized.type = "show_page";
+    }
     return normalized;
   }
 
@@ -594,6 +600,15 @@
     isPaused() {
       return state.everStarted && !state.sessionActive && state.steps.length > 0;
     },
+    canFlipPages() {
+      if (state.steps.length > 0) return true;
+      const api = focusApi();
+      if (api && typeof api.listDeckPages === "function") {
+        const pages = api.listDeckPages() || [];
+        if (pages.length > 0) return true;
+      }
+      return typeof boot.nextDeckPage === "function" && typeof boot.prevDeckPage === "function";
+    },
     pause() {
       if (!ensureLoaded()) return false;
       state.sessionActive = false;
@@ -619,7 +634,12 @@
     },
     start(options) {
       const opts = options && typeof options === "object" ? options : {};
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded()) {
+        if (typeof boot.ensureDeckPageVisibility === "function") {
+          boot.ensureDeckPageVisibility();
+        }
+        return engine.canFlipPages();
+      }
       if (Number.isFinite(Number(opts.stepIndex))) {
         state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(opts.stepIndex)));
       }
@@ -631,14 +651,22 @@
       return true;
     },
     next() {
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded() || !state.steps.length) {
+        if (typeof boot.nextDeckPage === "function") return boot.nextDeckPage();
+        const api = focusApi();
+        return api && typeof api.nextPage === "function" ? api.nextPage() : false;
+      }
       state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
       if (state.everStarted) state.sessionActive = true;
       void applyStep();
       return true;
     },
     prev() {
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded() || !state.steps.length) {
+        if (typeof boot.prevDeckPage === "function") return boot.prevDeckPage();
+        const api = focusApi();
+        return api && typeof api.prevPage === "function" ? api.prevPage() : false;
+      }
       state.stepIndex = Math.max(0, state.stepIndex - 1);
       if (state.everStarted) state.sessionActive = true;
       void applyStep();

@@ -27,7 +27,8 @@ use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_st
 use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap,
-    api_scene_drilldown_context, api_scene_eval_pack, app_page, app_view_page, host_starting_page,
+    api_scene_drilldown_context, api_scene_eval_pack, app_root_page, app_stage_page,
+    host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -38,9 +39,11 @@ use crate::runtime_api::{
     api_host_mrg_activate, api_host_mrg_status, api_host_runtime_activate_env, api_runtime_snapshot,
 };
 use crate::shell_redirects::{
-    redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_to_view, redirect_apps_config,
-    redirect_apps_layout_to_view, redirect_apps_prototype_to_view, redirect_apps_runtime,
-    redirect_apps_upload, redirect_host_config, redirect_host_runtime, redirect_host_upload,
+    redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_scene_id,
+    redirect_apps_app_to_stage, redirect_apps_config, redirect_apps_layout_to_stage,
+    redirect_apps_prototype_to_stage, redirect_apps_runtime, redirect_apps_upload,
+    redirect_apps_view_to_stage, redirect_host_config, redirect_host_runtime, redirect_host_upload,
+    redirect_mode_first_app_root, redirect_mode_first_app_scene, redirect_mode_first_app_tail,
     redirect_root_to_home,
 };
 use crate::state::{HostHttpState, SharedState};
@@ -71,6 +74,12 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/apps/config/:app_id", get(redirect_apps_config))
         .route("/apps/runtime/:app_id", get(redirect_apps_runtime))
         .route("/apps/access/:app_id", get(redirect_apps_access))
+        .route("/apps/app/:app_id", get(redirect_mode_first_app_root))
+        .route(
+            "/apps/app/:app_id/scene/:scene",
+            get(redirect_mode_first_app_scene),
+        )
+        .route("/apps/app/:app_id/*tail", get(redirect_mode_first_app_tail))
         .route("/login", get(mei_host_auth::login_page))
         .route("/logout", get(mei_host_auth::logout_page))
         .route(
@@ -210,24 +219,30 @@ pub fn router(state: HostHttpState) -> Router {
                 .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/gis/*path", get(crate::gis_proxy::gis_proxy))
-        .route("/apps/:app_id/view", get(app_view_page))
-        .route("/apps/:app_id/view/*tail", get(app_view_page))
-        .route("/apps/:app_id/app", get(redirect_apps_app_to_view))
+        .route("/apps/:app_id/view", get(redirect_apps_view_to_stage))
+        .route("/apps/:app_id/view/*tail", get(redirect_apps_view_to_stage))
+        .route("/apps/:app_id/app", get(redirect_apps_app_to_stage))
+        .route(
+            "/apps/:app_id/app/scene/:scene",
+            get(redirect_apps_app_scene_id),
+        )
         .route("/apps/:app_id/app/*tail", get(redirect_apps_app_scene))
-        .route("/apps/:app_id/layout", get(redirect_apps_layout_to_view))
+        .route("/apps/:app_id/layout", get(redirect_apps_layout_to_stage))
         .route(
             "/apps/:app_id/layout/*tail",
-            get(redirect_apps_layout_to_view),
+            get(redirect_apps_layout_to_stage),
         )
         .route(
             "/apps/:app_id/prototype",
-            get(redirect_apps_prototype_to_view),
+            get(redirect_apps_prototype_to_stage),
         )
         .route(
             "/apps/:app_id/prototype/*tail",
-            get(redirect_apps_prototype_to_view),
+            get(redirect_apps_prototype_to_stage),
         )
-        .route("/apps/:mode/*app_id", get(app_page))
+        .route("/apps/:app_id/:stage_id", get(app_stage_page))
+        .route("/apps/:app_id", get(app_root_page))
+        // legacy mode-first catch-all removed: conflicts with /apps/:app_id/:stage_id
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))
         .route(
@@ -955,7 +970,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_apps_access_redirects_to_unified_view() {
+    async fn legacy_apps_access_redirects_to_stage_path() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
@@ -973,12 +988,12 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/apps/pretty-panels/view?surface=app")
+            Some("/apps/pretty-panels/home")
         );
     }
 
     #[tokio::test]
-    async fn legacy_apps_layout_redirects_to_unified_view() {
+    async fn legacy_apps_layout_redirects_to_access_stage() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
@@ -996,12 +1011,12 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/apps/demo/view?surface=layout&scene=home")
+            Some("/apps/demo/home")
         );
     }
 
     #[tokio::test]
-    async fn legacy_apps_app_redirects_to_unified_view() {
+    async fn legacy_apps_app_redirects_to_access_stage() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
@@ -1019,7 +1034,7 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/apps/demo/view?surface=app&scene=home")
+            Some("/apps/demo/home")
         );
     }
 }

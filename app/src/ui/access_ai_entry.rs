@@ -61,14 +61,22 @@ pub(crate) fn builtin_access_ai_floating_entry(
     current_target: &str,
     panel_tab: &str,
 ) -> impl IntoView {
+    let stage_kind = resolve_access_stage_kind(compiled);
     view! {
-        <div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false">
+        <div
+            id="access-chat-floating-root"
+            class="access-chat-floating-root"
+            data-open="false"
+            data-mei-stage-kind=stage_kind
+            data-mei-fab-policy="required"
+        >
             <button
                 id="access-chat-fab"
                 class="access-chat-fab"
                 type="button"
                 aria-label="展开 Copilot 工具条"
                 title="展开 Copilot 工具条"
+                data-mei-fab-policy="required"
             >
                 <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
             </button>
@@ -106,6 +114,29 @@ pub(crate) fn builtin_access_ai_floating_entry(
             </aside>
         </div>
     }
+}
+
+fn resolve_access_stage_kind(compiled: &CompiledApp) -> &'static str {
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(route) = compiled.scene_routes.iter().find(|route| {
+        scene_id
+            .map(|id| route.scene_id == id)
+            .unwrap_or(route.is_default)
+    }) {
+        let kind = route.kind.trim().to_ascii_lowercase();
+        if kind == "presentation" {
+            return "presentation";
+        }
+        let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
+        if target.contains("/presentation/") || target.starts_with("presentation/") {
+            return "presentation";
+        }
+    }
+    "scene"
 }
 
 pub(crate) fn access_ai_floating_entry(

@@ -12,64 +12,32 @@ pub fn mcg_href(app_path: Option<&str>) -> String {
     }
 }
 
-pub fn view_href(
-    app_path: &str,
-    surface: UiRouteMode,
-    scene: Option<&str>,
-    _file: Option<&str>,
-    _tab: Option<&str>,
-    _node: Option<&str>,
-    chrome: Option<&str>,
-    _catalog: Option<&str>,
-    _pack: Option<&str>,
-) -> String {
+/// Access 规范路径：`/apps/{app}/{stage}`（与顶栏舞台菜单一致）。
+pub fn app_stage_href(app_path: &str, stage_id: &str, chrome: Option<&str>) -> String {
     let app = app_path.trim_start_matches('/');
-    let mut parts = vec![format!("surface={}", encode_query_value(surface.slug()))];
-    if let Some(scene) = scene.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(format!("scene={}", encode_query_value(scene)));
-    }
+    let stage = stage_id.trim();
+    let stage = if stage.is_empty() { "home" } else { stage };
+    let mut href = format!("/apps/{app}/{stage}");
     if let Some(c) = chrome.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(format!("chrome={}", encode_query_value(c)));
+        if c != "full" {
+            href.push_str(&format!("?chrome={}", encode_query_value(c)));
+        }
     }
-    format!("/apps/{app}/view?{}", parts.join("&"))
+    href
 }
 
-pub fn app_surface_href(app_path: &str, surface: UiRouteMode) -> String {
-    view_href(app_path, surface, None, None, None, None, None, None, None)
-}
-
-pub fn workspace_surface_href(
-    app_path: &str,
-    surface: UiRouteMode,
-    file: Option<&str>,
-    tab: Option<&str>,
-    node: Option<&str>,
-    catalog: Option<&str>,
-    pack: Option<&str>,
-) -> String {
-    view_href(
-        app_path, surface, None, file, tab, node, None, catalog, pack,
-    )
-}
-
+/// 无舞台 id 时默认 `home`（菜单/首页应尽量写满真实 default_scene）。
 pub fn app_access_href(app_path: &str) -> String {
-    app_surface_href(app_path, UiRouteMode::App)
+    app_stage_href(app_path, "home", None)
 }
 
-pub fn layout_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> String {
-    workspace_surface_href(app_path, UiRouteMode::Layout, file, tab, None, None, None)
+/// 布局/原型产品入口已封口：href 落到 Access 默认舞台。
+pub fn layout_href(app_path: &str, _file: Option<&str>, _tab: Option<&str>) -> String {
+    app_access_href(app_path)
 }
 
-pub fn prototype_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> String {
-    workspace_surface_href(
-        app_path,
-        UiRouteMode::Prototype,
-        file,
-        tab,
-        None,
-        None,
-        None,
-    )
+pub fn prototype_href(app_path: &str, _file: Option<&str>, _tab: Option<&str>) -> String {
+    app_access_href(app_path)
 }
 
 #[allow(dead_code)]
@@ -88,19 +56,11 @@ pub fn build_href_with_catalog_and_axis(
     app_path: &str,
     file: Option<&str>,
     tab: Option<&str>,
-    catalog: Option<&str>,
-    pack: Option<&str>,
+    _catalog: Option<&str>,
+    _pack: Option<&str>,
     _axis: &BuildAxisHrefPreset,
 ) -> String {
-    workspace_surface_href(
-        app_path,
-        UiRouteMode::Layout,
-        file,
-        tab,
-        None,
-        catalog,
-        pack,
-    )
+    layout_href(app_path, file, tab)
 }
 
 pub fn runtime_href(app_path: &str, node: Option<&str>, tab: Option<&str>) -> String {
@@ -153,32 +113,22 @@ pub fn host_runtime_href(app_path: Option<&str>, node: Option<&str>, tab: Option
 
 #[allow(dead_code)]
 pub fn app_href(app_path: &str, scene_suffix: &str) -> String {
-    format!(
-        "{}{}",
-        app_surface_href(app_path, UiRouteMode::App),
-        scene_suffix
-    )
+    format!("{}{}", app_access_href(app_path), scene_suffix)
 }
 
 pub fn app_scene_href(
     app_path: &str,
     scene_id: Option<&str>,
-    tab: Option<&str>,
+    _tab: Option<&str>,
     chrome: Option<&str>,
     _data_mode: Option<&str>,
     _review_projection: Option<&str>,
 ) -> String {
-    view_href(
-        app_path,
-        UiRouteMode::App,
-        scene_id,
-        None,
-        tab,
-        None,
-        chrome,
-        None,
-        None,
-    )
+    let stage = scene_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+    app_stage_href(app_path, stage, chrome)
 }
 
 pub fn copilot_presentation_href(app_path: &str, _presentation_id: &str) -> String {
@@ -200,39 +150,12 @@ pub fn cross_app_href(
     if catalog.is_some() || pack.is_some() {
         return match view {
             UiRouteMode::Runtime => runtime_href_with_catalog(app_path, None, None, catalog, pack),
-            UiRouteMode::Prototype => workspace_surface_href(
-                app_path,
-                UiRouteMode::Prototype,
-                None,
-                None,
-                None,
-                catalog,
-                pack,
-            ),
-            UiRouteMode::Layout => workspace_surface_href(
-                app_path,
-                UiRouteMode::Layout,
-                None,
-                None,
-                None,
-                catalog,
-                pack,
-            ),
-            _ => workspace_surface_href(
-                app_path,
-                UiRouteMode::Layout,
-                None,
-                None,
-                None,
-                catalog,
-                pack,
-            ),
+            // 布局/原型已封口 → Access
+            _ => app_access_href(app_path),
         };
     }
     match view {
-        UiRouteMode::App => app_access_href(app_path),
-        UiRouteMode::Layout => layout_href(app_path, None, None),
-        UiRouteMode::Prototype => prototype_href(app_path, None, None),
+        UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype => app_access_href(app_path),
         UiRouteMode::Run | UiRouteMode::Copilot => app_access_href(app_path),
         UiRouteMode::Config => host_config_href(Some(app_path)),
         UiRouteMode::Upload => host_upload_href(Some(app_path), None),
@@ -289,23 +212,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn app_surface_hrefs_use_unified_view_route() {
-        assert_eq!(
-            app_access_href("pretty-panels"),
-            "/apps/pretty-panels/view?surface=app"
-        );
+    fn app_hrefs_use_stage_path() {
+        assert_eq!(app_access_href("pretty-panels"), "/apps/pretty-panels/home");
         assert_eq!(
             layout_href("pretty-panels", Some("main.mei"), Some("preview")),
-            "/apps/pretty-panels/view?surface=layout"
+            "/apps/pretty-panels/home"
         );
-        assert_eq!(
-            prototype_href("demo", None, None),
-            "/apps/demo/view?surface=prototype"
-        );
+        assert_eq!(prototype_href("demo", None, None), "/apps/demo/home");
     }
 
     #[test]
-    fn app_scene_href_omits_review_axes() {
+    fn app_scene_href_uses_stage_segment() {
         let href = app_scene_href(
             "demo",
             Some("home"),
@@ -314,8 +231,10 @@ mod tests {
             Some("static"),
             Some("plane_region_section"),
         );
-        assert!(href.starts_with("/apps/demo/view?surface=app&scene=home"));
-        assert!(!href.contains("review_projection"));
-        assert!(!href.contains("data_mode"));
+        assert_eq!(href, "/apps/demo/home");
+        let supervision = app_scene_href("mini-data", Some("supervision"), None, None, None, None);
+        assert_eq!(supervision, "/apps/mini-data/supervision");
+        let chrome_none = app_scene_href("demo", Some("home"), None, Some("none"), None, None);
+        assert_eq!(chrome_none, "/apps/demo/home?chrome=none");
     }
 }

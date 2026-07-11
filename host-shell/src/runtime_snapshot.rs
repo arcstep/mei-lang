@@ -552,7 +552,7 @@ fn build_scope_summaries(
             summary.route_duplicate_count = summary.route_count - 1;
         }
         if summary.access_url.is_none() {
-            summary.access_url = Some(format!("/apps/app/{}/scene/{}", app_id, summary.scope_key));
+            summary.access_url = Some(format!("/apps/{}/{}", app_id, summary.scope_key));
         }
         if !access_ready {
             summary.dirty_slots = summary.dirty_slots.max(summary.slot_count);
@@ -1082,7 +1082,7 @@ mod tests {
     fn management_roots_include_runtime_groups() {
         let routes = build_route_entries(&[ScopeRoute {
             scene_id: "home".to_string(),
-            url: "/apps/app/demo/scene/home".to_string(),
+            url: "/apps/demo/home".to_string(),
             assembly_key: "home@src/scene/home/assembly.mei".to_string(),
         }]);
         let scopes = vec![ScopeSummary {

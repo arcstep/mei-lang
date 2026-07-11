@@ -25,7 +25,8 @@
   function isPresentationSurfaceRoute() {
     const utils = routeUtils();
     if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
-    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+    const path = String(window.location.pathname || "");
+    return /^\/apps\/[^/]+(?:\/[^/]+)?(?:\/|$)/.test(path);
   }
 
   function parseAppIdFromPath() {
@@ -33,7 +34,7 @@
     if (utils?.parsePresentationAppId) {
       return String(utils.parsePresentationAppId() || "").trim();
     }
-    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)(?:\/|$)/);
     return match && match[1] ? match[1] : "";
   }
 
@@ -325,9 +326,15 @@
     if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
       return invoke(eng);
     }
+    if (typeof eng.canFlipPages === "function" && eng.canFlipPages()) {
+      return invoke(eng);
+    }
     if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
     return eng.ensureLoadedAsync().then((ok) => {
       if (ok) return invoke(eng);
+      if (typeof eng.canFlipPages === "function" && eng.canFlipPages()) {
+        return invoke(eng);
+      }
       return false;
     });
   }
@@ -383,15 +390,7 @@
     }
     const lib = scriptLibrary();
     let started = false;
-    if (lib && typeof lib.tryAutoStartPresentation === "function") {
-      try {
-        started = await lib.tryAutoStartPresentation({ apply: true });
-      } catch (error) {
-        reportToolbarIssue(error?.message || "载入默认演说稿失败");
-        renderAll();
-        return;
-      }
-    }
+    // 播放不自动挂默认讲稿；仅在已有 manifest 或可无稿翻页时启动
     if (!started) {
       const loaded = typeof activeEng.ensureLoadedAsync === "function"
         ? await activeEng.ensureLoadedAsync()
@@ -400,8 +399,16 @@
         started = Boolean(activeEng.start({ apply: true }));
       }
     }
+    // 无讲稿：presentation 仍可进入翻页模式
+    if (!started && typeof activeEng.canFlipPages === "function" && activeEng.canFlipPages()) {
+      if (typeof boot.ensureDeckPageVisibility === "function") {
+        boot.ensureDeckPageVisibility();
+      }
+      started = true;
+      uiState.toolbarOpen = true;
+    }
     if (!started) {
-      reportToolbarIssue("未找到可运行的演说稿，请点「选」从演说稿目录选择，或点「编」保存一份讲稿");
+      reportToolbarIssue("未挂讲稿时可用「选」载入当前舞台讲稿；presentation 也可无稿用上/下翻页");
     }
     renderAll();
   }
@@ -589,6 +596,10 @@
     const fab = document.getElementById("access-chat-fab");
     if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.installFabInteraction === "function") {
+      ctx.installFabInteraction();
+    }
     refreshFabChrome();
   }
 
@@ -682,6 +693,10 @@
   window.addEventListener("meilang:viewport-stage-ready", () => {
     if (shouldMount()) {
       mount({ autoStart: false, apply: false, toolbarOpen: false });
+      if (typeof boot.ensureDeckPageVisibility === "function") {
+        boot.ensureDeckPageVisibility();
+      }
+      // 不自动挂讲稿：用户可在 FAB「选」中按当前舞台过滤后加载，或保持无稿翻页
     } else {
       ensureCopilotInViewport();
       scheduleFabLayout();

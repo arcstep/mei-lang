@@ -155,8 +155,8 @@ assert.ok(
 assert.match(src, /shouldMountDrilldownHost/, "drilldown host gate");
 assert.match(
   src,
-  /function resolvePreviewAppId[\s\S]*?appRouteSlugFromPathname/,
-  "resolvePreviewAppId must derive app id from route slug",
+  /function resolvePreviewAppId[\s\S]*?appIdFromAppsPathname/,
+  "resolvePreviewAppId must prefer appIdFromAppsPathname for stage paths",
 );
 
 const ASSEMBLY_LINE_COUNT_TARGETS = [

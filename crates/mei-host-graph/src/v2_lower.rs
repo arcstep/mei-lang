@@ -242,7 +242,9 @@ pub fn lower_panel_payload(
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
     if let Some(extra) = payload.get("props") {
-        let resolved = resolve_panel_props_value(&resolve_config_refs_in_value(extra, ctx), ctx);
+        // Expand Merge / shell macros before constant-folding; otherwise Merge flattens
+        // onto `{__call: content_fill_props, ...overlays}` and the macro rewrite drops overlays.
+        let resolved = resolve_config_refs_in_value(&resolve_panel_props_value(extra, ctx), ctx);
         if resolved.is_object() {
             deep_merge_value(&mut props, &resolved);
         }
@@ -605,8 +607,11 @@ fn lower_section_like_shell_panel(
     }
     let mut props = titled_shell_template_props(args);
     merge_card_fields(&mut props, args);
-    if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
-        deep_merge_value(&mut props, extra);
+    if let Some(extra) = args.get("props") {
+        let resolved = resolve_panel_props_value(extra, ctx);
+        if resolved.is_object() {
+            deep_merge_value(&mut props, &resolved);
+        }
     }
     if let Some(outer) = outer_payload {
         apply_tier_and_placement(outer, &mut props, ctx.assembly_stack_order)?;
@@ -716,7 +721,10 @@ fn lower_panel_from_generic_shell(
     ctx: &PanelLowerContext<'_>,
 ) -> Result<UiNodeDecl> {
     let args = v2_call_args(shell).context("panel shell missing __args")?;
-    let mut props = args.get("props").cloned().unwrap_or(json!({}));
+    let mut props = args
+        .get("props")
+        .map(|value| resolve_panel_props_value(value, ctx))
+        .unwrap_or_else(|| json!({}));
     merge_card_fields(&mut props, args);
     // Keep section/region semantic role from the outer layout payload. Expanded macros
     // such as `screen_header` → `content_panel` would otherwise drop `__mei_ui_role`,
@@ -1344,6 +1352,17 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     }
     if v2_call_name(value).as_deref() == Some("panel") {
         return Ok(vec![UiTreeNode::Panel(lower_inline_panel(value, ctx)?)]);
+    }
+    // Nested `content_panel(...)` inside blocks must stay as a Panel node so
+    // viewpoints / layout children are not silently dropped (Ok(Vec::new())).
+    if v2_call_name(value).as_deref() == Some("content_panel") {
+        let args = v2_call_args(value).context("content_panel missing __args")?;
+        let id = args
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("content_panel");
+        let panel = lower_panel_payload(args, id, ctx)?;
+        return Ok(vec![UiTreeNode::Panel(panel)]);
     }
     if let Some(expanded) = try_expand_unlowered_block(value, ctx) {
         return lower_block_node(&expanded, ctx);
@@ -4019,6 +4038,132 @@ mod tests {
         assert!(
             !ai.blocks.is_empty(),
             "block_ai should contain lowered metric cards"
+        );
+    }
+
+    #[test]
+    fn lower_panel_payload_preserves_mei_viewpoint_in_merged_props() {
+        let payload = json!({
+            "id": "warnings_detail",
+            "area": "detail",
+            "variant": "container",
+            "chrome": "bare",
+            "show_heading": false,
+            "props": {
+                "__binop": "Merge",
+                "left": { "__call": "shell_macros.content_fill_props", "__args": {} },
+                "right": {
+                    "__mei_viewpoint": "vp_warnings_detail_table",
+                    "background": "none",
+                    "overflow": "auto",
+                    "padding": "4px"
+                }
+            },
+            "blocks": []
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "mini-data",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "mini-data".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let panel = lower_panel_payload(&payload, "warnings_detail", &ctx).expect("lower");
+        assert_eq!(
+            panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()),
+            Some("vp_warnings_detail_table"),
+            "merged props must keep __mei_viewpoint: {}",
+            panel.props
+        );
+        assert_eq!(
+            panel.props.get("overflow").and_then(|v| v.as_str()),
+            Some("auto")
+        );
+    }
+
+    #[test]
+    fn lower_block_node_keeps_nested_content_panel_and_viewpoints() {
+        let value = json!({
+            "__call": "content_panel",
+            "__args": {
+                "id": "chain_cards",
+                "area": "cards",
+                "variant": "container",
+                "chrome": "bare",
+                "show_heading": false,
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr", "1fr", "1fr"],
+                        "areas": [["items", "models", "warnings"]],
+                        "gap": "20px"
+                    }
+                },
+                "blocks": [
+                    {
+                        "__call": "component",
+                        "__args": {
+                            "arg0": "mei.text",
+                            "id": "chain_items",
+                            "area": "items",
+                            "props": { "__mei_viewpoint": "vp_chain_items", "content": "items" }
+                        }
+                    },
+                    {
+                        "__call": "component",
+                        "__args": {
+                            "arg0": "mei.text",
+                            "id": "chain_models",
+                            "area": "models",
+                            "props": { "__mei_viewpoint": "vp_chain_models", "content": "models" }
+                        }
+                    }
+                ]
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "mini-data",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "mini-data".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "supervision",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let nodes = lower_block_node(&value, &ctx).expect("lower nested content_panel");
+        assert_eq!(nodes.len(), 1);
+        let UiTreeNode::Panel(panel) = &nodes[0] else {
+            panic!("expected nested content_panel to lower as Panel");
+        };
+        assert_eq!(panel.id, "chain_cards");
+        assert_eq!(panel.blocks.len(), 2);
+        let map = crate::presentation_map::build_presentation_map(
+            "supervision",
+            &[panel.clone()],
+            &BTreeMap::new(),
+        );
+        assert!(
+            map.viewpoints.contains_key("vp_chain_items"),
+            "missing vp_chain_items in {:?}",
+            map.viewpoints.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            map.viewpoints.contains_key("vp_chain_models"),
+            "missing vp_chain_models in {:?}",
+            map.viewpoints.keys().collect::<Vec<_>>()
         );
     }
 

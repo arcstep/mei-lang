@@ -202,6 +202,7 @@ pub(crate) fn manage_shell(
         Some(active_review_projection),
         None,
         None,
+        None,
     );
     let statusbar = statusbar_view(
         app_path,

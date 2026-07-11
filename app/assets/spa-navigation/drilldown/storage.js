@@ -54,7 +54,7 @@
     const accessLike =
       ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !WORKSPACE_SURFACE_SLUGS.has(routeSlug);
     if (accessLike) {
-      url.pathname = `/apps/app/${encodeURIComponent(appId)}/scene/${encodeURIComponent(boardSceneId)}`;
+      url.pathname = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(boardSceneId)}`;
       url.searchParams.delete("node");
       url.searchParams.delete("file");
       url.searchParams.delete("scene");

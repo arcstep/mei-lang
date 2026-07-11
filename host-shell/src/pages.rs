@@ -66,7 +66,54 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
         .map(|resolved| resolved.node.encode())
 }
 
+#[allow(dead_code)]
 pub async fn app_view_page(
+    State(_state): State<SharedState>,
+    State(_auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+    Query(query): Query<AppQuery>,
+) -> Response {
+    let _ = (principal, headers, query);
+    crate::shell_redirects::redirect_apps_view_to_stage(Path(app_id), OriginalUri(uri)).await
+}
+
+/// Access 规范：`/apps/{app_id}/{stage_id}` → 直接 200 渲染。
+pub async fn app_stage_page(
+    State(state): State<SharedState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path((app_id, stage_id)): Path<(String, String)>,
+    Query(mut query): Query<AppQuery>,
+) -> Response {
+    if crate::shell_redirects::is_reserved_stage_segment(stage_id.as_str()) {
+        return (StatusCode::NOT_FOUND, "unknown app route").into_response();
+    }
+    let stage = stage_id.trim();
+    if stage.is_empty() {
+        return (StatusCode::NOT_FOUND, "stage required").into_response();
+    }
+    query.scene = Some(stage.to_string());
+    query.surface = Some(UiRouteMode::App.slug().to_string());
+    crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
+    app_page(
+        State(state),
+        State(auth),
+        principal,
+        OriginalUri(uri),
+        headers,
+        Path(("app".to_string(), app_id)),
+        Query(query),
+    )
+    .await
+}
+
+/// Access 应用根：`/apps/{app_id}` → 解析 default_scene 后 200（不 307）。
+pub async fn app_root_page(
     State(state): State<SharedState>,
     State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
@@ -75,32 +122,25 @@ pub async fn app_view_page(
     Path(app_id): Path<String>,
     Query(mut query): Query<AppQuery>,
 ) -> Response {
-    let tail = uri
-        .path()
-        .strip_prefix(&format!("/apps/{app_id}/view"))
+    query.surface = Some(UiRouteMode::App.slug().to_string());
+    // 不强制 scene：走 __default_access__ 解析，仍 200
+    if query
+        .scene
+        .as_deref()
+        .map(str::trim)
         .unwrap_or("")
-        .trim_start_matches('/');
-    if let Some(scene) = crate::app_surface::parse_view_scene_tail(tail) {
-        if query
-            .scene
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-        {
-            query.scene = Some(scene);
-        }
+        .is_empty()
+    {
+        query.scene = None;
     }
-    let route_mode = crate::app_surface::route_mode_for_view_query(&query);
-    query.surface = Some(route_mode.slug().to_string());
-    crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
+    crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
     app_page(
         State(state),
         State(auth),
         principal,
         OriginalUri(uri),
         headers,
-        Path(("view".to_string(), app_id)),
+        Path(("app".to_string(), app_id)),
         Query(query),
     )
     .await
@@ -263,11 +303,12 @@ pub async fn app_page(
             if readiness.ready && assemble_ready {
                 None
             } else {
+                // Access 舞台页：starting 的 mode 必须是 app（勿传 view，否则 from_slug 历史误判）
                 Some(crate::startup::build_starting_location(
                     &uri,
                     app_id.as_str(),
                     scene_id.as_str(),
-                    mode.as_str(),
+                    "app",
                 ))
             }
         };
@@ -855,7 +896,7 @@ pub async fn api_host_access_readiness(
         .as_deref()
         .map(UiRouteMode::from_slug)
         .unwrap_or(UiRouteMode::App);
-    let (readiness, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
+    let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
         let workspace_root = {
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
@@ -881,6 +922,14 @@ pub async fn api_host_access_readiness(
         );
         let readiness =
             crate::startup::evaluate_access_readiness(&guard, app_id, scene_id, route_mode, axes);
+        let assemble_ready = matches!(
+            mei_host_graph::assemble_scope_from_registry(
+                guard.ctx.workspace_root.as_path(),
+                app_id,
+                scene_id,
+            ),
+            Ok(Some(_))
+        );
         let bootstrap_reason = if route_mode.is_access_like() {
             Some(
                 mei_host_graph::bootstrap_embed_status(
@@ -893,28 +942,37 @@ pub async fn api_host_access_readiness(
         } else {
             None
         };
+        let gate_ready = readiness.ready && assemble_ready;
+        let gate_reason = if !readiness.ready {
+            readiness.reason
+        } else if !assemble_ready {
+            "assembling"
+        } else {
+            readiness.reason
+        };
         (
-            readiness,
+            gate_ready,
+            gate_reason,
             guard.startup_phase.clone(),
             guard.startup_detail.clone(),
             guard.startup_error.clone(),
             bootstrap_reason,
         )
     };
-    if readiness.ready {
+    if ready {
         tracing::info!(
             target: "mei.startup",
             app_id = %app_id,
             scene_id = %scene_id,
             startup_phase = %startup_phase,
-            gate_reason = %readiness.reason,
+            gate_reason = %reason,
             bootstrap_reason = bootstrap_reason.as_deref().unwrap_or("-"),
             "app access ready for requests"
         );
     }
     Json(json!({
-        "ready": readiness.ready,
-        "reason": readiness.reason,
+        "ready": ready,
+        "reason": reason,
         "bootstrapReason": bootstrap_reason,
         "startupPhase": startup_phase,
         "startupDetail": startup_detail,
@@ -1375,9 +1433,21 @@ pub(crate) fn render_thin_access_shell(
     )
 }
 
+/// Thin Access / App shell：revision-first 页面不含完整 Leptos shell，须内嵌 FAB DOM，
+/// 否则 `copilot-fab-context` 找不到 `#access-chat-fab`。
+const THIN_SHELL_ACCESS_FAB_HTML: &str = concat!(
+    r#"<div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false" data-mei-stage-kind="scene" data-mei-fab-policy="required">"#,
+    r#"<button id="access-chat-fab" class="access-chat-fab" type="button" aria-label="展开 Copilot 工具条" title="展开 Copilot 工具条" data-mei-fab-policy="required">"#,
+    r#"<img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />"#,
+    r#"</button></div>"#,
+);
+
 pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div></body></html>"#
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
+        app_id = app_id,
+        scene_id = scene_id,
+        fab = THIN_SHELL_ACCESS_FAB_HTML,
     )
 }
 
@@ -1412,8 +1482,25 @@ pub(crate) fn thin_view_shell_document(
         ""
     };
     let workspace_main = thin_workspace_shell_main(data_mode, review_projection);
+    let fab = if route_mode == UiRouteMode::App {
+        THIN_SHELL_ACCESS_FAB_HTML
+    } else {
+        ""
+    };
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__ mei-view-shell-body min-h-screen flex min-h-0 flex-col overflow-hidden" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="{surface_slug}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-surface="{surface_slug}" data-data-mode="{data_mode}"{prototype_attr}><div id="mei-host-topbar-slot" class="mei-host-chrome-slot shrink-0" data-mei-host-chrome="top"></div><div id="mei-view-host" class="mei-view-host relative flex min-h-0 flex-1 flex-col overflow-hidden"><section id="mei-surface-app" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{app_panel_hidden}><div class="shell shell-surface scene-shell frame-stage-enabled mei-text-primary min-h-0 flex flex-1 flex-col" id="mei-compose-host" data-scene="{scene_id}"><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner frame-stage-enabled min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div></main></div></section><section id="mei-surface-workspace" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{workspace_panel_hidden}><div class="shell build-thin-shell min-h-0 flex flex-1 flex-col" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div></section><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-view-loading-overlay mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-host-statusbar-slot" class="mei-host-chrome-slot shrink-0 mt-auto" data-mei-host-chrome="bottom"></div></body></html>"#
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__ mei-view-shell-body min-h-screen flex min-h-0 flex-col overflow-hidden" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="{surface_slug}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-surface="{surface_slug}" data-data-mode="{data_mode}"{prototype_attr}><div id="mei-host-topbar-slot" class="mei-host-chrome-slot shrink-0" data-mei-host-chrome="top"></div><div id="mei-view-host" class="mei-view-host relative flex min-h-0 flex-1 flex-col overflow-hidden"><section id="mei-surface-app" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{app_panel_hidden}><div class="shell shell-surface scene-shell frame-stage-enabled mei-text-primary min-h-0 flex flex-1 flex-col" id="mei-compose-host" data-scene="{scene_id}"><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner frame-stage-enabled min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div></main></div></section><section id="mei-surface-workspace" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{workspace_panel_hidden}><div class="shell build-thin-shell min-h-0 flex flex-1 flex-col" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div></section><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-view-loading-overlay mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-host-statusbar-slot" class="mei-host-chrome-slot shrink-0 mt-auto" data-mei-host-chrome="bottom"></div>{fab}</body></html>"#,
+        app_id = app_id,
+        scene_id = scene_id,
+        surface_slug = surface_slug,
+        data_mode = data_mode,
+        prototype_attr = prototype_attr,
+        app_panel_hidden = app_panel_hidden,
+        workspace_panel_hidden = workspace_panel_hidden,
+        node = node,
+        review_projection = review_projection,
+        tree_max_attr = tree_max_attr,
+        workspace_main = workspace_main,
+        fab = fab,
     )
 }
 

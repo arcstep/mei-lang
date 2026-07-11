@@ -73,6 +73,7 @@ pub(crate) fn workspace_shell(
         None,
         None,
         None,
+        None,
         Some(shell_nav.shell_nav_active()),
     );
     let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);

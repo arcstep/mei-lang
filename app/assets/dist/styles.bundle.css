@@ -1528,6 +1528,25 @@ a.status-chip-link:focus-visible {
   padding: 10px;
   background: var(--mei-shell-color-panel-bg);
 }
+.stage-switcher .app-menu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  text-decoration: none;
+}
+.stage-switcher .app-menu-item-label {
+  min-width: 0;
+}
+.stage-switcher .app-menu-item-meta {
+  flex: 0 0 auto;
+  opacity: 0.72;
+  font-size: var(--mei-shell-font-1);
+}
+.stage-switcher .mode-tab-btn.is-active,
+.stage-switcher .app-group-trigger.is-active {
+  cursor: default;
+}
 .app-subgroup {
   display: grid;
   gap: 6px;
@@ -3489,9 +3508,13 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   height: 100%;
   overflow: auto;
 }
-/* Analytics T2：head + structured body 两行铺满；勿留第三行空轨（默认 panel 是 auto auto 1fr） */
+/* Analytics T2：经典 overlay 为 head + body；Layer2 页头常 hidden，仅 body 时必须单行 1fr，否则内容落在 auto 行高度为 0 */
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] {
   grid-template-rows: auto minmax(0, 1fr);
+}
+.mei-layer2-page-panel[data-drilldown-layout-mode="analytics"],
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] {
+  grid-template-rows: minmax(0, 1fr);
 }
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"] .access-drilldown-overlay-body--structured {
   min-height: 0;

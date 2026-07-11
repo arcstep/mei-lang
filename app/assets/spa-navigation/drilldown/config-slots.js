@@ -1,9 +1,7 @@
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
-    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
-      const appId =
-        typeof appIdFromAppsPathname === "function"
-          ? nonEmptyString(appIdFromAppsPathname(pathname))
-          : "";
+    if (typeof appIdFromAppsPathname === "function") {
+      const appId = nonEmptyString(appIdFromAppsPathname(pathname));
+      // stage 路径 /apps/{app}/{stage} 与 view 路径均以 /apps/{app}/ 为应用根
       if (appId) return `/apps/${appId}/`;
     }
     const slug = appRouteSlugFromPathname(pathname);

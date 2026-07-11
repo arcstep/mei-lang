@@ -1,4 +1,4 @@
-//! App-id-first surface routes: `/apps/{id}/view?surface=app|layout|prototype`.
+//! Access stage routes: `/apps/{id}/{stage}` (legacy view/layout redirects).
 
 use mei_lang_app::UiRouteMode;
 
@@ -93,7 +93,7 @@ pub fn parse_app_surface_tail(
 pub fn legacy_app_access_redirect(app_tail: &str) -> Option<String> {
     let parts: Vec<&str> = app_tail.split('/').filter(|p| !p.is_empty()).collect();
     if parts.len() >= 2 && parts[1] == "access" {
-        return Some(format!("/apps/{}/view?surface=app", parts[0]));
+        return Some(format!("/apps/{}/home", parts[0]));
     }
     None
 }

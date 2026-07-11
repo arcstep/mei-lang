@@ -105,11 +105,10 @@ struct ResolvedWorldActionTarget {
 }
 
 impl ResolvedWorldActionTarget {
-    fn has_host_hints(&self) -> bool {
-        self.panel_id.is_some()
-            || self.view_family.is_some()
-            || self.stage_kind.is_some()
-            || self.world_ref.is_some()
+    /// World-stage host identity. `panel_id` alone is not enough: deck / UI
+    /// viewpoints also carry a content panel id and must not require a world stage.
+    fn has_world_host_hints(&self) -> bool {
+        self.view_family.is_some() || self.stage_kind.is_some() || self.world_ref.is_some()
     }
 
     fn has_contract_refs(&self) -> bool {
@@ -889,7 +888,7 @@ fn validate_world_action_contract(
     target: &ResolvedWorldActionTarget,
 ) -> Vec<PresentationCompileDiagnostic> {
     let mut diagnostics = Vec::new();
-    if !target.has_host_hints() && !target.has_contract_refs() {
+    if !target.has_world_host_hints() && !target.has_contract_refs() {
         return diagnostics;
     }
     let matches = matching_world_stage_contracts(surfaces, target);
@@ -1649,6 +1648,35 @@ mod tests {
         assert!(codes.contains(&"unknown_page_scene"));
         assert!(codes.contains(&"unknown_embed_viewpoint"));
         assert!(codes.contains(&"unknown_metric"));
+    }
+
+    #[test]
+    fn validate_manifest_refs_skips_world_stage_for_deck_panel_only_viewpoint() {
+        let manifest = json!({
+            "id": "ephemeral",
+            "steps": [{
+                "id": "step_1",
+                "actions": [
+                    { "type": "highlight", "viewpoint": "vp_mission_title" }
+                ]
+            }]
+        });
+        let surfaces = PresentationSurfaceIndex {
+            viewpoints: BTreeMap::from([(
+                "vp_mission_title".to_string(),
+                PresentationViewpointEntry {
+                    panel_id: Some("mission-slide".to_string()),
+                    ..PresentationViewpointEntry::default()
+                },
+            )]),
+            ..PresentationSurfaceIndex::default()
+        };
+        let (diagnostics, warnings) = validate_manifest_refs(&manifest, &surfaces);
+        assert!(
+            diagnostics.is_empty(),
+            "deck highlight with panelId only must not require world stage: {diagnostics:?}"
+        );
+        assert!(warnings.is_empty());
     }
 
     #[test]

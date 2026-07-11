@@ -45,6 +45,7 @@ pub(crate) fn config_shell(
         None,
         None,
         None,
+        None,
         Some(ShellNavActive::Config),
     );
     let statusbar = statusbar_view(

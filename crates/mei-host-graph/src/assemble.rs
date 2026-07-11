@@ -67,7 +67,10 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
             .unwrap_or("")
             .to_string();
         let assembly_key = extract_assembly_ref(&payload).unwrap_or_else(|| node.id.key.clone());
-        if url.contains("/scene/") || node.id.key.contains("access") {
+        if url.contains(&format!("/apps/{app_id}/"))
+            || url.contains("/scene/")
+            || node.id.key.contains("access")
+        {
             routes.push(ScopeRoute {
                 scene_id,
                 url,
@@ -78,7 +81,7 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
     if routes.is_empty() {
         routes.push(ScopeRoute {
             scene_id: "home".to_string(),
-            url: format!("/apps/app/{app_id}/scene/home"),
+            url: format!("/apps/{app_id}/home"),
             assembly_key: mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), "home"),
         });
     }
@@ -702,6 +705,29 @@ fn overlay_assembly_path_to_source_file(assembly_path: &str) -> String {
     }
 }
 
+fn route_kind_for_target(target_file: &str) -> String {
+    let normalized = target_file.replace('\\', "/").to_ascii_lowercase();
+    if normalized.contains("/presentation/") || normalized.starts_with("presentation/") {
+        "presentation".to_string()
+    } else {
+        "scene".to_string()
+    }
+}
+
+fn scene_title_from_assembly(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    assembly_key: &str,
+) -> Option<String> {
+    let payload = load_assembly_payload(app_root, registry, assembly_key).ok()?;
+    payload
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn build_scene_routes(
     source_root: &Path,
     app_id: &str,
@@ -711,17 +737,22 @@ fn build_scene_routes(
     let mut routes = Vec::new();
     let mut seen_scenes = BTreeSet::new();
     for route in list_scope_routes(source_root, app_id)? {
-        seen_scenes.insert(route.scene_id.clone());
+        if !seen_scenes.insert(route.scene_id.clone()) {
+            continue;
+        }
+        let target_file = assembly_target_for_key(
+            app_root.as_path(),
+            registry,
+            route.assembly_key.as_str(),
+        );
+        let kind = route_kind_for_target(target_file.as_str());
+        let title = scene_title_from_assembly(app_root.as_path(), registry, route.assembly_key.as_str());
         routes.push(CompiledSceneRoute {
             scene_id: route.scene_id.clone(),
             frame_id: None,
-            target_file: assembly_target_for_key(
-                app_root.as_path(),
-                registry,
-                route.assembly_key.as_str(),
-            ),
-            kind: "scene".to_string(),
-            title: None,
+            target_file,
+            kind,
+            title,
             is_default: route.scene_id == "home",
             access_export: true,
         });
@@ -755,7 +786,8 @@ fn build_scene_routes(
             kind: "page".to_string(),
             title,
             is_default: false,
-            access_export: true,
+            // T2 / board page 不是 Access 顶栏舞台入口
+            access_export: false,
         });
     }
     if routes.is_empty() {

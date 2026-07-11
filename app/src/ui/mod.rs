@@ -427,12 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn layout_href_uses_app_surface() {
+    fn layout_href_seals_to_access_stage() {
         assert_eq!(
             build_href_with_catalog("zhifa", Some("main.mei"), Some("preview"), None, None),
-            "/apps/zhifa/view?surface=layout"
+            "/apps/zhifa/home"
         );
-        assert_eq!(config_href("zhifa"), "/apps/config/zhifa");
+        assert_eq!(config_href("zhifa"), "/config?app=zhifa");
     }
 
     #[test]

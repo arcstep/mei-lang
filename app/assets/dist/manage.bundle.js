@@ -39,6 +39,34 @@
     return String(segments[1] || "").trim().toLowerCase();
   }
 
+  const RESERVED_STAGE_SEGMENTS = new Set([
+    "view",
+    "layout",
+    "prototype",
+    "app",
+    "access",
+    "access-only",
+    "access_only",
+    "build",
+    "manage",
+    "run",
+    "copilot",
+    "presentation",
+    "speaker",
+    "slides",
+    "upload",
+    "config",
+    "runtime",
+  ]);
+
+  function isAccessStageRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) return false;
+    if (segments.length === 2) return !RESERVED_STAGE_SEGMENTS.has(String(segments[1] || "").toLowerCase());
+    const stage = String(segments[2] || "").trim().toLowerCase();
+    return stage.length > 0 && !RESERVED_STAGE_SEGMENTS.has(stage);
+  }
+
   function isUnifiedViewRoute(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
@@ -68,6 +96,7 @@
   }
 
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return "app";
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";
     if (segments[2] === "view") {
@@ -76,16 +105,21 @@
       }
       return "app";
     }
-    return String(segments[2] || "").trim().toLowerCase();
+    const slug = String(segments[2] || "").trim().toLowerCase();
+    if (RESERVED_STAGE_SEGMENTS.has(slug)) return slug;
+    // 非保留第二段是 stage id，不是 surface
+    return "app";
   }
 
   function appRouteSlugFromPathname(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return "app";
     const surface = appSurfaceSlugFromPathname(pathname);
     if (surface) return surface;
     return legacyRouteSlugFromPathname(pathname);
   }
 
   function isAppSurfaceRoute(pathname = global.location?.pathname) {
+    if (isAccessStageRoute(pathname)) return true;
     if (isUnifiedViewRoute(pathname)) {
       const surface =
         global.location?.pathname === pathname
@@ -190,7 +224,7 @@
   }
 
   function shouldMountDrilldownHost(pathname = global.location?.pathname) {
-    if (isUnifiedViewRoute(pathname)) {
+    if (isAccessStageRoute(pathname) || isUnifiedViewRoute(pathname)) {
       return true;
     }
     const slug = appRouteSlugFromPathname(pathname);
@@ -241,6 +275,9 @@
     if (segments[0] !== "apps" || segments.length < 2) {
       return "";
     }
+    if (isAccessStageRoute(pathname)) {
+      return String(segments[1] || "").trim();
+    }
     const surface = appSurfaceSlugFromPathname(pathname);
     if (
       surface === "view" ||
@@ -269,6 +306,12 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isAccessStageRoute(pathname)) {
+      const segments = pathSegments(pathname);
+      if (segments.length >= 3) {
+        return decodeURIComponent(segments[2]);
+      }
+    }
     if (isUnifiedViewRoute(pathname)) {
       try {
         const url = new URL(pathname + (search || ""), global.location?.href || "http://localhost");
@@ -292,6 +335,7 @@
 
   function isRevisionFirstShellPage(pathname = global.location?.pathname) {
     if (globalThis.__mei?.thin_shell === true) return true;
+    if (isAccessStageRoute(pathname)) return true;
     if (isUnifiedViewRoute(pathname)) return true;
     if (isAppWorkspaceSurfaceRoute(pathname)) return true;
     if (isAccessRoute(pathname)) return true;
@@ -310,30 +354,43 @@
       const url = raw.startsWith("/") ? new URL(raw, base) : new URL(raw);
       let path = url.pathname;
       let rewritten = false;
+      const stageFromScene = (rest) => {
+        const match = String(rest || "").match(/\/scene\/([^/]+)/);
+        return match ? match[1] : "home";
+      };
       const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
       if (runMatch) {
-        path = `/apps/${runMatch[1]}/view?surface=app`;
+        path = `/apps/${runMatch[1]}/${stageFromScene(runMatch[2])}`;
         rewritten = true;
       }
       const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
       if (copilotMatch) {
-        path = `/apps/${copilotMatch[1]}/view?surface=app`;
+        path = `/apps/${copilotMatch[1]}/${stageFromScene(copilotMatch[2])}`;
         rewritten = true;
       }
       const legacyAppMatch = path.match(
         /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
       );
       if (legacyAppMatch) {
-        path = `/apps/${legacyAppMatch[1]}/view?surface=app`;
+        path = `/apps/${legacyAppMatch[1]}/${stageFromScene(legacyAppMatch[2])}`;
         rewritten = true;
       }
       const legacySurfaceMatch = path.match(/^\/apps\/([^/]+)\/(layout|prototype)(\/.*)?$/);
       if (legacySurfaceMatch) {
-        path = `/apps/${legacySurfaceMatch[1]}/view?surface=${legacySurfaceMatch[2]}`;
+        path = `/apps/${legacySurfaceMatch[1]}/home`;
+        rewritten = true;
+      }
+      const viewMatch = path.match(/^\/apps\/([^/]+)\/view$/);
+      if (viewMatch) {
+        const scene = String(url.searchParams.get("scene") || "home").trim() || "home";
+        path = `/apps/${viewMatch[1]}/${scene}`;
+        url.searchParams.delete("surface");
+        url.searchParams.delete("scene");
         rewritten = true;
       }
       if (!rewritten) return raw;
-      return `${path}${url.search}${url.hash}`;
+      const qs = url.searchParams.toString();
+      return `${path}${qs ? `?${qs}` : ""}${url.hash}`;
     } catch (_) {
       return raw;
     }
@@ -345,7 +402,9 @@
     APP_WORKSPACE_SURFACE_SLUGS,
     RUNTIME_ROUTE_SLUGS,
     LEGACY_REMOVED_ROUTE_SLUGS,
+    RESERVED_STAGE_SEGMENTS,
     pathSegments,
+    isAccessStageRoute,
     isUnifiedViewRoute,
     surfaceSlugFromViewUrl,
     legacyRouteSlugFromPathname,
@@ -393,6 +452,7 @@
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
+  global.isAccessStageRoute = isAccessStageRoute;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
@@ -9631,6 +9691,23 @@
     if (parts.length >= 3 && parts[2] === "view") {
       return parts[1] || "";
     }
+    if (parts.length >= 2) {
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+        "upload",
+        "config",
+        "runtime",
+      ]);
+      if (!reserved.has(String(parts[1] || "").toLowerCase())) {
+        return parts[1] || "";
+      }
+    }
     if (parts.length >= 3) {
       const surface = String(parts[2] || "").toLowerCase();
       if (
@@ -9644,22 +9721,7 @@
         return parts[1] || "";
       }
     }
-    const routeSlug = parts[1] || "";
-    const legacyModeFirst = new Set([
-      "access",
-      "run",
-      "speaker",
-      "presentation",
-      "slides",
-      "copilot",
-      "upload",
-      "config",
-      "app",
-      "build",
-      "manage",
-    ]);
-    if (legacyModeFirst.has(routeSlug) && parts[2]) return parts[2];
-    return routeSlug;
+    return parts[1] || "";
   }
 
   function currentAppId(hint) {
@@ -12514,11 +12576,9 @@
 
 /* ===== spa-navigation/drilldown/config-slots.js ===== */
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
-    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
-      const appId =
-        typeof appIdFromAppsPathname === "function"
-          ? nonEmptyString(appIdFromAppsPathname(pathname))
-          : "";
+    if (typeof appIdFromAppsPathname === "function") {
+      const appId = nonEmptyString(appIdFromAppsPathname(pathname));
+      // stage 路径 /apps/{app}/{stage} 与 view 路径均以 /apps/{app}/ 为应用根
       if (appId) return `/apps/${appId}/`;
     }
     const slug = appRouteSlugFromPathname(pathname);
@@ -13509,30 +13569,39 @@
     return "";
   }
 
-  function resolveAppIdFromUnifiedView(pathname = window.location.pathname) {
-    if (typeof isUnifiedViewRoute !== "function" || !isUnifiedViewRoute(pathname)) {
-      return "";
+  function resolveAppIdFromAppsRoute(pathname = window.location.pathname) {
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromApps = nonEmptyString(appIdFromAppsPathname(pathname));
+      if (fromApps) return fromApps;
     }
-    if (typeof appIdFromAppsPathname !== "function") {
-      return "";
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
+      // fallback kept for older bundles without appIdFromAppsPathname stage support
     }
-    return nonEmptyString(appIdFromAppsPathname(pathname));
+    return "";
   }
 
   function resolveAccessAppPath(pathname = window.location.pathname) {
-    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
-    if (unifiedAppId) return unifiedAppId;
+    const appsRouteAppId = resolveAppIdFromAppsRoute(pathname);
+    if (appsRouteAppId) return appsRouteAppId;
     return resolveAppPathByPrefixes(pathname, appRoutePrefixesFromSlugs(ACCESS_LIKE_ROUTE_SLUGS));
   }
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
-    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
-    if (unifiedAppId) return unifiedAppId;
+    const appsRouteAppId = resolveAppIdFromAppsRoute(pathname);
+    if (appsRouteAppId) return appsRouteAppId;
     const slug = appRouteSlugFromPathname(pathname);
+    // 旧路径 /apps/app/{appId}/…：slug 仍是 surface，appId 在第三段
     if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);
+    return resolveAppPathByPrefixes(pathname, [
+      "/upload",
+      "/upload?",
+      "/apps/upload/",
+      "/config",
+      "/config?",
+      "/apps/config/",
+    ]);
   }
 
 
@@ -17690,7 +17759,7 @@
       setDrilldownOverlayStatus(root, "error");
       return false;
     }
-    const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    const url = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(sceneId)}`;
     try {
       if (!boot.viewRevisionClient?.negotiateWithLocalMiss || !boot.viewCompositor?.composeFromLayers) {
         throw new Error("board scene compose unavailable");
@@ -20203,7 +20272,7 @@
     const accessLike =
       ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !WORKSPACE_SURFACE_SLUGS.has(routeSlug);
     if (accessLike) {
-      url.pathname = `/apps/app/${encodeURIComponent(appId)}/scene/${encodeURIComponent(boardSceneId)}`;
+      url.pathname = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(boardSceneId)}`;
       url.searchParams.delete("node");
       url.searchParams.delete("file");
       url.searchParams.delete("scene");
@@ -21093,6 +21162,128 @@
     return true;
   }
 
+  function deckPageIds() {
+    return ["s-mission", "s-chain", "s-path", "s-handoff"];
+  }
+
+  function resolveDeckPageNode(pageId) {
+    const normalized = String(pageId || "").trim();
+    if (!normalized) return null;
+    const selectors = [
+      `[data-mei-panel-name="${CSS.escape(normalized)}"]`,
+      `[data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
+      `[data-preview-scope$="/${CSS.escape(normalized)}"]`,
+      `[data-preview-scope="${CSS.escape(normalized)}"]`,
+      `[data-mei-panel-id$="/${CSS.escape(normalized)}"]`,
+      `[data-mei-structure-label="${CSS.escape(normalized)}"]`,
+    ];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      if (node instanceof HTMLElement) return node;
+    }
+    return null;
+  }
+
+  function listDeckPageNodes() {
+    const nodes = [];
+    const seen = new Set();
+    for (const id of deckPageIds()) {
+      const node = resolveDeckPageNode(id);
+      if (!(node instanceof HTMLElement) || seen.has(node)) continue;
+      seen.add(node);
+      nodes.push(node);
+    }
+    if (nodes.length) return nodes;
+    const deck =
+      document.querySelector('[data-preview-scope$="/r-deck"], [data-preview-scope$="/deck"]') ||
+      document.querySelector(
+        '[data-mei-panel-name="r-deck"], [data-mei-panel-name="deck"], [data-mei-structure-label="r-deck"]',
+      );
+    if (!(deck instanceof HTMLElement)) return [];
+    const directSections = Array.from(deck.children).filter(
+      (node) =>
+        node instanceof HTMLElement &&
+        String(node.getAttribute("data-mei-ui-role") || "") === "section",
+    );
+    const candidates = directSections.length
+      ? directSections
+      : Array.from(
+          deck.querySelectorAll(
+            '[data-preview-scope], [data-mei-panel-name], [data-mei-structure-label]',
+          ),
+        );
+    return candidates.filter((node) => {
+      if (!(node instanceof HTMLElement) || node === deck) return false;
+      const name = String(
+        node.getAttribute("data-mei-panel-name") ||
+          node.getAttribute("data-mei-structure-label") ||
+          node.getAttribute("data-preview-scope") ||
+          "",
+      );
+      const leaf = name.split("/").pop() || name;
+      return /^s-/.test(leaf);
+    });
+  }
+
+  function currentDeckPageIndex() {
+    const pages = listDeckPageNodes();
+    const active = pages.findIndex((node) => !node.hasAttribute("hidden"));
+    return active >= 0 ? active : 0;
+  }
+
+  function showDeckPage(pageIdOrIndex) {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    let targetIndex = -1;
+    if (typeof pageIdOrIndex === "number" && Number.isFinite(pageIdOrIndex)) {
+      targetIndex = Math.max(0, Math.min(pages.length - 1, pageIdOrIndex));
+    } else {
+      const wanted = String(pageIdOrIndex || "").trim();
+      targetIndex = pages.findIndex((node) => {
+        const name = String(node.getAttribute("data-mei-panel-name") || "");
+        return name === wanted || name.endsWith(`/${wanted}`);
+      });
+      if (targetIndex < 0) {
+        const byId = resolveDeckPageNode(wanted);
+        targetIndex = byId ? pages.indexOf(byId) : -1;
+      }
+    }
+    if (targetIndex < 0) return false;
+    pages.forEach((node, index) => {
+      const active = index === targetIndex;
+      node.toggleAttribute("hidden", !active);
+      node.classList.toggle("mei-deck-page-active", active);
+    });
+    document.documentElement.setAttribute(
+      "data-mei-active-deck-page",
+      String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
+    );
+    document.documentElement.setAttribute("data-mei-active-deck-page-index", String(targetIndex));
+    return true;
+  }
+
+  function ensureDeckPageVisibility() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const visible = pages.filter((node) => !node.hasAttribute("hidden"));
+    if (visible.length === 1) return true;
+    return showDeckPage(0);
+  }
+
+  function showNextDeckPage() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const next = Math.min(pages.length - 1, currentDeckPageIndex() + 1);
+    return showDeckPage(next);
+  }
+
+  function showPrevDeckPage() {
+    const pages = listDeckPageNodes();
+    if (!pages.length) return false;
+    const prev = Math.max(0, currentDeckPageIndex() - 1);
+    return showDeckPage(prev);
+  }
+
   function dispatchPresentationAction(action) {
     if (!action || typeof action !== "object") return false;
     const type = String(action.type || action.kind || "").trim();
@@ -21103,6 +21294,9 @@
       case "hide_plane":
       case "hidePlane":
         return setPlaneVisibility(action.plane || action.tier || action.planeId, false);
+      case "show_page":
+      case "showPage":
+        return showDeckPage(action.pageId || action.page || action.sectionId || action.id);
       case "highlight":
       case "focus": {
         const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
@@ -21198,6 +21392,11 @@
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
+    root.MeiPresentation.showPage = showDeckPage;
+    root.MeiPresentation.nextPage = showNextDeckPage;
+    root.MeiPresentation.prevPage = showPrevDeckPage;
+    root.MeiPresentation.ensureDeckPages = ensureDeckPageVisibility;
+    root.MeiPresentation.listDeckPages = listDeckPageNodes;
     root.MeiPresentation.openT2Panel = openT2Panel;
     root.MeiPresentation.resetT2Panels = resetT2Panels;
     root.MeiPresentation.resetStages = resetStageVisibility;
@@ -21209,7 +21408,12 @@
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
     boot.dispatchPresentationAction = dispatchPresentationAction;
     boot.openT2Panel = openT2Panel;
+    boot.showDeckPage = showDeckPage;
+    boot.nextDeckPage = showNextDeckPage;
+    boot.prevDeckPage = showPrevDeckPage;
+    boot.ensureDeckPageVisibility = ensureDeckPageVisibility;
     resetPlaneVisibility();
+    ensureDeckPageVisibility();
   }
 
   installFocusController();
@@ -21231,7 +21435,26 @@
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
     return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
@@ -21538,7 +21761,7 @@
 
 /* ===== spa-navigation/presentation/presentation-route-utils.js ===== */
 /**
- * Presentation helpers on app surface (Run/Copilot host routes retired per 0517 Phase C).
+ * Presentation helpers on Access stage routes (`/apps/{app}/{stage}`).
  */
 (function initPresentationRouteUtils(global) {
   "use strict";
@@ -21546,12 +21769,29 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const RP = global.MeiRoutePredicates || {};
 
+  const RESERVED_STAGE_SEGMENTS = new Set([
+    "view",
+    "layout",
+    "prototype",
+    "app",
+    "access",
+    "build",
+    "manage",
+  ]);
+
   function isPresentationSurfaceRoute(pathname) {
+    if (typeof RP.isAccessStageRoute === "function" && RP.isAccessStageRoute(pathname)) {
+      return true;
+    }
     if (typeof RP.isPresentationCapableRoute === "function") {
       return RP.isPresentationCapableRoute(pathname);
     }
     const path = String(pathname || global.location?.pathname || "");
-    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path) || /^\/apps\/(?:app|access)\//.test(path);
+    return (
+      /^\/apps\/[^/]+\/[^/]+(?:\/|$)/.test(path) ||
+      /^\/apps\/[^/]+\/(?:app|view)(?:\/|$)/.test(path) ||
+      /^\/apps\/(?:app|access)\//.test(path)
+    );
   }
 
   function parsePresentationAppId(pathname) {
@@ -21560,12 +21800,33 @@
       if (fromApps) return fromApps;
     }
     const path = String(pathname || global.location?.pathname || "");
-    const appFirst = path.match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    const stageFirst = path.match(/^\/apps\/([^/]+)(?:\/|$)/);
+    if (
+      stageFirst &&
+      stageFirst[1] &&
+      !["app", "access", "view", "layout", "prototype"].includes(stageFirst[1])
+    ) {
+      return stageFirst[1];
+    }
+    const appFirst = path.match(/^\/apps\/([^/]+)\/(?:app|view)(?:\/|$)/);
     if (appFirst && appFirst[1]) return appFirst[1];
     const legacy = path.match(
       /^\/apps\/(?:app|access|access-only|access_only|run|copilot|speaker)\/([^/]+)/,
     );
     return legacy && legacy[1] ? legacy[1] : "";
+  }
+
+  function parsePresentationSceneId(pathname) {
+    const path = String(pathname || global.location?.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      if (seg && !RESERVED_STAGE_SEGMENTS.has(seg.toLowerCase())) return seg;
+    }
+    const sceneMatch = path.match(/\/scene\/([^/?#]+)/);
+    if (sceneMatch) return String(sceneMatch[1] || "").trim();
+    const mei = global.__mei;
+    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
   }
 
   function rewriteStepRoute(route) {
@@ -21599,6 +21860,7 @@
   boot.presentationRouteUtils = {
     isPresentationSurfaceRoute,
     parsePresentationAppId,
+    parsePresentationSceneId,
     rewriteStepRoute,
     dispatchWorldAction,
   };
@@ -21883,6 +22145,12 @@
     }
     if (!normalized.plane && normalized.planeId) {
       normalized.plane = normalized.planeId;
+    }
+    if (!normalized.pageId && (normalized.page || normalized.sectionId || normalized.id)) {
+      normalized.pageId = normalized.page || normalized.sectionId || normalized.id;
+    }
+    if (normalized.type === "showPage") {
+      normalized.type = "show_page";
     }
     return normalized;
   }
@@ -22203,6 +22471,15 @@
     isPaused() {
       return state.everStarted && !state.sessionActive && state.steps.length > 0;
     },
+    canFlipPages() {
+      if (state.steps.length > 0) return true;
+      const api = focusApi();
+      if (api && typeof api.listDeckPages === "function") {
+        const pages = api.listDeckPages() || [];
+        if (pages.length > 0) return true;
+      }
+      return typeof boot.nextDeckPage === "function" && typeof boot.prevDeckPage === "function";
+    },
     pause() {
       if (!ensureLoaded()) return false;
       state.sessionActive = false;
@@ -22228,7 +22505,12 @@
     },
     start(options) {
       const opts = options && typeof options === "object" ? options : {};
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded()) {
+        if (typeof boot.ensureDeckPageVisibility === "function") {
+          boot.ensureDeckPageVisibility();
+        }
+        return engine.canFlipPages();
+      }
       if (Number.isFinite(Number(opts.stepIndex))) {
         state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(opts.stepIndex)));
       }
@@ -22240,14 +22522,22 @@
       return true;
     },
     next() {
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded() || !state.steps.length) {
+        if (typeof boot.nextDeckPage === "function") return boot.nextDeckPage();
+        const api = focusApi();
+        return api && typeof api.nextPage === "function" ? api.nextPage() : false;
+      }
       state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
       if (state.everStarted) state.sessionActive = true;
       void applyStep();
       return true;
     },
     prev() {
-      if (!ensureLoaded()) return false;
+      if (!ensureLoaded() || !state.steps.length) {
+        if (typeof boot.prevDeckPage === "function") return boot.prevDeckPage();
+        const api = focusApi();
+        return api && typeof api.prevPage === "function" ? api.prevPage() : false;
+      }
       state.stepIndex = Math.max(0, state.stepIndex - 1);
       if (state.everStarted) state.sessionActive = true;
       void applyStep();
@@ -22414,13 +22704,32 @@
 
   function parseAppIdFromPath() {
     const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run|presentation)\/([^/]+)/,
+      /^\/apps\/([^/]+)(?:\/|$)/,
     );
     return match ? String(match[1] || "").trim() : "";
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
     return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
@@ -22587,6 +22896,10 @@
       stepIndex: options.stepIndex,
       apply: options.apply !== false,
     });
+    const fabContext = boot.copilotFabContext;
+    if (fabContext && typeof fabContext.revealFabForScript === "function") {
+      fabContext.revealFabForScript();
+    }
     if (toolbar && typeof toolbar.renderAll === "function") {
       toolbar.renderAll();
     }
@@ -22604,6 +22917,14 @@
   }
 
   async function tryAutoStartPresentation(options = {}) {
+    // 讲稿改为显式选择；不再进舞台自动挂稿（force=true 时仍可用于测试）
+    if (options.force !== true) {
+      const fabContext = boot.copilotFabContext;
+      if (fabContext && typeof fabContext.syncFabVisibility === "function") {
+        fabContext.syncFabVisibility();
+      }
+      return false;
+    }
     const eng = boot.presentationStepEngine;
     if (!eng) return false;
     if (typeof eng.hasManifest === "function" && eng.hasManifest()) {
@@ -22672,13 +22993,36 @@
 
   function parseAppIdFromPath() {
     const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+      /^\/apps\/([^/]+)(?:\/|$)/,
     );
     return match ? String(match[1] || "").trim() : "";
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.parseSceneIdFromPath === "function") {
+      return String(ctx.parseSceneIdFromPath() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     return match ? String(match[1] || "").trim() : "home";
   }
 
@@ -22688,6 +23032,82 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function currentStageTargetKey() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.resolveStageTargetKey === "function") {
+      return String(ctx.resolveStageTargetKey() || "").trim();
+    }
+    const sceneId = parseSceneIdFromPath();
+    const kind =
+      ctx && typeof ctx.resolveStageKind === "function" ? ctx.resolveStageKind() : "scene";
+    return `${kind}/${sceneId}`;
+  }
+
+  function scriptMatchesCurrentStage(script) {
+    const target = String(script?.target || script?.target_stage || "").trim();
+    if (!target) return true; // 旧稿无 target：仍可见（兼容）
+    const current = currentStageTargetKey();
+    if (target === current) return true;
+    // 容忍 scene/home ↔ home、presentation/supervision ↔ supervision
+    const sceneId = parseSceneIdFromPath();
+    return target === sceneId || target.endsWith(`/${sceneId}`);
+  }
+
+  function scriptsForCurrentStage() {
+    return (Array.isArray(uiState.scripts) ? uiState.scripts : []).filter(scriptMatchesCurrentStage);
+  }
+
+  function renderScriptList() {
+    const panel = ensurePanel();
+    const list = panel.querySelector("[data-presentation-script-list]");
+    const picker = panel.querySelector("[data-presentation-script-picker]");
+    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
+    if (!uiState.pickerOpen) {
+      picker.setAttribute("hidden", "hidden");
+      list.innerHTML = "";
+      return;
+    }
+    picker.removeAttribute("hidden");
+    const filtered = scriptsForCurrentStage();
+    const noneActive = !uiState.activeScriptId;
+    const noneItem =
+      `<li class="mei-presentation-script-panel-item">` +
+      `<button type="button" data-presentation-script-none="true">` +
+      `<strong>不使用讲稿</strong>` +
+      `<span class="mei-presentation-script-panel-item-id">仅翻页 / 无步进</span>` +
+      `${noneActive ? '<span class="mei-presentation-script-badge">当前</span>' : ""}` +
+      `</button></li>`;
+    if (!filtered.length) {
+      list.innerHTML =
+        noneItem +
+        `<li class="mei-presentation-script-panel-empty">当前舞台暂无匹配讲稿（${escapeHtml(currentStageTargetKey())}）</li>`;
+      return;
+    }
+    list.innerHTML =
+      noneItem +
+      filtered
+        .map((script) => {
+          const id = escapeHtml(script.id);
+          const title = escapeHtml(script.title || script.id);
+          const badges = [
+            script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+            uiState.activeScriptId === script.id ? "当前" : "",
+          ]
+            .filter(Boolean)
+            .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
+            .join("");
+          return (
+            `<li class="mei-presentation-script-panel-item">` +
+            `<button type="button" data-presentation-script-select="${id}">` +
+            `<strong>${title}</strong>` +
+            `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
+            `${badges}` +
+            `</button></li>`
+          );
+        })
+        .join("");
   }
 
   function formatDiagnostics(items) {
@@ -22795,44 +23215,6 @@
     return panel;
   }
 
-  function renderScriptList() {
-    const panel = ensurePanel();
-    const list = panel.querySelector("[data-presentation-script-list]");
-    const picker = panel.querySelector("[data-presentation-script-picker]");
-    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
-    if (!uiState.pickerOpen) {
-      picker.setAttribute("hidden", "hidden");
-      list.innerHTML = "";
-      return;
-    }
-    picker.removeAttribute("hidden");
-    if (!uiState.scripts.length) {
-      list.innerHTML = '<li class="mei-presentation-script-panel-empty">演说稿目录为空</li>';
-      return;
-    }
-    list.innerHTML = uiState.scripts
-      .map((script) => {
-        const id = escapeHtml(script.id);
-        const title = escapeHtml(script.title || script.id);
-        const badges = [
-          script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
-          uiState.activeScriptId === script.id ? "当前" : "",
-        ]
-          .filter(Boolean)
-          .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
-          .join("");
-        return (
-          `<li class="mei-presentation-script-panel-item">` +
-          `<button type="button" data-presentation-script-select="${id}">` +
-          `<strong>${title}</strong>` +
-          `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
-          `${badges}` +
-          `</button></li>`
-        );
-      })
-      .join("");
-  }
-
   function renderPanel() {
     const panel = ensurePanel();
     const editor = panel.querySelector("[data-presentation-script-editor]");
@@ -22865,12 +23247,19 @@
     if (!lib || typeof lib.listScripts !== "function") return;
     const payload = await lib.listScripts(appId);
     uiState.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
-    uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
-    if (!uiState.activeScriptId) {
-      uiState.activeScriptId =
-        uiState.defaultScriptId ||
-        (typeof lib.resolveDefaultScriptId === "function" ? lib.resolveDefaultScriptId() : "");
+    const stageKey = currentStageTargetKey();
+    const byStage =
+      payload?.defaultByStage && typeof payload.defaultByStage === "object"
+        ? payload.defaultByStage
+        : null;
+    if (byStage && Object.prototype.hasOwnProperty.call(byStage, stageKey)) {
+      const staged = byStage[stageKey];
+      uiState.defaultScriptId =
+        staged == null || staged === "" ? "" : String(staged).trim();
+    } else {
+      uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
     }
+    // 不自动把 default 设成 active：讲稿可选；由用户在 FAB「选」中显式挂载
   }
 
   async function loadScriptIntoEditor(scriptId, options = {}) {
@@ -22948,11 +23337,16 @@
     if (typeof eng.stop === "function") {
       eng.stop();
     }
+    uiState.activeScriptId = "";
     setCompileResult(null);
     renderPanel();
     const tb = toolbar();
     if (tb && typeof tb.renderAll === "function") {
       tb.renderAll();
+    }
+    const fabContext = boot.copilotFabContext;
+    if (fabContext && typeof fabContext.syncFabVisibility === "function") {
+      fabContext.syncFabVisibility();
     }
     return true;
   }
@@ -22967,20 +23361,36 @@
   async function onPanelClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (target.closest("[data-presentation-script-none]")) {
+      clearPresentation();
+      uiState.pickerOpen = false;
+      uiState.open = false;
+      renderPanel();
+      return;
+    }
     const selectId = target.closest("[data-presentation-script-select]")?.getAttribute(
       "data-presentation-script-select",
     );
     if (selectId) {
       uiState.busy = true;
       try {
-        await loadScriptIntoEditor(selectId);
+        const lib = library();
+        if (lib && typeof lib.runScript === "function") {
+          const { script } = await lib.runScript(selectId, { appId: parseAppIdFromPath() });
+          syncFromLibrary(script);
+        } else {
+          await loadScriptIntoEditor(selectId);
+          await compileAndRun(uiState.source, { apply: true });
+        }
         uiState.pickerOpen = false;
-        uiState.open = true;
+        uiState.open = false;
       } catch (error) {
         setCompileResult(null, error);
       } finally {
         uiState.busy = false;
         renderPanel();
+        const tb = toolbar();
+        if (tb && typeof tb.renderAll === "function") tb.renderAll();
       }
       return;
     }
@@ -23056,12 +23466,7 @@
     renderPanel();
     try {
       await refreshLibraryState(parseAppIdFromPath());
-      if (!uiState.source) {
-        const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
-        if (scriptId) {
-          await loadScriptIntoEditor(scriptId);
-        }
-      }
+      // 不自动载入默认讲稿：避免「打开选稿」把未选状态变成已选默认
     } catch (error) {
       setCompileResult(null, error);
       throw error;
@@ -23119,48 +23524,401 @@
   }
 
   function routeUtils() {
-    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+    return boot.presentationRouteUtils || window.MeiPresentationRouteUtils || null;
   }
 
   function isPresentationSurfaceRoute() {
     const utils = routeUtils();
     if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
     const path = String(window.location.pathname || "");
-    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path);
+    return /^\/apps\/[^/]+(?:\/[^/]+)?(?:\/|$)/.test(path);
   }
 
-  function isAccessLikeRoute() {
-    return isPresentationSurfaceRoute();
+  function floatingRoot() {
+    return document.getElementById("access-chat-floating-root");
   }
 
-  function hasCopilotShellMarkers() {
-    return Boolean(
-      document.getElementById("copilot-shell") ||
-        document.getElementById("speaker-shell") ||
-        document.getElementById("mei-presentation-manifest") ||
-        document.getElementById("mei-copilot-tour") ||
-        document.getElementById("mei-speaker-tour"),
-    );
+  function fabButton() {
+    return document.getElementById("access-chat-fab");
   }
 
-  /** 内置 FAB 默认走 Copilot 演说工具条；仅外链 FAB（access_ai_external）例外。 */
+  /** Thin Access shell 若缺 FAB DOM，补挂最小结构（与 host thin shell SSR 对齐）。 */
+  function ensureFabDom() {
+    if (isExternalAiFab() || fabButton()) return fabButton();
+    let root = floatingRoot();
+    if (!(root instanceof HTMLElement)) {
+      root = document.createElement("div");
+      root.id = "access-chat-floating-root";
+      root.className = "access-chat-floating-root";
+      root.setAttribute("data-open", "false");
+      root.setAttribute("data-mei-stage-kind", "scene");
+      root.setAttribute("data-mei-fab-policy", "required");
+      document.body.appendChild(root);
+    }
+    const fab = document.createElement("button");
+    fab.id = "access-chat-fab";
+    fab.className = "access-chat-fab";
+    fab.type = "button";
+    fab.setAttribute("aria-label", "展开 Copilot 工具条");
+    fab.title = "展开 Copilot 工具条";
+    fab.setAttribute("data-mei-fab-policy", "required");
+    const icon = document.createElement("img");
+    icon.className = "access-chat-fab-icon";
+    icon.src = "/app-assets/favicon.svg";
+    icon.alt = "";
+    fab.appendChild(icon);
+    root.appendChild(fab);
+    return fab;
+  }
+
+  function parseSceneIdFromPath() {
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
+    if (match) return String(match[1] || "").trim();
+    const mei = window.__mei;
+    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
+  }
+
+  function resolveStageKind() {
+    const path = String(window.location.pathname || "");
+    const mei = window.__mei;
+    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
+    const sceneId = parseSceneIdFromPath();
+    const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
+    const kind = String(route?.kind || "").trim().toLowerCase();
+    if (kind === "presentation" || kind === "scene") return kind;
+    const target = String(route?.target_file || "").replace(/\\/g, "/").toLowerCase();
+    if (target.includes("/presentation/")) return "presentation";
+    const targetFile = String(
+      document.querySelector("[data-target-file]")?.getAttribute("data-target-file") || "",
+    )
+      .replace(/\\/g, "/")
+      .toLowerCase();
+    if (targetFile.includes("/presentation/")) return "presentation";
+    // Thin-shell HTML may hardcode data-mei-stage-kind="scene"; prefer route/path.
+    if (/\/presentation\//.test(path)) return "presentation";
+    const root = floatingRoot();
+    const fromDom = String(root?.getAttribute("data-mei-stage-kind") || "")
+      .trim()
+      .toLowerCase();
+    if (fromDom === "presentation" || fromDom === "scene") return fromDom;
+    return "scene";
+  }
+
+  /** 与讲稿 library target 对齐：scene/home | presentation/supervision */
+  function resolveStageTargetKey() {
+    const sceneId = parseSceneIdFromPath();
+    const kind = resolveStageKind();
+    return `${kind}/${sceneId}`;
+  }
+
+  function fabPolicy() {
+    return "required";
+  }
+
+  function syncFabVisibility() {
+    ensureFabDom();
+    const fab = fabButton();
+    if (!(fab instanceof HTMLElement) || isExternalAiFab()) return;
+    fab.hidden = false;
+    fab.removeAttribute("hidden");
+    const root = floatingRoot();
+    if (root) {
+      root.setAttribute("data-mei-stage-kind", resolveStageKind());
+      root.setAttribute("data-mei-fab-policy", "required");
+      root.setAttribute("data-mei-stage-target", resolveStageTargetKey());
+      root.setAttribute("data-mei-fab-visible", "true");
+    }
+  }
+
+  /** Access 面：FAB 常显，工具条可点开；讲稿可选。 */
   function copilotFabContextActive() {
     if (isExternalAiFab()) return false;
-    if (!document.getElementById("access-chat-fab")) return false;
-    if (isAccessLikeRoute() || hasCopilotShellMarkers()) return true;
-    const eng = boot.presentationStepEngine;
-    return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
+    if (!ensureFabDom()) return false;
+    syncFabVisibility();
+    return isPresentationSurfaceRoute();
   }
 
   function shouldMountCopilotToolbar() {
     return copilotFabContextActive();
   }
 
+  function revealFabForScript() {
+    syncFabVisibility();
+  }
+
+  function parseAppIdFromPath() {
+    const utils = routeUtils();
+    if (utils?.parsePresentationAppId) {
+      return String(utils.parsePresentationAppId() || "").trim();
+    }
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)(?:\/|$)/);
+    return match && match[1] ? match[1] : "";
+  }
+
+  function fabPositionStorageKey() {
+    const appId = parseAppIdFromPath() || "default";
+    return `mei-lang.agent.access-floating-position.${appId}`;
+  }
+
+  /** agent-panel 已接管 FAB 时不再重复绑定（完整 shell 有 meilang-author-panel）。 */
+  function agentPanelOwnsFab() {
+    return Boolean(boot.agentPanelState) || Boolean(document.getElementById("meilang-author-panel"));
+  }
+
+  function activateFabTap() {
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function" && !toolbar.uiState?.mounted) {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
+    }
+    if (toolbar && typeof toolbar.toggleToolbar === "function") {
+      toolbar.toggleToolbar();
+    }
+  }
+
+  let fabDragState = null;
+  const FAB_DRAG_THRESHOLD_PX = 4;
+
+  function floatingBoundsHost(root) {
+    if (typeof boot.copilotFloatingOffsetParent === "function") {
+      const host = boot.copilotFloatingOffsetParent(root);
+      if (host) return host;
+    }
+    return root?.parentElement || null;
+  }
+
+  function applyFabShellPosition(root, left, top) {
+    if (!(root instanceof HTMLElement)) return null;
+    if (root.classList.contains("mei-copilot-in-viewport")) {
+      const toDesign =
+        typeof boot.shellToViewportFabDesign === "function"
+          ? boot.shellToViewportFabDesign(left, top)
+          : { left, top };
+      if (typeof boot.applyViewportFabDesignPosition === "function") {
+        return boot.applyViewportFabDesignPosition(root, toDesign.left, toDesign.top);
+      }
+    }
+    const width = Math.max(48, Number(root.offsetWidth || 68));
+    const height = Math.max(48, Number(root.offsetHeight || 68));
+    const host = floatingBoundsHost(root);
+    const hostRect = host
+      ? host.getBoundingClientRect()
+      : { left: 0, top: 0, width: window.innerWidth || 0, height: window.innerHeight || 0 };
+    const margin = 10;
+    const maxLeft = Math.max(margin, Number(hostRect.width || 0) - width - margin);
+    const maxTop = Math.max(margin, Number(hostRect.height || 0) - height - margin);
+    const nextLeft = Math.min(maxLeft, Math.max(margin, Math.round(Number(left) || 0)));
+    const nextTop = Math.min(maxTop, Math.max(margin, Math.round(Number(top) || 0)));
+    root.style.left = `${nextLeft}px`;
+    root.style.top = `${nextTop}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    root.dataset.positioned = "true";
+    return { left: nextLeft, top: nextTop };
+  }
+
+  function rememberFabPosition(root) {
+    if (!(root instanceof HTMLElement)) return;
+    try {
+      if (root.classList.contains("mei-copilot-in-viewport")) {
+        const designLeft = Number(root.dataset.fabDesignLeft);
+        const designTop = Number(root.dataset.fabDesignTop);
+        if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) return;
+        localStorage.setItem(
+          fabPositionStorageKey(),
+          JSON.stringify({ viewportDesign: true, designLeft, designTop }),
+        );
+        return;
+      }
+      const left = Number.parseFloat(root.style.left);
+      const top = Number.parseFloat(root.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+      localStorage.setItem(fabPositionStorageKey(), JSON.stringify({ left, top }));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function restoreFabPosition() {
+    const root = floatingRoot();
+    if (!(root instanceof HTMLElement)) return;
+    try {
+      const raw = localStorage.getItem(fabPositionStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (root.classList.contains("mei-copilot-in-viewport") && parsed?.viewportDesign === true) {
+        if (typeof boot.applyViewportFabDesignPosition === "function") {
+          boot.applyViewportFabDesignPosition(root, parsed.designLeft, parsed.designTop);
+        }
+        return;
+      }
+      if (Number.isFinite(Number(parsed?.left)) && Number.isFinite(Number(parsed?.top))) {
+        applyFabShellPosition(root, parsed.left, parsed.top);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function onFabPointerDown(event) {
+    if (agentPanelOwnsFab()) return;
+    if (event && event.button != null && event.button !== 0) return;
+    const root = floatingRoot();
+    const fab = fabButton();
+    if (!(root instanceof HTMLElement) || !(fab instanceof HTMLElement)) return;
+    const host = floatingBoundsHost(root);
+    const hostRect = host ? host.getBoundingClientRect() : { left: 0, top: 0 };
+    const rect = root.getBoundingClientRect();
+    const baseLeft = Number(rect.left || 0) - Number(hostRect.left || 0);
+    const baseTop = Number(rect.top || 0) - Number(hostRect.top || 0);
+    fabDragState = {
+      pointerId: event?.pointerId ?? null,
+      startX: Number(event?.clientX),
+      startY: Number(event?.clientY),
+      baseLeft,
+      baseTop,
+      moved: false,
+      lastLeft: baseLeft,
+      lastTop: baseTop,
+    };
+    root.dataset.dragging = "true";
+  }
+
+  function onFabPointerMove(event) {
+    if (!fabDragState || agentPanelOwnsFab()) return;
+    if (
+      fabDragState.pointerId != null &&
+      event?.pointerId != null &&
+      event.pointerId !== fabDragState.pointerId
+    ) {
+      return;
+    }
+    const nextX = Number(event?.clientX);
+    const nextY = Number(event?.clientY);
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+    const dx = nextX - fabDragState.startX;
+    const dy = nextY - fabDragState.startY;
+    if (!fabDragState.moved && Math.hypot(dx, dy) < FAB_DRAG_THRESHOLD_PX) return;
+    const root = floatingRoot();
+    const fab = fabButton();
+    if (!(root instanceof HTMLElement)) return;
+    if (!fabDragState.moved) {
+      fabDragState.moved = true;
+      try {
+        if (fab && event?.pointerId != null) fab.setPointerCapture(event.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const pos = applyFabShellPosition(
+      root,
+      fabDragState.baseLeft + dx,
+      fabDragState.baseTop + dy,
+    );
+    if (!pos) return;
+    fabDragState.lastLeft = pos.left;
+    fabDragState.lastTop = pos.top;
+    if (typeof event?.preventDefault === "function") event.preventDefault();
+  }
+
+  function onFabPointerUp(event) {
+    if (!fabDragState) return;
+    if (
+      fabDragState.pointerId != null &&
+      event?.pointerId != null &&
+      event.pointerId !== fabDragState.pointerId
+    ) {
+      return;
+    }
+    const moved = !!fabDragState.moved;
+    const root = floatingRoot();
+    const fab = fabButton();
+    fabDragState = null;
+    if (root) delete root.dataset.dragging;
+    try {
+      if (fab && event?.pointerId != null) fab.releasePointerCapture(event.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+    if (moved) {
+      rememberFabPosition(root);
+      const layout = boot.copilotFabLayout;
+      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+        layout.scheduleCopilotFabToolbarLayout();
+      }
+      return;
+    }
+    activateFabTap();
+  }
+
+  function installFabInteraction() {
+    if (boot.copilotFabInteractionBound || isExternalAiFab()) return false;
+    if (agentPanelOwnsFab()) return false;
+    const fab = ensureFabDom();
+    if (!(fab instanceof HTMLElement)) return false;
+    boot.copilotFabInteractionBound = true;
+    fab.addEventListener("pointerdown", onFabPointerDown);
+    document.addEventListener("pointermove", onFabPointerMove);
+    document.addEventListener("pointerup", onFabPointerUp);
+    document.addEventListener("pointercancel", onFabPointerUp);
+    restoreFabPosition();
+    if (typeof boot.activateAccessFabTap !== "function") {
+      boot.activateAccessFabTap = activateFabTap;
+    }
+    return true;
+  }
+
   boot.copilotFabContext = {
     isExternalAiFab,
+    resolveStageKind,
+    resolveStageTargetKey,
+    parseSceneIdFromPath,
+    fabPolicy,
+    syncFabVisibility,
+    revealFabForScript,
     copilotFabContextActive,
     shouldMountCopilotToolbar,
+    ensureFabDom,
+    installFabInteraction,
+    activateFabTap,
+    restoreFabPosition,
   };
+
+  function bootFabChrome() {
+    syncFabVisibility();
+    installFabInteraction();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootFabChrome, { once: true });
+  } else {
+    bootFabChrome();
+  }
+  window.addEventListener("mei:spa-navigated", bootFabChrome);
+  document.addEventListener("mei:spa-navigation-complete", () => {
+    if (typeof boot.ensureDeckPageVisibility === "function") {
+      boot.ensureDeckPageVisibility();
+    }
+    bootFabChrome();
+  });
+  window.addEventListener("meilang:viewport-stage-ready", () => {
+    restoreFabPosition();
+    installFabInteraction();
+  });
 })();
 
 
@@ -23289,7 +24047,8 @@
   function isPresentationSurfaceRoute() {
     const utils = routeUtils();
     if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
-    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+    const path = String(window.location.pathname || "");
+    return /^\/apps\/[^/]+(?:\/[^/]+)?(?:\/|$)/.test(path);
   }
 
   function parseAppIdFromPath() {
@@ -23297,7 +24056,7 @@
     if (utils?.parsePresentationAppId) {
       return String(utils.parsePresentationAppId() || "").trim();
     }
-    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)(?:\/|$)/);
     return match && match[1] ? match[1] : "";
   }
 
@@ -23589,9 +24348,15 @@
     if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
       return invoke(eng);
     }
+    if (typeof eng.canFlipPages === "function" && eng.canFlipPages()) {
+      return invoke(eng);
+    }
     if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
     return eng.ensureLoadedAsync().then((ok) => {
       if (ok) return invoke(eng);
+      if (typeof eng.canFlipPages === "function" && eng.canFlipPages()) {
+        return invoke(eng);
+      }
       return false;
     });
   }
@@ -23647,15 +24412,7 @@
     }
     const lib = scriptLibrary();
     let started = false;
-    if (lib && typeof lib.tryAutoStartPresentation === "function") {
-      try {
-        started = await lib.tryAutoStartPresentation({ apply: true });
-      } catch (error) {
-        reportToolbarIssue(error?.message || "载入默认演说稿失败");
-        renderAll();
-        return;
-      }
-    }
+    // 播放不自动挂默认讲稿；仅在已有 manifest 或可无稿翻页时启动
     if (!started) {
       const loaded = typeof activeEng.ensureLoadedAsync === "function"
         ? await activeEng.ensureLoadedAsync()
@@ -23664,8 +24421,16 @@
         started = Boolean(activeEng.start({ apply: true }));
       }
     }
+    // 无讲稿：presentation 仍可进入翻页模式
+    if (!started && typeof activeEng.canFlipPages === "function" && activeEng.canFlipPages()) {
+      if (typeof boot.ensureDeckPageVisibility === "function") {
+        boot.ensureDeckPageVisibility();
+      }
+      started = true;
+      uiState.toolbarOpen = true;
+    }
     if (!started) {
-      reportToolbarIssue("未找到可运行的演说稿，请点「选」从演说稿目录选择，或点「编」保存一份讲稿");
+      reportToolbarIssue("未挂讲稿时可用「选」载入当前舞台讲稿；presentation 也可无稿用上/下翻页");
     }
     renderAll();
   }
@@ -23853,6 +24618,10 @@
     const fab = document.getElementById("access-chat-fab");
     if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.installFabInteraction === "function") {
+      ctx.installFabInteraction();
+    }
     refreshFabChrome();
   }
 
@@ -23946,6 +24715,10 @@
   window.addEventListener("meilang:viewport-stage-ready", () => {
     if (shouldMount()) {
       mount({ autoStart: false, apply: false, toolbarOpen: false });
+      if (typeof boot.ensureDeckPageVisibility === "function") {
+        boot.ensureDeckPageVisibility();
+      }
+      // 不自动挂讲稿：用户可在 FAB「选」中按当前舞台过滤后加载，或保持无稿翻页
     } else {
       ensureCopilotInViewport();
       scheduleFabLayout();
@@ -26978,6 +27751,9 @@
   }
 
   function resolveSurface(pathname, searchParams) {
+    if (typeof isAccessStageRoute === "function" && isAccessStageRoute(pathname)) {
+      return "app";
+    }
     if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
       const fromQuery = String(searchParams?.get("surface") || "app")
         .trim()
@@ -27003,7 +27779,8 @@
       return slug === "speaker" ? "copilot" : slug;
     }
     if (slug === "layout" || slug === "prototype") return slug;
-    return slug || "app";
+    // 未知 slug（含 stage id）一律按 Access app 面处理
+    return "app";
   }
 
   function parseViewContext(urlLike) {
@@ -27292,15 +28069,14 @@
     if (nodeId) params.set("node", nodeId);
     const pathname = String(global.location?.pathname || "");
     if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
-      const viewSurface = slug === "build" ? "layout" : slug;
-      params.set("surface", viewSurface);
-      if (slug === "build") params.set("tab", "preview");
-      const qs = params.toString();
-      return `/apps/${encodeURIComponent(appId)}/view${qs ? `?${qs}` : ""}`;
+      // legacy view URLs sealed → Access home
+      return `/apps/${encodeURIComponent(appId)}/home`;
     }
-    if (slug === "build") params.set("tab", "preview");
+    if (slug === "build" || slug === "layout" || slug === "prototype") {
+      return `/apps/${encodeURIComponent(appId)}/home`;
+    }
     const qs = params.toString();
-    return `/apps/${encodeURIComponent(appId)}/${slug}${qs ? `?${qs}` : ""}`;
+    return `/apps/${encodeURIComponent(appId)}/home${qs ? `?${qs}` : ""}`;
   }
 
   function filteredNodes(structureDoc, maxRole) {
@@ -36795,26 +37571,14 @@
     const appId = resolvePageAppId();
     if (!appId) return;
     try {
-      document.querySelectorAll("sl-button[data-mei-app-view][href]").forEach((btn) => {
-        if (!(btn instanceof HTMLElement)) return;
-        const rawHref = btn.getAttribute("href") || "";
-        if (!rawHref) return;
-        const url = new URL(rawHref, window.location.href);
-        const segments = url.pathname.split("/").filter(Boolean);
-        if (segments[0] === "apps" && segments[1] && segments[1] !== appId) {
-          url.pathname = `/apps/${appId}/view`;
-          btn.setAttribute("href", `${url.pathname}${url.search}`);
-        }
-      });
       document.querySelectorAll("a.app-tab, a.app-tab-sub").forEach((link) => {
         if (!(link instanceof HTMLAnchorElement)) return;
         const tabAppId = String(link.getAttribute("data-app-id") || "").trim();
         if (tabAppId) {
           const url = new URL(link.href, window.location.href);
-          url.pathname = `/apps/${tabAppId}/view`;
-          if (!url.searchParams.get("surface")) {
-            url.searchParams.set("surface", "app");
-          }
+          url.pathname = `/apps/${tabAppId}/home`;
+          url.searchParams.delete("surface");
+          url.searchParams.delete("scene");
           link.href = url.toString();
         }
         let linkApp = tabAppId;
@@ -37270,24 +38034,8 @@
     }
   }
 
-  function syncTopbarActiveState(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    const labelMap = {
-      app: "应用",
-      layout: "布局",
-      prototype: "原型",
-    };
-    const label = labelMap[slug] || "";
-    const buttons = global.document?.querySelectorAll?.("sl-button[data-mei-app-view]");
-    if (!buttons) return;
-    buttons.forEach((button) => {
-      if (!(button instanceof HTMLElement)) return;
-      const active = String(button.getAttribute("data-mei-app-view") || "").trim() === label;
-      button.classList.toggle("is-active", active);
-      if (button.classList.contains("mode-tab-btn")) {
-        button.classList.toggle("is-active", active);
-      }
-    });
+  function syncTopbarActiveState(_surface) {
+    // 应用/布局/原型顶栏入口已移除；舞台切换由 stage-switcher 承担。
   }
 
   function isSameAppViewHost(current, next) {

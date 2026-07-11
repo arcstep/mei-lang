@@ -1018,7 +1018,21 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
         "long_metric_compound_fill_body" => rewrite_long_metric_compound_fill_body(args),
         _ => return None,
     };
-    Some(rewritten)
+    // If Merge was constant-folded onto a macro call first, sibling keys such as
+    // `__mei_viewpoint` must survive the rewrite (they are overlays, not call args).
+    let Some(map) = value.as_object() else {
+        return Some(rewritten);
+    };
+    let mut out = rewritten;
+    if let Some(out_map) = out.as_object_mut() {
+        for (key, child) in map {
+            if key == "__call" || key == "__args" {
+                continue;
+            }
+            out_map.insert(key.clone(), child.clone());
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -1040,6 +1054,28 @@ mod tests {
             Some(true)
         );
         assert!(rewritten.get("__mei_content_budget").is_none());
+    }
+
+    #[test]
+    fn rewrites_content_fill_props_preserves_sibling_overlays() {
+        let value = json!({
+            "__call": "shell_macros.content_fill_props",
+            "__args": {},
+            "__mei_viewpoint": "vp_warnings_detail_table",
+            "overflow": "auto",
+            "padding": "4px"
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        assert_eq!(
+            rewritten.get("__mei_viewpoint").and_then(Value::as_str),
+            Some("vp_warnings_detail_table")
+        );
+        assert_eq!(rewritten.get("overflow").and_then(Value::as_str), Some("auto"));
+        assert_eq!(rewritten.get("padding").and_then(Value::as_str), Some("4px"));
+        assert_eq!(
+            rewritten.get("__mei_layout_fill").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]

@@ -40,6 +40,23 @@
     if (parts.length >= 3 && parts[2] === "view") {
       return parts[1] || "";
     }
+    if (parts.length >= 2) {
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+        "upload",
+        "config",
+        "runtime",
+      ]);
+      if (!reserved.has(String(parts[1] || "").toLowerCase())) {
+        return parts[1] || "";
+      }
+    }
     if (parts.length >= 3) {
       const surface = String(parts[2] || "").toLowerCase();
       if (
@@ -53,22 +70,7 @@
         return parts[1] || "";
       }
     }
-    const routeSlug = parts[1] || "";
-    const legacyModeFirst = new Set([
-      "access",
-      "run",
-      "speaker",
-      "presentation",
-      "slides",
-      "copilot",
-      "upload",
-      "config",
-      "app",
-      "build",
-      "manage",
-    ]);
-    if (legacyModeFirst.has(routeSlug) && parts[2]) return parts[2];
-    return routeSlug;
+    return parts[1] || "";
   }
 
   function currentAppId(hint) {

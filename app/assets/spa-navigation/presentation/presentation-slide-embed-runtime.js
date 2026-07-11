@@ -13,7 +13,26 @@
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
     return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";

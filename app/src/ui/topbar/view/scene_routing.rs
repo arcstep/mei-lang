@@ -2,7 +2,6 @@ use mei_lang_kernel::{CompiledApp, CompiledSceneRoute};
 
 use crate::ui::manage_routing::encode_query_value;
 use crate::ui::route::UiRouteMode;
-use crate::ui::{HostAccountView, HostCapabilities};
 
 pub(super) fn exported_scene_by_id<'a>(
     routes: &'a [CompiledSceneRoute],
@@ -73,20 +72,6 @@ pub(crate) fn access_scene_for_topbar<'a>(
         compiled.active_scene.as_deref(),
         compiled.active_target_file.as_str(),
     )
-}
-
-pub(super) fn auth_surface_tabs_visible(
-    auth_enabled: bool,
-    auth_account: Option<&HostAccountView>,
-) -> (bool, bool, bool) {
-    let caps = if auth_enabled {
-        auth_account
-            .map(|account| account.capabilities)
-            .unwrap_or_else(|| HostCapabilities::from_role_slug("guest"))
-    } else {
-        HostCapabilities::auth_disabled()
-    };
-    (caps.config_upload, caps.build_view, caps.config_upload)
 }
 
 #[allow(dead_code)]

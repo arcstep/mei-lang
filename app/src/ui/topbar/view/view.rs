@@ -1,16 +1,15 @@
 use leptos::prelude::*;
-use mei_lang_kernel::WorkspaceAppMeta;
+use mei_lang_kernel::{CompiledSceneRoute, WorkspaceAppMeta};
 use std::collections::BTreeMap;
 
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_access_href, app_scene_href, cross_app_href, home_href, host_config_href,
-    host_runtime_href, host_upload_href, layout_href, mcg_href, prototype_href,
+    app_scene_href, cross_app_href, home_href, host_config_href, host_runtime_href,
+    host_upload_href, mcg_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
-use super::scene_routing::*;
 use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,12 +22,14 @@ pub(crate) enum ShellNavActive {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum AppViewTab {
     App,
     Layout,
     Prototype,
 }
 
+#[allow(dead_code)]
 fn resolve_active_app_view_tab(route_mode: UiRouteMode) -> Option<AppViewTab> {
     match route_mode {
         UiRouteMode::App => Some(AppViewTab::App),
@@ -64,6 +65,7 @@ pub(crate) fn topbar_view(
     _data_mode: Option<&str>,
     _review_projection: Option<&str>,
     _build_tree_mode: Option<&str>,
+    access_stage_routes: Option<&[CompiledSceneRoute]>,
     shell_nav_active: Option<ShellNavActive>,
 ) -> AnyView {
     let has_app_context = !active_app_path.trim().is_empty();
@@ -223,11 +225,6 @@ pub(crate) fn topbar_view(
     }
     .into_any()
     };
-    let app_href = if access_disabled || !has_app_context {
-        "#".to_string()
-    } else {
-        app_access_href(active_app_path)
-    };
     let standalone_app_href = if access_disabled || !has_app_context {
         "#".to_string()
     } else {
@@ -240,51 +237,16 @@ pub(crate) fn topbar_view(
             None,
         )
     };
-    let (_show_config_tab, show_build_views, _show_data_tab) =
-        auth_surface_tabs_visible(auth_enabled, auth_account);
-    let active_app_view = resolve_active_app_view_tab(route_mode);
     let app_view_tabs = if !has_app_context {
         view! { <></> }.into_any()
-    } else if !show_build_views {
-        view! { <></> }.into_any()
     } else {
-        let surface_tab = |tab: AppViewTab, label: &'static str, href: String| {
-            let class = if active_app_view == Some(tab) {
-                "mode-tab-btn is-active"
-            } else {
-                "mode-tab-btn"
-            };
-            view! {
-                <sl-button
-                    class=class
-                    size="small"
-                    href=href
-                    title=label
-                    aria-label=label
-                    data-mei-app-view=label
-                >
-                    <span class="mode-label">{label}</span>
-                </sl-button>
-            }
-        };
-        view! {
-            <div class="mode-tabs inline-flex shrink-0 items-center">
-                <sl-button-group class="mode-tab-group" label="应用视图" data-mei-app-view-tabs="1">
-                    {surface_tab(AppViewTab::App, "应用", app_href.clone())}
-                    {surface_tab(
-                        AppViewTab::Layout,
-                        "布局",
-                        layout_href(active_app_path, None, None),
-                    )}
-                    {surface_tab(
-                        AppViewTab::Prototype,
-                        "原型",
-                        prototype_href(active_app_path, None, None),
-                    )}
-                </sl-button-group>
-            </div>
-        }
-        .into_any()
+        // Access 顶栏只保留舞台切换；开发态 surface（应用/布局/原型）不再占入口。
+        stage_switcher_view(
+            active_app_path,
+            access_scene_for_href,
+            access_stage_routes,
+            active_tab,
+        )
     };
     let launch_title = if access_disabled {
         "当前没有可独立打开的 scene route".to_string()
@@ -399,6 +361,133 @@ pub(crate) fn topbar_view(
                 </div>
             </div>
         </header>
+    }
+    .into_any()
+}
+
+fn stage_route_label(route: &CompiledSceneRoute) -> String {
+    route
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| route.scene_id.clone())
+}
+
+fn is_presentation_stage_route(route: &CompiledSceneRoute) -> bool {
+    let kind = route.kind.trim().to_ascii_lowercase();
+    if kind == "presentation" {
+        return true;
+    }
+    let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
+    target.contains("/presentation/") || target.starts_with("presentation/")
+}
+
+fn is_top_level_stage_route(route: &CompiledSceneRoute) -> bool {
+    if !route.access_export {
+        return false;
+    }
+    let kind = route.kind.trim().to_ascii_lowercase();
+    // T2 page_instance 等「page」不是独立舞台，不得进顶栏
+    if kind == "page" || kind == "board" || kind == "scene_first_board" {
+        return false;
+    }
+    let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
+    if target.contains("/t2/") || target.contains("/overlay/") {
+        return false;
+    }
+    kind == "scene"
+        || kind == "presentation"
+        || kind == "file_ref"
+        || kind.is_empty()
+        || target.contains("/presentation/")
+        || target.contains("/scene/")
+}
+
+fn stage_switcher_view(
+    active_app_path: &str,
+    current_scene: Option<&str>,
+    access_stage_routes: Option<&[CompiledSceneRoute]>,
+    active_tab: Option<&str>,
+) -> AnyView {
+    let Some(routes) = access_stage_routes.filter(|entries| !entries.is_empty()) else {
+        return view! { <></> }.into_any();
+    };
+    let stages: Vec<&CompiledSceneRoute> = routes
+        .iter()
+        .filter(|route| is_top_level_stage_route(route))
+        .collect();
+    if stages.is_empty() {
+        return view! { <></> }.into_any();
+    }
+    let current = current_scene.map(str::trim).unwrap_or("");
+    let current_route = stages
+        .iter()
+        .copied()
+        .find(|route| route.scene_id == current)
+        .or_else(|| stages.iter().copied().find(|route| route.is_default))
+        .unwrap_or(stages[0]);
+    let trigger_label = stage_route_label(current_route);
+    // 仅一个舞台：直接显示名称，无下拉
+    if stages.len() == 1 {
+        return view! {
+            <div class="mode-tabs stage-switcher inline-flex shrink-0 items-center" data-mei-stage-switcher="1">
+                <span class="mode-tab-btn is-active" data-mei-stage-current=current_route.scene_id.clone()>
+                    <span class="mode-label">{trigger_label}</span>
+                </span>
+            </div>
+        }
+        .into_any();
+    }
+    let items = stages
+        .iter()
+        .map(|route| {
+            let scene_id = route.scene_id.clone();
+            let item_label = stage_route_label(route);
+            let kind_hint = if is_presentation_stage_route(route) {
+                "演说"
+            } else {
+                "场景"
+            };
+            let href = app_scene_href(
+                active_app_path,
+                Some(scene_id.as_str()),
+                active_tab,
+                None,
+                None,
+                None,
+            );
+            let item_class = if scene_id == current_route.scene_id {
+                "app-menu-item is-active"
+            } else {
+                "app-menu-item"
+            };
+            view! {
+                <a
+                    class=item_class
+                    href=href
+                    data-mei-spa-nav="1"
+                    data-mei-stage-scene=scene_id.clone()
+                    data-mei-stage-kind=if is_presentation_stage_route(route) { "presentation" } else { "scene" }
+                >
+                    <span class="app-menu-item-label">{item_label}</span>
+                    <span class="app-menu-item-meta mei-text-muted mei-font-1">{kind_hint}</span>
+                </a>
+            }
+        })
+        .collect_view();
+    view! {
+        <div class="mode-tabs stage-switcher inline-flex shrink-0 items-center" data-mei-stage-switcher="1">
+            <sl-dropdown class="app-group-dropdown" hoist=true placement="bottom-start" distance=6>
+                <sl-button slot="trigger" class="app-group-trigger is-active" size="small" caret=true>
+                    <span class="mode-label">{trigger_label}</span>
+                </sl-button>
+                <sl-menu class="app-group-menu" label="舞台">
+                    {items}
+                </sl-menu>
+            </sl-dropdown>
+        </div>
     }
     .into_any()
 }

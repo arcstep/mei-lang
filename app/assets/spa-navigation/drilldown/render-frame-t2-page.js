@@ -39,7 +39,7 @@
       setDrilldownOverlayStatus(root, "error");
       return false;
     }
-    const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    const url = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(sceneId)}`;
     try {
       if (!boot.viewRevisionClient?.negotiateWithLocalMiss || !boot.viewCompositor?.composeFromLayers) {
         throw new Error("board scene compose unavailable");

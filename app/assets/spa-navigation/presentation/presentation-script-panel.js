@@ -31,13 +31,36 @@
 
   function parseAppIdFromPath() {
     const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+      /^\/apps\/([^/]+)(?:\/|$)/,
     );
     return match ? String(match[1] || "").trim() : "";
   }
 
   function parseSceneIdFromPath() {
-    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    const utils = boot.presentationRouteUtils || globalThis.MeiPresentationRouteUtils;
+    if (utils && typeof utils.parsePresentationSceneId === "function") {
+      return String(utils.parsePresentationSceneId() || "").trim() || "home";
+    }
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.parseSceneIdFromPath === "function") {
+      return String(ctx.parseSceneIdFromPath() || "").trim() || "home";
+    }
+    const path = String(window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    const match = path.match(/\/scene\/([^/?#]+)/);
     return match ? String(match[1] || "").trim() : "home";
   }
 
@@ -47,6 +70,82 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function currentStageTargetKey() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.resolveStageTargetKey === "function") {
+      return String(ctx.resolveStageTargetKey() || "").trim();
+    }
+    const sceneId = parseSceneIdFromPath();
+    const kind =
+      ctx && typeof ctx.resolveStageKind === "function" ? ctx.resolveStageKind() : "scene";
+    return `${kind}/${sceneId}`;
+  }
+
+  function scriptMatchesCurrentStage(script) {
+    const target = String(script?.target || script?.target_stage || "").trim();
+    if (!target) return true; // 旧稿无 target：仍可见（兼容）
+    const current = currentStageTargetKey();
+    if (target === current) return true;
+    // 容忍 scene/home ↔ home、presentation/supervision ↔ supervision
+    const sceneId = parseSceneIdFromPath();
+    return target === sceneId || target.endsWith(`/${sceneId}`);
+  }
+
+  function scriptsForCurrentStage() {
+    return (Array.isArray(uiState.scripts) ? uiState.scripts : []).filter(scriptMatchesCurrentStage);
+  }
+
+  function renderScriptList() {
+    const panel = ensurePanel();
+    const list = panel.querySelector("[data-presentation-script-list]");
+    const picker = panel.querySelector("[data-presentation-script-picker]");
+    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
+    if (!uiState.pickerOpen) {
+      picker.setAttribute("hidden", "hidden");
+      list.innerHTML = "";
+      return;
+    }
+    picker.removeAttribute("hidden");
+    const filtered = scriptsForCurrentStage();
+    const noneActive = !uiState.activeScriptId;
+    const noneItem =
+      `<li class="mei-presentation-script-panel-item">` +
+      `<button type="button" data-presentation-script-none="true">` +
+      `<strong>不使用讲稿</strong>` +
+      `<span class="mei-presentation-script-panel-item-id">仅翻页 / 无步进</span>` +
+      `${noneActive ? '<span class="mei-presentation-script-badge">当前</span>' : ""}` +
+      `</button></li>`;
+    if (!filtered.length) {
+      list.innerHTML =
+        noneItem +
+        `<li class="mei-presentation-script-panel-empty">当前舞台暂无匹配讲稿（${escapeHtml(currentStageTargetKey())}）</li>`;
+      return;
+    }
+    list.innerHTML =
+      noneItem +
+      filtered
+        .map((script) => {
+          const id = escapeHtml(script.id);
+          const title = escapeHtml(script.title || script.id);
+          const badges = [
+            script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+            uiState.activeScriptId === script.id ? "当前" : "",
+          ]
+            .filter(Boolean)
+            .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
+            .join("");
+          return (
+            `<li class="mei-presentation-script-panel-item">` +
+            `<button type="button" data-presentation-script-select="${id}">` +
+            `<strong>${title}</strong>` +
+            `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
+            `${badges}` +
+            `</button></li>`
+          );
+        })
+        .join("");
   }
 
   function formatDiagnostics(items) {
@@ -154,44 +253,6 @@
     return panel;
   }
 
-  function renderScriptList() {
-    const panel = ensurePanel();
-    const list = panel.querySelector("[data-presentation-script-list]");
-    const picker = panel.querySelector("[data-presentation-script-picker]");
-    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
-    if (!uiState.pickerOpen) {
-      picker.setAttribute("hidden", "hidden");
-      list.innerHTML = "";
-      return;
-    }
-    picker.removeAttribute("hidden");
-    if (!uiState.scripts.length) {
-      list.innerHTML = '<li class="mei-presentation-script-panel-empty">演说稿目录为空</li>';
-      return;
-    }
-    list.innerHTML = uiState.scripts
-      .map((script) => {
-        const id = escapeHtml(script.id);
-        const title = escapeHtml(script.title || script.id);
-        const badges = [
-          script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
-          uiState.activeScriptId === script.id ? "当前" : "",
-        ]
-          .filter(Boolean)
-          .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
-          .join("");
-        return (
-          `<li class="mei-presentation-script-panel-item">` +
-          `<button type="button" data-presentation-script-select="${id}">` +
-          `<strong>${title}</strong>` +
-          `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
-          `${badges}` +
-          `</button></li>`
-        );
-      })
-      .join("");
-  }
-
   function renderPanel() {
     const panel = ensurePanel();
     const editor = panel.querySelector("[data-presentation-script-editor]");
@@ -224,12 +285,19 @@
     if (!lib || typeof lib.listScripts !== "function") return;
     const payload = await lib.listScripts(appId);
     uiState.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
-    uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
-    if (!uiState.activeScriptId) {
-      uiState.activeScriptId =
-        uiState.defaultScriptId ||
-        (typeof lib.resolveDefaultScriptId === "function" ? lib.resolveDefaultScriptId() : "");
+    const stageKey = currentStageTargetKey();
+    const byStage =
+      payload?.defaultByStage && typeof payload.defaultByStage === "object"
+        ? payload.defaultByStage
+        : null;
+    if (byStage && Object.prototype.hasOwnProperty.call(byStage, stageKey)) {
+      const staged = byStage[stageKey];
+      uiState.defaultScriptId =
+        staged == null || staged === "" ? "" : String(staged).trim();
+    } else {
+      uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
     }
+    // 不自动把 default 设成 active：讲稿可选；由用户在 FAB「选」中显式挂载
   }
 
   async function loadScriptIntoEditor(scriptId, options = {}) {
@@ -307,11 +375,16 @@
     if (typeof eng.stop === "function") {
       eng.stop();
     }
+    uiState.activeScriptId = "";
     setCompileResult(null);
     renderPanel();
     const tb = toolbar();
     if (tb && typeof tb.renderAll === "function") {
       tb.renderAll();
+    }
+    const fabContext = boot.copilotFabContext;
+    if (fabContext && typeof fabContext.syncFabVisibility === "function") {
+      fabContext.syncFabVisibility();
     }
     return true;
   }
@@ -326,20 +399,36 @@
   async function onPanelClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (target.closest("[data-presentation-script-none]")) {
+      clearPresentation();
+      uiState.pickerOpen = false;
+      uiState.open = false;
+      renderPanel();
+      return;
+    }
     const selectId = target.closest("[data-presentation-script-select]")?.getAttribute(
       "data-presentation-script-select",
     );
     if (selectId) {
       uiState.busy = true;
       try {
-        await loadScriptIntoEditor(selectId);
+        const lib = library();
+        if (lib && typeof lib.runScript === "function") {
+          const { script } = await lib.runScript(selectId, { appId: parseAppIdFromPath() });
+          syncFromLibrary(script);
+        } else {
+          await loadScriptIntoEditor(selectId);
+          await compileAndRun(uiState.source, { apply: true });
+        }
         uiState.pickerOpen = false;
-        uiState.open = true;
+        uiState.open = false;
       } catch (error) {
         setCompileResult(null, error);
       } finally {
         uiState.busy = false;
         renderPanel();
+        const tb = toolbar();
+        if (tb && typeof tb.renderAll === "function") tb.renderAll();
       }
       return;
     }
@@ -415,12 +504,7 @@
     renderPanel();
     try {
       await refreshLibraryState(parseAppIdFromPath());
-      if (!uiState.source) {
-        const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
-        if (scriptId) {
-          await loadScriptIntoEditor(scriptId);
-        }
-      }
+      // 不自动载入默认讲稿：避免「打开选稿」把未选状态变成已选默认
     } catch (error) {
       setCompileResult(null, error);
       throw error;

@@ -433,7 +433,7 @@ app_skeleton(
 navigation(
     key = "default_access",
     scene = "home",
-    url = "/apps/app/{app_id}/scene/home",
+    url = "/apps/{app_id}/home",
     assembly = assembly_ref("home@src/scene/home/assembly.mei"),
 )
 "#

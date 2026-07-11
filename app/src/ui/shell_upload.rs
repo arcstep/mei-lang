@@ -228,6 +228,7 @@ pub(crate) fn upload_shell(
         None,
         None,
         None,
+        None,
         Some(ShellNavActive::Upload),
     );
     let statusbar = statusbar_view(

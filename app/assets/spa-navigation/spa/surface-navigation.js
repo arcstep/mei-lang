@@ -140,24 +140,8 @@
     }
   }
 
-  function syncTopbarActiveState(surface) {
-    const slug = String(surface || "app").trim().toLowerCase();
-    const labelMap = {
-      app: "应用",
-      layout: "布局",
-      prototype: "原型",
-    };
-    const label = labelMap[slug] || "";
-    const buttons = global.document?.querySelectorAll?.("sl-button[data-mei-app-view]");
-    if (!buttons) return;
-    buttons.forEach((button) => {
-      if (!(button instanceof HTMLElement)) return;
-      const active = String(button.getAttribute("data-mei-app-view") || "").trim() === label;
-      button.classList.toggle("is-active", active);
-      if (button.classList.contains("mode-tab-btn")) {
-        button.classList.toggle("is-active", active);
-      }
-    });
+  function syncTopbarActiveState(_surface) {
+    // 应用/布局/原型顶栏入口已移除；舞台切换由 stage-switcher 承担。
   }
 
   function isSameAppViewHost(current, next) {

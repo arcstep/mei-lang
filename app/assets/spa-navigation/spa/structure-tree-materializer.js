@@ -31,15 +31,14 @@
     if (nodeId) params.set("node", nodeId);
     const pathname = String(global.location?.pathname || "");
     if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
-      const viewSurface = slug === "build" ? "layout" : slug;
-      params.set("surface", viewSurface);
-      if (slug === "build") params.set("tab", "preview");
-      const qs = params.toString();
-      return `/apps/${encodeURIComponent(appId)}/view${qs ? `?${qs}` : ""}`;
+      // legacy view URLs sealed → Access home
+      return `/apps/${encodeURIComponent(appId)}/home`;
     }
-    if (slug === "build") params.set("tab", "preview");
+    if (slug === "build" || slug === "layout" || slug === "prototype") {
+      return `/apps/${encodeURIComponent(appId)}/home`;
+    }
     const qs = params.toString();
-    return `/apps/${encodeURIComponent(appId)}/${slug}${qs ? `?${qs}` : ""}`;
+    return `/apps/${encodeURIComponent(appId)}/home${qs ? `?${qs}` : ""}`;
   }
 
   function filteredNodes(structureDoc, maxRole) {

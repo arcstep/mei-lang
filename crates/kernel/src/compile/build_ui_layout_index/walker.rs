@@ -1112,6 +1112,51 @@ struct SlotWalkItem {
 }
 
 fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
+    let mut section_panels: Vec<UiNodeDecl> = Vec::new();
+    for ui_node in &region.blocks {
+        if let UiTreeNode::Panel(panel) = ui_node {
+            if panel_is_section(panel) {
+                section_panels.push(panel.clone());
+            }
+        }
+    }
+
+    // Prefer explicit section children. When several sections share one grid area
+    // (presentation deck pages), key by panel.id so later pages are not dropped.
+    if !section_panels.is_empty() {
+        let mut area_counts: BTreeMap<String, usize> = BTreeMap::new();
+        for panel in &section_panels {
+            if let Some(area) = panel
+                .area
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                *area_counts.entry(area.to_string()).or_default() += 1;
+            }
+        }
+        return section_panels
+            .into_iter()
+            .map(|panel| {
+                let area = panel
+                    .area
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let shared = area
+                    .as_ref()
+                    .is_some_and(|value| area_counts.get(value).copied().unwrap_or(0) > 1);
+                let key = if shared {
+                    panel.id.clone()
+                } else {
+                    area.unwrap_or_else(|| panel.id.clone())
+                };
+                (key, panel)
+            })
+            .collect();
+    }
+
     let mut sections = Vec::new();
     if let Some(areas) = region
         .layout
@@ -1122,20 +1167,6 @@ fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
             for area in area_row {
                 if let Some(panel) = find_nested_panel_by_area(region, area.as_str()) {
                     sections.push((area.clone(), panel.clone()));
-                }
-            }
-        }
-    }
-    for ui_node in &region.blocks {
-        if let UiTreeNode::Panel(panel) = ui_node {
-            if panel_is_section(panel) {
-                let key = panel
-                    .area
-                    .clone()
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| panel.id.clone());
-                if !sections.iter().any(|(k, _)| k == &key) {
-                    sections.push((key, panel.clone()));
                 }
             }
         }
