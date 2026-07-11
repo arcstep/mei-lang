@@ -10,8 +10,8 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-fn supervision_mini_app_root() -> PathBuf {
-    ws_demo_v2().join("apps/supervision-mini")
+fn mini_data_app_root() -> PathBuf {
+    ws_demo_v2().join("apps/mini-data")
 }
 
 fn first_column_name(result: &mei_lang_datasets::DatasetQueryResult) -> String {
@@ -31,14 +31,14 @@ fn first_column_name(result: &mei_lang_datasets::DatasetQueryResult) -> String {
 }
 
 #[test]
-fn supervision_mini_home_scalar_rowset_respects_dataset_across_pages() {
+fn mini_data_home_scalar_rowset_respects_dataset_across_pages() {
     let workspace = ws_demo_v2();
-    let app_root = supervision_mini_app_root();
-    let outcome = assemble_scope_from_registry(workspace.as_path(), "supervision-mini", "home")
+    let app_root = mini_data_app_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-data", "home")
         .expect("assemble")
         .expect("home outcome");
     let compiled = &outcome.compiled;
-    let target = "src/scene/home/assembly.mei";
+    let target = "src/scene/home.mei";
     let cases = [
         (
             "supervision_matters",
@@ -64,7 +64,7 @@ fn supervision_mini_home_scalar_rowset_respects_dataset_across_pages() {
             metric_id,
             Some("home"),
             Some(target),
-            "supervision-mini-drilldown-rowset-test",
+            "mini-data-drilldown-rowset-test",
             DatasetQueryOptions {
                 page: 1,
                 page_size: 8,
@@ -82,7 +82,7 @@ fn supervision_mini_home_scalar_rowset_respects_dataset_across_pages() {
             metric_id,
             Some("home"),
             Some(target),
-            "supervision-mini-drilldown-rowset-test",
+            "mini-data-drilldown-rowset-test",
             DatasetQueryOptions {
                 page: 2,
                 page_size: 8,

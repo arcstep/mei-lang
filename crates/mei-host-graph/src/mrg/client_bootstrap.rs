@@ -755,7 +755,10 @@ fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &st
             assembly_key.as_str(),
         );
     }
-    format!("src/scene/{scope}/assembly.mei")
+    format!(
+        "{}",
+        mei_lang_kernel::resolve_scene_assembly_rel(app_root.as_path(), scope)
+    )
 }
 
 pub fn delivery_class_counts_for_scope(

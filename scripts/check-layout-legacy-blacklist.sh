@@ -11,7 +11,7 @@ LIVE='(frame\.add_panel\(|titled_shell\(|board_assembly\(|assembly_view\(|panel_
 
 ZERO_TOLERANCE=(
   workspaces/ws-demo-v2/apps/pretty-panels
-  workspaces/ws-demo-v2/apps/supervision-mini
+  workspaces/ws-demo-v2/apps/mini-data
   workspaces/ws-demo-v2/stock/templates
 )
 
@@ -35,7 +35,7 @@ EXCLUDE_COMMON=(
   --glob '!**/021008-v1-v2-hybrid-authoring.md'
 )
 
-echo "==> [1/2] zero-tolerance: pretty-panels / supervision-mini / cockpit stock"
+echo "==> [1/2] zero-tolerance: pretty-panels / mini-data / cockpit stock"
 zt_hits="$(rg -n --no-heading -e "${LIVE}" "${EXCLUDE_COMMON[@]}" "${ZERO_TOLERANCE[@]}" 2>/dev/null || true)"
 # Allow ban-commentary lines in stock README / macros headers
 zt_hits="$(echo "${zt_hits}" | grep -v -E '禁止|已删除|DELETE|不得|不再|原 `micro_panel`|无 row_budgets|禁止 row_budgets|禁止 `row_budgets`' || true)"

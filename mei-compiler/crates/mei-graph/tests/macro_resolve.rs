@@ -66,9 +66,9 @@ use template "cockpit/layout-defaults" as ui
 content_panel(
     id = "demo",
     blocks = [
-        ui.panel(id = "nested"),
-        ui.metric_card(id = "metric"),
-        panel(id = "plain"),
+        ui.narrow_metric_card(id = "n", source = {"label": "A", "value": "1", "unit": "x"}),
+        ui.plain_metric_card(id = "p"),
+        ui.compound_panel(id = "c", blocks = []),
     ],
 )
 "#,
@@ -79,12 +79,16 @@ content_panel(
 
     assert!(!dumped.contains("\"ui\""), "qualified calls must expand");
     assert!(
-        dumped.contains("box_sizing"),
-        "ui.panel defaults should be present: {dumped}"
+        dumped.contains("metric-bg-normal") && dumped.contains("background"),
+        "narrow_metric_card must bake explicit background: {dumped}"
     );
     assert!(
-        dumped.contains("指标"),
-        "ui.metric_card defaults should be present: {dumped}"
+        dumped.contains("metric-bg-target"),
+        "compound_panel must bake compound background: {dumped}"
+    );
+    assert!(
+        !dumped.contains("chrome_metric") && !dumped.contains("\"surface\""),
+        "must not use chrome_* helpers or surface tokens: {dumped}"
     );
 }
 
@@ -179,15 +183,15 @@ content_panel(
 }
 
 #[test]
-fn supervision_mini_geometry_resolves_via_layered_registry() {
+fn mini_data_geometry_resolves_via_layered_registry() {
     let workspace = ws_demo_root();
-    let app_root = workspace.join("apps/supervision-mini");
+    let app_root = workspace.join("apps/mini-data");
     let stock = workspace.join("stock/templates");
     let roots = TemplateRoots::from_app_and_stock(&app_root, stock);
     let registry = MacroRegistry::load_layered(&roots).expect("load");
     assert!(
         registry.resolve_path("scene/home/t1/geometry").is_some(),
-        "supervision-mini geometry.mei must be visible to use template"
+        "mini-data geometry.mei must be visible to use template"
     );
     assert!(registry.resolve_name("focus_inset").is_some());
     assert!(

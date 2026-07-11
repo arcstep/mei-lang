@@ -608,26 +608,31 @@ fn collect_world_payloads(value: &Value, out: &mut BTreeMap<String, Value>) {
 }
 
 fn apply_padding_profile_body_props(panel: &mut UiNodeDecl) {
-    if let Some(profile) = panel
+    let explicit = panel
+        .props
+        .get("padding")
+        .cloned()
+        .filter(|value| value.as_str().is_some_and(|s| !s.trim().is_empty()));
+    let from_profile = panel
         .props
         .get("__mei_padding_profile")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
-        if let Some(padding) = padding_profile_css(profile) {
-            let mut body_props = panel.body_props.as_object().cloned().unwrap_or_default();
-            body_props
-                .entry("padding".to_string())
-                .or_insert_with(|| Value::String(padding.to_string()));
-            body_props
-                .entry("box_sizing".to_string())
-                .or_insert_with(|| Value::String("border-box".to_string()));
-            body_props
-                .entry("min_height".to_string())
-                .or_insert_with(|| Value::String("0".to_string()));
-            panel.body_props = Value::Object(body_props);
-        }
+        .and_then(padding_profile_css)
+        .map(|padding| Value::String(padding.to_string()));
+    if let Some(padding) = explicit.or(from_profile) {
+        let mut body_props = panel.body_props.as_object().cloned().unwrap_or_default();
+        body_props
+            .entry("padding".to_string())
+            .or_insert(padding);
+        body_props
+            .entry("box_sizing".to_string())
+            .or_insert_with(|| Value::String("border-box".to_string()));
+        body_props
+            .entry("min_height".to_string())
+            .or_insert_with(|| Value::String("0".to_string()));
+        panel.body_props = Value::Object(body_props);
     }
     for block in &mut panel.blocks {
         if let UiTreeNode::Panel(nested) = block {
@@ -723,8 +728,10 @@ pub fn target_key_from_payload(payload: &Value) -> Option<String> {
         })
 }
 
-pub fn default_target_for_scene(scene_id: &str) -> String {
-    assembly_key_to_target(&format!("{scene_id}@src/scene/{scene_id}/assembly.mei"))
+pub fn default_target_for_scene(app_root: &Path, scene_id: &str) -> String {
+    assembly_key_to_target(&mei_lang_kernel::default_scene_assembly_key(
+        app_root, scene_id,
+    ))
 }
 
 #[cfg(test)]

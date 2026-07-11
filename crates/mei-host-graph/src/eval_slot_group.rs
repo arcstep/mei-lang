@@ -414,7 +414,7 @@ fn author_panel_props_for_shell(
     for ref_path in [
         format!("content/{panel_id}"),
         panel_id.to_string(),
-        format!("supervision-mini/home/t1/r-right-rail/s-warning/content/{panel_id}"),
+        format!("mini-data/home/t1/r-right-rail/s-warning/content/{panel_id}"),
     ] {
         if let Ok(payload) = crate::v2_lower::load_content_panel_payload(&ctx, ref_path.as_str()) {
             if let Some(raw_props) = payload.get("props") {
@@ -544,12 +544,22 @@ fn panel_shell_lookup_matches_node(node: &StructureFullNode, panel_id: &str) -> 
             .map(str::trim)
             .any(|segment| segment == panel_id);
     }
-    let leaf = node
+    let segments: Vec<&str> = node
         .preview_scope
-        .rsplit('/')
-        .next()
+        .split('/')
         .map(str::trim)
-        .unwrap_or("");
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let leaf = segments.last().copied().unwrap_or("");
+    // When area name == panel id, structure emits both `…/objects` (area slot)
+    // and `…/objects/objects` (nested panel). Binding shell to both paints the
+    // SVG frame twice. Keep the area slot; reject the duplicate nested leaf.
+    if segments.len() >= 2
+        && leaf == panel_id
+        && segments[segments.len() - 2] == panel_id
+    {
+        return false;
+    }
     leaf == panel_id
         || leaf == format!("{panel_id}_content")
         || leaf == format!("{panel_id}_card_content")
@@ -675,8 +685,11 @@ fn is_section_head_text_slot(node: &StructureFullNode) -> bool {
     let scope = node.preview_scope.to_ascii_lowercase();
     scope.ends_with("/title_zone/mei.text")
         || scope.ends_with("/head/mei.text")
+        || scope.ends_with("/title/mei.text")
+        || scope.ends_with("/title/title")
         || (scope.ends_with("/title_zone") && node.content_kind.as_deref() == Some("mei.text"))
         || (scope.ends_with("/head") && node.content_kind.as_deref() == Some("mei.text"))
+        || (scope.ends_with("/title") && node.content_kind.as_deref() == Some("mei.text"))
 }
 
 fn component_mounts_for_content_node(
@@ -2239,5 +2252,40 @@ mod tests {
             &nested_content,
             "ai_compound_card"
         ));
+    }
+
+    #[test]
+    fn panel_shell_lookup_rejects_duplicate_area_id_nested_leaf() {
+        // area == id emits `…/objects` (area slot) and `…/objects/objects` (panel).
+        // Shell must bind once — on the area slot, not the nested duplicate.
+        let area_slot = StructureFullNode {
+            node_id: "objects".to_string(),
+            ui_role: "slot".to_string(),
+            preview_scope: "t1/main/enforcement/enforcement-compound/objects".to_string(),
+            label: "objects".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: None,
+            panel_id: None,
+            use_keys: vec![],
+            frame_viewport: None,
+        };
+        let nested_panel = StructureFullNode {
+            node_id: "objects_inner".to_string(),
+            ui_role: "slot".to_string(),
+            preview_scope: "t1/main/enforcement/enforcement-compound/objects/objects"
+                .to_string(),
+            label: "objects".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: None,
+            panel_id: None,
+            use_keys: vec![],
+            frame_viewport: None,
+        };
+        assert!(panel_shell_lookup_matches_node(&area_slot, "objects"));
+        assert!(!panel_shell_lookup_matches_node(&nested_panel, "objects"));
     }
 }

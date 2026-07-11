@@ -95,14 +95,15 @@ pub use types::{
 };
 pub use workspace_paths::{
     app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
-    is_app_mei_source_rel, is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
-    resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_id,
-    resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_registry_root,
+    default_scene_assembly_key, is_app_mei_source_rel, is_region_structure_mei_path,
+    is_section_structure_mei_path, is_v2_app_root, resolve_app_build_root,
+    resolve_app_build_store_root, resolve_app_data_snapshot_root, resolve_app_eval_cache_root,
+    resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_registry_root,
     resolve_app_root, resolve_app_src_root, resolve_app_var_root, resolve_apps_root,
-    resolve_authoring_root, resolve_components_root, resolve_deploy_root, resolve_stock_root,
-    resolve_templates_root, resolve_toolchain_root, resolve_workspace_cache_root,
-    resolve_workspace_graph_root, resolve_workspace_logs_root, resolve_workspace_path,
-    resolve_workspace_platform_root, resolve_workspace_runtime_root,
+    resolve_authoring_root, resolve_components_root, resolve_deploy_root,
+    resolve_scene_assembly_rel, resolve_stock_root, resolve_templates_root, resolve_toolchain_root,
+    resolve_workspace_cache_root, resolve_workspace_graph_root, resolve_workspace_logs_root,
+    resolve_workspace_path, resolve_workspace_platform_root, resolve_workspace_runtime_root,
     resolve_workspace_source_root_from_app_root, set_mei_package_root, stock_authoring_source,
     stock_components_source, stock_templates_source, workspace_config_path,
 };

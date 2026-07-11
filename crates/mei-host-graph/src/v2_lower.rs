@@ -561,21 +561,32 @@ fn lower_section_shell_panel(
         map.remove("height");
         map.remove("min_height");
         map.remove("max_height");
-        if let Some(profile) = args.get("padding_profile").and_then(|v| v.as_str()) {
-            map.insert("__mei_padding_profile".to_string(), json!(profile));
-            if let Some(padding) = mei_lang_kernel::padding_profile_css(profile) {
-                let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
-                body_map
-                    .entry("padding".to_string())
-                    .or_insert_with(|| json!(padding));
-                body_map
-                    .entry("box_sizing".to_string())
-                    .or_insert_with(|| json!("border-box"));
-                body_map
-                    .entry("min_height".to_string())
-                    .or_insert_with(|| json!("0"));
-                panel.body_props = Value::Object(body_map);
-            }
+        // Prefer explicit padding= over opaque padding_profile names.
+        let explicit_padding = args
+            .get("padding")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let profile_padding = args
+            .get("padding_profile")
+            .and_then(|v| v.as_str())
+            .and_then(|profile| {
+                map.insert("__mei_padding_profile".to_string(), json!(profile));
+                mei_lang_kernel::padding_profile_css(profile).map(str::to_string)
+            });
+        if let Some(padding) = explicit_padding.or(profile_padding) {
+            let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
+            body_map
+                .entry("padding".to_string())
+                .or_insert_with(|| json!(padding));
+            body_map
+                .entry("box_sizing".to_string())
+                .or_insert_with(|| json!("border-box"));
+            body_map
+                .entry("min_height".to_string())
+                .or_insert_with(|| json!("0"));
+            panel.body_props = Value::Object(body_map);
         }
     }
     Ok(panel)
@@ -707,6 +718,21 @@ fn lower_panel_from_generic_shell(
     let args = v2_call_args(shell).context("panel shell missing __args")?;
     let mut props = args.get("props").cloned().unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
+    // Keep section/region semantic role from the outer layout payload. Expanded macros
+    // such as `screen_header` → `content_panel` would otherwise drop `__mei_ui_role`,
+    // and the structure walker would miss nested header-brand content.
+    if let Some(role) = payload
+        .get("props")
+        .and_then(|value| value.get("__mei_ui_role"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+    {
+        if let Some(map) = props.as_object_mut() {
+            map.entry("__mei_ui_role".to_string())
+                .or_insert_with(|| json!(role));
+        }
+    }
     apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
     let mut head_props = lower_head_props(args);
@@ -1679,13 +1705,8 @@ fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode
         obj.insert("__mei_atom_layout".to_string(), field_layout);
         obj.insert("surface".to_string(), json!(surface));
     }
-    // Chrome comes from surface on the card itself (no __chrome wrapper).
-    // surface only supplies field layout; keep shell transparent like before.
-    let transparent_shell = if args.get("surface").is_some() {
-        surface_chrome_is_none(surface)
-    } else {
-        true
-    };
+    // Explicit props.background wins over surface token chrome (0332 gold path).
+    let transparent_shell = metric_shell_should_be_transparent(args, surface);
     lower_metric_inner(
         value,
         &args_with_source,
@@ -1702,6 +1723,23 @@ fn surface_chrome_is_none(surface: &str) -> bool {
         normalize_surface(surface),
         "none" | "plain" | "compound_top_row" | "compound_sub_stack"
     )
+}
+
+fn author_has_explicit_background(args: &Value) -> bool {
+    args.get("props")
+        .and_then(|props| props.get("background"))
+        .is_some()
+}
+
+/// Transparent shell unless author set `props.background` or a non-none `surface` token.
+fn metric_shell_should_be_transparent(args: &Value, surface: &str) -> bool {
+    if author_has_explicit_background(args) {
+        return false;
+    }
+    if args.get("surface").is_some() {
+        return surface_chrome_is_none(surface);
+    }
+    true
 }
 
 fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode> {
@@ -1734,7 +1772,7 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTre
             &template_name,
             None,
             args.get("desc").and_then(Value::as_str).map(str::to_string),
-            surface_chrome_is_none(surface),
+            metric_shell_should_be_transparent(args, surface),
         );
     }
     let expanded_template = metric_expanded_template_args(args.get("template"));
@@ -1872,6 +1910,8 @@ fn lower_metric_inner(
     }
     if transparent_shell {
         strip_metric_atom_shell_chrome(&mut panel_props);
+    } else if author_has_explicit_background(args) {
+        // Keep author props.background / padding / radius; do not re-apply surface tokens.
     } else if let Some(surface) = args.get("surface").and_then(Value::as_str) {
         apply_surface_to_props(&mut panel_props, surface);
     }
@@ -3858,10 +3898,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "supervision-mini",
+            app_id: "mini-data",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "supervision-mini".to_string(),
+                app_id: "mini-data".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4254,16 +4294,16 @@ mod tests {
                 },
                 "popup": {
                     "__ref": "link_ref",
-                    "__args": { "arg0": "supervision-mini/home/t2/links/supervision-items-analytics" }
+                    "__args": { "arg0": "mini-data/home/t2/links/supervision-items-analytics" }
                 }
             }
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "supervision-mini",
+            app_id: "mini-data",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "supervision-mini".to_string(),
+                app_id: "mini-data".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4297,10 +4337,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "supervision-mini",
+            app_id: "mini-data",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "supervision-mini".to_string(),
+                app_id: "mini-data".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),

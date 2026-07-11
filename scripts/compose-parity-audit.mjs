@@ -56,7 +56,7 @@ async function main() {
   await browser.close();
 
   const failures = [];
-  const isSupervisionMini = appUrl.includes("supervision-mini");
+  const isSupervisionMini = appUrl.includes("mini-data");
   if (!state.structureViewport && !state.evalProps && !state.evalHost) {
     failures.push("missing structure viewport or eval mounts");
   }
@@ -73,7 +73,7 @@ async function main() {
     failures.push("data-compose-projection missing on thin shell root");
   }
   if (isSupervisionMini && !state.warningHeadCarets) {
-    failures.push("supervision-mini warning head missing data-mei-head-carets chrome");
+    failures.push("mini-data warning head missing data-mei-head-carets chrome");
   }
 
   const report = { ok: failures.length === 0, url: appUrl, state, failures };

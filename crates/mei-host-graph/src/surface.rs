@@ -103,7 +103,7 @@ fn chrome_like(profile: &str) -> Value {
         }),
         "narrow_metric" | "solid_stack" | "stack_desc" | "icon_left" => json!({
             "padding": "0 2px",
-            "background": slot_stretch_background("metric-bg-narrow@3x.svg"),
+            "background": slot_stretch_background("metric-bg-normal@3x.svg"),
             "border": "none",
             "radius": "4px",
             "width": "100%",

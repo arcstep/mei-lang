@@ -477,6 +477,60 @@ pub fn resolve_app_id(source_root: &Path, app_id: &str) -> String {
     resolve_canonical_app_dir_name(source_root, app_id)
 }
 
+/// Scene 结构入口：优先 `src/scene/{id}.mei`，回落 `src/scene/{id}/assembly.mei`。
+/// 返回带 `src/` 前缀的逻辑相对路径（与 `assembly_ref` / navigation 一致）。
+pub fn resolve_scene_assembly_rel(app_root: &Path, scene_id: &str) -> String {
+    let scene_id = scene_id.trim().trim_matches('/');
+    if scene_id.is_empty() {
+        return "src/scene/home.mei".to_string();
+    }
+    let modern = format!("src/scene/{scene_id}.mei");
+    let legacy = format!("src/scene/{scene_id}/assembly.mei");
+    if resolve_app_mei_file_path(app_root, &modern).is_file() {
+        modern
+    } else if resolve_app_mei_file_path(app_root, &legacy).is_file() {
+        legacy
+    } else {
+        modern
+    }
+}
+
+/// `{scene_id}@{resolve_scene_assembly_rel(...)}`
+pub fn default_scene_assembly_key(app_root: &Path, scene_id: &str) -> String {
+    let scene_id = scene_id.trim();
+    let scene_id = if scene_id.is_empty() { "home" } else { scene_id };
+    format!("{scene_id}@{}", resolve_scene_assembly_rel(app_root, scene_id))
+}
+
+/// 结构节点文件：`.../r-foo.mei` / `.../s-bar.mei` / 遗留 `.../layout.mei`。
+pub fn is_region_structure_mei_path(path: &str) -> bool {
+    let raw = path.replace('\\', "/");
+    if !raw.contains("/r-") {
+        return false;
+    }
+    if raw.ends_with("/layout.mei") {
+        return true;
+    }
+    Path::new(&raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.starts_with("r-") && name.ends_with(".mei"))
+}
+
+pub fn is_section_structure_mei_path(path: &str) -> bool {
+    let raw = path.replace('\\', "/");
+    if !raw.contains("/s-") {
+        return false;
+    }
+    if raw.ends_with("/layout.mei") {
+        return true;
+    }
+    Path::new(&raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.starts_with("s-") && name.ends_with(".mei"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

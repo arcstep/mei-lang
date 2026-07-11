@@ -29824,24 +29824,45 @@
     return candidates;
   }
 
+  // Gold-case section_layout uses area `title`; `title_zone` / `head` are legacy.
+  // Projected title blocks are often `.../title/title` — treat as head text, not the slot.
+  const SECTION_HEAD_SLOT_SELECTOR =
+    '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], ' +
+    '[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"], ' +
+    '[data-preview-scope$="/title"]:not([data-preview-scope$="/title/title"]), ' +
+    '[data-preview-scope$="/title/mei.text"]';
+
   function isSectionHeadScope(scopeKey) {
     const scope = String(scopeKey || "").trim().toLowerCase();
     return (
       scope.endsWith("/head") ||
       scope.endsWith("/head/mei.text") ||
       scope.endsWith("/title_zone") ||
-      scope.endsWith("/title_zone/mei.text")
+      scope.endsWith("/title_zone/mei.text") ||
+      scope.endsWith("/title") ||
+      scope.endsWith("/title/mei.text") ||
+      scope.endsWith("/title/title")
     );
   }
 
   function isSectionHeadMeiTextScope(scopeKey) {
     const scope = String(scopeKey || "").trim().toLowerCase();
-    return scope.endsWith("/head/mei.text") || scope.endsWith("/title_zone/mei.text");
+    return (
+      scope.endsWith("/head/mei.text") ||
+      scope.endsWith("/title_zone/mei.text") ||
+      scope.endsWith("/title/mei.text") ||
+      scope.endsWith("/title/title")
+    );
   }
 
   function isIgnoredSectionHeadLabel(label) {
     const normalized = String(label || "").trim().toLowerCase();
-    return !normalized || normalized === "head" || normalized === "title_zone";
+    return (
+      !normalized ||
+      normalized === "head" ||
+      normalized === "title_zone" ||
+      normalized === "title"
+    );
   }
 
   function resolveEvalSlotLabel(entry) {
@@ -29960,8 +29981,7 @@
   function applyHeadSlotLabel(container, labelText) {
     const label = String(labelText || "").trim();
     if (isIgnoredSectionHeadLabel(label)) return false;
-    const headScopeSelector =
-      '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]';
+    const headScopeSelector = SECTION_HEAD_SLOT_SELECTOR;
     const isHead = container.matches?.(headScopeSelector);
     const headSlot = isHead ? container : container.closest(headScopeSelector) || container;
     if (!(headSlot instanceof HTMLElement)) return false;
@@ -30479,9 +30499,7 @@
   function normalizeAllSectionHeadSlots(root) {
     if (!(root instanceof HTMLElement)) return;
     root
-      .querySelectorAll(
-        '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]',
-      )
+      .querySelectorAll(SECTION_HEAD_SLOT_SELECTOR)
       .forEach((headSlot) => {
         if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
           return;
@@ -30905,11 +30923,11 @@
       active_target_file:
         viewport?.getAttribute("data-target-file") ||
         shell?.getAttribute("data-compile-target") ||
-        "src/scene/home/assembly.mei",
+        "src/scene/home.mei",
       entry_target:
         viewport?.getAttribute("data-target-file") ||
         shell?.getAttribute("data-compile-target") ||
-        "src/scene/home/assembly.mei",
+        "src/scene/home.mei",
       compile_epoch: shell?.getAttribute("data-compile-epoch") || undefined,
     };
     return next;
@@ -30959,7 +30977,7 @@
     if (!(root instanceof HTMLElement)) return;
     root
       .querySelectorAll(
-        '[data-preview-scope*="/title_zone/mei.text"], [data-preview-scope*="/head/mei.text"]',
+        '[data-preview-scope*="/title_zone/mei.text"], [data-preview-scope*="/head/mei.text"], [data-preview-scope$="/title/mei.text"], [data-preview-scope$="/title/title"]',
       )
       .forEach((node) => {
         if (!(node instanceof HTMLElement)) return;
@@ -32010,6 +32028,17 @@
       });
   }
 
+  function resolveManifestGapPx(node, fallback = "2px") {
+    if (!(node instanceof HTMLElement)) return fallback;
+    const fromManifest = String(node.dataset.manifestGap || "").trim();
+    if (fromManifest) {
+      return fromManifest.endsWith("px") ? fromManifest : `${fromManifest}px`;
+    }
+    const fromStyle = String(node.style.gap || node.style.rowGap || "").trim();
+    if (fromStyle) return fromStyle;
+    return fallback;
+  }
+
   function normalizeMetricCompoundSections(root) {
     if (!(root instanceof HTMLElement)) return;
     root
@@ -32017,9 +32046,16 @@
       .forEach((section) => {
         if (!(section instanceof HTMLElement)) return;
         section.style.display = "grid";
-        section.style.padding = "0";
+        // 边距真源：layout_budget_manifest / panel_shell；勿再硬编码 gap=2px、padding=0
+        // （0332 space_1：section/area 均为 4px）。仅在未声明时回退旧默认。
+        if (
+          !section.getAttribute("data-mei-panel-shell-applied") &&
+          !String(section.style.padding || "").trim()
+        ) {
+          section.style.padding = "0";
+        }
         section.style.margin = "0";
-        section.style.gap = "2px";
+        section.style.gap = resolveManifestGapPx(section, "2px");
         section.style.borderRadius = "0";
         section.style.gridTemplateRows = "auto minmax(0, 1fr)";
         section.style.gridTemplateAreas = '"title" "body"';
@@ -32027,7 +32063,7 @@
         section.style.minHeight = "0";
         section.style.height = "100%";
         const head = section.querySelector(
-          '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"]',
+          '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"], [data-preview-scope$="/title"]:not([data-preview-scope$="/title/title"])',
         );
         // Prefer section-level content hosts. Never promote a nested
         // compound-metric (e.g. 行政检查 AI 底栏) to section body — that
@@ -32058,8 +32094,13 @@
             : content.style.display;
           content.style.width = "100%";
           content.style.margin = "0";
-          content.style.padding = "0";
-          content.style.gap = "2px";
+          if (
+            !content.getAttribute("data-mei-panel-shell-applied") &&
+            !String(content.style.padding || "").trim()
+          ) {
+            content.style.padding = "0";
+          }
+          content.style.gap = resolveManifestGapPx(content, "2px");
           content.style.border = "none";
           content.style.borderRadius = "0";
           content.style.minHeight = "0";

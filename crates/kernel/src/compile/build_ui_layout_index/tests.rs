@@ -2466,9 +2466,9 @@ fn content_panel_triptych_projects_grid_manifest_and_slotted_layout_slots() {
         import_scope: None,
     };
     let compiled = CompiledApp {
-        app_id: "supervision-mini".to_string(),
-        title: "supervision-mini".to_string(),
-        app_root: "/tmp/supervision-mini".to_string(),
+        app_id: "mini-data".to_string(),
+        title: "mini-data".to_string(),
+        app_root: "/tmp/mini-data".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,

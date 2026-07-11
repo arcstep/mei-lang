@@ -143,6 +143,7 @@ template padding_profile_css(profile = "dense"):
         "compact_ai": "8px 6px 3px 6px",
         "compact": "8px 6px 6px 6px",
         "dense": "8px 4px 4px 4px",
+        "space_1": "4px",
         "none": "0",
     }.get(profile, "8px 4px 4px 4px")
 

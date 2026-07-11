@@ -22,6 +22,34 @@ const GLOBAL_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
 const GRID_ONLY_DEPRECATED_PATTERNS: &[(&str, &str)] =
     &[("flex(", "flex(...)"), ("layout_policy", "layout_policy")];
 
+fn is_region_structure_mei_path(path: &str) -> bool {
+    let raw = path.replace('\\', "/");
+    if !raw.contains("/r-") {
+        return false;
+    }
+    if raw.ends_with("/layout.mei") {
+        return true;
+    }
+    Path::new(&raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.starts_with("r-") && name.ends_with(".mei"))
+}
+
+fn is_section_structure_mei_path(path: &str) -> bool {
+    let raw = path.replace('\\', "/");
+    if !raw.contains("/s-") {
+        return false;
+    }
+    if raw.ends_with("/layout.mei") {
+        return true;
+    }
+    Path::new(&raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.starts_with("s-") && name.ends_with(".mei"))
+}
+
 fn sanitize_for_policy(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     let mut in_string: Option<char> = None;
@@ -154,7 +182,7 @@ pub fn validate_authoring_policy_for_path(
 
 fn validate_region_layout_policy(path: &Path, source: &str) -> Result<(), ForbiddenTokenError> {
     let raw = path.to_string_lossy().replace('\\', "/");
-    if !raw.contains("/r-") || !raw.ends_with("/layout.mei") {
+    if !is_region_structure_mei_path(&raw) {
         return Ok(());
     }
     if !source.contains("region_layout(") {
@@ -200,7 +228,7 @@ fn region_layout_allows_empty_sections(source: &str) -> bool {
 
 fn validate_section_layout_policy(path: &Path, source: &str) -> Result<(), ForbiddenTokenError> {
     let raw = path.to_string_lossy().replace('\\', "/");
-    if !raw.contains("/s-") || !raw.ends_with("/layout.mei") {
+    if !is_section_structure_mei_path(&raw) {
         return Ok(());
     }
     if !source.contains("section_layout(") {

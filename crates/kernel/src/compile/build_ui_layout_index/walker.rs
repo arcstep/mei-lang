@@ -212,7 +212,12 @@ fn walk_region(builder: &mut Builder<'_>, region: &UiNodeDecl, tier: &str, plane
 }
 
 fn panel_is_nested_region(panel: &UiNodeDecl) -> bool {
-    ui_role_from_props(&panel.props) == Some("region")
+    // `chrome_role = "header"` rewrites `__mei_ui_role` to "header" for z-index, but the
+    // panel remains a region container (sections + screen_header brand live underneath).
+    matches!(
+        ui_role_from_props(&panel.props),
+        Some("region") | Some("header") | Some("float_dock")
+    )
 }
 
 fn walk_nested_region_under_region(

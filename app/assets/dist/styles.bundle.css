@@ -4971,8 +4971,10 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 }
 .mei-compose-warning-panel > [data-preview-scope$="/title_zone"],
 .mei-compose-warning-panel > [data-preview-scope$="/head"],
+.mei-compose-warning-panel > [data-preview-scope$="/title"],
 .mei-compose-compound-section > [data-preview-scope$="/title_zone"],
-.mei-compose-compound-section > [data-preview-scope$="/head"] {
+.mei-compose-compound-section > [data-preview-scope$="/head"],
+.mei-compose-compound-section > [data-preview-scope$="/title"] {
   grid-area: title;
   margin: 0;
   padding: 0;
@@ -5112,8 +5114,10 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 }
 .mei-compose-warning-panel > [data-preview-scope$="/title_zone"] .panel-head-cell,
 .mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-head-cell,
+.mei-compose-warning-panel > [data-preview-scope$="/title"] .panel-head-cell,
 .mei-compose-compound-section > [data-preview-scope$="/title_zone"] .panel-head-cell,
-.mei-compose-compound-section > [data-preview-scope$="/head"] .panel-head-cell {
+.mei-compose-compound-section > [data-preview-scope$="/head"] .panel-head-cell,
+.mei-compose-compound-section > [data-preview-scope$="/title"] .panel-head-cell {
   width: 100%;
   min-width: 0;
 }
@@ -5143,12 +5147,14 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   width: 100%;
 }
 .mei-compose-warning-panel > [data-preview-scope$="/title_zone"] mei-cockpit-panel-title,
-.mei-compose-warning-panel > [data-preview-scope$="/head"] mei-cockpit-panel-title {
+.mei-compose-warning-panel > [data-preview-scope$="/head"] mei-cockpit-panel-title,
+.mei-compose-warning-panel > [data-preview-scope$="/title"] mei-cockpit-panel-title {
   display: block;
   width: 100%;
 }
 .mei-compose-warning-panel > [data-preview-scope$="/title_zone"] .panel-heading-copy h3,
-.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-heading-copy h3 {
+.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-heading-copy h3,
+.mei-compose-warning-panel > [data-preview-scope$="/title"] .panel-heading-copy h3 {
   text-align: center;
   width: 100%;
 }

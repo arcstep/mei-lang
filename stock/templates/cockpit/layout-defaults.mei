@@ -1,48 +1,57 @@
-# Layout constructor defaults（0332）
-# 只复用稳定默认值；不封装业务组合语义。
+# Layout constructor defaults（0332 / 金样）
+# 每种外观一个完整宏：调用点只传 id / 数据 / 可选 layout·blocks。
+# 不要再「通用 metric_card + chrome_* props」叠两层。
 # 用法：use template "cockpit/layout-defaults" as ui
-# metric 与 source 并存时，lower 优先 metric（见 v2_lower resolve_metric_atom_source）。
 
-template panel(
-    id = "panel",
-    area = None,
-    surface = "none",
-    layout = None,
-    blocks = [],
-    props = {},
-):
-    panel(
-        id = id,
-        area = area,
-        surface = surface,
-        variant = "container",
-        chrome = "bare",
-        show_heading = False,
-        props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
-        } | props,
-        layout = layout,
-        blocks = blocks,
-    )
+METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
 
-template metric_card(
+# --- 层级边距规范（0332）：单位「1」= 4px ---
+# plane  margin=0 padding=1 | region margin=1 padding=0
+# section margin=0 padding=1 | section 内 title/body 等 area margin=1 padding=1
+LAYOUT_SPACE_1 = "4px"
+
+template layout_space_1():
+    LAYOUT_SPACE_1
+
+# plane 内边距；外边距恒 0（不写 margin）
+template plane_padding():
+    LAYOUT_SPACE_1
+
+# region 外边距 → 落在父 plane 的 grid.gap
+template region_margin():
+    LAYOUT_SPACE_1
+
+# region 内边距恒 0
+template region_padding():
+    "0"
+
+# section 内边距；外边距恒 0（父 region 不设 section 外边距）
+template section_padding():
+    LAYOUT_SPACE_1
+
+# section 内 title / body 等 area：外边距 → section grid.gap；内边距 → area 容器 padding
+template area_margin():
+    LAYOUT_SPACE_1
+
+template area_padding():
+    LAYOUT_SPACE_1
+
+template bg_panel_glow():
+    "linear-gradient(180deg, rgba(32, 96, 168, 0.72) 0%, rgba(14, 48, 92, 0.88) 100%)"
+
+# --- 窄指标卡（显式 SVG 底；充满父 grid 格）---
+template narrow_metric_card(
     id = "metric_card",
     area = None,
-    surface = "none",
     source = {"label": "指标", "value": "--", "unit": ""},
     metric = None,
     popup = None,
     layout = None,
     placements = None,
-    props = {},
 ):
     metric_card(
         id = id,
         area = area,
-        surface = surface,
         source = source,
         metric = metric,
         popup = popup,
@@ -52,5 +61,118 @@ template metric_card(
             "width": "100%",
             "height": "100%",
             "min_height": "0",
-        } | props,
+            "box_sizing": "border-box",
+            "background": {
+                "image": "url(" + METRICS_ASSET + "/metric-bg-normal@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": LAYOUT_SPACE_1,
+            "radius": "4px",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+            "__mei_layout_fill": True,
+        },
+    )
+
+# --- 行内指标卡（label|value|unit；嵌在 compound 内，不自带底）---
+template row_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    placements = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        placements = placements,
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["auto", "auto", "auto"],
+            areas = [["label", "value", "unit"]],
+            gap = LAYOUT_SPACE_1,
+            align = "center",
+            justify = "start",
+        ),
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "padding": LAYOUT_SPACE_1,
+            "border": "none",
+            "__mei_layout_fill": True,
+        },
+    )
+
+# --- 透明子卡（嵌在 compound 内，无独立底）---
+template plain_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    layout = None,
+    placements = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        layout = layout,
+        placements = placements,
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "padding": LAYOUT_SPACE_1,
+            "__mei_layout_fill": True,
+        },
+    )
+
+# --- 复合框 panel（显式 target SVG 底；充满父 grid 格）---
+template compound_panel(
+    id = "panel",
+    area = None,
+    layout = None,
+    blocks = [],
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        chrome = "bare",
+        show_heading = False,
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "background": {
+                "image": "url(" + METRICS_ASSET + "/metric-bg-target@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": LAYOUT_SPACE_1,
+            "radius": "4px",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+            "__mei_layout_fill": True,
+        },
+        layout = layout,
+        blocks = blocks,
     )

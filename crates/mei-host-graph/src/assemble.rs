@@ -79,7 +79,7 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
         routes.push(ScopeRoute {
             scene_id: "home".to_string(),
             url: format!("/apps/app/{app_id}/scene/home"),
-            assembly_key: "home@src/scene/home/assembly.mei".to_string(),
+            assembly_key: mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), "home"),
         });
     }
     Ok(routes)
@@ -467,7 +467,11 @@ fn resolve_scene_id_for_assembly(
     if let Ok(routes) = list_scope_routes(source_root, app_id) {
         if let Some(route) = routes.into_iter().find(|route| {
             let target = assembly_key_to_target(&route.assembly_key);
-            target.ends_with("/assembly.mei") || target == "assembly.mei"
+            target.ends_with("/assembly.mei")
+                || target == "assembly.mei"
+                || target
+                    .strip_prefix("src/scene/")
+                    .is_some_and(|rest| rest.ends_with(".mei") && !rest.contains('/'))
         }) {
             return route.scene_id;
         }
@@ -479,7 +483,8 @@ fn resolve_scene_id_for_assembly(
             matches!(
                 n.id.kind,
                 GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph
-            ) && n.id.key.contains("/assembly.mei")
+            ) && (n.id.key.contains("/assembly.mei")
+                || n.id.key.contains("@src/scene/") && n.id.key.ends_with(".mei"))
         })
         .filter_map(|n| {
             let resolved = canonical_scene_id(&n.id.key);
@@ -537,7 +542,10 @@ fn resolve_assembly_key(
                 ) && n.id.key.contains("home@")
             })
             .map(|n| n.id.key.clone())
-            .unwrap_or_else(|| "home@src/scene/home/assembly.mei".to_string());
+            .unwrap_or_else(|| {
+                let app_root = resolve_app_root(source_root, app_id);
+                mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), "home")
+            });
     }
     if let Ok(routes) = list_scope_routes(source_root, app_id) {
         if let Some(route) = routes.into_iter().find(|route| route.scene_id == scene_id) {

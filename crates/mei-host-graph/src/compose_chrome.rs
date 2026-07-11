@@ -284,10 +284,13 @@ fn panel_title(panel: &UiNodeDecl) -> String {
 
 pub fn section_id_for_head_scope(preview_scope: &str) -> Option<String> {
     let normalized = preview_scope.trim().trim_end_matches("/mei.text");
-    // Prefer title_zone (current IR); keep /head for legacy structure scopes.
+    // Authoring uses area `title` (gold-case); `title_zone` / `head` remain legacy aliases.
+    // Projected section title blocks are often `.../title/title`.
     let without_head = normalized
-        .strip_suffix("/title_zone")
-        .or_else(|| normalized.strip_suffix("/head"))?;
+        .strip_suffix("/title/title")
+        .or_else(|| normalized.strip_suffix("/title_zone"))
+        .or_else(|| normalized.strip_suffix("/head"))
+        .or_else(|| normalized.strip_suffix("/title"))?;
     let section_id = without_head.rsplit('/').next()?.trim();
     if section_id.is_empty() {
         None
@@ -649,6 +652,14 @@ mod tests {
         assert_eq!(
             section_id_for_head_scope("t1/right_rail/warning/title_zone/mei.text").as_deref(),
             Some("warning")
+        );
+        assert_eq!(
+            section_id_for_head_scope("t1/main/enforcement/title").as_deref(),
+            Some("enforcement")
+        );
+        assert_eq!(
+            section_id_for_head_scope("t1/main/enforcement/title/title").as_deref(),
+            Some("enforcement")
         );
     }
 }
