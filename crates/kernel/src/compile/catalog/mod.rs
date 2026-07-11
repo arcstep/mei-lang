@@ -12,7 +12,6 @@ use serde_json::Value;
 use crate::model::{ComponentAsset, LoadedResource};
 use crate::typed_refs::SceneRegistry;
 
-use super::authoring_eval::{install_shared_authoring_guard, shared_authoring_helpers_for_compile};
 use super::dependency_graph::DependencyGraph;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
@@ -81,7 +80,6 @@ pub(super) fn compile_dataset_catalog_resources_for_rels(
     if compile_rels.is_empty() {
         return Vec::new();
     }
-    let authoring_helpers = shared_authoring_helpers_for_compile(source_root);
     let parallelism = catalog_compile_parallelism(compile_rels.len());
 
     let mut compiled = Vec::<(String, Vec<LoadedResource>)>::new();
@@ -116,36 +114,31 @@ pub(super) fn compile_dataset_catalog_resources_for_rels(
             for _ in 0..parallelism {
                 let queue = Arc::clone(&queue);
                 let output = Arc::clone(&output);
-                let authoring_helpers = Arc::clone(&authoring_helpers);
-                scope.spawn(move || {
-                    let _authoring_guard =
-                        install_shared_authoring_guard(authoring_helpers.as_ref());
-                    loop {
-                        let rel = match queue.lock() {
-                            Ok(mut guard) => guard.pop_front(),
-                            Err(_) => None,
-                        };
-                        let Some(rel) = rel else { break };
-                        let dependency_fingerprint = dependency_graph
-                            .dependency_fingerprint_for_target(app_root, app_decls, rel.as_str());
-                        let payload = compile_scene_payload_for_target(
-                            app_root,
-                            source_root,
-                            app_decls,
-                            asset_map,
-                            rel.as_str(),
-                            None,
-                            &SceneRegistry::new(),
-                            dependency_fingerprint.as_deref(),
-                        );
-                        let dataset_resources = payload
-                            .resources
-                            .into_iter()
-                            .filter(|resource| resource.dataset.is_some())
-                            .collect::<Vec<_>>();
-                        if let Ok(mut guard) = output.lock() {
-                            guard.push((rel, dataset_resources));
-                        }
+                scope.spawn(move || loop {
+                    let rel = match queue.lock() {
+                        Ok(mut guard) => guard.pop_front(),
+                        Err(_) => None,
+                    };
+                    let Some(rel) = rel else { break };
+                    let dependency_fingerprint = dependency_graph
+                        .dependency_fingerprint_for_target(app_root, app_decls, rel.as_str());
+                    let payload = compile_scene_payload_for_target(
+                        app_root,
+                        source_root,
+                        app_decls,
+                        asset_map,
+                        rel.as_str(),
+                        None,
+                        &SceneRegistry::new(),
+                        dependency_fingerprint.as_deref(),
+                    );
+                    let dataset_resources = payload
+                        .resources
+                        .into_iter()
+                        .filter(|resource| resource.dataset.is_some())
+                        .collect::<Vec<_>>();
+                    if let Ok(mut guard) = output.lock() {
+                        guard.push((rel, dataset_resources));
                     }
                 });
             }

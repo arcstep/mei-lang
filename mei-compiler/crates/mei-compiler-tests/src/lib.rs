@@ -14,19 +14,18 @@ pub fn normalize_decl_ir(value: &JsonValue) -> JsonValue {
             }
             JsonValue::Object(out)
         }
-        JsonValue::Array(items) => {
-            JsonValue::Array(items.iter().map(normalize_decl_ir).collect())
-        }
+        JsonValue::Array(items) => JsonValue::Array(items.iter().map(normalize_decl_ir).collect()),
         other => other.clone(),
     }
 }
 
-pub fn assert_decl_ir_eq(starlark: &JsonValue, native: &JsonValue) {
-    let left = normalize_decl_ir(starlark);
-    let right = normalize_decl_ir(native);
+pub fn assert_decl_ir_eq(left: &JsonValue, right: &JsonValue) {
+    let left = normalize_decl_ir(left);
+    let right = normalize_decl_ir(right);
     assert_eq!(
-        left, right,
-        "decl IR mismatch:\nstarlark={}\nnative={}",
+        left,
+        right,
+        "decl IR mismatch:\nleft={}\nright={}",
         serde_json::to_string_pretty(&left).unwrap_or_default(),
         serde_json::to_string_pretty(&right).unwrap_or_default()
     );

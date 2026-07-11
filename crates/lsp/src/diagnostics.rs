@@ -5,19 +5,14 @@ use std::{
 };
 
 use anyhow::Result;
-use mei_lang_kernel::{
-    Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
-};
+use mei_lang_kernel::{Diagnostic as MeiDiagnostic, Severity as MeiSeverity};
 use mei_lang_toolchain::{
     compile_app_with_cache, platform_asset_catalog_descriptor_for_workspace_root,
     resolve_components_root,
 };
-use starlark::syntax::{AstModule, Dialect};
-use tower_lsp::{
-    lsp_types::{
-        Diagnostic, DiagnosticSeverity, Location,
-        NumberOrString, Position, Range, Url,
-    },
+use mei_syntax::parse_source;
+use tower_lsp::lsp_types::{
+    Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Range, Url,
 };
 
 use crate::source_index;
@@ -84,6 +79,7 @@ pub(crate) fn compile_grouped(
     let options = mei_lang_kernel::CompileOptions {
         scene: None,
         preview_target: to_preview_target(app_root, current_file),
+        ..Default::default()
     };
     let components_root = resolve_components_root(source_root);
     match compile_app_with_cache(
@@ -167,7 +163,11 @@ pub(crate) fn to_lsp_diagnostic(diag: MeiDiagnostic, source: Option<&str>) -> Di
     }
 }
 
-pub(crate) fn compile_failure_diagnostic(code: &str, message: String, range: Option<Range>) -> Diagnostic {
+pub(crate) fn compile_failure_diagnostic(
+    code: &str,
+    message: String,
+    range: Option<Range>,
+) -> Diagnostic {
     Diagnostic {
         range: range.unwrap_or_else(zero_range),
         severity: Some(DiagnosticSeverity::ERROR),
@@ -180,16 +180,12 @@ pub(crate) fn compile_failure_diagnostic(code: &str, message: String, range: Opt
 
 pub(crate) fn syntax_only_diagnostics(uri: Url, path: &Path, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    match AstModule::parse(
-        path.to_string_lossy().as_ref(),
-        source.to_string(),
-        &Dialect::Standard,
-    ) {
+    match parse_source(source) {
         Ok(_) => {}
         Err(error) => diagnostics.push(compile_failure_diagnostic(
             "parse_error",
             error.to_string(),
-            extract_range_from_error(source, &error.to_string()),
+            diagnostic_range_from_parse_error(source, &error),
         )),
     }
     let disk = fs::read_to_string(path).ok();
@@ -303,6 +299,33 @@ pub(crate) fn first_non_empty_range(source: &str) -> Option<Range> {
                 Position::new(line_index as u32, end),
             )
         })
+}
+
+pub(crate) fn diagnostic_range_from_parse_error(
+    source: &str,
+    error: &mei_syntax::ParseError,
+) -> Option<Range> {
+    if error.span_end <= error.span_start {
+        return extract_range_from_error(source, &error.message);
+    }
+    let start = offset_to_position(source, error.span_start);
+    let end = offset_to_position(source, error.span_end);
+    Some(Range::new(start, end))
+}
+
+fn offset_to_position(source: &str, offset: usize) -> Position {
+    let clamped = offset.min(source.len());
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for ch in source.chars().take(clamped) {
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    Position::new(line, col)
 }
 
 pub(crate) fn extract_range_from_error(source: &str, message: &str) -> Option<Range> {

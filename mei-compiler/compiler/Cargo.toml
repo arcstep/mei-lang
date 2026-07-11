@@ -18,10 +18,3 @@ mei-graph = { path = "../crates/mei-graph" }
 mei-syntax = { path = "../crates/mei-syntax" }
 serde.workspace = true
 serde_json.workspace = true
-mei-lang-kernel = { path = "../../crates/kernel", optional = true }
-
-[features]
-check = ["dep:mei-lang-kernel"]
-
-[dev-dependencies]
-mei-lang-kernel = { path = "../../crates/kernel" }

@@ -93,7 +93,6 @@ pub fn compile_app_from_root_with_options_and_revision(
     app_root: &Path,
     options: CompileOptions,
 ) -> Result<CompileAppArtifacts> {
-    let _authoring_guard = super::authoring_eval::install_authoring_eval_context(source_root)?;
     let mut options = options;
     if let Some(ref mut target) = options.preview_target {
         *target = crate::mei_config::canonical_app_source_rel_path(target.as_str());
@@ -335,7 +334,9 @@ fn hydrate_scene_links(
     hydrated
 }
 
-fn collect_scene_first_target_refs(panels: &[crate::model::UiNodeDecl]) -> BTreeMap<String, String> {
+fn collect_scene_first_target_refs(
+    panels: &[crate::model::UiNodeDecl],
+) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for panel in panels {
         collect_scene_first_target_refs_from_value(&panel.props, &mut out);

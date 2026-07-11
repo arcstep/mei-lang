@@ -1,4 +1,4 @@
-mod authoring_helpers;
+mod app_decl;
 mod page_instance_diagnostics;
 mod t2_page_preview_scope;
 mod config_refs;

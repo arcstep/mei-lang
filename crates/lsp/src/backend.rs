@@ -5,26 +5,23 @@ use std::{
     sync::Arc,
 };
 
-use mei_lang_kernel::{
-    describe_dsl_with_helpers, load_component_assets, resolve_authoring_helpers,
-};
+use mei_lang_kernel::{describe_dsl, load_component_assets};
 use mei_lang_toolchain::resolve_components_root;
 use tokio::sync::Mutex;
 use tower_lsp::{
     async_trait,
     lsp_types::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
-        CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
-        DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-        DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-        Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
-        InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, ServerCapabilities, ServerInfo,
-        TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+        CompletionResponse, Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+        DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+        HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+        InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, ServerCapabilities,
+        ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
         TextDocumentSyncSaveOptions, Url,
     },
     Client, LanguageServer,
 };
-
 
 use crate::diagnostics::*;
 use crate::source_index;
@@ -380,8 +377,8 @@ impl LanguageServer for Backend {
         if prefix.contains("component(") && prefix.matches('"').count() % 2 == 1 {
             if let Ok(assets) = load_component_assets(&source_root) {
                 for asset in assets.values() {
-                    let pack_id =
-                        component_pack_id(source_root.as_path(), asset.key.as_str()).unwrap_or_else(|| "unknown".to_string());
+                    let pack_id = component_pack_id(source_root.as_path(), asset.key.as_str())
+                        .unwrap_or_else(|| "unknown".to_string());
                     items.push(CompletionItem {
                         label: asset.key.clone(),
                         kind: Some(CompletionItemKind::CLASS),
@@ -403,8 +400,7 @@ impl LanguageServer for Backend {
                 }
             }
         } else {
-            let helpers = resolve_authoring_helpers(&source_root).ok();
-            let dsl = describe_dsl_with_helpers(helpers.as_ref());
+            let dsl = describe_dsl();
             if let Some(surface) = dsl.get("public_surface").and_then(|value| value.as_array()) {
                 for item in surface {
                     if let Some(label) = item.as_str() {
@@ -449,4 +445,3 @@ impl LanguageServer for Backend {
         Ok(Some(CompletionResponse::Array(items)))
     }
 }
-

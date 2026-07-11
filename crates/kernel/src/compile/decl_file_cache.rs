@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::eval::{active_authoring_fingerprint, evaluate_mei_file};
+use crate::eval::evaluate_mei_file;
 
 use super::scene_payload_cache::file_mtime_ms;
 
@@ -19,13 +19,7 @@ fn decl_file_cache_key(path: &Path) -> Option<String> {
     if !path.is_file() {
         return None;
     }
-    let fingerprint = active_authoring_fingerprint();
-    Some(format!(
-        "{}|{}|{}",
-        path.display(),
-        file_mtime_ms(path),
-        fingerprint
-    ))
+    Some(format!("{}|{}", path.display(), file_mtime_ms(path),))
 }
 
 pub(super) fn evaluate_mei_file_cached(path: &Path) -> Result<Value> {
@@ -57,18 +51,8 @@ pub(super) fn decl_file_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn decl_file_cache_metrics_snapshot_for_tests() -> (u64, u64) {
-    decl_file_cache_metrics_snapshot()
-}
-
 pub(crate) fn clear_decl_file_cache() {
     if let Ok(mut cache) = DECL_FILE_CACHE.lock() {
         cache.clear();
     }
-}
-
-#[cfg(test)]
-pub(crate) fn clear_decl_file_cache_for_tests() {
-    clear_decl_file_cache();
 }

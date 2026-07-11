@@ -23,7 +23,7 @@ fn hash_source_tree(root: &Path) -> String {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        if !(rel.ends_with(".rs") || rel.ends_with(".star")) {
+        if !rel.ends_with(".rs") {
             continue;
         }
         let content = fs::read(path).unwrap_or_default();

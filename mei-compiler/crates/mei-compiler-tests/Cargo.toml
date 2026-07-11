@@ -11,6 +11,5 @@ serde_json.workspace = true
 [dev-dependencies]
 mei-bundle = { path = "../mei-bundle" }
 mei-graph = { path = "../mei-graph" }
-mei-lang-kernel = { path = "../../../crates/kernel" }
 mei-lower = { path = "../mei-lower" }
 serde_json.workspace = true

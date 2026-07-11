@@ -12,7 +12,6 @@ use std::time::UNIX_EPOCH;
 use serde_json::Value;
 use walkdir::WalkDir;
 
-use crate::eval::active_authoring_fingerprint;
 use crate::model::{CompiledSceneRoute, ComponentAsset};
 use crate::typed_refs::SceneRegistry;
 
@@ -187,14 +186,13 @@ pub(crate) fn scene_payload_cache_key(
     }
     let main_path = crate::mei_config::resolve_app_mei_file_path(app_root, "main.mei");
     Some(format!(
-        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}|authoring={}",
+        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}",
         app_root.display(),
         scene_selector.unwrap_or("-"),
         file_mtime_ms(&target_path),
         file_mtime_ms(&main_path),
         app_revision(app_root).max(components_revision(source_root)),
         dependency_fingerprint.unwrap_or("-"),
-        active_authoring_fingerprint(),
     ))
 }
 
@@ -293,16 +291,6 @@ pub(crate) fn clear_scene_payload_cache() {
     if let Ok(mut cache) = SCENE_PAYLOAD_CACHE.lock() {
         cache.clear();
     }
-}
-
-#[cfg(test)]
-pub(crate) fn clear_scene_payload_cache_for_tests() {
-    clear_scene_payload_cache();
-}
-
-#[cfg(test)]
-pub(crate) fn scene_payload_cache_len_for_tests() -> usize {
-    SCENE_PAYLOAD_CACHE.lock().map(|c| c.len()).unwrap_or(0)
 }
 
 #[cfg(test)]

@@ -1,15 +1,13 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
 
-use crate::eval::active_authoring_helpers;
 use crate::model::{
     ResourceDecl, WorkspaceNode, WorldSemanticDataset, WorldSemanticExplainBlock,
     WorldSemanticFileIndex, WorldSemanticMetric,
 };
 
-use super::authoring_eval::with_authoring_eval_context;
 use super::load_external::load_world_from_file;
 use super::materialize::WORLD_METRICS_RESOURCE_ID;
 
@@ -17,24 +15,11 @@ fn is_world_capsule_path(path: &str) -> bool {
     path.trim().replace('\\', "/").ends_with(".world.mei")
 }
 
-fn resolve_source_root_from_app_root(app_root: &Path) -> Option<PathBuf> {
-    Some(crate::mei_config::resolve_workspace_source_root_from_app_root(
-        app_root,
-    ))
-}
-
 fn load_world_for_semantic_index(
     app_root: &Path,
     relative_path: &str,
 ) -> Option<crate::model::WorldDecl> {
-    let load = || load_world_from_file(app_root, relative_path, None);
-    if active_authoring_helpers().is_some() {
-        return load().ok();
-    }
-    if let Some(source_root) = resolve_source_root_from_app_root(app_root) {
-        return with_authoring_eval_context(&source_root, load).ok();
-    }
-    load().ok()
+    load_world_from_file(app_root, relative_path, None).ok()
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {

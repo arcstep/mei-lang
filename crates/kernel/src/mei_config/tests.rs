@@ -45,10 +45,7 @@ fn workspace_default_app_deserializes_from_json() {
             }
         }"#;
     let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse defaultApp");
-    assert_eq!(
-        cfg.workspace.default_app.as_deref(),
-        Some("zhifa")
-    );
+    assert_eq!(cfg.workspace.default_app.as_deref(), Some("zhifa"));
 }
 
 #[test]
@@ -311,29 +308,5 @@ fn workspace_auth_path_uses_deploy_host_when_present() {
     write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
     assert_eq!(workspace_auth_host_id(&dir), "zw-spbjw");
     assert!(workspace_auth_config_path(&dir).ends_with("runtime/hosts/zw-spbjw.state.json"));
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn resolve_authoring_helpers_loads_workspace_star_files() {
-    let dir = std::env::temp_dir().join(format!(
-        "mei-authoring-helpers-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    let authoring_dir = dir.join(".stock/authoring");
-    std::fs::create_dir_all(&authoring_dir).expect("authoring dir");
-    std::fs::write(
-        authoring_dir.join("demo.star"),
-        "def demo_helper():\n    return [\"a\"]\n",
-    )
-    .expect("write helper");
-    let helpers = resolve_authoring_helpers(&dir).expect("resolve helpers");
-    assert!(helpers
-        .public_functions
-        .contains(&"demo_helper".to_string()));
-    assert!(!helpers.fingerprint.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -12,7 +12,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 mei-lang-kernel = { path = "../kernel" }
 mei-lang-toolchain = { path = "../toolchain" }
-starlark.workspace = true
+mei-syntax = { path = "../../mei-compiler/crates/mei-syntax" }
 tokio = { workspace = true, features = ["io-std"] }
 tower-lsp.workspace = true
 tracing.workspace = true

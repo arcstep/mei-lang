@@ -1,17 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::io::load_workspace_config;
 use super::build_store::resolve_app_build_root_following_active;
+use super::io::load_workspace_config;
 use super::stock_catalog::normalize_stock_relative_path;
 use super::types::{
-    WorkspaceConfig, APP_CONFIG_FILENAME,
-    DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL, DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL,
+    WorkspaceConfig, APP_CONFIG_FILENAME, DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL,
+    DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL, DEFAULT_STOCK_AUTHORING_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEFAULT_TOOLCHAIN_REL,
     LEGACY_WORKSPACE_HOSTS_DIR_REL, LEGACY_WORKSPACE_PLATFORM_DIR_REL,
-    LEGACY_WORKSPACE_RUNTIME_DIR_REL,
-    WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL,
-    WORKSPACE_RUNTIME_CACHE_REL, WORKSPACE_RUNTIME_LOGS_REL,
+    LEGACY_WORKSPACE_RUNTIME_DIR_REL, WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL,
+    WORKSPACE_PLATFORM_DIR_REL, WORKSPACE_RUNTIME_CACHE_REL, WORKSPACE_RUNTIME_LOGS_REL,
 };
 
 pub fn resolve_symlink_target_from_link(link: &Path) -> Option<PathBuf> {
@@ -46,10 +45,7 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
 }
 
 /// Resolve workspace config file: `MEI_WORKSPACE_CONFIG` (absolute or relative to segment root), else `workspace.json`.
-pub fn resolve_workspace_config_path(
-    segment_root: &Path,
-    override_path: Option<&Path>,
-) -> PathBuf {
+pub fn resolve_workspace_config_path(segment_root: &Path, override_path: Option<&Path>) -> PathBuf {
     let candidates = override_path
         .map(|path| vec![path.to_path_buf()])
         .unwrap_or_else(|| {
@@ -217,7 +213,11 @@ pub fn resolve_stock_root(source_root: &Path) -> PathBuf {
     resolve_workspace_path(source_root, rel)
 }
 
-fn resolve_stock_subdir(source_root: &Path, configured: Option<&str>, default_rel: &str) -> PathBuf {
+fn resolve_stock_subdir(
+    source_root: &Path,
+    configured: Option<&str>,
+    default_rel: &str,
+) -> PathBuf {
     if let Some(rel) = configured.filter(|value| !value.trim().is_empty()) {
         let trimmed = rel.trim();
         if trimmed.contains('/') {
@@ -239,11 +239,7 @@ fn resolve_stock_subdir(source_root: &Path, configured: Option<&str>, default_re
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
     let cfg = load_workspace_config(source_root);
     let configured = configured_components_rel(&cfg);
-    resolve_stock_subdir(
-        source_root,
-        configured,
-        DEFAULT_STOCK_COMPONENTS_REL,
-    )
+    resolve_stock_subdir(source_root, configured, DEFAULT_STOCK_COMPONENTS_REL)
 }
 
 /// 解析模板根：`paths.templates` → `{stock}/templates`。
@@ -269,7 +265,19 @@ pub fn stock_authoring_source(package_root: &Path) -> PathBuf {
 }
 
 pub fn resolve_authoring_root(source_root: &Path) -> PathBuf {
-    super::authoring_helpers::resolve_authoring_root(source_root)
+    let cfg = load_workspace_config(source_root);
+    if let Some(rel) = cfg
+        .paths
+        .authoring
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let candidate = resolve_workspace_path(source_root, rel);
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    resolve_workspace_path(source_root, DEFAULT_STOCK_AUTHORING_REL)
 }
 
 fn resolve_canonical_app_dir_name(source_root: &Path, app_id: &str) -> String {
@@ -357,15 +365,14 @@ fn resolve_legacy_workspace_stock_mei_path(app_root: &Path, rel: &str) -> Option
         return None;
     }
     let source_root = resolve_workspace_source_root_from_app_root(app_root);
-    let under_stock = source_root.join(normalize_stock_relative_path(&format!(".stock/{stock_tail}")));
+    let under_stock = source_root.join(normalize_stock_relative_path(&format!(
+        ".stock/{stock_tail}"
+    )));
     if under_stock.is_file() {
         return Some(under_stock);
     }
-    let under_templates = resolve_templates_root(&source_root).join(
-        stock_tail
-            .strip_prefix("templates/")
-            .unwrap_or(stock_tail),
-    );
+    let under_templates = resolve_templates_root(&source_root)
+        .join(stock_tail.strip_prefix("templates/").unwrap_or(stock_tail));
     if under_templates.is_file() {
         return Some(under_templates);
     }
@@ -508,23 +515,14 @@ mod tests {
         fs::create_dir_all(app.join("src")).expect("mkdir");
         fs::write(app.join("src/main.mei"), "app(id=zhifa)").expect("write");
         assert!(is_v2_app_root(&app));
-        assert_eq!(
-            resolve_app_root(ws, "zhifa"),
-            app
-        );
-        assert_eq!(
-            resolve_app_main_path(&app),
-            app.join("src/main.mei")
-        );
+        assert_eq!(resolve_app_root(ws, "zhifa"), app);
+        assert_eq!(resolve_app_main_path(&app), app.join("src/main.mei"));
         let env_dir = app.join("env/WS-20260228.0");
         fs::create_dir_all(env_dir.join("build")).expect("mkdir build");
         fs::create_dir_all(env_dir.join("var")).expect("mkdir var");
         #[cfg(unix)]
         std::os::unix::fs::symlink("WS-20260228.0", app.join("env/current")).expect("symlink");
-        assert_eq!(
-            resolve_app_build_root(&app),
-            env_dir.join("build")
-        );
+        assert_eq!(resolve_app_build_root(&app), env_dir.join("build"));
     }
 
     #[test]

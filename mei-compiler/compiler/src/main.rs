@@ -1,19 +1,22 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use mei_bundle::{
     bundle_stats, compute_workspace_digest, default_bundle_path, exchange_from_outcome,
     read_bundle, write_bundle_from_outcome,
 };
-use mei_lower::lower_path;
 use mei_lower::compile_app;
+use mei_lower::lower_path;
 use mei_surface::surface_catalog;
 use mei_syntax::v2::parse_v2_source_file;
 use serde_json::Value as JsonValue;
 
 #[derive(Parser)]
-#[command(name = "mei-compiler", about = "MeiLang 2.0 compiler (.meibundle exchange output)")]
+#[command(
+    name = "mei-compiler",
+    about = "MeiLang 2.0 compiler (.meibundle exchange output)"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -54,13 +57,6 @@ enum Command {
         #[arg(long)]
         expand: bool,
     },
-    /// Compare native lower output with Starlark evaluate_mei_file for an app
-    Check {
-        #[arg(long)]
-        workspace: PathBuf,
-        #[arg(long)]
-        app: String,
-    },
     /// List v0 built-in surface constructors
     DescribeSurface {
         #[arg(long)]
@@ -79,9 +75,7 @@ enum BundleCommand {
         kind: Option<String>,
     },
     /// Print manifest and compression sizes
-    Stats {
-        path: PathBuf,
-    },
+    Stats { path: PathBuf },
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -104,11 +98,12 @@ fn main() -> Result<()> {
             emit_debug,
         } => compile_app_cmd(&workspace, &app, out.as_deref(), format, pretty, emit_debug),
         Command::Bundle { command } => match command {
-            BundleCommand::Inspect { path, pretty, kind } => bundle_inspect(&path, pretty, kind.as_deref()),
+            BundleCommand::Inspect { path, pretty, kind } => {
+                bundle_inspect(&path, pretty, kind.as_deref())
+            }
             BundleCommand::Stats { path } => bundle_stats_cmd(&path),
         },
         Command::Parse { file, expand } => parse_mei(&file, expand),
-        Command::Check { workspace, app } => check_app(&workspace, &app),
         Command::DescribeSurface { json } => describe_surface(json),
     }
 }
@@ -162,12 +157,12 @@ fn compile_app_cmd(
                     .parent()
                     .unwrap_or_else(|| out_path.as_path())
                     .join(format!(
-                    "{}.blocks.pretty.json",
-                    out_path
-                        .file_stem()
-                        .and_then(|stem| stem.to_str())
-                        .unwrap_or("bundle")
-                ));
+                        "{}.blocks.pretty.json",
+                        out_path
+                            .file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .unwrap_or("bundle")
+                    ));
                 println!(
                     "debug sidecar: {}",
                     path_for_log(workspace, sidecar.as_path())
@@ -203,7 +198,10 @@ fn bundle_stats_cmd(path: &Path) -> Result<()> {
     println!("syntax_version: {}", m.syntax_version);
     println!("block_count: {}", m.block_count);
     println!("workspace_digest: {}", m.workspace_digest);
-    println!("index_by_kind: {}", serde_json::to_string(&m.index_by_kind)?);
+    println!(
+        "index_by_kind: {}",
+        serde_json::to_string(&m.index_by_kind)?
+    );
     println!("bundle_bytes: {}", stats.bundle_bytes);
     println!("blocks_json_bytes: {}", stats.blocks_json_bytes);
     println!("blocks_zstd_bytes: {}", stats.blocks_zstd_bytes);
@@ -237,8 +235,14 @@ fn parse_mei(file: &Path, expand: bool) -> Result<()> {
             .context("could not locate workspace.json for macro expand")?;
         let templates_rel = read_templates_rel(workspace);
         let templates_root = workspace.join(&templates_rel);
-        let registry = mei_graph::MacroRegistry::load_dir(&templates_root)?;
-        let expanded = mei_graph::expand_v2_file(&parsed, &registry, &templates_root)
+        let app_root = file
+            .ancestors()
+            .find(|p| p.join("mei.lang.json").is_file() || p.join("app.config.json").is_file())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| workspace.join("apps").join("_unknown"));
+        let roots = mei_graph::TemplateRoots::from_app_and_stock(&app_root, templates_root);
+        let registry = mei_graph::MacroRegistry::load_layered(&roots)?;
+        let expanded = mei_graph::expand_v2_file(&parsed, &registry, &roots)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         serde_json::to_value(&expanded).context("serialize expanded v2")?
     } else {
@@ -256,67 +260,6 @@ fn emit_decl(file: &Path) -> Result<()> {
         serde_json::to_string_pretty(&payload).context("serialize decl IR")?
     );
     Ok(())
-}
-
-fn check_app(workspace: &Path, app: &str) -> Result<()> {
-    #[cfg(not(feature = "check"))]
-    {
-        let _ = (workspace, app);
-        bail!("`check` requires building mei-compiler with `--features check` (links Starlark for golden diff)");
-    }
-    #[cfg(feature = "check")]
-    check_app_with_starlark(workspace, app)
-}
-
-#[cfg(feature = "check")]
-fn check_app_with_starlark(workspace: &Path, app: &str) -> Result<()> {
-    let app_dir = workspace.join("apps").join(app);
-    let main_mei = app_dir.join("src/main.mei");
-    if !main_mei.is_file() {
-        bail!("missing app entry: {}", main_mei.display());
-    }
-
-    let mut files = vec![main_mei.clone()];
-    let scenes_dir = app_dir.join("src/scenes");
-    if scenes_dir.is_dir() {
-        for entry in std::fs::read_dir(&scenes_dir).context("read scenes dir")? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "mei") {
-                files.push(path);
-            }
-        }
-        files.sort();
-    }
-
-    for path in files {
-        let starlark = evaluate_starlark(&path)?;
-        let native = JsonValue::Array(
-            lower_path(&path)
-                .with_context(|| format!("native lower {}", path.display()))?
-                .exports,
-        );
-        if !decl_ir_equal(&starlark, &native) {
-            eprintln!("decl IR mismatch: {}", path.display());
-            eprintln!(
-                "starlark:\n{}",
-                serde_json::to_string_pretty(&normalize_decl_ir(&starlark))?
-            );
-            eprintln!(
-                "native:\n{}",
-                serde_json::to_string_pretty(&normalize_decl_ir(&native))?
-            );
-            std::process::exit(1);
-        }
-        println!("ok {}", path.display());
-    }
-    Ok(())
-}
-
-#[cfg(feature = "check")]
-fn evaluate_starlark(path: &Path) -> Result<JsonValue> {
-    mei_lang_kernel::evaluate_mei_file(path)
-        .with_context(|| format!("starlark evaluate {}", path.display()))
 }
 
 fn describe_surface(json: bool) -> Result<()> {
@@ -337,30 +280,6 @@ fn describe_surface(json: bool) -> Result<()> {
         }
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-fn normalize_decl_ir(value: &JsonValue) -> JsonValue {
-    match value {
-        JsonValue::Object(map) => {
-            let mut keys: Vec<_> = map.keys().cloned().collect();
-            keys.sort();
-            let mut out = serde_json::Map::new();
-            for key in keys {
-                if let Some(entry) = map.get(&key) {
-                    out.insert(key, normalize_decl_ir(entry));
-                }
-            }
-            JsonValue::Object(out)
-        }
-        JsonValue::Array(items) => JsonValue::Array(items.iter().map(normalize_decl_ir).collect()),
-        other => other.clone(),
-    }
-}
-
-#[allow(dead_code)]
-fn decl_ir_equal(left: &JsonValue, right: &JsonValue) -> bool {
-    normalize_decl_ir(left) == normalize_decl_ir(right)
 }
 
 fn path_for_log(workspace: &Path, path: &Path) -> String {

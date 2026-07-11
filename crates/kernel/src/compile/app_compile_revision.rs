@@ -17,7 +17,6 @@ use crate::{
 };
 
 use crate::compile::app_decl::decode_app_decl;
-use crate::compile::authoring_eval::install_authoring_eval_context;
 use crate::compile::catalog::{
     build_dataset_catalog_filter, resolve_dataset_catalog_compile_rels, DatasetCatalogFilter,
 };
@@ -29,8 +28,6 @@ use crate::compile::discover_routes::{
 use crate::compile::scene::{find_scene_route, resolve_scene_routes};
 
 pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
-    let source_root = crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
-    let _authoring_guard = install_authoring_eval_context(&source_root)?;
     let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
@@ -54,7 +51,6 @@ pub fn compile_revision_plan_from_root_with_options(
     app_root: &Path,
     options: &CompileOptions,
 ) -> Result<CompileRevisionPlan> {
-    let _authoring_guard = install_authoring_eval_context(source_root)?;
     let app_entry_main = resolve_app_entry_main(app_root);
     let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
@@ -223,11 +219,6 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
 
     let components_revision = crate::compile::scene_payload_cache::components_revision(source_root);
     token_parts.insert("components".to_string(), components_revision.to_string());
-    if let Ok(helpers) = crate::mei_config::resolve_authoring_helpers(source_root) {
-        if !helpers.fingerprint.is_empty() {
-            token_parts.insert("authoring".to_string(), helpers.fingerprint);
-        }
-    }
     let watched_files = watched_paths
         .into_iter()
         .map(|rel_path| {

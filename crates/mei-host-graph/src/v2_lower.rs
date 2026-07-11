@@ -1,9 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use mei_graph::{collect_template_imports, try_expand_artifact_macro_call, MacroRegistry};
+use mei_graph::{
+    collect_template_imports, try_expand_artifact_macro_call, MacroRegistry, TemplateRoots,
+};
 use mei_lang_kernel::{
     decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, FrameDecl,
     LayoutDecl, UiNodeDecl, UiTreeNode,
@@ -14,9 +16,12 @@ use crate::assemble::{assembly_key_to_target, assembly_source_file_from_payload}
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::presentation_map::resolve_viewpoint_id;
+use crate::surface::{
+    apply_surface_to_props, normalize_surface, surface_field_layout_call, surface_template_name,
+};
 use crate::tier::{
-    canonical_tier, compute_panel_z_index, parse_stack_order_value, props_contain_forbidden_z_index,
-    resolve_stack_order,
+    canonical_tier, compute_panel_z_index, parse_stack_order_value,
+    props_contain_forbidden_z_index, resolve_stack_order,
 };
 use crate::types::GraphNodeKind;
 
@@ -176,10 +181,7 @@ fn resolve_panel_props_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Valu
     resolve_panel_constant_exprs(value, ctx)
 }
 
-pub(crate) fn resolve_panel_props_for_shell(
-    value: &Value,
-    ctx: &PanelLowerContext<'_>,
-) -> Value {
+pub(crate) fn resolve_panel_props_for_shell(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
     resolve_panel_props_value(value, ctx)
 }
 
@@ -218,6 +220,7 @@ pub fn lower_panel_payload(
     panel_key: &str,
     ctx: &PanelLowerContext<'_>,
 ) -> Result<UiNodeDecl> {
+    reject_removed_layout_forms(payload)?;
     let id = payload
         .get("id")
         .and_then(|v| v.as_str())
@@ -239,17 +242,22 @@ pub fn lower_panel_payload(
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
     if let Some(extra) = payload.get("props") {
-        let resolved = resolve_panel_props_value(
-            &resolve_config_refs_in_value(extra, ctx),
-            ctx,
-        );
+        let resolved = resolve_panel_props_value(&resolve_config_refs_in_value(extra, ctx), ctx);
         if resolved.is_object() {
             deep_merge_value(&mut props, &resolved);
         }
     }
     apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
+    if let Some(surface) = payload.get("surface").and_then(Value::as_str) {
+        apply_surface_to_props(&mut props, surface);
+    }
 
-    let blocks = lower_blocks(payload.get("blocks"), ctx)?;
+    let mut blocks = lower_blocks(payload.get("blocks"), ctx)?;
+    let layout = payload
+        .get("layout")
+        .and_then(|v| lower_layout_with_ctx(v, ctx));
+    apply_container_placements(&mut blocks, payload.get("placements"));
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
     apply_view_family_hints(payload, &blocks, &mut props);
 
     Ok(UiNodeDecl {
@@ -261,7 +269,7 @@ pub fn lower_panel_payload(
             .map(str::to_string),
         head: None,
         area,
-        layout: payload.get("layout").and_then(lower_layout),
+        layout,
         blocks,
         slot: None,
         props,
@@ -270,6 +278,34 @@ pub fn lower_panel_payload(
         base: None,
         import_scope: None,
     })
+}
+
+/// Reject removed `grid_ref` / plan-shaped layout. Inline `grid(...)` needs no expansion.
+fn reject_removed_layout_forms(payload: &Value) -> Result<()> {
+    let Some(layout) = payload.get("layout") else {
+        return Ok(());
+    };
+    if v2_ref_name(layout) == Some("grid_ref") || v2_call_name(layout) == Some("grid_ref") {
+        anyhow::bail!(
+            "grid_ref(...) is removed; write layout = grid(rows/columns/areas/...) and nest panel/metric_card blocks (see 0332)"
+        );
+    }
+    // Old inline plan object used top-level placements[] (array of {area,id}).
+    if layout
+        .get("placements")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("area").is_some()
+                    && (item.get("id").is_some() || item.get("ref").is_some())
+            })
+        })
+    {
+        anyhow::bail!(
+            "layout.placements[] plan form is removed; use child id→area matching and optional placements map (see 0332)"
+        );
+    }
+    Ok(())
 }
 
 fn lower_panel_with_slots(
@@ -319,6 +355,9 @@ fn lower_panel_with_slots(
         }
     }
 
+    let layout = payload.get("layout").and_then(lower_layout);
+    apply_container_placements(&mut blocks, payload.get("placements"));
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
     apply_view_family_hints(payload, &blocks, &mut props);
 
     Ok(UiNodeDecl {
@@ -327,7 +366,7 @@ fn lower_panel_with_slots(
         title: None,
         head: None,
         area,
-        layout: payload.get("layout").and_then(lower_layout),
+        layout,
         blocks,
         slot: None,
         props,
@@ -351,9 +390,9 @@ fn lower_panel_from_shell(
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
         Some("section_shell") => lower_section_shell_panel(shell, id, area, ctx, Some(payload)),
-        Some("titled_shell") => anyhow::bail!(
-            "titled_shell is deleted; use section_shell for panel `{id}`"
-        ),
+        Some("titled_shell") => {
+            anyhow::bail!("titled_shell is deleted; use section_shell for panel `{id}`")
+        }
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
 }
@@ -492,14 +531,14 @@ fn titled_shell_body_props(args: &Value, ctx: &PanelLowerContext<'_>) -> Value {
         return body_props;
     };
     let resolved = resolve_panel_constant_exprs(padding, ctx);
-    let Some(padding_str) = resolved.as_str().map(str::trim).filter(|value| !value.is_empty())
+    let Some(padding_str) = resolved
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     else {
         return body_props;
     };
-    let map = body_props
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let map = body_props.as_object().cloned().unwrap_or_default();
     let mut map = map;
     map.insert("padding".to_string(), json!(padding_str));
     map.entry("box_sizing".to_string())
@@ -525,11 +564,7 @@ fn lower_section_shell_panel(
         if let Some(profile) = args.get("padding_profile").and_then(|v| v.as_str()) {
             map.insert("__mei_padding_profile".to_string(), json!(profile));
             if let Some(padding) = mei_lang_kernel::padding_profile_css(profile) {
-                let mut body_map = panel
-                    .body_props
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default();
+                let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
                 body_map
                     .entry("padding".to_string())
                     .or_insert_with(|| json!(padding));
@@ -583,6 +618,59 @@ fn lower_section_like_shell_panel(
         blocks.extend(lower_blocks(args.get("blocks"), ctx)?);
     }
 
+    let layout = outer_payload
+        .and_then(|outer| outer.get("layout"))
+        .or_else(|| args.get("layout"))
+        .and_then(lower_layout);
+    let has_title_area = layout_has_area(layout.as_ref(), "title");
+    let has_body_area = layout_has_area(layout.as_ref(), "body");
+    if has_title_area {
+        if let Some(title) = args
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        {
+            blocks.insert(
+                0,
+                UiTreeNode::Block(projected_section_text_block("title", title)),
+            );
+        }
+    }
+    for field in ["status", "actions"] {
+        if !layout_has_area(layout.as_ref(), field) {
+            continue;
+        }
+        let Some(content) = args.get(field) else {
+            continue;
+        };
+        let mut projected = if let Some(text) = content.as_str() {
+            vec![UiTreeNode::Block(projected_section_text_block(field, text))]
+        } else {
+            lower_block_node(content, ctx)?
+        };
+        for node in &mut projected {
+            set_node_id_if_missing(node, field);
+            set_node_area_if_unassigned(node, field);
+        }
+        blocks.extend(projected);
+    }
+    if has_body_area {
+        if let Some(body) = blocks.iter_mut().find(|node| {
+            !matches!(
+                node,
+                UiTreeNode::Block(block) if block.id.as_deref() == Some("title")
+            )
+        }) {
+            set_node_area_if_unassigned(body, "body");
+        }
+    }
+    apply_container_placements(&mut blocks, args.get("placements"));
+    if let Some(outer) = outer_payload {
+        apply_container_placements(&mut blocks, outer.get("placements"));
+    }
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
+
     let mut body_props = titled_shell_body_props(args, ctx);
     hoist_titled_shell_body_padding(&mut blocks, &mut body_props);
 
@@ -592,13 +680,13 @@ fn lower_section_like_shell_panel(
     Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
-        title: args
-            .get("title")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        // Section title is metadata unless the author explicitly allocates `title`.
+        // The projected block above owns display; keeping this empty prevents the
+        // panel normalizer from synthesizing the legacy `title_zone` shell.
+        title: None,
         head: None,
         area,
-        layout: args.get("layout").and_then(lower_layout),
+        layout,
         blocks,
         slot: None,
         props,
@@ -630,7 +718,11 @@ fn lower_panel_from_generic_shell(
     merge_head_props_from_source(&mut head_props, args);
     finalize_panel_head_props(&mut head_props);
 
-    let blocks = lower_blocks(args.get("blocks"), ctx)?;
+    let mut blocks = lower_blocks(args.get("blocks"), ctx)?;
+    let layout = args.get("layout").and_then(lower_layout);
+    apply_container_placements(&mut blocks, args.get("placements"));
+    apply_container_placements(&mut blocks, payload.get("placements"));
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
     apply_view_family_hints(payload, &blocks, &mut props);
 
     Ok(UiNodeDecl {
@@ -642,7 +734,7 @@ fn lower_panel_from_generic_shell(
             .map(str::to_string),
         head: None,
         area,
-        layout: args.get("layout").and_then(lower_layout),
+        layout,
         blocks,
         slot: None,
         props,
@@ -711,7 +803,9 @@ fn apply_tier_and_placement(
                 "header" => "header",
                 "viewport" | "viewport_frame" | "map_tools" => "viewport_chrome",
                 "center_float" | "float_dock" => "float_dock",
-                "map" | "stage" | "map_stage" | "stage_aperture" | "map_interaction_surface" => "stage",
+                "map" | "stage" | "map_stage" | "stage_aperture" | "map_interaction_surface" => {
+                    "stage"
+                }
                 _ => "region",
             };
             map.insert("__mei_ui_role".to_string(), json!(ui_role));
@@ -721,7 +815,7 @@ fn apply_tier_and_placement(
             }
         }
     }
-    apply_placement(payload.get("placement"), props);
+    apply_placement(payload.get("placement"), props, tier)?;
     apply_float_dock_overlay_defaults(payload, props);
     if let Some(tier) = tier {
         let chrome_role = payload.get("chrome_role").and_then(|v| v.as_str());
@@ -968,17 +1062,25 @@ const PLACEMENT_DIMENSION_KEYS: &[&str] = &[
     "max_height",
 ];
 
-fn apply_placement(placement: Option<&Value>, props: &mut Value) {
+fn apply_placement(placement: Option<&Value>, props: &mut Value, tier: Option<&str>) -> Result<()> {
     let Some(placement) = placement else {
-        return;
+        return Ok(());
     };
     let call = v2_call_name(placement);
     let args = v2_call_args(placement).unwrap_or(placement);
+    if call == Some("fill_stage") && tier != Some("t0") {
+        anyhow::bail!("fill_stage() placement is restricted to T0 panels");
+    }
     let Some(map) = props.as_object_mut() else {
-        return;
+        return Ok(());
     };
-    if call.as_deref() == Some("absolute") {
+    if call == Some("absolute") {
         map.insert("position".to_string(), json!("absolute"));
+    } else if call == Some("fill_stage") {
+        map.insert("position".to_string(), json!("absolute"));
+        map.insert("inset".to_string(), json!("0"));
+        map.insert("__mei_platform_placement".to_string(), json!(true));
+        map.insert("__mei_stage_placement".to_string(), json!("fill"));
     }
     if let Some(args_obj) = args.as_object() {
         for (key, value) in args_obj {
@@ -999,6 +1101,7 @@ fn apply_placement(placement: Option<&Value>, props: &mut Value) {
             map.insert(key.clone(), value.clone());
         }
     }
+    Ok(())
 }
 
 fn apply_float_dock_overlay_defaults(payload: &Value, props: &mut Value) {
@@ -1053,6 +1156,18 @@ fn dimension_as_text(value: &Value) -> Option<String> {
 }
 
 pub(crate) fn lower_layout(value: &Value) -> Option<LayoutDecl> {
+    lower_layout_inner(value, None)
+}
+
+fn lower_layout_with_ctx(value: &Value, ctx: &PanelLowerContext<'_>) -> Option<LayoutDecl> {
+    lower_layout_inner(value, Some(ctx.app_root))
+}
+
+fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDecl> {
+    let _ = app_root;
+    if v2_ref_name(value) == Some("grid_ref") || v2_call_name(value) == Some("grid_ref") {
+        return None;
+    }
     let layout_type = v2_call_name(value)?.to_string();
     let args = v2_call_args(value).unwrap_or(value);
     let obj = args.as_object()?;
@@ -1131,6 +1246,10 @@ fn workspace_stock_templates(app_root: &Path) -> PathBuf {
         .unwrap_or_else(|| app_root.join("stock/templates"))
 }
 
+fn template_roots_for_app(app_root: &Path) -> TemplateRoots {
+    TemplateRoots::from_app_and_stock(app_root, workspace_stock_templates(app_root))
+}
+
 struct TemplateMacroCache {
     registry: MacroRegistry,
     imports: BTreeMap<String, String>,
@@ -1139,23 +1258,29 @@ struct TemplateMacroCache {
 fn template_macro_cache(app_root: &Path) -> Option<TemplateMacroCache> {
     static CACHE: std::sync::OnceLock<Mutex<BTreeMap<PathBuf, TemplateMacroCache>>> =
         std::sync::OnceLock::new();
-    let stock = workspace_stock_templates(app_root);
-    if !stock.is_dir() {
+    let roots = template_roots_for_app(app_root);
+    let has_any = roots.app_templates.is_dir() || roots.app_src.is_dir() || roots.stock.is_dir();
+    if !has_any {
         return None;
     }
-    let canonical = stock.canonicalize().ok()?;
+    let cache_key = app_root.canonicalize().ok().unwrap_or_else(|| app_root.to_path_buf());
     let mutex = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     let mut guard = mutex.lock().ok()?;
-    if let Some(cached) = guard.get(&canonical) {
+    if let Some(cached) = guard.get(&cache_key) {
         return Some(TemplateMacroCache {
             registry: cached.registry.clone(),
             imports: cached.imports.clone(),
         });
     }
-    let registry = MacroRegistry::load_dir(canonical.as_path()).ok()?;
-    let imports = collect_template_imports(canonical.as_path());
+    let registry = MacroRegistry::load_layered(&roots).ok()?;
+    let mut imports = BTreeMap::new();
+    for root in [&roots.app_templates, &roots.app_src, &roots.stock] {
+        if root.is_dir() {
+            imports.extend(collect_template_imports(root));
+        }
+    }
     guard.insert(
-        canonical.clone(),
+        cache_key,
         TemplateMacroCache {
             registry: registry.clone(),
             imports: imports.clone(),
@@ -1227,6 +1352,7 @@ pub(crate) fn lower_v2_inline_panels_from_assembly(
 
 fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
     let args = v2_call_args(value).context("panel missing __args")?;
+    reject_removed_layout_forms(args)?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
     let id = resolve_panel_id_value(args.get("id"), ctx, "panel");
     let area = args
@@ -1272,13 +1398,18 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNo
         }
     }
     apply_tier_and_placement(args, &mut props, ctx.assembly_stack_order)?;
+    if let Some(surface) = args.get("surface").and_then(Value::as_str) {
+        apply_surface_to_props(&mut props, surface);
+    }
 
     let layout = args
         .get("layout")
         .or_else(|| expanded_template.and_then(|t| t.get("layout")))
-        .and_then(lower_layout);
+        .and_then(|v| lower_layout_with_ctx(v, ctx));
 
-    let blocks = lower_blocks(args.get("blocks"), ctx)?;
+    let mut blocks = lower_blocks(args.get("blocks"), ctx)?;
+    apply_container_placements(&mut blocks, args.get("placements"));
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
     apply_view_family_hints(args, &blocks, &mut props);
 
     Ok(UiNodeDecl {
@@ -1322,23 +1453,32 @@ fn metric_ratio_from_props(props: &Value, key: &str, fallback: u32) -> u32 {
         .unwrap_or(fallback)
 }
 
-fn metric_layout_role_to_preset(role: &str) -> &str {
-    match role.trim() {
-        "plain" => "plain",
-        "solid_stack" => "solid_stack",
-        "stack_desc" => "stack_desc",
-        "stack_progress" => "stack_desc",
-        "compound_top_row" => "compound_top_row",
-        "compound_sub_stack" => "compound_sub_stack",
-        "icon_left" => "icon_left",
-        "strip_icon_left" => "strip_icon_left",
-        "solid_row_accent" => "solid_row_accent",
-        "solid_row_compact" => "solid_row_compact",
-        _ => "plain",
+fn reject_removed_metric_layout_apis(args: &Value) -> Result<()> {
+    if args.get("atom_ref").is_some() || args.get("atom").is_some() {
+        anyhow::bail!(
+            "atom_ref / *.metric.json is removed; use surface=\"...\" and optional layout = grid(...)"
+        );
     }
+    if args.get("layout_role").is_some() {
+        anyhow::bail!(
+            "layout_role is removed; use surface=\"...\" (same token names) on metric/metric_card (see 0332)"
+        );
+    }
+    Ok(())
+}
+
+fn resolve_metric_surface<'a>(args: &'a Value) -> &'a str {
+    if let Some(surface) = args.get("surface").and_then(Value::as_str) {
+        return normalize_surface(surface);
+    }
+    "none"
 }
 
 fn resolve_metric_atom_source(args: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    // Prefer explicit `metric=` (0332) over default `source=` from macros.
+    if let Some(metric) = args.get("metric").filter(|value| !value.is_null()) {
+        return resolve_config_refs_in_value(metric, ctx);
+    }
     if let Some(source) = args.get("source") {
         return resolve_config_refs_in_value(source, ctx);
     }
@@ -1354,10 +1494,7 @@ fn resolve_metric_atom_source(args: &Value, ctx: &PanelLowerContext<'_>) -> Valu
             .unwrap_or(json!("")),
     ) {
         let mut out = Map::new();
-        out.insert(
-            "label".to_string(),
-            label.clone(),
-        );
+        out.insert("label".to_string(), label.clone());
         out.insert("value".to_string(), value);
         out.insert("unit".to_string(), unit);
         if let Some(desc) = args.get("desc") {
@@ -1376,35 +1513,230 @@ fn strip_metric_atom_shell_chrome(props: &mut Value) {
     }
 }
 
+fn apply_id_as_area_defaults(blocks: &mut [UiTreeNode], layout: Option<&LayoutDecl>) {
+    let areas: Vec<String> = layout
+        .and_then(|layout| layout.areas.as_ref())
+        .map(|rows| {
+            rows.iter()
+                .flat_map(|row| row.iter().cloned())
+                .filter(|area| area != "." && area != "_")
+                .collect()
+        })
+        .unwrap_or_default();
+    for node in blocks.iter_mut() {
+        match node {
+            UiTreeNode::Block(block) => {
+                if block
+                    .area
+                    .as_deref()
+                    .is_none_or(|a| a.is_empty() || a == "auto")
+                {
+                    if let Some(id) = block.id.clone() {
+                        if areas.is_empty() || areas.iter().any(|area| area == &id) {
+                            block.area = Some(id);
+                        }
+                    }
+                }
+            }
+            UiTreeNode::Panel(panel) => {
+                if panel.area.as_deref().is_none_or(|a| a.is_empty()) {
+                    if areas.is_empty() || areas.iter().any(|area| area == &panel.id) {
+                        panel.area = Some(panel.id.clone());
+                    }
+                }
+                let nested_layout = panel.layout.clone();
+                apply_id_as_area_defaults(&mut panel.blocks, nested_layout.as_ref());
+            }
+            UiTreeNode::PanelRefEmbed(embed) => {
+                if embed
+                    .area
+                    .as_deref()
+                    .is_none_or(|a| a.is_empty() || a == "auto")
+                {
+                    if let Some(id) = embed.id.clone() {
+                        if areas.is_empty() || areas.iter().any(|area| area == &id) {
+                            embed.area = Some(id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn apply_container_placements(blocks: &mut [UiTreeNode], placements: Option<&Value>) {
+    let Some(map) = placements.and_then(Value::as_object) else {
+        return;
+    };
+    for node in blocks.iter_mut() {
+        let Some(id) = node_id(node).map(str::to_string) else {
+            continue;
+        };
+        let Some(placement) = map.get(&id).and_then(Value::as_object) else {
+            continue;
+        };
+        if let Some(area) = placement.get("area").and_then(Value::as_str) {
+            set_node_area(node, area);
+        }
+        match node {
+            UiTreeNode::Block(block) => {
+                if let Some(props) = block.props.as_object_mut() {
+                    merge_placement_props(props, placement);
+                }
+            }
+            UiTreeNode::Panel(panel) => {
+                if let Some(props) = panel.props.as_object_mut() {
+                    merge_placement_props(props, placement);
+                }
+            }
+            UiTreeNode::PanelRefEmbed(_) => {}
+        }
+    }
+}
+
+fn merge_placement_props(target: &mut Map<String, Value>, placement: &Map<String, Value>) {
+    for (key, value) in placement {
+        if key != "area" {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+fn node_id(node: &UiTreeNode) -> Option<&str> {
+    match node {
+        UiTreeNode::Block(block) => block.id.as_deref(),
+        UiTreeNode::Panel(panel) => Some(panel.id.as_str()),
+        UiTreeNode::PanelRefEmbed(embed) => embed.id.as_deref(),
+    }
+}
+
+fn set_node_area(node: &mut UiTreeNode, area: &str) {
+    match node {
+        UiTreeNode::Block(block) => block.area = Some(area.to_string()),
+        UiTreeNode::Panel(panel) => panel.area = Some(area.to_string()),
+        UiTreeNode::PanelRefEmbed(embed) => embed.area = Some(area.to_string()),
+    }
+}
+
+fn set_node_area_if_unassigned(node: &mut UiTreeNode, area: &str) {
+    let current = match node {
+        UiTreeNode::Block(block) => block.area.as_deref(),
+        UiTreeNode::Panel(panel) => panel.area.as_deref(),
+        UiTreeNode::PanelRefEmbed(embed) => embed.area.as_deref(),
+    };
+    if current.is_none_or(|value| value.is_empty() || value == "auto") {
+        set_node_area(node, area);
+    }
+}
+
+fn set_node_id_if_missing(node: &mut UiTreeNode, id: &str) {
+    match node {
+        UiTreeNode::Block(block) if block.id.is_none() => block.id = Some(id.to_string()),
+        UiTreeNode::Panel(panel) if panel.id.is_empty() => panel.id = id.to_string(),
+        UiTreeNode::PanelRefEmbed(embed) if embed.id.is_none() => embed.id = Some(id.to_string()),
+        _ => {}
+    }
+}
+
+fn layout_has_area(layout: Option<&LayoutDecl>, area: &str) -> bool {
+    layout
+        .and_then(|layout| layout.areas.as_ref())
+        .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == area))
+}
+
+fn projected_section_text_block(id: &str, content: &str) -> BlockDecl {
+    BlockDecl {
+        kind: "block".to_string(),
+        use_key: "mei.text".to_string(),
+        id: Some(id.to_string()),
+        title: None,
+        area: Some(id.to_string()),
+        props: json!({ "content": content }),
+        base: None,
+        layout: None,
+        blocks: Vec::new(),
+        component: None,
+        placement: None,
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    }
+}
+
 fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode> {
     let args = v2_call_args(value).context("metric missing __args")?;
-    let layout_role = args
-        .get("layout_role")
-        .and_then(Value::as_str)
-        .unwrap_or("plain");
-    let template_name = metric_layout_role_to_preset(layout_role).to_string();
+    reject_removed_metric_layout_apis(args)?;
+    let surface = resolve_metric_surface(args);
+    let template_name = surface_template_name(surface).to_string();
     let mut args_with_source = args.clone();
     if let Some(obj) = args_with_source.as_object_mut() {
-        obj.insert(
-            "source".to_string(),
-            resolve_metric_atom_source(args, ctx),
-        );
+        obj.insert("source".to_string(), resolve_metric_atom_source(args, ctx));
+        let field_layout = args
+            .get("layout")
+            .cloned()
+            .unwrap_or_else(|| surface_field_layout_call(surface));
+        obj.insert("__mei_atom_layout".to_string(), field_layout);
+        obj.insert("surface".to_string(), json!(surface));
     }
+    // Chrome comes from surface on the card itself (no __chrome wrapper).
+    // surface only supplies field layout; keep shell transparent like before.
+    let transparent_shell = if args.get("surface").is_some() {
+        surface_chrome_is_none(surface)
+    } else {
+        true
+    };
     lower_metric_inner(
         value,
         &args_with_source,
         ctx,
         &template_name,
         None,
-        args.get("desc")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        true,
+        args.get("desc").and_then(Value::as_str).map(str::to_string),
+        transparent_shell,
+    )
+}
+
+fn surface_chrome_is_none(surface: &str) -> bool {
+    matches!(
+        normalize_surface(surface),
+        "none" | "plain" | "compound_top_row" | "compound_sub_stack"
     )
 }
 
 fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode> {
     let args = v2_call_args(value).context("metric_card missing __args")?;
+    reject_removed_metric_layout_apis(args)?;
+    // Prefer surface + inline layout path (0332). Legacy template= still accepted.
+    if args.get("surface").is_some()
+        || args.get("layout").is_some()
+        || args.get("template").is_none()
+    {
+        let surface = resolve_metric_surface(args);
+        let template_name = surface_template_name(surface).to_string();
+        let mut args_with_source = args.clone();
+        if let Some(obj) = args_with_source.as_object_mut() {
+            obj.insert(
+                "source".to_string(),
+                resolve_metric_atom_source(args, ctx),
+            );
+            let field_layout = args
+                .get("layout")
+                .cloned()
+                .unwrap_or_else(|| surface_field_layout_call(surface));
+            obj.insert("__mei_atom_layout".to_string(), field_layout);
+            obj.insert("surface".to_string(), json!(surface));
+        }
+        return lower_metric_inner(
+            value,
+            &args_with_source,
+            ctx,
+            &template_name,
+            None,
+            args.get("desc").and_then(Value::as_str).map(str::to_string),
+            surface_chrome_is_none(surface),
+        );
+    }
     let expanded_template = metric_expanded_template_args(args.get("template"));
     let template_name = if let Some(expanded) = expanded_template {
         expanded
@@ -1464,8 +1796,14 @@ fn lower_metric_inner(
     let content_ratio =
         metric_ratio_from_props(&props, "__mei_metric_content_ratio", preset.content_ratio);
 
-    let source =
-        resolve_config_refs_in_value(&args.get("source").cloned().unwrap_or(json!({})), ctx);
+    let source = {
+        let raw = if let Some(metric) = args.get("metric").filter(|value| !value.is_null()) {
+            metric.clone()
+        } else {
+            args.get("source").cloned().unwrap_or(json!({}))
+        };
+        resolve_config_refs_in_value(&raw, ctx)
+    };
     let map = args.get("map").cloned();
     let patch = args.get("patch").cloned();
     let presentation = merge_metric_presentation(args, &source, patch.as_ref())
@@ -1473,30 +1811,11 @@ fn lower_metric_inner(
     let popup = args
         .get("popup")
         .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
-    let desc_text = template_desc.or_else(|| {
-        args.get("desc")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    });
-    let mut blocks = metric_runtime_blocks(
-        &source,
-        layout_template,
-        map.as_ref(),
-        patch.as_ref(),
-        popup.as_ref(),
-        args,
-        ctx,
-    );
-    if layout_template == "stack_desc" {
-        let template_desc_from_macro = metric_template_desc_text(args.get("template"));
-        let desc = desc_text
-            .as_deref()
-            .or(template_desc_from_macro.as_deref());
-        if let Some(desc) = desc {
-            blocks.push(UiTreeNode::Block(metric_desc_slot_block(desc)));
-        }
-    }
-    let layout = if let Some(expanded) = expanded_template {
+    let desc_text =
+        template_desc.or_else(|| args.get("desc").and_then(Value::as_str).map(str::to_string));
+    let layout = if let Some(atom_layout) = args.get("__mei_atom_layout") {
+        lower_layout(atom_layout)
+    } else if let Some(expanded) = expanded_template {
         if expanded
             .get("layout")
             .and_then(v2_call_name)
@@ -1524,6 +1843,19 @@ fn lower_metric_inner(
             content_ratio,
         ))
     });
+    let template_desc_from_macro = metric_template_desc_text(args.get("template"));
+    let desc = desc_text.as_deref().or(template_desc_from_macro.as_deref());
+    let mut blocks = metric_runtime_blocks(
+        &source,
+        layout.as_ref(),
+        layout_template,
+        map.as_ref(),
+        patch.as_ref(),
+        popup.as_ref(),
+        args,
+        desc,
+        ctx,
+    )?;
 
     let mut panel_props = props;
     if let Some(viewpoint) = args.get("viewpoint") {
@@ -1540,7 +1872,11 @@ fn lower_metric_inner(
     }
     if transparent_shell {
         strip_metric_atom_shell_chrome(&mut panel_props);
+    } else if let Some(surface) = args.get("surface").and_then(Value::as_str) {
+        apply_surface_to_props(&mut panel_props, surface);
     }
+    apply_container_placements(&mut blocks, args.get("placements"));
+    apply_id_as_area_defaults(&mut blocks, layout.as_ref());
 
     let default_id = if v2_call_name(value) == Some("metric") {
         "metric"
@@ -1645,7 +1981,7 @@ fn metric_desc_slot_block(desc: &str) -> BlockDecl {
     BlockDecl {
         kind: "block".to_string(),
         use_key: "mei.text".to_string(),
-        id: None,
+        id: Some("desc".to_string()),
         title: None,
         area: Some("desc".to_string()),
         props: Value::Object(props),
@@ -1663,23 +1999,51 @@ fn metric_desc_slot_block(desc: &str) -> BlockDecl {
 
 fn metric_runtime_blocks(
     source: &Value,
+    layout: Option<&LayoutDecl>,
     template: &str,
     map: Option<&Value>,
     patch: Option<&Value>,
     popup: Option<&Value>,
     args: &Value,
+    desc: Option<&str>,
     ctx: &PanelLowerContext<'_>,
-) -> Vec<UiTreeNode> {
+) -> Result<Vec<UiTreeNode>> {
     let constants = combined_panel_constants(ctx);
-    let roles = ["label", "value", "unit"];
-    roles
-        .into_iter()
-        .map(|role| {
-            UiTreeNode::Block(metric_runtime_slot_block(
-                source, role, role, template, map, patch, popup, args, &constants,
-            ))
+    let areas = layout
+        .and_then(|layout| layout.areas.as_ref())
+        .map(|rows| {
+            rows.iter()
+                .flatten()
+                .map(String::as_str)
+                .filter(|area| !matches!(*area, "." | "_"))
+                .collect::<BTreeSet<_>>()
         })
-        .collect()
+        .unwrap_or_default();
+    let mut blocks = Vec::new();
+    for role in ["label", "value", "unit", "icon", "desc"] {
+        if !areas.contains(role) {
+            continue;
+        }
+        let explicit = args.get(role).or_else(|| source.get(role));
+        let dynamic_source = v2_ref_name(source).is_some()
+            || source.get("__ref").and_then(Value::as_str) == Some("metric");
+        let exists = explicit.is_some() || dynamic_source || (role == "desc" && desc.is_some());
+        if !exists {
+            anyhow::bail!(
+                "metric_card layout area `{role}` has no corresponding field in metric data"
+            );
+        }
+        if role == "desc" {
+            if let Some(desc) = desc {
+                blocks.push(UiTreeNode::Block(metric_desc_slot_block(desc)));
+                continue;
+            }
+        }
+        blocks.push(UiTreeNode::Block(metric_runtime_slot_block(
+            source, role, role, template, map, patch, popup, args, &constants,
+        )));
+    }
+    Ok(blocks)
 }
 
 fn metric_runtime_slot_block(
@@ -1729,7 +2093,7 @@ fn metric_runtime_slot_block(
     BlockDecl {
         kind: "block".to_string(),
         use_key: "mei.text".to_string(),
-        id: None,
+        id: Some(role.to_string()),
         title: None,
         area: Some(area.to_string()),
         props: Value::Object(props),
@@ -1998,11 +2362,7 @@ fn deep_merge_value(base: &mut Value, overlay: &Value) {
     }
 }
 
-fn merge_metric_presentation(
-    args: &Value,
-    source: &Value,
-    patch: Option<&Value>,
-) -> Option<Value> {
+fn merge_metric_presentation(args: &Value, source: &Value, patch: Option<&Value>) -> Option<Value> {
     let mut merged = Map::new();
     if let Some(presentation) = source
         .as_object()
@@ -2448,27 +2808,26 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                     }
                 }
             }
-            if v2_ref_name(&value) == Some("world_ref")
-                || v2_call_name(&value) == Some("world_ref")
+            if v2_ref_name(&value) == Some("world_ref") || v2_call_name(&value) == Some("world_ref")
             {
                 if let Some(key) = v2_ref_arg0(&value) {
                     return json!(resolve_world_ref_id(ctx, key.as_str()));
                 }
             }
-            if v2_ref_name(&value) == Some("map_ref")
-                || v2_call_name(&value) == Some("map_ref")
-            {
+            if v2_ref_name(&value) == Some("map_ref") || v2_call_name(&value) == Some("map_ref") {
                 if let Some(key) = v2_ref_arg0(&value) {
-                    if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "map_spec") {
+                    if let Some(resolved) =
+                        resolve_semantic_resource_value(ctx, key.as_str(), "map_spec")
+                    {
                         return resolve_config_refs_in_value(&resolved, ctx);
                     }
                 }
             }
-            if v2_ref_name(&value) == Some("view_ref")
-                || v2_call_name(&value) == Some("view_ref")
-            {
+            if v2_ref_name(&value) == Some("view_ref") || v2_call_name(&value) == Some("view_ref") {
                 if let Some(key) = v2_ref_arg0(&value) {
-                    if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "view_spec") {
+                    if let Some(resolved) =
+                        resolve_semantic_resource_value(ctx, key.as_str(), "view_spec")
+                    {
                         return resolve_config_refs_in_value(&resolved, ctx);
                     }
                 }
@@ -2503,7 +2862,12 @@ fn resolve_world_ref_id(ctx: &PanelLowerContext<'_>, key: &str) -> String {
         return String::new();
     }
     if let Some(payload) = load_semantic_resource_payload(ctx, normalized, "world") {
-        if let Some(id) = payload.get("id").and_then(Value::as_str).map(str::trim).filter(|id| !id.is_empty()) {
+        if let Some(id) = payload
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
             return id.to_string();
         }
     }
@@ -2550,7 +2914,10 @@ fn load_semantic_resource_payload(
     })?;
     let pref = node.payload_ref.as_ref()?;
     let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
-    let kind = artifact.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let kind = artifact
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if kind != expected_kind && !(expected_kind == "world" && kind == "world") {
         return None;
     }
@@ -2675,7 +3042,7 @@ fn titled_shell_template_head_props() -> Value {
     })
 }
 
-/// Align v2 DSL `title_*` head fields with SSR chrome keys (`ui.star` `_panel_node` mapping).
+/// Align v2 DSL `title_*` head fields with SSR chrome keys (`_panel_node` mapping).
 fn finalize_panel_head_props(head_props: &mut Value) {
     let Some(map) = head_props.as_object_mut() else {
         return;
@@ -2777,7 +3144,10 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
                 continue;
             }
             if let Some(value) = args.get(source_key).cloned() {
-                map.insert(target_key.to_string(), resolve_config_refs_in_value(&value, ctx));
+                map.insert(
+                    target_key.to_string(),
+                    resolve_config_refs_in_value(&value, ctx),
+                );
             }
         }
     }
@@ -2909,6 +3279,27 @@ mod tests {
     use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 
     #[test]
+    fn fill_stage_placement_lowers_only_for_t0() {
+        let t0 = json!({
+            "tier": "t0",
+            "placement": {"__call": "fill_stage", "__args": {}}
+        });
+        let mut props = json!({});
+        apply_tier_and_placement(&t0, &mut props, None).expect("T0 fill_stage");
+        assert_eq!(props["position"], json!("absolute"));
+        assert_eq!(props["inset"], json!("0"));
+        assert_eq!(props["__mei_stage_placement"], json!("fill"));
+
+        let t1 = json!({
+            "tier": "t1",
+            "placement": {"__call": "fill_stage", "__args": {}}
+        });
+        let error = apply_tier_and_placement(&t1, &mut json!({}), None)
+            .expect_err("fill_stage must reject non-T0");
+        assert!(error.to_string().contains("restricted to T0"));
+    }
+
+    #[test]
     fn lower_frame_builds_viewport_from_canvas() {
         let payload = json!({
             "scene": "home",
@@ -2977,9 +3368,7 @@ mod tests {
     #[test]
     fn content_panel_lookup_resolves_content_ref_basename() {
         let keys = content_panel_lookup_keys("content/realtime-table", "home");
-        assert!(keys
-            .iter()
-            .any(|key| key == "content_panel:realtime-table"));
+        assert!(keys.iter().any(|key| key == "content_panel:realtime-table"));
     }
 
     #[test]
@@ -3443,7 +3832,10 @@ mod tests {
             UiTreeNode::Panel(nested) => nested,
             other => panic!("expected nested panel, got {other:?}"),
         };
-        assert_eq!(nested.title.as_deref(), Some("监督预警"));
+        assert_eq!(
+            nested.title, None,
+            "section metadata must not synthesize a title shell without a title area"
+        );
         assert!(
             !nested.blocks.is_empty(),
             "titled shell should load body panel_ref"
@@ -3810,7 +4202,7 @@ mod tests {
                 "arg0": "监督事项",
                 "arg1": "23",
                 "arg2": "项",
-                "layout_role": "solid_stack",
+                "surface": "solid_stack",
             }
         });
         let ctx = PanelLowerContext {
@@ -3833,7 +4225,7 @@ mod tests {
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.id, "demo_metric");
-        assert_eq!(panel.props["background"], json!("transparent"));
+        assert!(panel.props["background"].is_object());
         assert!(
             panel
                 .props
@@ -3852,7 +4244,7 @@ mod tests {
             "__args": {
                 "id": "supervision_items_card",
                 "area": "items",
-                "layout_role": "solid_stack",
+                "surface": "solid_stack",
                 "source": {
                     "__ref": "metric_ref",
                     "__args": {
@@ -3893,13 +4285,13 @@ mod tests {
     }
 
     #[test]
-    fn lower_metric_compound_top_row_layout_role() {
+    fn lower_metric_compound_top_row_surface() {
         let value = json!({
             "__call": "metric",
             "__args": {
                 "id": "enforcement_objects_top",
                 "area": "top",
-                "layout_role": "compound_top_row",
+                "surface": "compound_top_row",
                 "source": {"label": "执法对象", "value": "16.4", "unit": "万"},
             }
         });
@@ -4044,6 +4436,11 @@ mod tests {
             "__args": {
                 "id": "issue_rate_card",
                 "template": { "__call": "strip_icon_left", "__args": {} },
+                "source": {
+                    "label": "处置率",
+                    "value": "92",
+                    "unit": "%"
+                },
                 "presentation": { "icon": "url(/rate.png)" }
             }
         });
@@ -4069,5 +4466,148 @@ mod tests {
         assert_eq!(panel.props["background"]["image"], json!("url(/rate.png)"));
         assert_eq!(panel.props["background"]["position"], json!("24px center"));
         assert_eq!(panel.props["background"]["size"], json!("48px 48px"));
+    }
+
+    #[test]
+    fn container_placements_apply_by_direct_child_id() {
+        let payload = json!({
+            "id": "placed",
+            "layout": {
+                "__call": "grid",
+                "__args": {
+                    "rows": ["1fr"],
+                    "columns": ["1fr"],
+                    "areas": [["main"]]
+                }
+            },
+            "placements": {
+                "copy": {
+                    "area": "main",
+                    "align": "end",
+                    "overflow": "ellipsis"
+                }
+            },
+            "blocks": [{
+                "__call": "component",
+                "__args": {
+                    "arg0": "mei.text",
+                    "id": "copy",
+                    "props": {"content": "long"}
+                }
+            }]
+        });
+        let registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "demo".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: Vec::new(),
+        };
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let panel = lower_panel_payload(&payload, "placed", &ctx).expect("panel");
+        let UiTreeNode::Block(block) = &panel.blocks[0] else {
+            panic!("expected block");
+        };
+        assert_eq!(block.area.as_deref(), Some("main"));
+        assert_eq!(block.props["align"], json!("end"));
+        assert_eq!(block.props["overflow"], json!("ellipsis"));
+    }
+
+    #[test]
+    fn metric_card_projects_only_fields_named_by_areas_and_accepts_metric_arg() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "metric_arg_card",
+                "metric": {
+                    "__ref": "metric_ref",
+                    "__args": {
+                        "arg0": "warnings",
+                        "bundle": "metrics/warnings.bundle.mei"
+                    }
+                },
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr"],
+                        "areas": [["value"]]
+                    }
+                }
+            }
+        });
+        let registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "demo".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: Vec::new(),
+        };
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let UiTreeNode::Panel(panel) = lower_metric_card(&value, &ctx).expect("metric card") else {
+            panic!("expected panel");
+        };
+        assert_eq!(panel.blocks.len(), 1);
+        let UiTreeNode::Block(block) = &panel.blocks[0] else {
+            panic!("expected block");
+        };
+        assert_eq!(block.id.as_deref(), Some("value"));
+        assert_eq!(block.area.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn metric_card_rejects_area_for_missing_metric_field() {
+        let source = json!({"label": "Warnings", "value": 3});
+        let layout = LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec!["unit".to_string()]]),
+            gap: None,
+            padding: None,
+            align: None,
+            justify: None,
+        };
+        let error = metric_runtime_blocks(
+            &source,
+            Some(&layout),
+            "stack",
+            None,
+            None,
+            None,
+            &json!({}),
+            None,
+            &PanelLowerContext {
+                app_root: Path::new("/tmp"),
+                app_id: "demo",
+                registry: &McgRegistry {
+                    schema_version: String::new(),
+                    app_id: "demo".to_string(),
+                    registry_revision: String::new(),
+                    updated_at_ms: 0,
+                    nodes: Vec::new(),
+                },
+                scene_id: "home",
+                panel_constants: BTreeMap::new(),
+                assembly_stack_order: None,
+            },
+        )
+        .expect_err("missing unit must fail");
+        assert!(error.to_string().contains("area `unit`"));
     }
 }

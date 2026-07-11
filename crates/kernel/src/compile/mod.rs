@@ -6,14 +6,15 @@ use serde_json::Value;
 mod analysis;
 mod app_compile;
 mod app_decl;
-mod authoring_eval;
-mod build_t2_page_index;
 mod build_experience;
 mod build_experience_index;
-mod build_ui_layout_index;
 mod build_mcg_index;
 mod build_node_context;
+#[cfg(test)]
+mod build_preview_target_probe;
+mod build_t2_page_index;
 mod build_template_index;
+mod build_ui_layout_index;
 mod catalog;
 mod component_authoring_preview;
 mod component_pack_preview;
@@ -23,12 +24,12 @@ mod decls;
 mod dependency_graph;
 mod discover_routes;
 mod entry_payload;
+pub mod layout_budget;
 mod load_external;
 mod loaders;
 mod materialize;
 mod materialize_cache;
 mod mutations;
-pub mod layout_budget;
 mod panel_normalize;
 mod projection_assembly;
 mod reachability_tree;
@@ -44,8 +45,6 @@ mod source_tree_enrich;
 mod source_tree_world;
 mod ui_data_policy;
 mod xlsx_singleflight;
-#[cfg(test)]
-mod build_preview_target_probe;
 
 pub use analysis::dates::{
     coerce_calendar_columns_in_rows, coerce_row_to_schema, coerce_rows_to_schema,
@@ -62,7 +61,6 @@ pub use data_snapshot::{
 };
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
-pub use source_paths::canonicalize_compiled_app_source_paths;
 pub use app_compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_from_root_with_options_and_revision, compile_app_with_options,
@@ -70,15 +68,21 @@ pub use app_compile::{
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
     CompileAppArtifacts,
 };
-pub use build_t2_page_index::build_t2_page_index;
 pub use build_experience::{
-    backing_refs_from_block_props, block_instance_id,
-    build_experience_path, build_overview_backing, compile_coordinate_for_node,
-    compile_scene_from_build_node, compile_scene_from_build_node_with_app, experience_layout_hint,
-    experience_mount_chain, format_experience_path, preview_target_from_build_node_with_app,
+    backing_refs_from_block_props, block_instance_id, build_experience_path,
+    build_overview_backing, compile_coordinate_for_node, compile_scene_from_build_node,
+    compile_scene_from_build_node_with_app, experience_layout_hint, experience_mount_chain,
+    format_experience_path, preview_target_from_build_node_with_app,
     preview_target_relative_to_app, BuildCompileCoordinate, BuildPreviewKind,
 };
 pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
+pub use build_node_context::{
+    build_preview_panel_scope, build_preview_ui_scope, catalog_preview_target_for_build_node,
+    default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
+    BuildNodeContext,
+};
+pub use build_t2_page_index::build_t2_page_index;
+pub use build_template_index::build_template_index;
 pub use build_ui_layout_index::{
     build_ui_layout_index, filter_roots_for_tree_mode, format_ui_scope_agent_context,
     format_ui_scope_technical_detail, merge_ui_structure_root, resolve_build_preview_scope,
@@ -86,22 +90,21 @@ pub use build_ui_layout_index::{
     ui_scope_annotation_for_preview_path, ui_scope_for_block, UiScopeBlockAnnotation,
     UiScopePanelAnnotation,
 };
-pub use build_node_context::{
-    build_preview_panel_scope, build_preview_ui_scope, catalog_preview_target_for_build_node,
-    default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
-    BuildNodeContext,
-};
 pub use component_authoring_preview::{
     component_authoring_example_workspace_path, scene_contract_contains_use_key,
 };
-pub use build_template_index::build_template_index;
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
 pub use reachability_tree::{
     build_reachability_tree, filter_reachability_roots_for_stock_catalog,
-    is_stock_catalog_facet_root, ReachabilityTreeNode,
-    ReachabilityTreeRoot,
+    is_stock_catalog_facet_root, ReachabilityTreeNode, ReachabilityTreeRoot,
 };
+pub use source_paths::canonicalize_compiled_app_source_paths;
 
+pub use layout_budget::{
+    materialize_fill_section_derived_heights, materialize_layout_budget_px, resolve_layout_budgets,
+    validate_layout_budget_policy, validate_layout_budget_policy_with_options,
+    LayoutBudgetValidateOptions,
+};
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;
 pub use materialize_cache::dataset_materialize_cache_hit_count;
@@ -109,11 +112,6 @@ pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;
 pub use panel_normalize::{normalize_panel_slots, panel_resolved_has_head};
-pub use layout_budget::{
-    materialize_fill_section_derived_heights, materialize_layout_budget_px,
-    resolve_layout_budgets, validate_layout_budget_policy,
-    validate_layout_budget_policy_with_options, LayoutBudgetValidateOptions,
-};
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
 pub fn clear_runtime_compile_caches() {
@@ -129,15 +127,6 @@ pub fn clear_runtime_compile_caches() {
 pub fn clear_runtime_eval_node_cache() -> usize {
     analysis::eval_context::clear_eval_node_cache()
 }
-
-#[cfg(test)]
-pub(crate) use materialize_cache::{
-    clear_materialize_cache_for_tests, legacy_rows_cache_len_for_tests,
-};
-#[cfg(test)]
-pub(crate) use scene_payload_cache::{
-    clear_scene_payload_cache_for_tests, scene_payload_cache_len_for_tests,
-};
 
 pub fn evaluate_runtime_metric_defs(
     metric_defs: &BTreeMap<String, Value>,
@@ -232,8 +221,7 @@ pub use materialize::{
     capsule_path_from_namespaced_resource_id, evaluate_runtime_metric_defs_with_plan_and_dag,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
     resolve_metric_contract_key, resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge,
-    EvalPlanEdgeKind, EvalPlanNode,
-    EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
+    EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
 pub use projection_assembly::enrich_runtime_page_instance_projection_slots;
 
@@ -292,7 +280,10 @@ mod mcg_index_tests {
             },
         ];
         let compile_roots = filter_roots_for_tree_mode(&roots, "compile");
-        let groups: Vec<_> = compile_roots.iter().map(|root| root.group.as_str()).collect();
+        let groups: Vec<_> = compile_roots
+            .iter()
+            .map(|root| root.group.as_str())
+            .collect();
         assert_eq!(groups, vec!["mcg"]);
         let structure_roots = filter_roots_for_tree_mode(&roots, "structure");
         assert_eq!(structure_roots.len(), 1);
