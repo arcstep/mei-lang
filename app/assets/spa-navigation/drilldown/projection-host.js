@@ -260,6 +260,13 @@
           : null;
     const layer2Config = {
       ...config,
+      title: nonEmptyString(
+        config.title,
+        config.popup?.title,
+        detail?.label,
+        config.summary,
+      ),
+      detail,
       overlayWorkspace,
       overlaySize: nonEmptyString(
         config.overlaySize,
@@ -273,7 +280,8 @@
     await activateProjectionScope(layer2Config);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
-      closeSceneBoardOverlay();
+      // 多标签由 openLayer2Tab 按 tab_policy append/focus 管理；
+      // 禁止在此调用 closeSceneBoardOverlay（其在 unified layer2 下会 closeLayer2Stack，清掉已有 tab）。
       const root = boot.openLayer2Tab(layer2Config);
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));

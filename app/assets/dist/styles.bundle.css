@@ -2266,33 +2266,99 @@ body > .mei-floating-text-pop-backdrop {
 .preview-stage .mei-world-stage-back-nav[data-mei-overlay-role="map_tools"] {
   position: absolute;
 }
-/* T2 挂在 preview-stage-shell 内：禁止 fixed/vw/vh，与 T0/T1 共用 letterbox 画布 */
-.mei-layer2-in-viewport.mei-layer2-workspace,
-.mei-layer2-in-viewport .mei-layer2-tab-panel.access-drilldown-overlay {
+/* T2 挂在 preview-stage-shell 内：浏览器式多标签壳；尺寸作用于整个 shell，页内容 100% 贴合。 */
+.mei-layer2-in-viewport.mei-layer2-workspace {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   padding: 0;
   display: grid;
+  align-items: center;
+  justify-items: center;
+}
+.mei-layer2-in-viewport .mei-layer2-tab-panel.access-drilldown-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: block;
   align-items: stretch;
   justify-items: stretch;
 }
 .mei-layer2-in-viewport.access-drilldown-overlay--size-comfortable,
 .mei-layer2-in-viewport.access-drilldown-overlay--size-large,
-.mei-layer2-in-viewport.access-drilldown-overlay--size-fullscreen,
-.mei-layer2-in-viewport .access-drilldown-overlay--size-comfortable,
-.mei-layer2-in-viewport .access-drilldown-overlay--size-large,
-.mei-layer2-in-viewport .access-drilldown-overlay--size-fullscreen {
+.mei-layer2-in-viewport.access-drilldown-overlay--size-fullscreen {
   padding: 0;
 }
-.mei-layer2-in-viewport .access-drilldown-overlay-panel {
+.mei-layer2-browser-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.22));
+  background: linear-gradient(
+    180deg,
+    var(--mei-color-drilldown-panel-top, rgba(12, 36, 68, 0.97)),
+    var(--mei-color-drilldown-panel-bottom, rgba(8, 24, 48, 0.99))
+  );
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.72);
+  transition:
+    width 160ms ease,
+    height 160ms ease,
+    border-radius 160ms ease;
+}
+/* 非 viewport 挂载回退（少见）；viewport 内由下方 in-viewport 规则覆盖 */
+.mei-layer2-browser-shell--size-comfortable {
+  width: min(1080px, 82vw);
+  height: min(720px, 78vh);
+  border-radius: 16px;
+}
+.mei-layer2-browser-shell--size-large {
+  width: min(1480px, calc(100vw - 24px));
+  height: min(920px, calc(100vh - 24px));
+  border-radius: 14px;
+}
+.mei-layer2-browser-shell--size-fullscreen {
+  width: calc(100vw - 12px);
+  height: calc(100vh - 12px);
+  border-radius: 0;
+}
+.mei-layer2-in-viewport .mei-layer2-browser-shell--size-comfortable {
+  width: 72%;
+  height: 72%;
+  border-radius: 16px;
+}
+.mei-layer2-in-viewport .mei-layer2-browser-shell--size-large {
+  width: 88%;
+  height: 88%;
+  border-radius: 14px;
+}
+.mei-layer2-in-viewport .mei-layer2-browser-shell--size-fullscreen {
   width: 100%;
   height: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  min-height: 0;
   border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+}
+/* 页内容贴满 shell 内容区；禁止再按 comfortable/large 缩放内层 panel */
+.mei-layer2-in-viewport .mei-layer2-tab-panel .access-drilldown-overlay-panel,
+.mei-layer2-in-viewport .mei-layer2-page-panel,
+.mei-layer2-in-viewport .mei-layer2-tab-panel .access-drilldown-overlay-panel--size-comfortable,
+.mei-layer2-in-viewport .mei-layer2-tab-panel .access-drilldown-overlay-panel--size-large,
+.mei-layer2-in-viewport .mei-layer2-tab-panel .access-drilldown-overlay-panel--size-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 .mei-layer2-in-viewport .mei-layer2-viewport-stage {
   aspect-ratio: auto;
@@ -2764,34 +2830,160 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   width: 100%;
   height: 100%;
 }
+.mei-layer2-chrome {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 8px 0 6px;
+  border-bottom: 1px solid rgba(98, 190, 235, 0.28);
+  background: linear-gradient(180deg, rgba(14, 42, 78, 0.96), rgba(8, 28, 52, 0.98));
+  z-index: 2;
+}
 .mei-layer2-tab-bar {
   display: flex;
-  gap: 6px;
-  padding: 8px 12px 0;
-  flex-wrap: wrap;
+  gap: 0;
+  padding: 6px 0 0;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.mei-layer2-tab-bar[hidden] {
+  display: none !important;
+}
+.mei-layer2-tab-item {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  max-width: 200px;
+  min-width: 88px;
+  border: 1px solid rgba(98, 190, 235, 0.28);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: rgba(8, 24, 40, 0.55);
+  overflow: hidden;
+  margin-right: 2px;
+}
+.mei-layer2-tab-item.is-active {
+  background: rgba(18, 56, 98, 0.95);
+  border-color: rgba(98, 190, 235, 0.5);
+  box-shadow: inset 0 -2px 0 rgba(56, 189, 248, 0.75);
 }
 .mei-layer2-tab {
-  border: 1px solid rgba(98, 190, 235, 0.35);
-  background: rgba(8, 24, 40, 0.72);
-  color: rgba(255, 255, 255, 0.88);
-  border-radius: 4px 4px 0 0;
-  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  border-radius: 0;
+  padding: 7px 10px;
   cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.25;
 }
 .mei-layer2-tab.is-active {
-  background: rgba(98, 190, 235, 0.18);
-  border-bottom-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+.mei-layer2-tab-close {
+  border: none;
+  border-left: 1px solid rgba(98, 190, 235, 0.2);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.75);
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.mei-layer2-tab-close:hover,
+.mei-layer2-tab-close:focus-visible {
+  background: rgba(32, 96, 168, 0.38);
+  color: #fff;
+}
+.mei-layer2-chrome-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  align-self: center;
+  pointer-events: auto;
+}
+.mei-layer2-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+.mei-layer2-size-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 160, 240, 0.28);
+  background: rgba(10, 40, 78, 0.55);
+}
+.mei-layer2-size-btn {
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.82);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.mei-layer2-size-btn.is-active,
+.mei-layer2-size-btn:hover,
+.mei-layer2-size-btn:focus-visible {
+  background: rgba(56, 189, 248, 0.22);
+  color: #fff;
+}
+.mei-layer2-window-close {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(10, 40, 78, 0.55);
+  color: rgba(226, 232, 240, 0.9);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mei-layer2-window-close:hover,
+.mei-layer2-window-close:focus-visible {
+  background: rgba(248, 113, 113, 0.22);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fff;
+}
+.access-drilldown-overlay--no-title .mei-layer2-head-actions {
+  pointer-events: auto;
 }
 .mei-layer2-tab-panels {
   flex: 1;
   min-height: 0;
   position: relative;
+  background: rgba(6, 20, 40, 0.35);
 }
 .mei-layer2-tab-panel {
   width: 100%;
   height: 100%;
 }
 .mei-layer2-tab-panel[hidden] {
+  display: none !important;
+}
+.mei-layer2-page-head[hidden] {
   display: none !important;
 }
 html.mei-tier-dim .preview-card-scale-wrap,

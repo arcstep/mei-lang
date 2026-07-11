@@ -54,6 +54,7 @@ template narrow_metric_card(
     source = {"label": "指标", "value": "--", "unit": ""},
     metric = None,
     popup = None,
+    viewpoint = None,
     layout = None,
     placements = None,
 ):
@@ -63,6 +64,7 @@ template narrow_metric_card(
         source = source,
         metric = metric,
         popup = popup,
+        viewpoint = viewpoint,
         layout = layout,
         placements = placements,
         props = {

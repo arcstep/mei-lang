@@ -52,6 +52,16 @@
   function metricRefId(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return "";
     if (value.__ref === "metric") return nonEmptyString(value.id);
+    // page_instance local_nav 内嵌的未展开 metric_ref（__args.arg0 = 本地 metric id）
+    if (value.__ref === "metric_ref") {
+      return nonEmptyString(
+        value.__args?.arg0,
+        value.__args?.[0],
+        value.id,
+        value.metric_id,
+        value.metricId,
+      );
+    }
     const runtimeRef = value.__mei_runtime_ref;
     if (runtimeRef && typeof runtimeRef === "object" && !Array.isArray(runtimeRef)) {
       return nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId);

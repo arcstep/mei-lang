@@ -316,13 +316,72 @@
     return largeDefault ? "large" : "comfortable";
   }
 
+  function resolveLayer2TabOverlaySize(root) {
+    const session = window.__meiLangBoot?.layer2Session;
+    if (session?.overlaySize) {
+      return nonEmptyString(session.overlaySize);
+    }
+    const workspace = document.getElementById("mei-layer2-workspace");
+    const shell = workspace?.querySelector?.('[data-layer2-browser-shell="true"]');
+    if (shell instanceof HTMLElement) {
+      return nonEmptyString(shell.dataset.drilldownOverlaySize);
+    }
+    const tabPanel =
+      root instanceof HTMLElement && root.classList.contains("mei-layer2-tab-panel")
+        ? root
+        : root instanceof HTMLElement
+          ? root.closest(".mei-layer2-tab-panel")
+          : null;
+    if (!(tabPanel instanceof HTMLElement)) return "";
+    const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
+    const tabId = String(tabPanel.dataset.layer2TabPanel || "").trim();
+    const tab =
+      tabs.find((entry) => entry?.panel === tabPanel) ||
+      (tabId ? tabs.find((entry) => entry?.id === tabId) : null);
+    return nonEmptyString(tab?.overlaySize, tabPanel.dataset.drilldownOverlaySize);
+  }
+
   function applyDrilldownOverlaySize(root, config) {
+    const workspaceRoot = document.getElementById("mei-layer2-workspace");
+    const browserShell =
+      workspaceRoot instanceof HTMLElement
+        ? workspaceRoot.querySelector('[data-layer2-browser-shell="true"]')
+        : null;
+    const inLayer2 =
+      root instanceof HTMLElement &&
+      (root.classList.contains("mei-layer2-tab-panel") || Boolean(root.closest?.("#mei-layer2-workspace")));
+    // Layer2：尺寸落在浏览器式 shell；页内容始终 100% 贴合。
+    if (inLayer2 && browserShell instanceof HTMLElement) {
+      const size = normalizeOverlaySize(
+        resolveLayer2TabOverlaySize(root) || config?.overlaySize,
+        config?.structuredBoard && config?.sceneShell?.layoutMode !== "generic_tabs"
+          ? "large"
+          : "comfortable",
+      );
+      if (typeof window.__meiLangBoot?.applyLayer2ShellSize === "function") {
+        window.__meiLangBoot.applyLayer2ShellSize(size);
+      } else {
+        browserShell.classList.remove(
+          "mei-layer2-browser-shell--size-comfortable",
+          "mei-layer2-browser-shell--size-large",
+          "mei-layer2-browser-shell--size-fullscreen",
+        );
+        browserShell.classList.add(`mei-layer2-browser-shell--size-${size}`);
+        browserShell.dataset.drilldownOverlaySize = size;
+      }
+      const panelEl = root.querySelector(".access-drilldown-overlay-panel");
+      if (panelEl instanceof HTMLElement) {
+        panelEl.classList.remove(...DRILLDOWN_PANEL_SIZE_CLASSES);
+        panelEl.dataset.drilldownOverlaySize = size;
+      }
+      return;
+    }
     const overlayEl = root.classList.contains("access-drilldown-overlay")
       ? root
       : root.closest(".access-drilldown-overlay");
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");
     const size = normalizeOverlaySize(
-      config?.overlaySize,
+      resolveLayer2TabOverlaySize(root) || config?.overlaySize,
       config?.structuredBoard && config?.sceneShell?.layoutMode !== "generic_tabs"
         ? "large"
         : "comfortable",

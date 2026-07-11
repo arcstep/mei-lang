@@ -458,6 +458,38 @@
       titleEl.toggleAttribute("hidden", hideOverlayTitle);
     }
     root.classList.toggle("access-drilldown-overlay--no-title", hideOverlayTitle);
+    // Layer2：标题显示在浏览器式标签栏，同步 hidden head 上的 title 到 tab.label
+    if (
+      root instanceof HTMLElement &&
+      (root.classList.contains("mei-layer2-tab-panel") || root.closest?.("#mei-layer2-workspace"))
+    ) {
+      const session = window.__meiLangBoot?.layer2Session;
+      const tabId = String(root.dataset?.layer2TabPanel || "").trim();
+      const tab =
+        Array.isArray(session?.tabs) && tabId
+          ? session.tabs.find((entry) => entry?.id === tabId)
+          : null;
+      const nextLabel = nonEmptyString(overlayTitle, config?.title, tab?.label);
+      if (tab && nextLabel && tab.label !== nextLabel) {
+        tab.label = nextLabel;
+        const workspace = document.getElementById("mei-layer2-workspace");
+        if (workspace && typeof window.__meiLangBoot?.openLayer2Tab === "function") {
+          // reuse local sync via activate path without re-dispatch: rebuild tab bar only
+          const bar = workspace.querySelector('[data-layer2-tab-bar="true"]');
+          if (bar instanceof HTMLElement && Array.isArray(session.tabs)) {
+            session.tabs.forEach((entry) => {
+              const btn = bar.querySelector(`[data-layer2-tab-id="${entry.id}"]`);
+              if (btn instanceof HTMLElement) {
+                const full = nonEmptyString(entry.label, entry.sceneId, entry.id);
+                btn.title = full;
+                btn.textContent =
+                  full.length > 18 ? `${full.slice(0, 17)}…` : full || "未命名";
+              }
+            });
+          }
+        }
+      }
+    }
     if (noteEl) {
       const note = String(config?.note || "").trim();
       noteEl.textContent = note;

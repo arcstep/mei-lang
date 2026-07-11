@@ -208,14 +208,27 @@
       declaredPopup.overlay_size,
       declaredPopup.overlaySize,
       config?.sceneLocalNav?.overlaySize,
-      "fullscreen",
+      "large",
     );
+    const overlayWorkspace =
+      (declaredPopup.overlay_workspace &&
+        typeof declaredPopup.overlay_workspace === "object" &&
+        !Array.isArray(declaredPopup.overlay_workspace) &&
+        declaredPopup.overlay_workspace) ||
+      (declaredPopup.overlayWorkspace &&
+        typeof declaredPopup.overlayWorkspace === "object" &&
+        !Array.isArray(declaredPopup.overlayWorkspace) &&
+        declaredPopup.overlayWorkspace) ||
+      null;
+    const popupTitle = nonEmptyString(declaredPopup.title, declaredPopup.label);
     return {
       popup: {
         mode: "popup",
         type: nonEmptyString(declaredPopup.type, "popup"),
         projection: nonEmptyString(declaredPopup.projection, "overlay"),
         overlay_size: overlaySize,
+        ...(overlayWorkspace ? { overlay_workspace: overlayWorkspace } : {}),
+        ...(popupTitle ? { title: popupTitle } : {}),
         scene_id: boardSceneId,
         scene_file: boardSceneFile,
         params: {
