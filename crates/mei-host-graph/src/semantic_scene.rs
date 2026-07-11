@@ -2,10 +2,15 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use mei_lang_kernel::{padding_profile_css, FrameDecl, UiNodeDecl, UiTreeNode};
+use mei_lang_kernel::{
+    hierarchy_spacing_defaults, padding_profile_css, FrameDecl, UiNodeDecl, UiTreeNode,
+};
 use serde_json::{json, Map, Value};
 
 use crate::assemble::assembly_key_to_target;
+use crate::hierarchy_spacing::{
+    apply_hierarchy_spacing_defaults, ensure_layout_gap, ensure_props_padding,
+};
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
@@ -126,12 +131,15 @@ pub fn assemble_semantic_scene(
                 plane_children.push(lowered);
             }
             if !plane_children.is_empty() {
-                panels.push(build_plane_grid_panel(
+                let mut plane_panel = build_plane_grid_panel(
                     plane_id.as_str(),
                     tier.as_str(),
                     plane_grid,
+                    plane_args,
                     plane_children,
-                )?);
+                )?;
+                apply_padding_profile_body_props(&mut plane_panel);
+                panels.push(plane_panel);
             }
             for region in overlay_regions {
                 let region_payload =
@@ -272,6 +280,7 @@ fn build_panel_payload(
     {
         insert_budget_props(&mut props, &budget_args);
     }
+    apply_hierarchy_spacing_defaults(role, &mut payload, &mut props);
     payload.insert("props".to_string(), Value::Object(props));
 
     let has_shell = args.and_then(|map| map.get("shell")).is_some();
@@ -688,27 +697,60 @@ fn build_plane_grid_panel(
     plane_id: &str,
     tier: &str,
     plane_grid: Option<&Value>,
+    plane_args: Option<&Map<String, Value>>,
     children: Vec<UiNodeDecl>,
 ) -> Result<UiNodeDecl> {
+    let mut layout_value = plane_grid.cloned();
+    if let Some(layout) = layout_value.as_mut() {
+        if let Some(defaults) = hierarchy_spacing_defaults("plane") {
+            if let Some(gap) = defaults.gap {
+                ensure_layout_gap(layout, gap);
+            }
+        }
+    }
+    let mut props = json!({
+        "__mei_ui_role": "plane",
+        "__mei_tier": tier,
+        "__mei_plane_id": plane_id,
+        "width": "100%",
+        "height": "100%",
+        "min_height": "0",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    });
+    if let Some(props_map) = props.as_object_mut() {
+        if let Some(author_props) = plane_args
+            .and_then(|map| map.get("props"))
+            .and_then(Value::as_object)
+        {
+            for (key, value) in author_props {
+                props_map
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        }
+        if let Some(budget_args) = plane_args
+            .and_then(|map| map.get("budget"))
+            .and_then(call_args)
+        {
+            insert_budget_props(props_map, budget_args);
+        }
+        if let Some(defaults) = hierarchy_spacing_defaults("plane") {
+            if let Some(padding) = defaults.padding {
+                ensure_props_padding(props_map, padding);
+            }
+        }
+    }
     Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id: plane_id.to_string(),
         title: None,
         head: None,
         area: None,
-        layout: plane_grid.and_then(lower_layout),
+        layout: layout_value.as_ref().and_then(lower_layout),
         blocks: children.into_iter().map(UiTreeNode::Panel).collect(),
         slot: None,
-        props: json!({
-            "__mei_ui_role": "plane",
-            "__mei_tier": tier,
-            "__mei_plane_id": plane_id,
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
-            "overflow": "hidden",
-        }),
+        props,
         head_props: json!({}),
         body_props: json!({}),
         base: None,
@@ -749,6 +791,41 @@ mod plane_grid_overlay_tests {
         assert!(is_plane_grid_overlay_region(viewport.as_object()));
         assert!(is_plane_grid_overlay_region(float_dock.as_object()));
         assert!(!is_plane_grid_overlay_region(rail.as_object()));
+    }
+
+    #[test]
+    fn hierarchy_spacing_injects_when_gap_and_padding_omitted() {
+        let mut payload = Map::new();
+        payload.insert(
+            "layout".to_string(),
+            json!({"__call": "grid", "__args": {"rows": ["1fr"]}}),
+        );
+        let mut props = Map::new();
+        apply_hierarchy_spacing_defaults("region", &mut payload, &mut props);
+        assert_eq!(
+            payload["layout"]["__args"]["gap"].as_str(),
+            Some(mei_lang_kernel::HIERARCHY_SECTION_OUTER)
+        );
+        assert_eq!(
+            props["padding"].as_str(),
+            Some(mei_lang_kernel::HIERARCHY_PX_1)
+        );
+        assert_eq!(props["radius"].as_str(), Some("0"));
+        assert_eq!(props["border"].as_str(), Some("none"));
+    }
+
+    #[test]
+    fn hierarchy_spacing_respects_explicit_zero_gap() {
+        let mut payload = Map::new();
+        payload.insert(
+            "layout".to_string(),
+            json!({"__call": "grid", "__args": {"gap": "0", "rows": ["1fr"]}}),
+        );
+        let mut props = Map::new();
+        props.insert("padding".to_string(), json!("0"));
+        apply_hierarchy_spacing_defaults("section", &mut payload, &mut props);
+        assert_eq!(payload["layout"]["__args"]["gap"].as_str(), Some("0"));
+        assert_eq!(props["padding"].as_str(), Some("0"));
     }
 
     #[test]

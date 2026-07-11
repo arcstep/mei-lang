@@ -2,42 +2,53 @@
 # 每种外观一个完整宏：调用点只传 id / 数据 / 可选 layout·blocks。
 # 不要再「通用 metric_card + chrome_* props」叠两层。
 # 用法：use template "cockpit/layout-defaults" as ui
+#
+# 层级边距：**省略即默认**（semantic_scene / section_shell lower 注入）。
+# 下列宏仅供显式覆盖或文档对照；金样不要再到处抄写默认值。
 
 METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
 
-# --- 层级边距规范（0332）：单位「1」= 4px ---
-# plane  margin=0 padding=1 | region margin=1 padding=0
-# section margin=0 padding=1 | section 内 title/body 等 area margin=1 padding=1
-LAYOUT_SPACE_1 = "4px"
+# --- 层级边距规范（0332）：字面 1px ---
+# plane  gap→region 外边距 1px / padding 1px
+# region gap→section 外边距 1px / padding 1px / border 0 / radius 0
+# section gap→内网格外边距 1px / padding 1px / border 1px / radius 0
+# content（section 内网格）padding 0 / border 0 / align+justify stretch
+# 省略时由平台注入；显式 gap/padding（含 "0"）覆盖。
+LAYOUT_SPACE_1 = "1px"
+SECTION_MARGIN = "1px"
+REGION_MARGIN = "1px"
 
 template layout_space_1():
     LAYOUT_SPACE_1
 
-# plane 内边距；外边距恒 0（不写 margin）
+# plane 内边距—— 省略时注入，宏仅覆盖用
 template plane_padding():
     LAYOUT_SPACE_1
 
 # region 外边距 → 落在父 plane 的 grid.gap
 template region_margin():
+    REGION_MARGIN
+
+# region 内边距
+template region_padding():
     LAYOUT_SPACE_1
 
-# region 内边距恒 0
-template region_padding():
-    "0"
+# section 外边距 → 落在父 region 的 grid.gap
+template section_margin():
+    SECTION_MARGIN
 
-# section 内边距；外边距恒 0（父 region 不设 section 外边距）
+# section 内边距
 template section_padding():
     LAYOUT_SPACE_1
 
-# section 内 title / body 等 area：外边距 → section grid.gap；内边距 → area 容器 padding
+# section 内网格：外边距 → section grid.gap；内边距 → 0
 template area_margin():
     LAYOUT_SPACE_1
 
 template area_padding():
-    LAYOUT_SPACE_1
+    "0"
 
-# T2 page_instance frame（analytics_frame 等）：与 plane/area 同单位。
-# frame 是 overlay 内 shell zones，不是第二套布局语法；间距仍走 space_1。
+# T2 page_instance frame（analytics_frame 等）：与 scene 树同单位 1px。
 template frame_padding():
     LAYOUT_SPACE_1
 

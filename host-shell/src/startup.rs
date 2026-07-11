@@ -576,6 +576,11 @@ async fn run_background_startup_inner(
     let warmup_refs: Vec<&str> = warmup_detail.iter().map(String::as_str).collect();
     crate::startup_banner::emit_access_warmup_ready_banner(warmup_refs.as_slice());
 
+    tokio::spawn(crate::hot_reload::run_cli_artifact_hot_reload_loop(
+        shell,
+        plan.app_ids.clone(),
+    ));
+
     Ok(())
 }
 

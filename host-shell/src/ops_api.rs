@@ -44,11 +44,11 @@ pub async fn api_host_ops_reload(State(state): State<SharedState>) -> Response {
         Ok(outcome) => {
             let message = if outcome.blocks_changed {
                 format!(
-                    "reload ok: registry updated (revision={})",
+                    "reload ok: registry updated + rewarmed (revision={})",
                     outcome.registry_revision
                 )
             } else {
-                "reload ok: registry unchanged".to_string()
+                "reload ok: registry unchanged + rewarmed".to_string()
             };
             let payload = json!({
                 "accepted": true,

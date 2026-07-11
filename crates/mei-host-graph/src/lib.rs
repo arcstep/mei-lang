@@ -9,6 +9,7 @@ mod content_store;
 mod data_snapshot;
 mod enrich_compiled_scope;
 mod eval_slot_group;
+mod hierarchy_spacing;
 mod import;
 mod io;
 mod layer_overlay;

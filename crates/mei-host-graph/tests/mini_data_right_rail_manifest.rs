@@ -413,6 +413,122 @@ fn mini_data_screen_header_exports_bare_panel_shell() {
 }
 
 #[test]
+fn mini_data_hierarchy_spacing_omitted_defaults_are_injected() {
+    let outcome = mini_data_home_outcome();
+    let panels = &outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract")
+        .panels;
+
+    let t1 = find_panel(panels, "t1").expect("t1 plane panel");
+    assert_eq!(
+        t1.layout.as_ref().and_then(|l| l.gap.as_deref()),
+        Some("1px"),
+        "plane omit → region outer margin 1px"
+    );
+    assert_eq!(
+        t1.body_props.get("padding").and_then(|v| v.as_str()).or_else(|| {
+            t1.props.get("padding").and_then(|v| v.as_str())
+        }),
+        Some("1px"),
+        "plane omit → padding 1px (body or props)"
+    );
+
+    let right_rail = find_panel(panels, "right_rail").expect("right_rail");
+    assert_eq!(
+        right_rail.layout.as_ref().and_then(|l| l.gap.as_deref()),
+        Some("1px"),
+        "region omit → section outer margin 1px"
+    );
+    let region_pad = right_rail
+        .body_props
+        .get("padding")
+        .and_then(|v| v.as_str())
+        .or_else(|| right_rail.props.get("padding").and_then(|v| v.as_str()));
+    assert_eq!(region_pad, Some("1px"), "region omit → padding 1px");
+    assert_eq!(
+        right_rail.props.get("radius").and_then(|v| v.as_str()),
+        Some("0"),
+        "region omit → radius 0"
+    );
+    assert_eq!(
+        right_rail.props.get("border").and_then(|v| v.as_str()),
+        Some("none"),
+        "region omit → border 0"
+    );
+
+    let warning = find_panel(panels, "warning").expect("warning section");
+    assert_eq!(
+        warning.layout.as_ref().and_then(|l| l.gap.as_deref()),
+        Some("1px"),
+        "section omit → inner grid outer margin 1px"
+    );
+    let section_pad = warning
+        .body_props
+        .get("padding")
+        .and_then(|v| v.as_str())
+        .or_else(|| warning.props.get("padding").and_then(|v| v.as_str()));
+    assert_eq!(
+        section_pad,
+        Some("1px"),
+        "section omit → padding 1px / space_1"
+    );
+    assert_eq!(
+        warning.props.get("radius").and_then(|v| v.as_str()),
+        Some("0"),
+        "section omit → radius 0"
+    );
+    assert!(
+        warning
+            .props
+            .get("border")
+            .and_then(|v| v.as_str())
+            .is_some_and(|b| b.starts_with("1px")),
+        "section omit → border width 1px; got {:?}",
+        warning.props.get("border")
+    );
+
+    let stats = find_panel(panels, "supervision-stats").expect("supervision-stats content");
+    assert_eq!(
+        stats.layout.as_ref().and_then(|l| l.gap.as_deref()),
+        Some("0"),
+        "leaf content omit → inner gap 0"
+    );
+    let content_pad = stats
+        .body_props
+        .get("padding")
+        .and_then(|v| v.as_str())
+        .or_else(|| stats.props.get("padding").and_then(|v| v.as_str()));
+    assert_eq!(content_pad, Some("0"), "content grid omit → padding 0");
+    assert_eq!(
+        stats.layout.as_ref().and_then(|l| l.align.as_deref()),
+        Some("stretch"),
+        "content omit → align stretch"
+    );
+    assert_eq!(
+        stats.layout.as_ref().and_then(|l| l.justify.as_deref()),
+        Some("stretch"),
+        "content omit → justify stretch"
+    );
+
+    let manifest = outcome
+        .compiled
+        .ui_layout_index
+        .layout_budget_manifest("test");
+    let t1_entry = manifest
+        .entries
+        .get("t1/t1")
+        .expect("t1/t1 layout budget entry");
+    assert_eq!(
+        t1_entry.padding.as_deref(),
+        Some("1px"),
+        "plane padding must reach layout_budget_manifest for DOM projection; entry={t1_entry:?}"
+    );
+}
+
+#[test]
 fn mini_data_header_structure_includes_brand() {
     let outcome = mini_data_home_outcome();
     let structure = mei_host_graph::build_structure_full_document(&outcome.compiled, "test");

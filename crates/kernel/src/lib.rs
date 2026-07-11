@@ -32,7 +32,10 @@ pub use catalog_app::{
     render_stock_catalog_main_mei, stock_catalog_app_root, StockCatalogPackDiscovery,
     StockCatalogRouteEntry, StockCatalogRouteKind,
 };
-pub use compile::layout_budget::padding_profile_css;
+pub use compile::layout_budget::{
+    hierarchy_spacing_defaults, padding_profile_css, HierarchySpacingDefaults, HIERARCHY_PX_1,
+    HIERARCHY_REGION_OUTER, HIERARCHY_SECTION_OUTER, HIERARCHY_SPACE_1,
+};
 pub use compile::{
     access_parquet_import_required, block_instance_id, build_experience_index,
     build_experience_path, build_overview_backing, build_preview_panel_scope,

@@ -19,6 +19,7 @@ mod host_home;
 mod host_mcg;
 mod host_runtime_hub;
 mod host_scoped;
+mod hot_reload;
 mod http;
 mod landing;
 mod light_pages;

@@ -101,7 +101,7 @@
     return "scene";
   }
 
-  /** 与讲稿 library target 对齐：scene/home | presentation/supervision */
+  /** 与讲稿路径推导的 target 对齐：scene/home | presentation/supervision */
   function resolveStageTargetKey() {
     const sceneId = parseSceneIdFromPath();
     const kind = resolveStageKind();

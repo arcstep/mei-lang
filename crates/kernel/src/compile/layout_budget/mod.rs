@@ -4,7 +4,10 @@ mod padding;
 mod resolve;
 mod validate;
 
-pub use padding::padding_profile_css;
+pub use padding::{
+    hierarchy_spacing_defaults, padding_profile_css, HierarchySpacingDefaults, HIERARCHY_PX_1,
+    HIERARCHY_REGION_OUTER, HIERARCHY_SECTION_OUTER, HIERARCHY_SPACE_1,
+};
 pub use resolve::resolve_layout_budgets;
 pub use validate::{
     materialize_fill_section_derived_heights, materialize_layout_budget_px,

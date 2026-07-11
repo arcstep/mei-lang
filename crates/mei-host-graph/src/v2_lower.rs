@@ -255,8 +255,21 @@ pub fn lower_panel_payload(
     }
 
     let mut blocks = lower_blocks(payload.get("blocks"), ctx)?;
-    let layout = payload
-        .get("layout")
+    let has_ui_role = props
+        .get("__mei_ui_role")
+        .or_else(|| payload.get("props").and_then(|p| p.get("__mei_ui_role")))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|role| !role.is_empty());
+    let mut layout_value = payload.get("layout").cloned();
+    if !has_ui_role {
+        crate::hierarchy_spacing::apply_leaf_content_spacing_defaults(
+            layout_value.as_mut(),
+            &mut props,
+        );
+    }
+    let layout = layout_value
+        .as_ref()
         .and_then(|v| lower_layout_with_ctx(v, ctx));
     apply_container_placements(&mut blocks, payload.get("placements"));
     apply_id_as_area_defaults(&mut blocks, layout.as_ref());
@@ -577,7 +590,14 @@ fn lower_section_shell_panel(
                 map.insert("__mei_padding_profile".to_string(), json!(profile));
                 mei_lang_kernel::padding_profile_css(profile).map(str::to_string)
             });
-        if let Some(padding) = explicit_padding.or(profile_padding) {
+        // 省略即默认：section_shell 无 padding / padding_profile 时注入 space_1。
+        let default_padding = if explicit_padding.is_none() && profile_padding.is_none() {
+            map.insert("__mei_padding_profile".to_string(), json!("space_1"));
+            mei_lang_kernel::padding_profile_css("space_1").map(str::to_string)
+        } else {
+            None
+        };
+        if let Some(padding) = explicit_padding.or(profile_padding).or(default_padding) {
             let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
             body_map
                 .entry("padding".to_string())
@@ -3059,7 +3079,7 @@ fn titled_shell_template_props(args: &Value) -> Value {
         "variant": "container",
         "show_heading": true,
         "border": "1px solid rgba(52, 82, 108, 0.5)",
-        "radius": "4px",
+        "radius": "0",
         "box_sizing": "border-box",
         "overflow": "hidden"
     });

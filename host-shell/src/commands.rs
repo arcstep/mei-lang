@@ -274,6 +274,9 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
             .registry_revision
             .clone();
     let report = import_with_options(&workspace, &args.app, args.bundle)?;
+    // CLI `deploy/reload.sh` / `mei-host-shell reload` 与运行中 host 共用磁盘产物：
+    // import 清 bootstrap 后必须 rewarm，否则 Access 会卡在 manifest_missing。
+    crate::build_ops::rewarm_after_import(workspace.as_path(), args.app.as_str(), "standard")?;
     let changed = report.registry_revision != prev_revision;
     if args.json {
         let payload = serde_json::json!({
@@ -282,6 +285,7 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
             "block_count": report.block_count,
             "registry_revision": report.registry_revision,
             "previous_revision": prev_revision,
+            "rewarmed": true,
         });
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
@@ -291,6 +295,7 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
         } else {
             println!("reload: registry updated");
         }
+        println!("reload: rewarm complete (eval-cache invalidate + warmup)");
     }
     Ok(())
 }
@@ -624,6 +629,12 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         state
     }));
     refresh_host_materialization_flags(&shell);
+    {
+        let mut guard = shell.write().expect("state lock");
+        guard.startup_phase = "ready".to_string();
+        guard.startup_detail = Some("访问态已就绪".to_string());
+        guard.startup_error = None;
+    }
     let discovered =
         crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
     let app_ids: Vec<String> = if discovered.is_empty() {
@@ -650,6 +661,10 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     crate::startup_banner::emit_access_warmup_ready_banner(warmup_refs.as_slice());
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let managed_plug = Arc::new(Mutex::new(managed_pool));
+    tokio::spawn(crate::hot_reload::run_cli_artifact_hot_reload_loop(
+        shell.clone(),
+        app_ids.clone(),
+    ));
     let state = HostHttpState {
         shell,
         auth: auth_state.clone(),

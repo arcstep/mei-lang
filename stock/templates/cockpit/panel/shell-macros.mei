@@ -30,7 +30,7 @@ template panel_shell_props(
     {
         "border": "1px solid rgba(52, 82, 108, 0.5)",
         "box_shadow": DEBUG_SHELL_SHADOW,
-        "radius": "4px",
+        "radius": "0",
         "width": width,
         "height": height,
         "box_sizing": "border-box",
@@ -131,21 +131,21 @@ template panel_shell_props_width_only(
     {
         "border": "1px solid rgba(52, 82, 108, 0.5)",
         "box_shadow": DEBUG_SHELL_SHADOW,
-        "radius": "4px",
+        "radius": "0",
         "width": width,
         "box_sizing": "border-box",
         "overflow": "hidden",
     }
 
-template padding_profile_css(profile = "dense"):
+template padding_profile_css(profile = "space_1"):
     {
         "dense_strip_100": "8px 4px 2px 4px",
         "compact_ai": "8px 6px 3px 6px",
         "compact": "8px 6px 6px 6px",
         "dense": "8px 4px 4px 4px",
-        "space_1": "4px",
+        "space_1": "1px",
         "none": "0",
-    }.get(profile, "8px 4px 4px 4px")
+    }.get(profile, "1px")
 
 template content_strip_bare_props(
     padding = "0",
@@ -155,17 +155,21 @@ template content_strip_bare_props(
     {
         "padding": padding,
         "background": background,
+        "border": "none",
+        "radius": "0",
         "height": height,
         "min_height": "0",
+        "width": "100%",
         "box_sizing": "border-box",
         "overflow": "hidden",
     }
 
-# Fill-down body：section 高度由 region fr 分配，content 撑满剩余空间（0327）。
+# Fill-down body：section 高度由 region fr 分配，content 水平+垂直撑满（stretch）。
 template content_fill_props():
     content_strip_bare_props() | {
         "__mei_layout_fill": True,
         "height": "100%",
+        "width": "100%",
         "min_height": "0",
         "box_sizing": "border-box",
     }
@@ -204,7 +208,7 @@ template section_shell(
     title,
     body = None,
     width = "100%",
-    padding_profile = "dense",
+    padding_profile = "space_1",
 ):
     content_panel(
         variant = "container",

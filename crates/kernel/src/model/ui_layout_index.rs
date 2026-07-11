@@ -182,6 +182,7 @@ impl UiLayoutIndex {
                 LayoutBudgetManifestEntry {
                     preview_scope: node.preview_scope.clone(),
                     slot_height_px: None,
+                    padding: budget.padding.clone(),
                     padding_profile: budget.padding_profile.clone(),
                     grid_template_columns: budget.grid_template_columns.clone(),
                     grid_template_rows: budget.grid_template_rows.clone(),
@@ -211,6 +212,8 @@ pub struct LayoutBudgetManifestEntry {
     pub preview_scope: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot_height_px: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding_profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

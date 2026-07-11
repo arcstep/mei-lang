@@ -96,6 +96,32 @@ pub fn import_with_options(
     Ok(report)
 }
 
+/// Import 之后的热重载后半段：清 assemble 缓存、增量失效 eval-cache，并跑 warmup
+/// 把 client-bootstrap 写回。与 prebuild 的 invalidate + warmup 对齐，但不做
+/// data snapshot / finalize。
+pub fn rewarm_after_import(workspace: &Path, app: &str, policy: &str) -> anyhow::Result<()> {
+    let workspace = canonical_workspace(workspace);
+    mei_host_graph::clear_assemble_cache_for_app(app);
+
+    let force_clear = std::env::var("MEI_FORCE_EVAL_CACHE_CLEAR")
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false);
+    let invalidation =
+        mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app, force_clear)?;
+    tracing::info!(
+        app_id = %app,
+        force_cleared = invalidation.force_cleared,
+        removed_artifact_files = invalidation.removed_artifact_files,
+        retained_artifact_files = invalidation.retained_artifact_files,
+        cleared_bootstrap_scopes = invalidation.cleared_bootstrap_scopes,
+        "eval-cache incremental invalidation (reload/hot-reload)"
+    );
+
+    crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "all")?;
+    Ok(())
+}
+
 pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutcome> {
     let workspace = canonical_workspace(workspace);
     crate::build_info::log_host_identity(Some(workspace.as_path()), "reload");
@@ -112,6 +138,8 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
         .registry_revision
         .clone();
     let report = import_with_options(workspace.as_path(), app, None)?;
+    // 日常改 .mei 的热重载闭环：import 会清 stale bootstrap，必须立刻 warmup 写回
+    rewarm_after_import(workspace.as_path(), app, "standard")?;
     Ok(ReloadOutcome {
         accepted: true,
         blocks_changed: report.registry_revision != prev_revision,
@@ -137,22 +165,7 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
 
     let _ = mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app)?;
 
-    let force_clear = std::env::var("MEI_FORCE_EVAL_CACHE_CLEAR")
-        .ok()
-        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
-        .unwrap_or(false);
-    let invalidation =
-        mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app, force_clear)?;
-    tracing::info!(
-        app_id = %app,
-        force_cleared = invalidation.force_cleared,
-        removed_artifact_files = invalidation.removed_artifact_files,
-        retained_artifact_files = invalidation.retained_artifact_files,
-        cleared_bootstrap_scopes = invalidation.cleared_bootstrap_scopes,
-        "eval-cache incremental invalidation"
-    );
-
-    crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "all")?;
+    rewarm_after_import(workspace.as_path(), app, policy)?;
 
     let generation = PrebuildGeneration {
         env_version: build_id.clone(),

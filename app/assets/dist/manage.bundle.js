@@ -23619,7 +23619,7 @@
     return "scene";
   }
 
-  /** 与讲稿 library target 对齐：scene/home | presentation/supervision */
+  /** 与讲稿路径推导的 target 对齐：scene/home | presentation/supervision */
   function resolveStageTargetKey() {
     const sceneId = parseSceneIdFromPath();
     const kind = resolveStageKind();
@@ -36862,6 +36862,45 @@
     return !token || token === "_" || token === ".";
   }
 
+  function paddingProfileCss(profile) {
+    switch (String(profile || "").trim()) {
+      case "dense_strip_100":
+        return "8px 4px 2px 4px";
+      case "compact_ai":
+        return "8px 6px 3px 6px";
+      case "compact":
+        return "8px 6px 6px 6px";
+      case "dense":
+        return "8px 4px 4px 4px";
+      case "space_1":
+        return "4px";
+      case "none":
+        return "0";
+      default:
+        return "";
+    }
+  }
+
+  function applyPaddingBudgetToNode(node, entry) {
+    if (!(node instanceof HTMLElement) || !entry || typeof entry !== "object") return;
+    const explicit = entry.padding;
+    if (explicit != null && String(explicit).trim()) {
+      node.style.padding = String(explicit).trim();
+      node.dataset.manifestPadding = String(explicit).trim();
+      node.style.boxSizing = node.style.boxSizing || "border-box";
+      return;
+    }
+    const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+    if (paddingProfile) {
+      node.dataset.manifestPaddingProfile = String(paddingProfile);
+      const css = paddingProfileCss(paddingProfile);
+      if (css && !String(node.style.padding || "").trim()) {
+        node.style.padding = css;
+        node.style.boxSizing = node.style.boxSizing || "border-box";
+      }
+    }
+  }
+
   function applyGridBudgetToNode(node, entry) {
     if (!(node instanceof HTMLElement) || !entry || typeof entry !== "object") return;
     const cols = entry.grid_template_columns ?? entry.gridTemplateColumns;
@@ -36934,10 +36973,7 @@
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (!(node instanceof HTMLElement)) return;
-      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
-      if (paddingProfile) {
-        node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
+      applyPaddingBudgetToNode(node, entry);
       const sectionRows = entry.section_rows ?? entry.sectionRows;
       const manifestGridRows = entry.grid_template_rows ?? entry.gridTemplateRows;
       if (
