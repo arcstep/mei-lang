@@ -132,23 +132,10 @@ pub fn build_scene_eval_pack(
         return pack_from_payload(payload, &options, SceneEvalPackStatus::PackHit);
     }
     let Some(payload) = build_client_bootstrap_payload(workspace_root, app_id, scene_id) else {
-        return SceneEvalPackResponse {
-            status: SceneEvalPackStatus::PackMiss,
-            client_revision: NO_CLIENT_BOOTSTRAP_REVISION.to_string(),
-            scope: scene_id.to_string(),
-            query_fingerprint: options.fingerprint.clone(),
-            metrics: Vec::new(),
-            bootstrap_scopes: Vec::new(),
-            layout_budget_manifest: None,
-            neighbor_hops: options.neighbor_hops,
-            eval_layer_refs: eval_layer_refs_for_scope(scene_id),
-            delivery_class_counts: Some(BTreeMap::new()),
-            bootstrap_scope: None,
-            target_file: None,
-            compile_epoch: None,
-            data_generation: None,
-            app_id: Some(app_id.to_string()),
-        };
+        // Stale/missing bootstrap must not hard-fail Access. Degrade to empty pack so
+        // eval layers / scene materialize can still drive the page.
+        let payload = empty_client_bootstrap_payload(workspace_root, app_id, scene_id);
+        return pack_from_payload(payload, &options, SceneEvalPackStatus::PackHit);
     };
     let requested_revision = options
         .client_revision

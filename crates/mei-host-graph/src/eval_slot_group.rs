@@ -474,6 +474,7 @@ fn panel_decl_for_shell_export(panel: &UiNodeDecl, author_props: Option<&Value>)
                 "border",
                 "radius",
                 "__mei_slot_frame_bg",
+                "__mei_layout_fill",
             ] {
                 if let Some(value) = author_props.get(key) {
                     exported_props.insert(key.to_string(), value.clone());
@@ -1010,6 +1011,44 @@ mod tests {
     use crate::view_artifact::StructureFullNode;
     use mei_lang_kernel::{BlockDecl, UiNodeDecl, UiTreeNode};
     use serde_json::json;
+
+    #[test]
+    fn panel_shell_export_preserves_fill_down_marker_from_author_props() {
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "metric_slot".to_string(),
+            title: None,
+            head: None,
+            area: Some("body".to_string()),
+            layout: None,
+            blocks: vec![],
+            slot: None,
+            props: json!({"background": "transparent"}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let author_props = json!({
+            "background": {
+                "image": "url(/workspace-app-assets/metric-bg.svg)",
+                "size": "100% 100%"
+            },
+            "width": "100%",
+            "height": "100%",
+            "__mei_slot_frame_bg": true,
+            "__mei_layout_fill": true
+        });
+
+        let exported = panel_decl_for_shell_export(&panel, Some(&author_props));
+        assert_eq!(
+            exported
+                .props
+                .get("__mei_layout_fill")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
 
     #[test]
     fn compound_metric_shell_panel_prefers_slot_frame_parent() {

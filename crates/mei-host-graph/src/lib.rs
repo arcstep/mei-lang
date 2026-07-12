@@ -25,6 +25,7 @@ mod paths;
 mod presentation_map;
 mod projection_normalize;
 mod runtime_plans;
+mod scene_materialize;
 mod semantic_cache;
 mod semantic_scene;
 mod shell_layer;
@@ -75,9 +76,9 @@ pub use layer_store::{
 pub use manifest_index::{
     clear_manifest_index_for_app, clear_manifest_index_for_partition,
     load_manifest_index_from_content_store, manifest_index_cache_key,
-    manifest_index_cache_key_partitioned, manifest_index_to_scene_manifest,
-    persist_manifest_index, store_manifest_index_memory, take_manifest_index,
-    ManifestIndexDocument, SurfaceManifestSlice, MANIFEST_INDEX_KIND, MANIFEST_INDEX_SCHEMA,
+    manifest_index_cache_key_partitioned, manifest_index_to_scene_manifest, persist_manifest_index,
+    store_manifest_index_memory, take_manifest_index, ManifestIndexDocument, SurfaceManifestSlice,
+    MANIFEST_INDEX_KIND, MANIFEST_INDEX_SCHEMA,
 };
 pub use mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter};
 pub use mrg::client_bootstrap::{
@@ -123,6 +124,11 @@ pub use runtime_plans::{
     build_runtime_plans_document, empty_runtime_plans_document, ensure_runtime_plans_cached,
     persist_runtime_plans, runtime_plans_cache_key, runtime_plans_from_outcome,
     RuntimePlansDocument, RUNTIME_PLANS_KIND, RUNTIME_PLANS_SCHEMA,
+};
+pub use scene_materialize::{
+    build_scene_view_manifest, ensure_manifest_index, manifest_for_surface,
+    materialize_layers_for_request, resolve_view_revision_for_surface, ArtifactHitMatrix,
+    ShellChromeRenderArgs, ShellChromeRenderer,
 };
 pub use semantic_cache::{
     build_page_render_view_axes, build_semantic_cache_core, page_render_view_signature,

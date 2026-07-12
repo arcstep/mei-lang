@@ -106,10 +106,7 @@ pub fn store_layer_partitioned(
     key
 }
 
-pub fn take_layer_partitioned(
-    partition: &CachePartitionKey,
-    inner_key: &str,
-) -> Option<Vec<u8>> {
+pub fn take_layer_partitioned(partition: &CachePartitionKey, inner_key: &str) -> Option<Vec<u8>> {
     take_layer(partition.prefix_key(inner_key).as_str())
 }
 
@@ -128,15 +125,24 @@ mod tests {
         let key_a = store_layer_partitioned(&a, "layer-x", "layer", "hash-a", b"aaa");
         let key_b = store_layer_partitioned(&b, "layer-x", "layer", "hash-b", b"bbb");
         assert_ne!(key_a, key_b);
-        assert_eq!(take_layer_partitioned(&a, "layer-x").as_deref(), Some(b"aaa".as_slice()));
-        assert_eq!(take_layer_partitioned(&b, "layer-x").as_deref(), Some(b"bbb".as_slice()));
+        assert_eq!(
+            take_layer_partitioned(&a, "layer-x").as_deref(),
+            Some(b"aaa".as_slice())
+        );
+        assert_eq!(
+            take_layer_partitioned(&b, "layer-x").as_deref(),
+            Some(b"bbb".as_slice())
+        );
         assert!(take_layer_partitioned(&a, "layer-x")
             .map(|bytes| bytes != b"bbb")
             .unwrap_or(false));
 
         assert_eq!(clear_layers_for_partition(&a), 1);
         assert!(take_layer_partitioned(&a, "layer-x").is_none());
-        assert_eq!(take_layer_partitioned(&b, "layer-x").as_deref(), Some(b"bbb".as_slice()));
+        assert_eq!(
+            take_layer_partitioned(&b, "layer-x").as_deref(),
+            Some(b"bbb".as_slice())
+        );
         clear_layers_for_partition(&b);
     }
 }

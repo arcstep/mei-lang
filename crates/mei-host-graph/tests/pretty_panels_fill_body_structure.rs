@@ -72,12 +72,15 @@ fn pretty_panels_enforcement_and_issue_export_body_structure() {
         structure
             .nodes
             .iter()
-            .any(|node| node.preview_scope.contains("enforcement_objects_top")),
+            .any(|node| {
+                node.preview_scope.contains("enforcement_strip_layout")
+                    && node.preview_scope.ends_with("/top")
+            }),
         "enforcement compound top metric should appear in structure, got scopes: {:?}",
         structure
             .nodes
             .iter()
-            .filter(|node| node.preview_scope.contains("enforcement_objects"))
+            .filter(|node| node.preview_scope.contains("enforcement_strip_layout"))
             .map(|node| node.preview_scope.as_str())
             .collect::<Vec<_>>()
     );
