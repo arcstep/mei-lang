@@ -13,10 +13,7 @@ use crate::state::SharedRuntimeState;
 
 /// Paths that may be probed without an instance token (supervisor health).
 pub fn is_public_health_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/api/app-runtime/health" | "/api/plug-ds/health"
-    )
+    matches!(path, "/api/app-runtime/health" | "/api/plug-ds/health")
 }
 
 pub async fn require_instance_token(
@@ -125,7 +122,10 @@ mod tests {
 
     #[test]
     fn extracts_app_from_access_and_dataset_paths() {
-        assert_eq!(extract_app_id_from_path("/apps/mini-data/home"), Some("mini-data"));
+        assert_eq!(
+            extract_app_id_from_path("/apps/mini-data/home"),
+            Some("mini-data")
+        );
         assert_eq!(
             extract_app_id_from_path("/api/datasets/query/mini-data"),
             Some("mini-data")

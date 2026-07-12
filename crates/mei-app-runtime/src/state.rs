@@ -168,6 +168,7 @@ pub fn resolve_instance_spec(
             profile_file: String::new(),
             runtime_plan,
             default_app: Some(app_id.to_string()),
+            ..Default::default()
         },
         runtime_abi: env!("CARGO_PKG_VERSION").to_string(),
         data_mode_ceiling: None,

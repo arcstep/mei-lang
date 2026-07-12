@@ -29,6 +29,7 @@ fn sample_spec(app_id: &str, instance_id: &str, generation: &str) -> InstanceSpe
                 apps: Default::default(),
             },
             default_app: Some(app_id.to_string()),
+            ..Default::default()
         },
         runtime_abi: "2.4".to_string(),
         data_mode_ceiling: None,
@@ -45,7 +46,12 @@ fn test_state(workspace: std::path::PathBuf) -> mei_app_runtime::SharedRuntimeSt
 }
 
 async fn body_json(response: axum::response::Response) -> serde_json::Value {
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     serde_json::from_slice(&bytes).expect("json")
 }
 
@@ -154,7 +160,12 @@ async fn access_thin_shell_requires_token_and_returns_html() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     let html = String::from_utf8(bytes.to_vec()).expect("utf8");
     assert!(html.contains("mei-compose-host"));
     assert!(html.contains("view_revision_envelope"));

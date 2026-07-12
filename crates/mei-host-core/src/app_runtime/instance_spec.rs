@@ -44,6 +44,30 @@ pub struct ConfigSnapshot {
     pub runtime_plan: RuntimePlan,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_config_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_config_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_config_file: Option<String>,
+}
+
+impl Default for ConfigSnapshot {
+    fn default() -> Self {
+        Self {
+            profile_id: String::new(),
+            profile_revision: String::new(),
+            profile_file: String::new(),
+            runtime_plan: RuntimePlan {
+                default_mode: mei_lang_kernel::RuntimeMode::Lazy,
+                apps: Default::default(),
+            },
+            default_app: None,
+            launch_config_id: None,
+            launch_config_revision: None,
+            launch_config_file: None,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -120,6 +144,7 @@ mod tests {
                     apps: BTreeMap::new(),
                 },
                 default_app: Some("mini-data".to_string()),
+                ..Default::default()
             },
             runtime_abi: "2.4".to_string(),
             data_mode_ceiling: Some("scoped".to_string()),

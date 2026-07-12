@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::LaunchManifest;
 use super::LastSuccessfulApply;
+use super::LaunchManifest;
 
 pub const SCHEMA_HOST_CONTROL_V1: &str = "mei-host-control-v1";
 pub const SCHEMA_HOST_CONTROL_V2: &str = "mei-host-control-v2";

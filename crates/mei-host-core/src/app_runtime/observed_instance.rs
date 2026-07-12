@@ -106,7 +106,10 @@ mod tests {
             },
         };
         let value = serde_json::to_value(&observed).expect("serialize");
-        assert_eq!(value.get("health").and_then(|h| h.get("plugDs")), Some(&json!("ok")));
+        assert_eq!(
+            value.get("health").and_then(|h| h.get("plugDs")),
+            Some(&json!("ok"))
+        );
         let back: ObservedInstance = serde_json::from_value(value).expect("deserialize");
         assert_eq!(back, observed);
     }

@@ -1,7 +1,8 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
+    http::StatusCode,
     middleware,
-    response::{IntoResponse, Json},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -29,6 +30,7 @@ pub fn router(state: SharedRuntimeState) -> Router {
         .route("/api/host/layer-batch", post(api_host_layer_batch))
         .route("/api/host/scene-eval-pack", get(api_scene_eval_pack))
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
+        .route("/api/datasets/fixture/:app_id", post(api_datasets_fixture))
         .route("/apps/:app_id", get(access_app_root))
         .route("/apps/:app_id/:stage", get(access_app_stage))
         .with_state(state.clone());
@@ -41,6 +43,57 @@ pub fn router(state: SharedRuntimeState) -> Router {
             require_instance_token,
         ))
         .layer(TraceLayer::new_for_http())
+}
+
+async fn api_datasets_fixture(
+    State(state): State<SharedRuntimeState>,
+    Path(app_id): Path<String>,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> Response {
+    if let Some(ceiling) = state
+        .spec
+        .data_mode_ceiling
+        .as_deref()
+        .and_then(mei_lang_kernel::DataModeCeiling::parse)
+    {
+        if matches!(ceiling, mei_lang_kernel::DataModeCeiling::Static) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "fixture datasets API unavailable under static data mode ceiling"
+                })),
+            )
+                .into_response();
+        }
+    }
+    let scene_id = body
+        .get("scene_id")
+        .or_else(|| body.get("sceneId"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+    let workspace = state.host.workspace_root.as_path();
+    let Some(manifest) =
+        mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id)
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("fixture bootstrap missing for scene `{scene_id}`")})),
+        )
+            .into_response();
+    };
+    (
+        StatusCode::OK,
+        Json(json!({
+            "source": "fixture",
+            "app_id": app_id,
+            "scene_id": scene_id,
+            "client_revision": manifest.client_revision,
+            "metrics": manifest.metrics,
+        })),
+    )
+        .into_response()
 }
 
 async fn api_health() -> impl IntoResponse {

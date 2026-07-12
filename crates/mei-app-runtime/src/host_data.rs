@@ -1,4 +1,4 @@
-//! View / eval data-plane handlers (mei-host-graph APIs; thinner than host-shell pages.rs).
+//! View / eval data-plane handlers (mei-host-graph shared materialize; thin Access shell).
 
 use axum::{
     extract::{Query, State},
@@ -6,14 +6,17 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use mei_host_graph::{
-    build_client_bootstrap_payload, build_scene_eval_pack, build_semantic_core_for_scene,
-    empty_client_bootstrap_payload, manifest_revision_digest, resolve_view_revision,
-    surface_revision_digest_from_manifest, take_layer, BootstrapEmbedStatus,
-    ComposeRequest, SceneEvalPackBuildOptions, SceneEvalPackStatus, SceneViewManifest,
-    ViewRevisionInput, ViewRevisionStatus, SCENE_VIEW_MANIFEST_SCHEMA,
+    build_client_bootstrap_payload, build_scene_eval_pack, build_scene_view_manifest,
+    empty_client_bootstrap_payload, materialize_layers_for_request,
+    resolve_view_revision_for_surface, ArtifactHitMatrix, BootstrapEmbedStatus, ComposeRequest,
+    SceneEvalPackBuildOptions, ShellChromeRenderArgs, ShellLayerDocument, ViewRevisionStatus,
+    SHELL_LAYER_SCHEMA,
 };
+use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
+use mei_lang_kernel::{discover_apps, DataMode, ReviewProjection};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::Path;
 
 use crate::state::SharedRuntimeState;
 
@@ -44,6 +47,8 @@ pub struct ViewRevisionQuery {
     pub chrome: Option<String>,
     #[serde(default)]
     pub tab: Option<String>,
+    #[serde(default)]
+    pub review_projection: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -56,6 +61,8 @@ pub struct SceneManifestQuery {
     pub chrome: Option<String>,
     #[serde(default)]
     pub tab: Option<String>,
+    #[serde(default)]
+    pub review_projection: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -65,6 +72,18 @@ pub struct LayerBatchBody {
     pub layers: Option<Vec<String>>,
     #[serde(default)]
     pub layer_refs: Option<Value>,
+    #[serde(default)]
+    pub data_mode: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub tab: Option<String>,
+    #[serde(default)]
+    pub chrome: Option<String>,
+    #[serde(default)]
+    pub review_projection: Option<String>,
+    #[serde(default)]
+    pub local_miss: Option<bool>,
 }
 
 fn parse_bool_flag(value: Option<&str>) -> bool {
@@ -74,7 +93,11 @@ fn parse_bool_flag(value: Option<&str>) -> bool {
     )
 }
 
-fn resolve_app_id(state: &SharedRuntimeState, query_app: Option<&str>, query_app_id: Option<&str>) -> Result<String, Response> {
+fn resolve_app_id(
+    state: &SharedRuntimeState,
+    query_app: Option<&str>,
+    query_app_id: Option<&str>,
+) -> Result<String, Response> {
     let app = query_app
         .or(query_app_id)
         .map(str::trim)
@@ -99,56 +122,184 @@ fn resolve_scene(query_scene: Option<&str>, query_scope: Option<&str>) -> String
         .to_string()
 }
 
-/// Build a minimal scene-view manifest from semantic core (full layer materialize stays in host-shell).
-pub fn build_minimal_scene_manifest(
+fn resolve_route_mode_from_surface(surface: Option<&str>) -> UiRouteMode {
+    match surface.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("build") | Some("manage") | Some("layout") | Some("prototype") => UiRouteMode::App,
+        Some("run") | Some("copilot") | Some("speaker") | Some("presentation") | Some("slides") => {
+            UiRouteMode::App
+        }
+        Some("app") | None => UiRouteMode::App,
+        Some(other) => UiRouteMode::from_slug(other),
+    }
+}
+
+fn parse_data_mode(raw: Option<&str>) -> DataMode {
+    raw.and_then(DataMode::parse).unwrap_or(DataMode::Eval)
+}
+
+fn clamp_data_mode(raw: Option<&str>, ceiling: Option<&str>) -> DataMode {
+    let requested = parse_data_mode(raw);
+    let Some(ceiling) = ceiling
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(mei_lang_kernel::DataModeCeiling::parse)
+    else {
+        return requested;
+    };
+    DataMode::clamp_to_ceiling(requested, ceiling).unwrap_or_else(|| ceiling.as_data_mode())
+}
+
+fn default_review_projection(data_mode: DataMode) -> &'static str {
+    match data_mode {
+        DataMode::Static => ReviewProjection::StaticFull.slug(),
+        _ => ReviewProjection::LiveFull.slug(),
+    }
+}
+
+fn menu_label_for_app(
+    topbar_menu: &mei_lang_app::TopbarMenuContext,
+    app_id: &str,
+) -> Option<String> {
+    let from_root = topbar_menu.root.as_ref().and_then(|menu| {
+        menu.items
+            .iter()
+            .find(|item| item.app_id == app_id)
+            .and_then(|item| item.label.clone())
+    });
+    if from_root.is_some() {
+        return from_root;
+    }
+    topbar_menu.by_segment.values().find_map(|menu| {
+        menu.items
+            .iter()
+            .find(|item| item.app_id == app_id)
+            .and_then(|item| item.label.clone())
+    })
+}
+
+fn enrich_apps(
+    apps: &[mei_lang_kernel::WorkspaceAppMeta],
+    topbar_menu: &mei_lang_app::TopbarMenuContext,
+) -> Vec<mei_lang_kernel::WorkspaceAppMeta> {
+    apps.iter()
+        .map(|app| {
+            let mut enriched = app.clone();
+            if let Some(label) = menu_label_for_app(topbar_menu, app.id.as_str()) {
+                enriched.title = label;
+            }
+            enriched
+        })
+        .collect()
+}
+
+fn apps_for_runtime_shell_chrome(
     workspace_root: &std::path::Path,
     app_id: &str,
-    scene_id: &str,
-    surface: &str,
-    data_mode: &str,
-    tab: Option<&str>,
-    chrome: Option<&str>,
-) -> SceneViewManifest {
-    let semantic_core = build_semantic_core_for_scene(workspace_root, app_id, scene_id);
-    let tab = tab
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("scene");
-    let chrome = chrome
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("full");
-    let compose_defaults = ComposeRequest {
-        route_mode: Some(surface.to_string()),
-        tab: Some(tab.to_string()),
-        chrome: Some(chrome.to_string()),
-        review_projection: None,
-        data_mode: Some(data_mode.to_string()),
-        focus: None,
-        scope: None,
-    };
-    let mut layers = std::collections::BTreeMap::new();
-    layers.insert(
-        format!("shell.{surface}"),
-        json!({
-            "schema_version": "shell-layer-v1",
-            "placeholder": true,
-            "surface": surface,
-        }),
+) -> (
+    mei_lang_app::TopbarMenuContext,
+    Vec<mei_lang_kernel::WorkspaceAppMeta>,
+) {
+    let topbar_menu = load_topbar_menu_context(workspace_root);
+    let discovered = discover_apps(workspace_root).unwrap_or_default();
+    // Runtime is single-app: never advertise sibling workspace apps in shell chrome.
+    // Host `/api/host/shell-chrome` (LaunchManifest running set) is the multi-app truth.
+    let apps = enrich_apps(discovered.as_slice(), &topbar_menu)
+        .into_iter()
+        .filter(|app| app.id == app_id)
+        .collect::<Vec<_>>();
+    (topbar_menu, apps)
+}
+
+fn scrub_host_shell_placeholders(mut html: String) -> String {
+    // Runtime does not own Host build identity; leave safe stubs so attribute parsers
+    // never see raw `__MEI_*__` or unescaped JSON in `title="..."`.
+    html = html.replace("__MEI_HOST_VERSION_TITLE__", "");
+    html = html.replace("__MEI_HOST_VERSION_LABEL__", "mei-app-runtime");
+    html = html.replace("__MEI_HOST_VERSION__", "mei-app-runtime");
+    // Must bust immutable `/app-bundles/*` cache when dist changes (same stamp Host uses).
+    html = html.replace(
+        "__MEI_HOST_ASSET_VERSION__",
+        runtime_asset_version().as_str(),
     );
-    let mut manifest = SceneViewManifest {
-        schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
-        app_id: app_id.to_string(),
-        scene_id: scene_id.to_string(),
-        semantic_core,
-        revision_digest: String::new(),
-        layers,
-        compose_defaults: Some(compose_defaults),
-        surface_revision_digest: None,
-    };
-    manifest.revision_digest = manifest_revision_digest(&manifest, None);
-    manifest.surface_revision_digest = surface_revision_digest_from_manifest(&manifest);
-    manifest
+    html = html.replace("__MEI_HOST_ICP_RECORD__", "");
+    html = html.replace("__MEI_HOST_PSB_RECORD__", "");
+    html = html.replace("__MEI_HOST_COPYRIGHT__", "");
+    html = html.replace("__MEI_WORKSPACE_LABEL__", "");
+    html
+}
+
+/// Stamp for `?v=` on `/app-bundles/*` — mirrors host-shell `host_asset_version`.
+pub fn runtime_asset_version() -> String {
+    use std::time::UNIX_EPOCH;
+    let dist_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/assets/dist");
+    let newest_stamp = [
+        dist_root.join("access.bundle.js"),
+        dist_root.join("manage.bundle.js"),
+        dist_root.join("styles.bundle.css"),
+        dist_root.join("shoelace.bundle.js"),
+    ]
+    .into_iter()
+    .filter_map(|path| {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let elapsed = modified.duration_since(UNIX_EPOCH).ok()?;
+        Some(elapsed.as_millis())
+    })
+    .max();
+    match newest_stamp {
+        Some(stamp) => format!("runtime.{stamp}"),
+        None => "runtime".to_string(),
+    }
+}
+
+pub fn fill_runtime_asset_version(html: String) -> String {
+    html.replace(
+        "__MEI_HOST_ASSET_VERSION__",
+        runtime_asset_version().as_str(),
+    )
+}
+
+fn render_runtime_shell_chrome(
+    apps: &[mei_lang_kernel::WorkspaceAppMeta],
+    topbar_menu: &mei_lang_app::TopbarMenuContext,
+    args: ShellChromeRenderArgs<'_>,
+) -> Option<ShellLayerDocument> {
+    let compiled = args.compiled?;
+    let route_mode = UiRouteMode::from_slug(args.route_mode);
+    let review_projection = default_review_projection(args.data_mode);
+    let (topbar_html, statusbar_html) = mei_lang_app::render_access_shell_chrome_html(
+        apps,
+        compiled,
+        args.app_id,
+        Some(topbar_menu),
+        route_mode,
+        Some(args.scene_id),
+        None,
+        Some(args.tab),
+        false,
+        None,
+        Some(args.data_mode.slug()),
+        Some(review_projection),
+        args.chrome == "none",
+    );
+    Some(ShellLayerDocument {
+        schema_version: SHELL_LAYER_SCHEMA.to_string(),
+        route_mode: args.route_mode.to_string(),
+        tab: args.tab.to_string(),
+        chrome: args.chrome.to_string(),
+        topbar_html: scrub_host_shell_placeholders(topbar_html),
+        statusbar_html: scrub_host_shell_placeholders(statusbar_html),
+    })
+}
+
+fn hit_headers(hits: &ArtifactHitMatrix) -> [(&'static str, String); 5] {
+    let flag = |v: bool| if v { "1" } else { "0" }.to_string();
+    [
+        ("x-mei-structure-hit", flag(hits.structure_hit)),
+        ("x-mei-eval-hit", flag(hits.eval_hit)),
+        ("x-mei-theme-hit", flag(hits.theme_hit)),
+        ("x-mei-overlay-hit", flag(hits.overlay_hit)),
+        ("x-mei-shell-hit", flag(hits.shell_hit)),
+    ]
 }
 
 pub async fn api_host_view_revision(
@@ -160,37 +311,62 @@ pub async fn api_host_view_revision(
         Err(resp) => return resp,
     };
     let scene_id = resolve_scene(query.scene.as_deref(), None);
-    let surface = query
-        .surface
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("app");
-    let data_mode = query
-        .data_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("eval");
-    let manifest = build_minimal_scene_manifest(
-        state.host.workspace_root.as_path(),
+    let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
+    let data_mode = clamp_data_mode(
+        query.data_mode.as_deref(),
+        state.spec.data_mode_ceiling.as_deref(),
+    );
+    let workspace_root = state.host.workspace_root.as_path();
+    let (topbar_menu, apps) = apps_for_runtime_shell_chrome(workspace_root, app_id.as_str());
+    // Host API parity: accept compose axes on the query even though revision is index-driven.
+    let _compose = ComposeRequest {
+        route_mode: Some(route_mode.slug().to_string()),
+        tab: query.tab.clone(),
+        chrome: query.chrome.clone(),
+        review_projection: query
+            .review_projection
+            .clone()
+            .or_else(|| Some(default_review_projection(data_mode).to_string())),
+        data_mode: Some(data_mode.slug().to_string()),
+        focus: None,
+        scope: None,
+    };
+    let render = |args: ShellChromeRenderArgs<'_>| {
+        render_runtime_shell_chrome(apps.as_slice(), &topbar_menu, args)
+    };
+    let mut hits = ArtifactHitMatrix::default();
+    let revision = match resolve_view_revision_for_surface(
+        workspace_root,
         app_id.as_str(),
         scene_id.as_str(),
-        surface,
+        route_mode.slug(),
         data_mode,
-        query.tab.as_deref(),
-        query.chrome.as_deref(),
-    );
-    let revision = resolve_view_revision(&ViewRevisionInput {
-        manifest,
-        client_manifest_digest: query.manifest_revision_digest.clone(),
-        client_surface_digest: query.surface_revision_digest.clone(),
-        recover: parse_bool_flag(query.recover.as_deref()),
-        local_miss: parse_bool_flag(query.local_miss.as_deref()),
-        client_layers: Vec::new(),
-        missing_layers: Vec::new(),
-        surface_revision_digest: None,
-    });
+        query
+            .manifest_revision_digest
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
+        query
+            .surface_revision_digest
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
+        parse_bool_flag(query.recover.as_deref()),
+        parse_bool_flag(query.local_miss.as_deref()),
+        &mut hits,
+        Some(&render),
+    ) {
+        Ok(value) => value,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": err.to_string()})),
+            )
+                .into_response();
+        }
+    };
     let status = match revision.status {
         ViewRevisionStatus::Refetch => "refetch",
         ViewRevisionStatus::AssembleLocal => "assemble_local",
@@ -200,6 +376,13 @@ pub async fn api_host_view_revision(
         response
             .headers_mut()
             .insert(HeaderName::from_static("x-mei-view-revision-status"), value);
+    }
+    for (name, value) in hit_headers(&hits) {
+        if let Ok(header_value) = HeaderValue::from_str(value.as_str()) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static(name), header_value);
+        }
     }
     response
 }
@@ -213,40 +396,66 @@ pub async fn api_host_scene_manifest(
         Err(resp) => return resp,
     };
     let scene_id = resolve_scene(query.scene.as_deref(), None);
-    let surface = query
-        .surface
+    let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
+    let data_mode = clamp_data_mode(
+        query.data_mode.as_deref(),
+        state.spec.data_mode_ceiling.as_deref(),
+    );
+    let review_projection = query
+        .review_projection
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("app");
-    let data_mode = query
-        .data_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("eval");
-    let manifest = build_minimal_scene_manifest(
-        state.host.workspace_root.as_path(),
+        .unwrap_or_else(|| default_review_projection(data_mode));
+    let compose = ComposeRequest {
+        route_mode: Some(route_mode.slug().to_string()),
+        tab: query.tab.clone(),
+        chrome: query.chrome.clone(),
+        review_projection: Some(review_projection.to_string()),
+        data_mode: Some(data_mode.slug().to_string()),
+        focus: None,
+        scope: None,
+    };
+    let workspace_root = state.host.workspace_root.as_path();
+    let (topbar_menu, apps) = apps_for_runtime_shell_chrome(workspace_root, app_id.as_str());
+    let render = |args: ShellChromeRenderArgs<'_>| {
+        render_runtime_shell_chrome(apps.as_slice(), &topbar_menu, args)
+    };
+    let mut hits = ArtifactHitMatrix::default();
+    let manifest = match build_scene_view_manifest(
+        workspace_root,
         app_id.as_str(),
         scene_id.as_str(),
-        surface,
+        route_mode.slug(),
         data_mode,
-        query.tab.as_deref(),
-        query.chrome.as_deref(),
-    );
-    Json(json!({
+        &compose,
+        "",
+        "",
+        &mut hits,
+        Some(&render),
+    ) {
+        Ok(value) => value,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": err.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    let mut response = Json(json!({
         "manifest": manifest,
-        "hits": {
-            "structure_hit": false,
-            "eval_hit": false,
-            "theme_hit": false,
-            "overlay_hit": false,
-            "shell_hit": false,
-            "runtime_plans_hit": false,
-        },
-        "note": "app-runtime serves a minimal manifest; full layer materialize remains on host-shell during migration",
+        "hits": hits,
     }))
-    .into_response()
+    .into_response();
+    for (name, value) in hit_headers(&hits) {
+        if let Ok(header_value) = HeaderValue::from_str(value.as_str()) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static(name), header_value);
+        }
+    }
+    response
 }
 
 pub async fn api_host_layer_batch(
@@ -257,19 +466,56 @@ pub async fn api_host_layer_batch(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let _scene = resolve_scene(body.scene.as_deref(), None);
-    let mut layers = std::collections::BTreeMap::new();
-    if let Some(names) = body.layers.as_ref() {
-        for name in names {
-            if let Some(bytes) = take_layer(name.as_str()) {
-                if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
-                    layers.insert(name.clone(), value);
-                    continue;
-                }
-            }
-            layers.insert(name.clone(), Value::Null);
+    let scene_id = resolve_scene(body.scene.as_deref(), None);
+    let route_mode = resolve_route_mode_from_surface(body.surface.as_deref());
+    let data_mode = clamp_data_mode(
+        body.data_mode.as_deref(),
+        state.spec.data_mode_ceiling.as_deref(),
+    );
+    let review_projection = body
+        .review_projection
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default_review_projection(data_mode));
+    let compose = ComposeRequest {
+        route_mode: Some(route_mode.slug().to_string()),
+        tab: body.tab.clone(),
+        chrome: body.chrome.clone(),
+        review_projection: Some(review_projection.to_string()),
+        data_mode: Some(data_mode.slug().to_string()),
+        focus: None,
+        scope: None,
+    };
+    let layer_names = body.layers.clone().unwrap_or_default();
+    let workspace_root = state.host.workspace_root.as_path();
+    let (topbar_menu, apps) = apps_for_runtime_shell_chrome(workspace_root, app_id.as_str());
+    let render = |args: ShellChromeRenderArgs<'_>| {
+        render_runtime_shell_chrome(apps.as_slice(), &topbar_menu, args)
+    };
+    let mut hits = ArtifactHitMatrix::default();
+    let mut layers = match materialize_layers_for_request(
+        workspace_root,
+        app_id.as_str(),
+        scene_id.as_str(),
+        route_mode.slug(),
+        data_mode,
+        &compose,
+        "",
+        "",
+        layer_names.as_slice(),
+        &mut hits,
+        Some(&render),
+    ) {
+        Ok(value) => value,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": err.to_string()})),
+            )
+                .into_response();
         }
-    }
+    };
     if let Some(refs) = body.layer_refs.as_ref() {
         if let Some(obj) = refs.as_object() {
             for (name, value) in obj {
@@ -277,12 +523,27 @@ pub async fn api_host_layer_batch(
             }
         }
     }
-    Json(json!({
+    let mut response = Json(json!({
         "app_id": app_id,
         "layers": layers,
-        "note": "app-runtime layer-batch returns cached layers only; full materialize remains on host-shell during migration",
+        "hits": hits,
     }))
-    .into_response()
+    .into_response();
+    for (name, value) in hit_headers(&hits) {
+        if let Ok(header_value) = HeaderValue::from_str(value.as_str()) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static(name), header_value);
+        }
+    }
+    if body.local_miss.unwrap_or(false) {
+        if let Ok(header_value) = HeaderValue::from_str("1") {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static("x-mei-local-miss"), header_value);
+        }
+    }
+    response
 }
 
 pub async fn api_scene_eval_pack(
@@ -337,37 +598,12 @@ pub async fn api_scene_bootstrap(
         ))
         .into_response();
     }
-    let pack = build_scene_eval_pack(
-        workspace_root,
-        app_id.as_str(),
-        scene_id.as_str(),
-        SceneEvalPackBuildOptions {
-            client_revision: None,
-            fingerprint: query
-                .fingerprint
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string),
-            neighbor_hops: None,
-        },
-    );
-    if pack.status == SceneEvalPackStatus::PackMiss {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "bootstrap unavailable"})),
-        )
-            .into_response();
-    }
-    let Some(payload) =
+    // Stale/missing bootstrap must not 404 Access; degrade to empty and let eval layers drive.
+    let payload =
         build_client_bootstrap_payload(workspace_root, app_id.as_str(), scene_id.as_str())
-    else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "bootstrap unavailable"})),
-        )
-            .into_response();
-    };
+            .unwrap_or_else(|| {
+                empty_client_bootstrap_payload(workspace_root, app_id.as_str(), scene_id.as_str())
+            });
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
         HeaderName::from_static("deprecation"),
@@ -380,7 +616,12 @@ pub async fn api_scene_bootstrap(
     response
 }
 
-pub fn inject_view_revision_envelope(html: String, app_id: &str, scene_id: &str, surface: &str) -> String {
+pub fn inject_view_revision_envelope(
+    html: String,
+    app_id: &str,
+    scene_id: &str,
+    surface: &str,
+) -> String {
     let envelope = json!({
         "schema_version": "mei.view-revision-envelope.v1",
         "app_id": app_id,

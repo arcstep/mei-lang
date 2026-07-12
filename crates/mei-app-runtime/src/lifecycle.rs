@@ -81,10 +81,8 @@ pub fn ensure_registry_materialized(ctx: &HostContext) -> anyhow::Result<()> {
 }
 
 fn collect_revisions(ctx: &HostContext) -> InstanceRevisions {
-    let registry = mei_host_graph::McgRegistryWriter::load(
-        ctx.workspace_root.as_path(),
-        ctx.app_id.as_str(),
-    );
+    let registry =
+        mei_host_graph::McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let registry_revision = {
         let rev = registry.registry_revision.trim();
         if rev.is_empty() {
@@ -94,8 +92,8 @@ fn collect_revisions(ctx: &HostContext) -> InstanceRevisions {
         }
     };
     let app_root = ctx.app_root();
-    let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), &ctx.app_id)
-        .data_generation;
+    let data_generation =
+        mei_lang_kernel::load_cache_generation(app_root.as_path(), &ctx.app_id).data_generation;
     let data_generation = {
         let trimmed = data_generation.trim();
         if trimmed.is_empty() {

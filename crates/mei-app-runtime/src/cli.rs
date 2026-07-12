@@ -55,4 +55,8 @@ pub struct ServeArgs {
     /// Internal instance token; requests must carry `x-mei-instance-token` (health excluded).
     #[arg(long)]
     pub token: String,
+
+    /// Optional data-mode ceiling slug (`eval` | `fixture` | `static`).
+    #[arg(long = "data-mode-ceiling")]
+    pub data_mode_ceiling: Option<String>,
 }

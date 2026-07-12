@@ -37,10 +37,7 @@ impl AppRuntimeState {
         }
     }
 
-    pub fn from_instance_spec(
-        workspace_root: impl Into<PathBuf>,
-        spec: &InstanceSpec,
-    ) -> Self {
+    pub fn from_instance_spec(workspace_root: impl Into<PathBuf>, spec: &InstanceSpec) -> Self {
         Self::new(
             workspace_root,
             spec.instance_id.as_str(),
@@ -53,35 +50,59 @@ impl AppRuntimeState {
     }
 
     pub fn instance_runtime_root(&self) -> PathBuf {
-        instance_runtime_root(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_runtime_root(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_var_dir(&self) -> PathBuf {
-        instance_var_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_var_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_eval_cache_dir(&self) -> PathBuf {
-        instance_eval_cache_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_eval_cache_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_bootstrap_dir(&self) -> PathBuf {
-        instance_bootstrap_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_bootstrap_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_mrg_memory_dir(&self) -> PathBuf {
-        instance_mrg_memory_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_mrg_memory_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_mrg_disk_dir(&self) -> PathBuf {
-        instance_mrg_disk_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_mrg_disk_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_logs_dir(&self) -> PathBuf {
-        instance_logs_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_logs_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn instance_meta_dir(&self) -> PathBuf {
-        instance_meta_dir(self.workspace_root.as_path(), self.instance_id.as_str())
+        instance_meta_dir(
+            self.workspace_root.as_path(),
+            self.partition.app_id.as_str(),
+        )
     }
 
     pub fn pinned_generation_root(&self) -> PathBuf {
@@ -161,19 +182,19 @@ impl RuntimeContext {
     }
 
     pub fn instance_runtime_root(&self) -> PathBuf {
-        instance_runtime_root(self.workspace_root(), self.instance_id.as_str())
+        instance_runtime_root(self.workspace_root(), self.app_id())
     }
 
     pub fn instance_eval_cache_dir(&self) -> PathBuf {
-        instance_eval_cache_dir(self.workspace_root(), self.instance_id.as_str())
+        instance_eval_cache_dir(self.workspace_root(), self.app_id())
     }
 
     pub fn instance_bootstrap_dir(&self) -> PathBuf {
-        instance_bootstrap_dir(self.workspace_root(), self.instance_id.as_str())
+        instance_bootstrap_dir(self.workspace_root(), self.app_id())
     }
 
     pub fn instance_var_dir(&self) -> PathBuf {
-        instance_var_dir(self.workspace_root(), self.instance_id.as_str())
+        instance_var_dir(self.workspace_root(), self.app_id())
     }
 
     /// Read-only generation tree; does not follow `env/current`.
@@ -187,9 +208,7 @@ impl RuntimeContext {
 
     /// Pinned registry root under the sealed generation (not `env/current`).
     pub fn pinned_registry_root(&self) -> PathBuf {
-        self.pinned_generation_root()
-            .join("build")
-            .join("registry")
+        self.pinned_generation_root().join("build").join("registry")
     }
 }
 
@@ -234,6 +253,7 @@ mod tests {
                     apps: BTreeMap::new(),
                 },
                 default_app: None,
+                ..Default::default()
             },
             runtime_abi: "2.4".to_string(),
             data_mode_ceiling: None,
@@ -252,7 +272,7 @@ mod tests {
         );
         assert_eq!(
             ctx.instance_runtime_root(),
-            PathBuf::from("/tmp/ws/deploy/runtime/instances/inst-a")
+            PathBuf::from("/tmp/ws/deploy/runtime/apps/mini-data")
         );
         assert!(!ctx
             .pinned_generation_root()
@@ -270,7 +290,11 @@ mod tests {
             a.partition().prefix_key(inner),
             b.partition().prefix_key(inner)
         );
-        assert_ne!(a.runtime_state().instance_runtime_root(), b.runtime_state().instance_runtime_root());
+        // One Runtime per app: ephemeral root is app-scoped, not instance-scoped.
+        assert_eq!(
+            a.runtime_state().instance_runtime_root(),
+            b.runtime_state().instance_runtime_root()
+        );
     }
 
     #[test]

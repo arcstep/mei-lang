@@ -110,6 +110,7 @@ mod tests {
                     apps: BTreeMap::new(),
                 },
                 default_app: Some("mini-data".to_string()),
+                ..Default::default()
             },
             runtime_abi: "2.4".to_string(),
             data_mode_ceiling: None,

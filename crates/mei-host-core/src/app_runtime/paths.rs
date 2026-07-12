@@ -1,57 +1,65 @@
-//! Instance-private runtime paths under `deploy/runtime/instances/{instanceId}/`.
+//! App-private runtime paths under `deploy/runtime/apps/{appId}/`.
 //!
 //! Generation trees (`apps/{app}/env/WS-*`) are **read-only build artifacts**. Mutable
 //! runtime state (eval cache, MRG tiers, bootstrap, logs, meta) must live under the
-//! instance root resolved by these helpers.
+//! ephemeral app root resolved by these helpers.
+//!
+//! Legacy layout `deploy/runtime/instances/{instanceId}/` is read for one
+//! compatibility round; new writes only use the app root.
 
 use std::path::{Path, PathBuf};
 
 use mei_lang_kernel::resolve_app_root;
 
-/// Workspace-relative root for all instance-private mutable state.
-///
-/// `{workspace}/deploy/runtime/instances/{instance_id}/`
-pub fn instance_runtime_root(workspace: &Path, instance_id: &str) -> PathBuf {
+use crate::app_launch::app_runtime_root;
+
+/// Ephemeral root for an app: `{workspace}/deploy/runtime/apps/{app_id}/`.
+pub fn instance_runtime_root(workspace: &Path, app_id: &str) -> PathBuf {
+    app_runtime_root(workspace, app_id)
+}
+
+/// Legacy instance-private root: `{workspace}/deploy/runtime/instances/{instance_id}/`.
+pub fn legacy_instance_runtime_root(workspace: &Path, instance_id: &str) -> PathBuf {
     workspace
         .join("deploy/runtime/instances")
-        .join(sanitize_instance_id(instance_id))
+        .join(sanitize_segment(instance_id))
 }
 
-/// `{instance_root}/var/` — general mutable runtime directory.
-pub fn instance_var_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_runtime_root(workspace, instance_id).join("var")
+/// `{app_root}/var/` — general mutable runtime directory.
+pub fn instance_var_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_runtime_root(workspace, app_id).join("var")
 }
 
-/// `{instance_root}/var/eval-cache/`
-pub fn instance_eval_cache_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_var_dir(workspace, instance_id).join("eval-cache")
+/// `{app_root}/var/eval-cache/`
+pub fn instance_eval_cache_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_var_dir(workspace, app_id).join("eval-cache")
 }
 
-/// `{instance_root}/var/client-bootstrap/`
-pub fn instance_bootstrap_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_var_dir(workspace, instance_id).join("client-bootstrap")
+/// `{app_root}/var/client-bootstrap/`
+pub fn instance_bootstrap_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_var_dir(workspace, app_id).join("client-bootstrap")
 }
 
-/// `{instance_root}/var/mrg/memory/` — MRG in-memory tier spill / pin metadata.
-pub fn instance_mrg_memory_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_var_dir(workspace, instance_id)
+/// `{app_root}/var/mrg/memory/`
+pub fn instance_mrg_memory_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_var_dir(workspace, app_id)
         .join("mrg")
         .join("memory")
 }
 
-/// `{instance_root}/var/mrg/disk/` — MRG disk tier artifacts.
-pub fn instance_mrg_disk_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_var_dir(workspace, instance_id).join("mrg").join("disk")
+/// `{app_root}/var/mrg/disk/`
+pub fn instance_mrg_disk_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_var_dir(workspace, app_id).join("mrg").join("disk")
 }
 
-/// `{instance_root}/logs/`
-pub fn instance_logs_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_runtime_root(workspace, instance_id).join("logs")
+/// `{app_root}/logs/`
+pub fn instance_logs_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_runtime_root(workspace, app_id).join("logs")
 }
 
-/// `{instance_root}/meta/` — observed revisions, readiness, and other run metadata.
-pub fn instance_meta_dir(workspace: &Path, instance_id: &str) -> PathBuf {
-    instance_runtime_root(workspace, instance_id).join("meta")
+/// `{app_root}/meta/`
+pub fn instance_meta_dir(workspace: &Path, app_id: &str) -> PathBuf {
+    instance_runtime_root(workspace, app_id).join("meta")
 }
 
 /// Pinned generation root: `apps/{app}/env/{generation}/` (does **not** follow `env/current`).
@@ -63,8 +71,8 @@ pub fn pinned_generation_root(workspace: &Path, app_id: &str, generation: &str) 
         .join(generation.trim())
 }
 
-fn sanitize_instance_id(instance_id: &str) -> &str {
-    let trimmed = instance_id.trim();
+fn sanitize_segment(value: &str) -> &str {
+    let trimmed = value.trim();
     if trimmed.is_empty() {
         "_invalid"
     } else {
@@ -78,32 +86,33 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn instance_path_helpers_nest_under_deploy_runtime_instances() {
+    fn instance_path_helpers_nest_under_deploy_runtime_apps() {
         let ws = PathBuf::from("/tmp/ws");
-        let root = instance_runtime_root(&ws, "inst-a");
+        let root = instance_runtime_root(&ws, "mini-data");
+        assert_eq!(root, PathBuf::from("/tmp/ws/deploy/runtime/apps/mini-data"));
         assert_eq!(
-            root,
-            PathBuf::from("/tmp/ws/deploy/runtime/instances/inst-a")
-        );
-        assert_eq!(
-            instance_eval_cache_dir(&ws, "inst-a"),
+            instance_eval_cache_dir(&ws, "mini-data"),
             root.join("var/eval-cache")
         );
         assert_eq!(
-            instance_bootstrap_dir(&ws, "inst-a"),
+            instance_bootstrap_dir(&ws, "mini-data"),
             root.join("var/client-bootstrap")
         );
-        assert_eq!(instance_var_dir(&ws, "inst-a"), root.join("var"));
+        assert_eq!(instance_var_dir(&ws, "mini-data"), root.join("var"));
         assert_eq!(
-            instance_mrg_memory_dir(&ws, "inst-a"),
+            instance_mrg_memory_dir(&ws, "mini-data"),
             root.join("var/mrg/memory")
         );
         assert_eq!(
-            instance_mrg_disk_dir(&ws, "inst-a"),
+            instance_mrg_disk_dir(&ws, "mini-data"),
             root.join("var/mrg/disk")
         );
-        assert_eq!(instance_logs_dir(&ws, "inst-a"), root.join("logs"));
-        assert_eq!(instance_meta_dir(&ws, "inst-a"), root.join("meta"));
+        assert_eq!(instance_logs_dir(&ws, "mini-data"), root.join("logs"));
+        assert_eq!(instance_meta_dir(&ws, "mini-data"), root.join("meta"));
+        assert_eq!(
+            legacy_instance_runtime_root(&ws, "inst-a"),
+            PathBuf::from("/tmp/ws/deploy/runtime/instances/inst-a")
+        );
     }
 
     #[test]
@@ -118,11 +127,11 @@ mod tests {
     }
 
     #[test]
-    fn distinct_instance_ids_yield_distinct_roots() {
+    fn distinct_app_ids_yield_distinct_roots() {
         let ws = PathBuf::from("/tmp/ws");
         assert_ne!(
-            instance_runtime_root(&ws, "inst-a"),
-            instance_runtime_root(&ws, "inst-b")
+            instance_runtime_root(&ws, "app-a"),
+            instance_runtime_root(&ws, "app-b")
         );
     }
 }

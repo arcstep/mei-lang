@@ -14,13 +14,21 @@ pub async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         anyhow::bail!("--token is required and must be non-empty");
     }
     let host = normalize_loopback_host(&args.host)?;
-    let spec = resolve_instance_spec(
+    let mut spec = resolve_instance_spec(
         workspace.as_path(),
         args.app.as_str(),
         args.instance_id.as_str(),
         args.generation.as_deref(),
         args.instance_spec.as_deref(),
     )?;
+    if let Some(ceiling) = args
+        .data_mode_ceiling
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        spec.data_mode_ceiling = Some(ceiling.to_string());
+    }
     let host_ctx = HostContext::new(workspace, spec.app_id.as_str());
     let state = AppRuntimeServeState::new(host_ctx, spec, args.token.trim()).shared();
 

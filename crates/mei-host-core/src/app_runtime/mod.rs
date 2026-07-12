@@ -20,11 +20,10 @@ pub use host_control::{
     write_if_revision_matches, ActiveProfileRef, HostControlConflict, HostControlState,
     SCHEMA_HOST_CONTROL_V1, SCHEMA_HOST_CONTROL_V2,
 };
-pub use instance_spec::{
-    BundleRef, ConfigSnapshot, InstanceSpec, SCHEMA_INSTANCE_SPEC_V1,
-};
+pub use instance_spec::{BundleRef, ConfigSnapshot, InstanceSpec, SCHEMA_INSTANCE_SPEC_V1};
 pub use instance_store::{
-    instance_spec_path, list_instance_runtime_ids, read_instance_spec, write_instance_spec,
+    clear_app_ephemeral_runtime, instance_spec_path, list_instance_runtime_ids, read_instance_spec,
+    read_instance_spec_for_app, write_instance_spec,
 };
 pub use launch_manifest::{
     DesiredInstance, DesiredState, LastSuccessfulApply, LaunchManifest, RouteBinding,
@@ -36,7 +35,7 @@ pub use observed_instance::{
 pub use paths::{
     instance_bootstrap_dir, instance_eval_cache_dir, instance_logs_dir, instance_meta_dir,
     instance_mrg_disk_dir, instance_mrg_memory_dir, instance_runtime_root, instance_var_dir,
-    pinned_generation_root,
+    legacy_instance_runtime_root, pinned_generation_root,
 };
 pub use runtime_state::{AppRuntimeState, RuntimeContext};
 
