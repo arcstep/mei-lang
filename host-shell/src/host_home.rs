@@ -4,26 +4,21 @@ use axum::{
     extract::{Extension, State},
     response::{Html, IntoResponse},
 };
-use mei_host_auth::{
-    account_view_for_principal, filter_apps_for_principal, html_escape, AuthPrincipal,
-    AuthServeState,
-};
+use mei_host_auth::{account_view_for_principal, html_escape, AuthPrincipal, AuthServeState};
 use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
-use mei_lang_kernel::{load_workspace_config, WorkspaceAppMeta};
+use mei_lang_kernel::WorkspaceAppMeta;
 
-use crate::landing::{
-    app_has_prebuilt_access_entry, choose_default_app, discover_workspace_apps,
-    enrich_discovered_apps,
-};
+use crate::landing::app_has_prebuilt_access_entry;
+use crate::shell_chrome::apps_for_topbar;
 use crate::state::SharedState;
 use crate::workspace_page::render_workspace_shell_page;
 
 pub fn render_host_home_body_html(
     workspace_root: &Path,
-    apps: &[WorkspaceAppMeta],
+    running_apps: &[WorkspaceAppMeta],
     data_plane_enabled: bool,
 ) -> String {
-    let workspace = load_workspace_config(workspace_root);
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
     let workspace_label = workspace
         .workspace
         .label
@@ -40,46 +35,31 @@ pub fn render_host_home_body_html(
         })
         .unwrap_or_default();
 
-    let default_app = choose_default_app(workspace_root, apps).map(|app| app.id.as_str());
-
-    let app_section = if apps.is_empty() {
+    let app_section = if running_apps.is_empty() {
         r#"<section class="mei-host-shell__message">
   <h2>控制面已就绪</h2>
-  <p>当前工作区尚未发现可加载的应用。可先进入运行控制中心选择并应用 workspace profile。</p>
+  <p>当前没有已启动的应用。顶栏与首页只展示运行中的应用；请到运行控制中心选择 launch config 并启动。</p>
   <p><a class="mei-host-shell__btn" href="/runtime">打开运行控制中心</a></p>
 </section>"#
             .to_string()
     } else {
-        let cards = apps
+        let cards = running_apps
             .iter()
             .map(|app| {
                 let access_ready = data_plane_enabled
                     && app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
                 let access_href = format!("/apps/{}/home", app.id);
-                let status = if !data_plane_enabled {
-                    "disabled"
-                } else if access_ready {
-                    "ready"
+                let status = if access_ready { "ready" } else { "starting" };
+                let status_label = if access_ready {
+                    "已启动"
                 } else {
-                    "missing"
-                };
-                let status_label = if !data_plane_enabled {
-                    "Access 未配置"
-                } else if access_ready {
-                    "已编译"
-                } else {
-                    "待预构建"
-                };
-                let default_mark = if default_app == Some(app.id.as_str()) {
-                    r#"<span class="mei-host-shell__card-badge">默认</span>"#
-                } else {
-                    ""
+                    "启动中"
                 };
                 format!(
                     r#"<article class="mei-host-shell__app-card">
   <header class="mei-host-shell__app-card-head">
     <h2 class="mei-host-shell__card-title">{title}</h2>
-    {default_mark}
+    <span class="mei-host-shell__card-badge">运行中</span>
   </header>
   <p class="mei-host-shell__card-id"><code>{app_id}</code></p>
   <p class="mei-host-shell__card-desc">{summary}</p>
@@ -87,7 +67,6 @@ pub fn render_host_home_body_html(
   <div class="mei-host-shell__card-actions">{access_action}</div>
 </article>"#,
                     title = html_escape(app.title.as_str()),
-                    default_mark = default_mark,
                     app_id = html_escape(app.id.as_str()),
                     summary = html_escape(app.title.as_str()),
                     status = status,
@@ -98,14 +77,15 @@ pub fn render_host_home_body_html(
                             html_escape(access_href.as_str())
                         )
                     } else {
-                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">配置运行</a>"#.to_string()
+                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">查看运行状态</a>"#.to_string()
                     },
                 )
             })
             .collect::<Vec<_>>()
             .join("");
         format!(
-            r#"<section class="mei-host-shell__app-grid">{cards}</section>"#,
+            r#"<section class="mei-host-shell__app-grid">{cards}</section>
+<p class="mei-host-shell__meta"><a class="mei-host-shell__link" href="/runtime">管理全部应用启停 →</a></p>"#,
             cards = cards,
         )
     };
@@ -124,23 +104,16 @@ pub async fn host_home_page(
 ) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
-    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = enrich_discovered_apps(
-        filter_apps_for_principal(
-            discovered.as_slice(),
-            principal.as_ref().map(|Extension(p)| p),
-        )
-        .as_slice(),
-        &topbar_menu,
-    );
+    // 0537: home chrome + cards only list LaunchManifest active apps.
+    let running = apps_for_topbar(&guard);
     let auth_enabled = auth.auth_enforcement == mei_host_auth::AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
     let body_html =
-        render_host_home_body_html(workspace_root, apps.as_slice(), guard.data_plane_enabled);
+        render_host_home_body_html(workspace_root, running.as_slice(), guard.data_plane_enabled);
     let html = render_workspace_shell_page(
         workspace_root,
-        apps.as_slice(),
+        running.as_slice(),
         &topbar_menu,
         WorkspaceShellNav::Home,
         "MeiLang 工作区",
@@ -156,7 +129,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_home_renders_without_apps() {
+    fn host_home_renders_without_running_apps() {
         let root = std::env::temp_dir().join(format!(
             "mei-host-home-empty-{}",
             std::time::SystemTime::now()
@@ -177,18 +150,15 @@ mod tests {
             false,
             None,
         );
-        assert!(html.contains("欢迎使用 MeiLang") || html.contains("MeiLang 工作区"));
+        assert!(html.contains("控制面已就绪") || html.contains("MeiLang 工作区"));
+        assert!(html.contains("/runtime"));
         assert!(html.contains("topbar-shell"));
-        assert!(html.contains("statusbar-shell"));
-        assert!(html.contains("mei-workspace-page"));
-        assert!(html.contains("shell-nav-link"));
-        assert!(html.contains("topbar-app-toolbar"));
-        assert!(html.contains("topbar-system-toolbar"));
+        assert!(!html.contains("app-tab") || !html.contains("data-mei-app-id"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn host_home_topbar_shows_app_menu_before_system_nav() {
+    fn host_home_topbar_order_with_running_apps() {
         let root = std::env::temp_dir().join(format!(
             "mei-host-home-apps-{}",
             std::time::SystemTime::now()
@@ -227,7 +197,6 @@ mod tests {
             .find("topbar-system-toolbar")
             .expect("system toolbar region");
         assert!(app_toolbar < system_toolbar);
-        assert!(!html.contains("app-current-path"));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

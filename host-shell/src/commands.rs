@@ -4,11 +4,11 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::build_ops::{import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint};
 use crate::cli::{
-    AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs,
-    BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs,
-    Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, MrgCommand, MrgStatusArgs,
-    PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WorkspaceCommand,
-    WorkspaceInitArgs,
+    AppsCommand, AppsListArgs, AppsStartArgs, AppsStopArgs, BuildCleanArgs, BuildCommand,
+    BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs,
+    BuildStatusArgs, Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, LaunchMode,
+    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
+    WorkspaceCommand, WorkspaceInitArgs,
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
@@ -67,21 +67,118 @@ fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()
 fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
     match command {
         AppsCommand::List(args) => run_apps_list(args),
+        AppsCommand::Start(args) => run_apps_start(args),
+        AppsCommand::Stop(args) => run_apps_stop(args),
     }
 }
 
 fn run_apps_list(args: AppsListArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
-    let apps = crate::landing::discover_workspace_apps(workspace.as_path())?;
+    let rows = crate::launch_targets::list_app_launch_rows(workspace.as_path())?;
     if args.json {
-        let ids: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
-        println!("{}", serde_json::to_string(&ids)?);
+        println!("{}", serde_json::to_string_pretty(&rows)?);
     } else {
-        for app in &apps {
-            println!("{}", app.id);
+        for row in rows {
+            let app_id = row.get("appId").and_then(|v| v.as_str()).unwrap_or("?");
+            let default = row
+                .get("defaultLaunch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            println!("{app_id}\tdefaultLaunch={default}");
+            if let Some(launches) = row.get("launches").and_then(|v| v.as_array()) {
+                for launch in launches {
+                    let id = launch.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let marker = if launch
+                        .get("isDefault")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
+                        "*"
+                    } else {
+                        " "
+                    };
+                    println!("  {marker} {id}");
+                }
+            }
         }
     }
     Ok(())
+}
+
+fn default_control_url(explicit: Option<&str>) -> String {
+    explicit
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("MEI_HOST_URL")
+                .ok()
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "http://127.0.0.1:9527".to_string())
+}
+
+fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
+    let app = args.app.trim();
+    anyhow::ensure!(!app.is_empty(), "--app is required");
+    let config = args
+        .config
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default");
+    // Ensure launch file exists locally before asking the running Host.
+    let _ = mei_host_core::read_launch_config(workspace.as_path(), app, config).or_else(|_| {
+        if config == "default" {
+            mei_host_core::ensure_default_launch_config(workspace.as_path(), app)
+        } else {
+            Err(mei_host_core::AppLaunchError::NotFound(format!(
+                "launch config `{config}` not found for app `{app}`"
+            )))
+        }
+    })?;
+    let base = default_control_url(args.control_url.as_deref());
+    let url = format!("{base}/api/host/apps/{}/start", urlencoding_app(app));
+    let body = serde_json::json!({ "config": config });
+    let response = ureq_or_reqwest_post_json(&url, &body)?;
+    println!("{response}");
+    Ok(())
+}
+
+fn run_apps_stop(args: AppsStopArgs) -> anyhow::Result<()> {
+    let app = args.app.trim();
+    anyhow::ensure!(!app.is_empty(), "--app is required");
+    let base = default_control_url(args.control_url.as_deref());
+    let url = format!("{base}/api/host/apps/{}/stop", urlencoding_app(app));
+    let response = ureq_or_reqwest_post_json(&url, &serde_json::json!({}))?;
+    println!("{response}");
+    Ok(())
+}
+
+fn urlencoding_app(app: &str) -> String {
+    app.replace('/', "%2F")
+}
+
+fn ureq_or_reqwest_post_json(url: &str, body: &serde_json::Value) -> anyhow::Result<String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::new();
+        let response = client
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("POST {url}: {e}"))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("POST {url} -> {status}: {text}");
+        }
+        Ok(text)
+    })
 }
 
 fn run_workspace(command: WorkspaceCommand) -> anyhow::Result<()> {
@@ -551,10 +648,24 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         args.workspace_config.as_deref(),
     )?;
     if args.workspace_config.is_some() {
+        tracing::warn!(
+            path = ?args.workspace_config,
+            "serve --workspace-config is legacy; prefer per-app launch files via --app-config / --launch (see 0537)"
+        );
         if let Some(profile) = selected.as_ref() {
             // Serve resolves the path once; compiler/plug-ds children consume the same path.
             std::env::set_var("MEI_WORKSPACE_CONFIG", profile.path.as_os_str());
         }
+    } else if selected.as_ref().is_some_and(|profile| {
+        matches!(
+            profile.source.as_str(),
+            "last_successful" | "workspace_default"
+        )
+    }) {
+        tracing::warn!(
+            source = %selected.as_ref().map(|p| p.source.as_str()).unwrap_or("unknown"),
+            "workspace mega-config / last_successful profile is legacy for serve autostart; prefer --app-config or --launch defaults|all|none"
+        );
     }
     let mut args = args;
     args.workspace = workspace.clone();
@@ -563,7 +674,21 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .take()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+
+    let launch_mode = args.launch.unwrap_or(LaunchMode::None);
+    let launch_targets = crate::launch_targets::collect_serve_launch_targets(
+        workspace.as_path(),
+        launch_mode,
+        &args.app_config,
+    )?;
+    // 0537: explicit --launch (including none) or --app-config → control plane; clear legacy --app.
+    if !args.app_config.is_empty() || args.launch.is_some() {
+        args.app = None;
+    }
+
     if args.app.is_none()
+        && matches!(launch_mode, LaunchMode::None)
+        && args.app_config.is_empty()
         && selected
             .as_ref()
             .is_some_and(|profile| profile.source == "last_successful")
@@ -588,11 +713,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         }
     }
     if args.app.is_none() {
-        return run_serve_control_plane(args, selected).await;
+        return run_serve_control_plane(args, selected, launch_targets).await;
     }
     tracing::warn!(
         app = %args.app.as_deref().unwrap_or(""),
-        "serve --app is a migration-period path; prefer control-plane LaunchManifest routes when available"
+        "serve --app is a migration-period path; prefer --launch / --app-config (0537)"
     );
     let early_bind = std::env::var("MEI_SERVE_EARLY_BIND")
         .map(|value| {
@@ -610,6 +735,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
 async fn run_serve_control_plane(
     args: ServeArgs,
     selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
+    launch_targets: Vec<crate::launch_targets::LaunchTarget>,
 ) -> anyhow::Result<()> {
     use std::collections::BTreeMap;
 
@@ -666,24 +792,50 @@ async fn run_serve_control_plane(
         managed_plug: Arc::new(Mutex::new(None)),
         app_runtime: app_runtime.clone(),
     };
+    if !launch_targets.is_empty() {
+        crate::app_launch_api::autostart_launch_targets(&state, &launch_targets).await;
+    }
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let listen_url = format!("http://{addr}");
-    let route_ready = {
+    let version_line = crate::build_info::host_version_banner_line(workspace.as_path());
+    let (ready_count, total_count, route_ready) = {
         let guard = state.shell.read().expect("state lock");
-        guard.route_plane_ready
+        let discovered =
+            crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
+        let total_count = discovered.len();
+        let ready_count = discovered
+            .iter()
+            .filter(|app| {
+                guard.endpoint_for_app(app.id.as_str()).is_some()
+                    || guard.access_route_ready_for(app.id.as_str())
+            })
+            .count();
+        (ready_count, total_count, guard.route_plane_ready)
     };
     crate::startup_banner::emit_host_listening_banner(
         listen_url.as_str(),
         &[
-            crate::build_info::host_version_banner_line(workspace.as_path()).as_str(),
+            version_line.as_str(),
             if route_ready {
                 "control plane ready — LaunchManifest routes active"
             } else {
-                "control plane ready — Access unconfigured/disabled"
+                "control plane ready — open /runtime to launch apps"
             },
         ],
     );
+    let apps_ready_line = format!("apps ready: {ready_count}/{total_count}");
+    let access_detail = if ready_count == 0 {
+        "no app runtime loaded yet — Host control plane is ready"
+    } else {
+        "running app runtimes may be served; others can be started from /runtime"
+    };
+    crate::startup_banner::emit_access_warmup_ready_banner(&[
+        listen_url.as_str(),
+        version_line.as_str(),
+        apps_ready_line.as_str(),
+        access_detail,
+    ]);
     println!("Open:      {listen_url}/runtime");
     let app = crate::http::router(state)
         .layer(axum::middleware::from_fn_with_state(

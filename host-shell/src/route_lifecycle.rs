@@ -12,9 +12,8 @@ use axum::{
     Json,
 };
 use mei_host_core::{
-    instance_runtime_root, list_instance_runtime_ids, read_host_control_state, read_instance_spec,
-    write_if_revision_matches, write_instance_spec, DesiredInstance, DesiredState,
-    HostControlConflict, InstanceSpec, LaunchManifest, RouteBinding,
+    read_host_control_state, read_instance_spec, write_if_revision_matches, write_instance_spec,
+    DesiredInstance, DesiredState, HostControlConflict, InstanceSpec, LaunchManifest, RouteBinding,
 };
 use mei_lang_kernel::{attach_build_generation, CleanEnvPolicy};
 use serde::{Deserialize, Serialize};
@@ -75,10 +74,9 @@ impl RouteLifecycleError {
 
     pub fn message(&self) -> &str {
         match self {
-            Self::Conflict(msg)
-            | Self::NotFound(msg)
-            | Self::NotReady(msg)
-            | Self::Other(msg) => msg.as_str(),
+            Self::Conflict(msg) | Self::NotFound(msg) | Self::NotReady(msg) | Self::Other(msg) => {
+                msg.as_str()
+            }
         }
     }
 }
@@ -94,11 +92,14 @@ pub fn cutover_route_in_manifest(
             "instance `{target_instance_id}` is not in LaunchManifest"
         )));
     }
-    let route = manifest.routes.entry(app_id.to_string()).or_insert(RouteBinding {
-        active: None,
-        candidate: None,
-        previous: None,
-    });
+    let route = manifest
+        .routes
+        .entry(app_id.to_string())
+        .or_insert(RouteBinding {
+            active: None,
+            candidate: None,
+            previous: None,
+        });
     let old_active = route.active.clone();
     if old_active.as_deref() == Some(target_instance_id) {
         route.candidate = None;
@@ -365,9 +366,7 @@ async fn ensure_instance_ready(
 ) -> Result<(), RouteLifecycleError> {
     let shell_ready = {
         let guard = http.shell.read().expect("state lock");
-        guard
-            .app_runtime_by_instance
-            .contains_key(instance_id)
+        guard.app_runtime_by_instance.contains_key(instance_id)
     };
     {
         let supervisor = http
@@ -399,6 +398,7 @@ async fn ensure_instance_ready(
         supervisor.spawn_instance(spec, token).await
     };
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut slot = http
             .app_runtime
@@ -408,11 +408,11 @@ async fn ensure_instance_ready(
     }
     {
         let mut guard = http.shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
-    restart_result.map(|_| ()).map_err(|error| {
-        RouteLifecycleError::NotReady(error.to_string())
-    })
+    restart_result
+        .map(|_| ())
+        .map_err(|error| RouteLifecycleError::NotReady(error.to_string()))
 }
 
 /// Launch candidates, wait ready, then cut over each app. On failure stop candidates and
@@ -478,9 +478,10 @@ async fn launch_specs(
                 drop(slot);
                 let mut guard = http.shell.write().expect("state lock");
                 for spec in specs {
-                    guard.app_runtime_by_instance.insert(
+                    guard.register_app_runtime_endpoint(
                         spec.instance_id.clone(),
                         format!("pending://{}", spec.instance_id),
+                        Some(crate::state::current_time_ms()),
                     );
                     launched.push(spec.instance_id.clone());
                 }
@@ -521,6 +522,7 @@ async fn launch_specs(
                     Some(error.to_string().as_str()),
                 );
                 let endpoints = supervisor.endpoint_map();
+                let started_at = supervisor.started_at_map();
                 {
                     let mut slot = http.app_runtime.lock().map_err(|_| {
                         RouteLifecycleError::Other("app-runtime supervisor poisoned".into())
@@ -529,7 +531,7 @@ async fn launch_specs(
                 }
                 {
                     let mut guard = http.shell.write().expect("state lock");
-                    guard.sync_app_runtime_endpoints(endpoints);
+                    guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
                 }
                 return Err(RouteLifecycleError::NotReady(format!(
                     "failed to launch candidate {}: {error}",
@@ -539,6 +541,7 @@ async fn launch_specs(
         }
     }
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut slot = http
             .app_runtime
@@ -548,7 +551,7 @@ async fn launch_specs(
     }
     {
         let mut guard = http.shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     Ok(launched)
 }
@@ -572,7 +575,7 @@ pub async fn stop_instances(
                 drop(slot);
                 let mut guard = http.shell.write().expect("state lock");
                 for id in &ids {
-                    guard.app_runtime_by_instance.remove(id.as_str());
+                    guard.unregister_app_runtime_endpoint(id.as_str());
                 }
                 return Ok(());
             }
@@ -582,6 +585,7 @@ pub async fn stop_instances(
         let _ = supervisor.stop_instance(id.as_str()).await;
     }
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut slot = http
             .app_runtime
@@ -591,7 +595,7 @@ pub async fn stop_instances(
     }
     {
         let mut guard = http.shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     Ok(())
 }
@@ -604,26 +608,62 @@ pub fn garbage_collect_instances(
 ) -> Vec<String> {
     let protected = protected_instance_ids(manifest);
     let mut removed = Vec::new();
-    for instance_id in list_instance_runtime_ids(workspace) {
-        if protected.contains(instance_id.as_str()) {
-            continue;
+
+    // Legacy instance dirs under deploy/runtime/instances/{id}.
+    let legacy_root = workspace.join("deploy/runtime/instances");
+    if let Ok(entries) = fs::read_dir(&legacy_root) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let instance_id = entry.file_name().to_string_lossy().to_string();
+            if protected.contains(instance_id.as_str()) {
+                continue;
+            }
+            let desired = manifest.instances.get(instance_id.as_str());
+            let is_stopped = desired
+                .map(|entry| entry.desired_state == DesiredState::Stopped)
+                .unwrap_or(true);
+            if !is_stopped {
+                continue;
+            }
+            let path = entry.path();
+            if !dry_run {
+                let _ = fs::remove_dir_all(&path);
+            }
+            removed.push(instance_id);
         }
-        let desired = manifest.instances.get(instance_id.as_str());
-        let is_stopped = desired
-            .map(|entry| entry.desired_state == DesiredState::Stopped)
-            .unwrap_or(true);
-        if !is_stopped {
-            continue;
-        }
-        let path = instance_runtime_root(workspace, instance_id.as_str());
-        if !path.exists() {
-            continue;
-        }
-        if !dry_run {
-            let _ = fs::remove_dir_all(&path);
-        }
-        removed.push(instance_id);
     }
+
+    // App ephemeral roots: clear when no protected route still references the app.
+    let apps_root = workspace.join("deploy/runtime/apps");
+    if let Ok(entries) = fs::read_dir(&apps_root) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let app_id = entry.file_name().to_string_lossy().to_string();
+            let route = manifest.routes.get(app_id.as_str());
+            let still_referenced = route.is_some_and(|route| {
+                [&route.active, &route.candidate, &route.previous]
+                    .into_iter()
+                    .flatten()
+                    .any(|id| protected.contains(id.as_str()))
+            });
+            if still_referenced {
+                continue;
+            }
+            let path = entry.path();
+            let marker = format!("app:{app_id}");
+            if !dry_run {
+                let _ = fs::remove_dir_all(&path);
+            }
+            if !removed.iter().any(|id| id == &marker) {
+                removed.push(marker);
+            }
+        }
+    }
+
     removed
 }
 
@@ -831,8 +871,8 @@ pub async fn cutover_after_apply(
 mod tests {
     use super::*;
     use mei_host_core::{
-        write_host_control_state, BundleRef, ConfigSnapshot, HostControlState,
-        SCHEMA_INSTANCE_SPEC_V1,
+        instance_runtime_root, legacy_instance_runtime_root, write_host_control_state, BundleRef,
+        ConfigSnapshot, HostControlState, SCHEMA_INSTANCE_SPEC_V1,
     };
     use mei_lang_kernel::{RuntimeMode, RuntimePlan};
 
@@ -857,6 +897,7 @@ mod tests {
                     apps: Default::default(),
                 },
                 default_app: None,
+                ..Default::default()
             },
             runtime_abi: "1".to_string(),
             data_mode_ceiling: None,
@@ -867,16 +908,21 @@ mod tests {
         let mut manifest = LaunchManifest::empty();
         for (id, gen) in [("inst-old", "WS-20260711.0"), ("inst-new", "WS-20260712.0")] {
             let spec = sample_spec(id, "mini-data", gen);
+            // Keep per-instance specs under legacy dirs so multi-slot tests can resolve generations.
+            let legacy = legacy_instance_runtime_root(workspace, id);
+            fs::create_dir_all(&legacy).expect("legacy");
+            fs::write(
+                legacy.join("spec.json"),
+                serde_json::to_vec_pretty(&spec).expect("ser"),
+            )
+            .expect("write legacy spec");
+            // Active write path still uses app ephemeral root (last wins for same app).
             write_instance_spec(workspace, &spec).expect("spec");
             manifest.instances.insert(
                 id.to_string(),
                 DesiredInstance {
                     spec_ref: spec.spec_digest(),
-                    desired_state: if id == "inst-old" {
-                        DesiredState::Running
-                    } else {
-                        DesiredState::Running
-                    },
+                    desired_state: DesiredState::Running,
                 },
             );
         }
@@ -975,9 +1021,15 @@ mod tests {
         let workspace = tmp.path();
         let manifest = seed_manifest(workspace);
 
-        // Extra stopped instance + orphan generation dir.
+        // Extra stopped instance under legacy instances path + orphan generation dir.
         let orphan = sample_spec("inst-orphan", "mini-data", "WS-20260710.0");
-        write_instance_spec(workspace, &orphan).expect("orphan spec");
+        let legacy = legacy_instance_runtime_root(workspace, "inst-orphan");
+        fs::create_dir_all(&legacy).expect("legacy dir");
+        fs::write(
+            legacy.join("spec.json"),
+            serde_json::to_vec_pretty(&orphan).expect("ser"),
+        )
+        .expect("orphan legacy spec");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260710.0")).expect("gen");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260711.0")).expect("gen");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260712.0")).expect("gen");
@@ -1002,17 +1054,19 @@ mod tests {
         assert!(protections
             .get("WS-job")
             .is_some_and(|r| r.iter().any(|x| x == "ops-job")));
-        assert!(!protections.contains_key("WS-20260710.0")
-            || !protections["WS-20260710.0"]
-                .iter()
-                .any(|r| r.starts_with("route:")));
+        assert!(
+            !protections.contains_key("WS-20260710.0")
+                || !protections["WS-20260710.0"]
+                    .iter()
+                    .any(|r| r.starts_with("route:"))
+        );
 
         let removed = garbage_collect_instances(workspace, &manifest, false);
         assert!(removed.contains(&"inst-orphan".to_string()));
         assert!(!removed.contains(&"inst-old".to_string()));
         assert!(!removed.contains(&"inst-new".to_string()));
-        assert!(!instance_runtime_root(workspace, "inst-orphan").exists());
-        assert!(instance_runtime_root(workspace, "inst-old").exists());
+        assert!(!legacy_instance_runtime_root(workspace, "inst-orphan").exists());
+        assert!(instance_runtime_root(workspace, "mini-data").exists());
     }
 
     #[test]
@@ -1023,15 +1077,8 @@ mod tests {
         // Simulate activate failure: candidates launched but cutover rejected by CAS.
         let planned =
             cutover_route_in_manifest(manifest.clone(), "mini-data", "inst-new").expect("plan");
-        let err = persist_cutover(
-            tmp.path(),
-            "wrong",
-            planned,
-            "mini-data",
-            "inst-new",
-            false,
-        )
-        .expect_err("cas fail");
+        let err = persist_cutover(tmp.path(), "wrong", planned, "mini-data", "inst-new", false)
+            .expect_err("cas fail");
         assert!(matches!(err, RouteLifecycleError::Conflict(_)));
         let after = read_host_control_state(tmp.path())
             .expect("control")

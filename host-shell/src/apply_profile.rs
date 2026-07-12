@@ -438,24 +438,23 @@ fn run_candidate_pipeline(
     let mut links = old_links.clone();
     // Prefer reading toolchain from links after worker finish_prebuild.
     if let Ok(after) = read_links_state(workspace) {
-        links.toolchain.active = after
-            .toolchain
-            .active
-            .or(links.toolchain.active.clone());
+        links.toolchain.active = after.toolchain.active.or(links.toolchain.active.clone());
     }
     if links.toolchain.active.is_none() {
-        links.toolchain.active = Some(
-            mei_lang_kernel::resolve_toolchain_version_with_hint(
-                workspace,
-                Some(crate::build_ops::toolchain_hint()),
-            ),
-        );
+        links.toolchain.active = Some(mei_lang_kernel::resolve_toolchain_version_with_hint(
+            workspace,
+            Some(crate::build_ops::toolchain_hint()),
+        ));
     }
     links.build.candidate = Some(generation.clone());
     links.build.previous = old_generations.values().find_map(Clone::clone);
     write_links_state(workspace, &links)?;
 
-    set_phase(state, "publishing", "creating InstanceSpecs and LaunchManifest candidates");
+    set_phase(
+        state,
+        "publishing",
+        "creating InstanceSpecs and LaunchManifest candidates",
+    );
     let instance_specs = instance_specs_from_build(prepared, &build_result)?;
     write_host_control_state(
         workspace,
@@ -591,6 +590,7 @@ fn instance_spec_for_artifact(
             profile_file: prepared.document.file.clone(),
             runtime_plan: prepared.runtime_plan.clone(),
             default_app: default_app.map(str::to_string),
+            ..Default::default()
         },
         runtime_abi: env!("CARGO_PKG_VERSION").to_string(),
         data_mode_ceiling: None,
@@ -723,10 +723,11 @@ pub fn start_build_request_job(
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
         };
-        let result = tokio::task::spawn_blocking(move || run_build_request(workspace.as_path(), &request))
-            .await
-            .map_err(|error| format!("build task join failed: {error}"))
-            .and_then(|inner| inner.map_err(|error| error.to_string()));
+        let result =
+            tokio::task::spawn_blocking(move || run_build_request(workspace.as_path(), &request))
+                .await
+                .map_err(|error| format!("build task join failed: {error}"))
+                .and_then(|inner| inner.map_err(|error| error.to_string()));
         let mut guard = state.write().expect("state lock");
         match result {
             Ok(build) => {
@@ -854,7 +855,11 @@ mod tests {
             }
         }))
         .expect("runtime plan");
-        let apply = build_apply_plan(std::path::Path::new("/tmp/nonexistent-mei-workspace"), &dry_run, &plan);
+        let apply = build_apply_plan(
+            std::path::Path::new("/tmp/nonexistent-mei-workspace"),
+            &dry_run,
+            &plan,
+        );
         assert_eq!(
             apply
                 .apps
@@ -872,7 +877,10 @@ mod tests {
             apply.pipeline,
             "build worker → launch instances → cutover route"
         );
-        assert!(apply.apps.iter().all(|app| app.launch_instance && app.cutover_route));
+        assert!(apply
+            .apps
+            .iter()
+            .all(|app| app.launch_instance && app.cutover_route));
         assert!(apply.apps.iter().all(|app| app.bundle_action == "build"));
     }
 

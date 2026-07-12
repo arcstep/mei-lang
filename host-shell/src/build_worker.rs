@@ -54,7 +54,9 @@ fn run_cli(args: BuildWorkerRunArgs) -> anyhow::Result<()> {
     if result.ok {
         Ok(())
     } else {
-        anyhow::bail!(result.error.unwrap_or_else(|| "build worker failed".to_string()))
+        anyhow::bail!(result
+            .error
+            .unwrap_or_else(|| "build worker failed".to_string()))
     }
 }
 
@@ -128,12 +130,9 @@ fn spawn_build_worker(workspace: &Path, request: &BuildRequest) -> anyhow::Resul
     if result.ok {
         Ok(result)
     } else {
-        Err(anyhow::anyhow!(
-            result
-                .error
-                .clone()
-                .unwrap_or_else(|| "build worker reported failure".to_string())
-        ))
+        Err(anyhow::anyhow!(result.error.clone().unwrap_or_else(|| {
+            "build worker reported failure".to_string()
+        })))
     }
 }
 
@@ -217,7 +216,8 @@ pub fn execute_build_pipeline(
 
     timed_phase(&mut phases, "snapshotting", || {
         for app_id in &request.apps {
-            let _ = mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app_id.as_str())?;
+            let _ =
+                mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app_id.as_str())?;
         }
         Ok(())
     })?;
@@ -348,12 +348,7 @@ pub fn build_request_from_profile(
     profile_file: &str,
     apps: &[String],
 ) -> BuildRequest {
-    let mut request = BuildRequest::new(
-        profile_id,
-        profile_revision,
-        profile_file,
-        apps.to_vec(),
-    );
+    let mut request = BuildRequest::new(profile_id, profile_revision, profile_file, apps.to_vec());
     request.schema_version = SCHEMA_BUILD_REQUEST_V1.to_string();
     request.toolchain_hint = Some(toolchain_hint().to_string());
     request
@@ -430,7 +425,12 @@ EOF
         }
         std::env::set_var(WORKER_BIN_ENV, &stub);
         std::env::remove_var(IN_PROCESS_ENV);
-        let request = BuildRequest::new("local", "r1", "configs/local.json", vec!["mini-data".into()]);
+        let request = BuildRequest::new(
+            "local",
+            "r1",
+            "configs/local.json",
+            vec!["mini-data".into()],
+        );
         let result = run_build_request(workspace.as_path(), &request).expect("stub build");
         std::env::remove_var(WORKER_BIN_ENV);
         assert!(result.ok);

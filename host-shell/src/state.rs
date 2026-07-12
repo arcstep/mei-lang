@@ -23,6 +23,8 @@ pub struct CleanupPreviewState {
     pub revision: String,
     pub generated_at_ms: u64,
     pub report: mei_lang_kernel::CleanEnvReport,
+    /// When set, execute only cleans these apps (card-scoped cleanup).
+    pub app_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +79,8 @@ pub struct ShellState {
     pub plug_ds_managed: bool,
     /// instance_id → endpoint (mirrors supervisor pool).
     pub app_runtime_by_instance: BTreeMap<String, String>,
+    /// instance_id → spawn/ready wall-clock ms (mirrors supervisor pool).
+    pub app_runtime_started_at_ms: BTreeMap<String, u64>,
     /// In-memory LaunchManifest / route table view (control-plane + gateway).
     pub launch_manifest: LaunchManifest,
     /// True when at least one desired Running instance is reachable via supervisor.
@@ -124,6 +128,7 @@ impl ShellState {
             plug_ds_by_app,
             plug_ds_managed,
             app_runtime_by_instance: BTreeMap::new(),
+            app_runtime_started_at_ms: BTreeMap::new(),
             launch_manifest: LaunchManifest::empty(),
             route_plane_ready: false,
             imported: false,
@@ -191,7 +196,45 @@ impl ShellState {
     }
 
     pub fn sync_app_runtime_endpoints(&mut self, endpoints: BTreeMap<String, String>) {
+        self.sync_app_runtime_endpoints_with_started(endpoints, BTreeMap::new());
+    }
+
+    pub fn sync_app_runtime_endpoints_with_started(
+        &mut self,
+        endpoints: BTreeMap<String, String>,
+        started_at: BTreeMap<String, u64>,
+    ) {
+        let mut next_started = BTreeMap::new();
+        for id in endpoints.keys() {
+            let ms = started_at
+                .get(id)
+                .copied()
+                .or_else(|| self.app_runtime_started_at_ms.get(id).copied())
+                .unwrap_or_else(current_time_ms);
+            next_started.insert(id.clone(), ms);
+        }
         self.app_runtime_by_instance = endpoints;
+        self.app_runtime_started_at_ms = next_started;
+        self.refresh_route_plane_ready();
+    }
+
+    pub fn register_app_runtime_endpoint(
+        &mut self,
+        instance_id: impl Into<String>,
+        endpoint: impl Into<String>,
+        started_at_ms: Option<u64>,
+    ) {
+        let instance_id = instance_id.into();
+        self.app_runtime_by_instance
+            .insert(instance_id.clone(), endpoint.into());
+        self.app_runtime_started_at_ms
+            .insert(instance_id, started_at_ms.unwrap_or_else(current_time_ms));
+        self.refresh_route_plane_ready();
+    }
+
+    pub fn unregister_app_runtime_endpoint(&mut self, instance_id: &str) {
+        self.app_runtime_by_instance.remove(instance_id);
+        self.app_runtime_started_at_ms.remove(instance_id);
         self.refresh_route_plane_ready();
     }
 

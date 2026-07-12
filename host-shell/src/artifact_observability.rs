@@ -1,41 +1,6 @@
 //! Artifact/layer hit matrix for host observability.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ArtifactHitMatrix {
-    #[serde(default)]
-    pub structure_hit: bool,
-    #[serde(default)]
-    pub eval_hit: bool,
-    #[serde(default)]
-    pub theme_hit: bool,
-    #[serde(default)]
-    pub overlay_hit: bool,
-    #[serde(default)]
-    pub shell_hit: bool,
-}
-
-impl ArtifactHitMatrix {
-    pub fn summary_tag(&self) -> String {
-        format!(
-            "structure={} eval={} theme={} overlay={} shell={}",
-            hit(self.structure_hit),
-            hit(self.eval_hit),
-            hit(self.theme_hit),
-            hit(self.overlay_hit),
-            hit(self.shell_hit),
-        )
-    }
-}
-
-fn hit(value: bool) -> &'static str {
-    if value {
-        "hit"
-    } else {
-        "miss"
-    }
-}
+pub use mei_host_graph::ArtifactHitMatrix;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LayerArtifactObservability {
@@ -91,5 +56,15 @@ mod tests {
         };
         assert!(matrix.summary_tag().contains("structure=hit"));
         assert!(matrix.summary_tag().contains("eval=miss"));
+    }
+
+    #[test]
+    fn parse_artifact_hits_roundtrip() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-mei-structure-hit", "1".parse().unwrap());
+        headers.insert("x-mei-eval-hit", "0".parse().unwrap());
+        let hits = parse_artifact_hits_from_headers(&headers);
+        assert!(hits.structure_hit);
+        assert!(!hits.eval_hit);
     }
 }

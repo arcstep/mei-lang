@@ -21,7 +21,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
-use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
+use crate::landing::discover_workspace_apps;
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
     measure_page_html_payload,
@@ -319,7 +319,7 @@ pub async fn app_page(
             .into_response();
     }
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
+    let apps = crate::shell_chrome::apps_for_topbar(&guard);
     let app_ctx = guard.host_ctx_for_app(app_id.as_str());
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
         app_ctx.app_root().as_path(),
@@ -838,7 +838,7 @@ pub struct AccessReadinessQuery {
 }
 
 pub async fn api_host_access_readiness(
-    State(state): State<SharedState>,
+    State(http): State<crate::state::HostHttpState>,
     Query(query): Query<AccessReadinessQuery>,
 ) -> Response {
     let app_id = query.app.trim();
@@ -860,6 +860,25 @@ pub async fn api_host_access_readiness(
         .as_deref()
         .map(UiRouteMode::from_slug)
         .unwrap_or(UiRouteMode::App);
+    let runtime_ready = {
+        let shell = http.shell.read().expect("state lock");
+        let supervisor = http.app_runtime.lock().expect("app-runtime lock");
+        crate::state::runtime_identity_for_app(&shell, &supervisor, app_id, None).is_some()
+    };
+    if runtime_ready {
+        return Json(json!({
+            "ready": true,
+            "reason": "runtime_ready",
+            "bootstrapReason": null,
+            "startupPhase": "ready",
+            "startupDetail": "App Runtime 已就绪",
+            "startupError": null,
+            "appId": app_id,
+            "sceneId": scene_id,
+        }))
+        .into_response();
+    }
+    let state = &http.shell;
     let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
         let workspace_root = {
             let guard = state.read().expect("state lock");
@@ -1015,37 +1034,17 @@ pub async fn api_scene_bootstrap(
         ))
         .into_response();
     }
-    let pack = mei_host_graph::build_scene_eval_pack(
-        workspace_root,
-        app_id,
-        scene_id.as_str(),
-        mei_host_graph::SceneEvalPackBuildOptions {
-            client_revision: None,
-            fingerprint: query
-                .fingerprint
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string),
-            neighbor_hops: None,
-        },
-    );
-    if pack.status == mei_host_graph::SceneEvalPackStatus::PackMiss {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "bootstrap unavailable"})),
-        )
-            .into_response();
-    }
-    let Some(payload) =
+    // Prefer a real pack payload; if bootstrap is stale/missing, degrade to empty so Access
+    // can continue via eval layers instead of hard-failing with 404.
+    let payload =
         mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id.as_str())
-    else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "bootstrap unavailable"})),
-        )
-            .into_response();
-    };
+            .unwrap_or_else(|| {
+                mei_host_graph::empty_client_bootstrap_payload(
+                    workspace_root,
+                    app_id,
+                    scene_id.as_str(),
+                )
+            });
     let _ = mei_host_graph::write_scene_bootstrap_artifact(
         workspace_root,
         app_id,

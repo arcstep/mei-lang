@@ -18,15 +18,13 @@ pub fn app_runtime_required() -> bool {
 }
 
 pub fn env_flag_truthy(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .is_some_and(|value| {
-            let trimmed = value.trim();
-            trimmed == "1"
-                || trimmed.eq_ignore_ascii_case("true")
-                || trimmed.eq_ignore_ascii_case("yes")
-                || trimmed.eq_ignore_ascii_case("on")
-        })
+    std::env::var(name).ok().is_some_and(|value| {
+        let trimmed = value.trim();
+        trimmed == "1"
+            || trimmed.eq_ignore_ascii_case("true")
+            || trimmed.eq_ignore_ascii_case("yes")
+            || trimmed.eq_ignore_ascii_case("on")
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,10 +119,7 @@ mod tests {
     fn decide_gate_prefers_runtime_then_required_then_fallback() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
-        assert_eq!(
-            decide_data_plane_gate(true),
-            DataPlaneGate::PreferRuntime
-        );
+        assert_eq!(decide_data_plane_gate(true), DataPlaneGate::PreferRuntime);
         assert_eq!(
             decide_data_plane_gate(false),
             DataPlaneGate::AllowLegacyFallback
@@ -134,20 +129,15 @@ mod tests {
             decide_data_plane_gate(false),
             DataPlaneGate::RuntimeRequired
         );
-        assert_eq!(
-            decide_data_plane_gate(true),
-            DataPlaneGate::PreferRuntime
-        );
+        assert_eq!(decide_data_plane_gate(true), DataPlaneGate::PreferRuntime);
         std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
     }
 
     #[test]
     fn apps_needing_managed_plug_skips_runtime_covered() {
         let covered = BTreeSet::from(["mini-data".to_string()]);
-        let needing = apps_needing_managed_plug_ds(
-            &["mini-data".into(), "data-demo".into()],
-            &covered,
-        );
+        let needing =
+            apps_needing_managed_plug_ds(&["mini-data".into(), "data-demo".into()], &covered);
         assert_eq!(needing, vec!["data-demo".to_string()]);
         assert!(apps_needing_managed_plug_ds(&["mini-data".into()], &covered).is_empty());
     }

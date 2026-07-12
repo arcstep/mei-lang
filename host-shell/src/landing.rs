@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use mei_host_graph::McgRegistryWriter;
-use mei_lang_kernel::{
-    discover_apps, load_workspace_config, resolve_app_id, resolve_app_root, WorkspaceAppMeta,
-};
+use mei_lang_kernel::{discover_apps, resolve_app_root, WorkspaceAppMeta};
 
 pub fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
     let app_root = resolve_app_root(source_root, app_id);
@@ -15,10 +13,13 @@ pub fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
     !registry.nodes.is_empty()
 }
 
+#[cfg(test)]
 pub fn choose_default_app<'a>(
     source_root: &Path,
     apps: &'a [WorkspaceAppMeta],
 ) -> Option<&'a WorkspaceAppMeta> {
+    use mei_lang_kernel::{load_workspace_config, resolve_app_id};
+
     let workspace = load_workspace_config(source_root);
     if let Some(preferred) = workspace
         .workspace

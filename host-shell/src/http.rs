@@ -23,17 +23,16 @@ use crate::generation_lifecycle::{
     api_host_build_activate, api_host_build_rollback, api_host_builds, api_host_builds_cleanup,
     api_host_builds_cleanup_preview,
 };
-use crate::instance_api::{
-    api_host_instance_restart, api_host_instance_stop, api_host_instances, api_host_launch_manifest,
-};
-use crate::route_lifecycle::{api_host_route_cutover, api_host_route_rollback};
 use crate::host_home::host_home_page;
 use crate::host_mcg::host_mcg_page;
 use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
+use crate::instance_api::{
+    api_host_instance_restart, api_host_instance_stop, api_host_instances, api_host_launch_manifest,
+};
 use crate::landing::build_discovered_app_summaries;
 use crate::ops_api::{
-    api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status, api_host_runtime_apply_profile,
-    api_host_builds_request,
+    api_host_builds_request, api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status,
+    api_host_runtime_apply_profile,
 };
 use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::pages::{
@@ -46,6 +45,7 @@ use crate::presentation_scripts::{
     api_get_presentation_script, api_list_presentation_scripts, api_put_presentation_script,
     api_set_default_presentation_script,
 };
+use crate::route_lifecycle::{api_host_route_cutover, api_host_route_rollback};
 use crate::runtime_api::{
     api_host_mrg_activate, api_host_mrg_status, api_host_runtime_activate_env, api_runtime_snapshot,
 };
@@ -114,6 +114,34 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/launch-manifest", get(api_host_launch_manifest))
         .route("/api/host/instances", get(api_host_instances))
         .route(
+            "/api/host/apps",
+            get(crate::app_launch_api::api_host_apps_overview),
+        )
+        .route(
+            "/api/host/shell-chrome",
+            get(crate::shell_chrome::api_host_shell_chrome),
+        )
+        .route(
+            "/api/host/apps/:app_id/launch-configs",
+            get(crate::app_launch_api::api_host_app_launch_configs),
+        )
+        .route(
+            "/api/host/apps/:app_id/launch-configs/default",
+            post(crate::app_launch_api::api_host_app_ensure_default_launch),
+        )
+        .route(
+            "/api/host/apps/:app_id/launch-configs/:name",
+            axum::routing::put(crate::app_launch_api::api_host_app_save_launch),
+        )
+        .route(
+            "/api/host/apps/:app_id/start",
+            post(crate::app_launch_api::api_host_app_start),
+        )
+        .route(
+            "/api/host/apps/:app_id/stop",
+            post(crate::app_launch_api::api_host_app_stop),
+        )
+        .route(
             "/api/host/instances/:instance_id/stop",
             post(api_host_instance_stop),
         )
@@ -139,10 +167,7 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
         .route("/api/host/builds", get(api_host_builds))
-        .route(
-            "/api/host/builds/request",
-            post(api_host_builds_request),
-        )
+        .route("/api/host/builds/request", post(api_host_builds_request))
         .route(
             "/api/host/builds/cleanup-preview",
             post(api_host_builds_cleanup_preview),
@@ -182,18 +207,9 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/build/context/export", get(api_build_context_export))
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
-        .route(
-            "/api/host/view-revision",
-            get(gateway_host_view_revision),
-        )
-        .route(
-            "/api/host/scene-manifest",
-            get(gateway_host_scene_manifest),
-        )
-        .route(
-            "/api/host/layer-batch",
-            post(gateway_host_layer_batch),
-        )
+        .route("/api/host/view-revision", get(gateway_host_view_revision))
+        .route("/api/host/scene-manifest", get(gateway_host_scene_manifest))
+        .route("/api/host/layer-batch", post(gateway_host_layer_batch))
         .route("/api/host/scene-bootstrap", get(gateway_scene_bootstrap))
         .route("/api/host/scene-eval-pack", get(gateway_scene_eval_pack))
         .route(
@@ -628,7 +644,11 @@ async fn api_datasets_query_inner(
                 principal.as_ref().map(|p| (**p).clone()),
             )
         });
-        (guard.data_mode_ceiling.slug().to_string(), plug_ds, runtime_identity)
+        (
+            guard.data_mode_ceiling.slug().to_string(),
+            plug_ds,
+            runtime_identity,
+        )
     };
     let _ = ceiling_slug;
     let path = format!("/api/datasets/query/{app_id}");
@@ -734,48 +754,87 @@ async fn api_datasets_metrics(
 }
 
 async fn api_datasets_fixture(
-    State(state): State<SharedState>,
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    let guard = state.read().expect("state lock");
-    if guard.data_mode_ceiling == mei_lang_kernel::DataModeCeiling::Static {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "fixture datasets API unavailable under static data mode ceiling"
-            })),
-        )
-            .into_response();
-    }
-    let scene_id = body
-        .get("scene_id")
-        .or_else(|| body.get("sceneId"))
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("home");
-    let workspace = guard.ctx.workspace_root.as_path();
-    let Some(manifest) =
-        mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id)
-    else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("fixture bootstrap missing for scene `{scene_id}`")})),
-        )
-            .into_response();
+    let (plug_ds, runtime_identity) = {
+        let guard = http.shell.read().expect("state lock");
+        if matches!(
+            guard.data_mode_ceiling,
+            mei_lang_kernel::DataModeCeiling::Static
+        ) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "fixture datasets API unavailable under static data mode ceiling"
+                })),
+            )
+                .into_response();
+        }
+        let plug_ds = guard
+            .plug_ds_endpoint_for(app_id.as_str())
+            .map(str::to_string);
+        let supervisor = http.app_runtime.lock().ok();
+        let runtime_identity = supervisor.as_ref().and_then(|slot| {
+            crate::state::runtime_identity_for_app(
+                &guard,
+                slot,
+                app_id.as_str(),
+                principal.as_ref().map(|p| (**p).clone()),
+            )
+        });
+        (plug_ds, runtime_identity)
     };
-    (
-        StatusCode::OK,
-        Json(json!({
-            "source": "fixture",
-            "app_id": app_id,
-            "scene_id": scene_id,
-            "client_revision": manifest.client_revision,
-            "metrics": manifest.metrics,
-        })),
-    )
-        .into_response()
+    let path = format!("/api/datasets/fixture/{app_id}");
+    match crate::app_runtime_proxy::resolve_datasets_proxy_target(
+        app_id.as_str(),
+        runtime_identity.as_ref(),
+        plug_ds.as_deref(),
+    ) {
+        crate::app_runtime_proxy::DatasetsProxyTarget::AppRuntime(identity) => {
+            crate::app_runtime_proxy::proxy_post_json(&identity, path.as_str(), body).await
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::PlugDs(_)
+        | crate::app_runtime_proxy::DatasetsProxyTarget::None => {
+            let guard = http.shell.read().expect("state lock");
+            let scene_id = body
+                .get("scene_id")
+                .or_else(|| body.get("sceneId"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("home");
+            let workspace = guard.ctx.workspace_root.as_path();
+            let Some(manifest) =
+                mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id)
+            else {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": format!("fixture bootstrap missing for scene `{scene_id}`")})),
+                )
+                    .into_response();
+            };
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "source": "fixture",
+                    "app_id": app_id,
+                    "scene_id": scene_id,
+                    "client_revision": manifest.client_revision,
+                    "metrics": manifest.metrics,
+                })),
+            )
+                .into_response()
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::RuntimeRequired => {
+            crate::legacy_compat::runtime_required_unavailable_response(
+                app_id.as_str(),
+                "datasets/fixture",
+            )
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -862,6 +921,7 @@ mod tests {
             plug_ds_by_app,
             plug_ds_managed: false,
             app_runtime_by_instance: std::collections::BTreeMap::new(),
+            app_runtime_started_at_ms: std::collections::BTreeMap::new(),
             launch_manifest: mei_host_core::LaunchManifest::empty(),
             route_plane_ready: false,
             imported: true,
@@ -1497,6 +1557,7 @@ mod tests {
                     apps: Default::default(),
                 },
                 default_app: None,
+                ..Default::default()
             },
             runtime_abi: "1".to_string(),
             data_mode_ceiling: None,

@@ -167,14 +167,7 @@ pub async fn proxy_get(
     path_and_query: &str,
     inbound_headers: Option<&HeaderMap>,
 ) -> Response {
-    proxy_request(
-        Method::GET,
-        identity,
-        path_and_query,
-        inbound_headers,
-        None,
-    )
-    .await
+    proxy_request(Method::GET, identity, path_and_query, inbound_headers, None).await
 }
 
 pub async fn proxy_post_json(
@@ -188,14 +181,7 @@ pub async fn proxy_post_json(
         axum::http::header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    proxy_request(
-        Method::POST,
-        identity,
-        path,
-        Some(&headers),
-        Some(bytes),
-    )
-    .await
+    proxy_request(Method::POST, identity, path, Some(&headers), Some(bytes)).await
 }
 
 pub fn join_url(base: &str, path: &str) -> String {
@@ -245,9 +231,7 @@ pub async fn access_get_gateway(
     match decide_data_plane_gate(identity.is_some()) {
         DataPlaneGate::PreferRuntime => {
             let identity = identity.expect("PreferRuntime implies identity");
-            GatewayProxyOutcome::Proxied(
-                proxy_get(&identity, path_and_query, Some(headers)).await,
-            )
+            GatewayProxyOutcome::Proxied(proxy_get(&identity, path_and_query, Some(headers)).await)
         }
         DataPlaneGate::RuntimeRequired => GatewayProxyOutcome::RequiredUnavailable(
             runtime_required_unavailable_response(app_id, surface),
@@ -296,16 +280,7 @@ pub async fn maybe_proxy_access_get(
     headers: &HeaderMap,
     principal: Option<AuthPrincipal>,
 ) -> Option<Response> {
-    match access_get_gateway(
-        http,
-        app_id,
-        path_and_query,
-        headers,
-        principal,
-        "access",
-    )
-    .await
-    {
+    match access_get_gateway(http, app_id, path_and_query, headers, principal, "access").await {
         GatewayProxyOutcome::Proxied(response) => Some(response),
         GatewayProxyOutcome::RequiredUnavailable(response) => Some(response),
         GatewayProxyOutcome::LegacyFallback => None,
@@ -357,9 +332,7 @@ pub fn resolve_datasets_proxy_target(
 ) -> DatasetsProxyTarget {
     match decide_data_plane_gate(app_runtime.is_some()) {
         DataPlaneGate::PreferRuntime => DatasetsProxyTarget::AppRuntime(
-            app_runtime
-                .expect("PreferRuntime implies identity")
-                .clone(),
+            app_runtime.expect("PreferRuntime implies identity").clone(),
         ),
         DataPlaneGate::RuntimeRequired => DatasetsProxyTarget::RuntimeRequired,
         DataPlaneGate::AllowLegacyFallback => {
@@ -416,7 +389,9 @@ mod tests {
         let mut headers = reqwest::header::HeaderMap::new();
         inject_runtime_headers(&mut headers, &identity);
         assert_eq!(
-            headers.get(HEADER_INSTANCE_TOKEN).and_then(|v| v.to_str().ok()),
+            headers
+                .get(HEADER_INSTANCE_TOKEN)
+                .and_then(|v| v.to_str().ok()),
             Some("tok")
         );
         assert_eq!(
@@ -424,7 +399,9 @@ mod tests {
             Some("mini-data")
         );
         assert_eq!(
-            headers.get(HEADER_INSTANCE_ID).and_then(|v| v.to_str().ok()),
+            headers
+                .get(HEADER_INSTANCE_ID)
+                .and_then(|v| v.to_str().ok()),
             Some("inst-1")
         );
         let principal = headers

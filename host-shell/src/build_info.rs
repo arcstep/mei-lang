@@ -121,6 +121,22 @@ pub fn statusbar_version_title(workspace_root: &Path) -> String {
     serde_json::to_string(&descriptor).unwrap_or_else(|_| BUILD_VERSION.to_string())
 }
 
+/// Escape a value for use inside a double-quoted HTML attribute.
+pub fn html_escape_attr(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn package_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -152,13 +168,15 @@ fn host_asset_version() -> String {
 pub fn fill_host_build_placeholders(mut html: String, workspace_root: &Path) -> String {
     html = html.replace("__MEI_HOST_VERSION__", BUILD_VERSION);
     html = html.replace("__MEI_HOST_ASSET_VERSION__", host_asset_version().as_str());
+    // Version title is a JSON blob used in `title="..."` — must be attribute-escaped or the
+    // statusbar (and surrounding shell) HTML parser collapses.
     html = html.replace(
         "__MEI_HOST_VERSION_LABEL__",
-        &statusbar_version_label(workspace_root),
+        html_escape_attr(statusbar_version_label(workspace_root).as_str()).as_str(),
     );
     html = html.replace(
         "__MEI_HOST_VERSION_TITLE__",
-        &statusbar_version_title(workspace_root),
+        html_escape_attr(statusbar_version_title(workspace_root).as_str()).as_str(),
     );
     html
 }
@@ -167,25 +185,28 @@ pub fn fill_host_compliance_placeholders(mut html: String, workspace_root: &Path
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
     html = html.replace(
         "__MEI_HOST_ICP_RECORD__",
-        workspace.compliance.icp_record_trimmed().unwrap_or(""),
+        html_escape_attr(workspace.compliance.icp_record_trimmed().unwrap_or("")).as_str(),
     );
     html = html.replace(
         "__MEI_HOST_PSB_RECORD__",
-        workspace.compliance.psb_record_trimmed().unwrap_or(""),
+        html_escape_attr(workspace.compliance.psb_record_trimmed().unwrap_or("")).as_str(),
     );
     html = html.replace(
         "__MEI_HOST_COPYRIGHT__",
-        workspace.compliance.copyright_trimmed().unwrap_or(""),
+        html_escape_attr(workspace.compliance.copyright_trimmed().unwrap_or("")).as_str(),
     );
     html = html.replace(
         "__MEI_WORKSPACE_LABEL__",
-        workspace
-            .workspace
-            .label
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(""),
+        html_escape_attr(
+            workspace
+                .workspace
+                .label
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(""),
+        )
+        .as_str(),
     );
     html
 }
@@ -324,9 +345,16 @@ mod tests {
         );
         assert!(!html.contains("__MEI_HOST_VERSION__"));
         assert!(!html.contains("__MEI_HOST_VERSION_LABEL__"));
+        assert!(!html.contains("__MEI_HOST_VERSION_TITLE__"));
         assert!(html.contains(BUILD_VERSION));
         assert!(!html.contains("shell "));
         assert!(html.contains("MeiLang"));
+        // JSON version title must not break title="..." with raw quotes.
+        assert!(
+            !html.contains(r#"title="{""#),
+            "version title must be HTML-attribute escaped"
+        );
+        assert!(html.contains("&quot;") || !html.contains("title=\"{"));
     }
 
     #[test]

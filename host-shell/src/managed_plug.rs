@@ -59,8 +59,7 @@ pub async fn spawn_managed_plug_ds_pool(
     app_ids: &[String],
     covered_by_runtime: &BTreeSet<String>,
 ) -> anyhow::Result<ManagedPlugDsPool> {
-    let needing =
-        crate::legacy_compat::apps_needing_managed_plug_ds(app_ids, covered_by_runtime);
+    let needing = crate::legacy_compat::apps_needing_managed_plug_ds(app_ids, covered_by_runtime);
     if needing.is_empty() {
         if !app_ids.is_empty() {
             tracing::info!(
@@ -184,10 +183,8 @@ mod tests {
     #[test]
     fn skip_set_filters_spawn_targets() {
         let covered = BTreeSet::from(["mini-data".to_string(), "a".to_string()]);
-        let needing = apps_needing_managed_plug_ds(
-            &["mini-data".into(), "a".into(), "b".into()],
-            &covered,
-        );
+        let needing =
+            apps_needing_managed_plug_ds(&["mini-data".into(), "a".into(), "b".into()], &covered);
         assert_eq!(needing, vec!["b".to_string()]);
     }
 
@@ -195,13 +192,9 @@ mod tests {
     async fn spawn_pool_skips_all_when_fully_covered() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let covered = BTreeSet::from(["mini-data".to_string()]);
-        let pool = spawn_managed_plug_ds_pool(
-            tmp.path(),
-            &["mini-data".into()],
-            &covered,
-        )
-        .await
-        .expect("empty pool");
+        let pool = spawn_managed_plug_ds_pool(tmp.path(), &["mini-data".into()], &covered)
+            .await
+            .expect("empty pool");
         assert!(pool.endpoints.is_empty());
         assert!(pool.sidecars.is_empty());
     }

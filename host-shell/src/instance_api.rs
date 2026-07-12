@@ -67,12 +67,7 @@ pub async fn api_host_instance_stop(
 ) -> Response {
     match stop_instance(&http, instance_id.as_str()).await {
         Ok(observed) => {
-            emit_instance_event(
-                &http.shell,
-                "instance-phase",
-                &observed,
-                Some("stopped"),
-            );
+            emit_instance_event(&http.shell, "instance-phase", &observed, Some("stopped"));
             Json(json!({
                 "accepted": true,
                 "kind": "instance-stop",
@@ -191,11 +186,7 @@ fn collect_observed_instances(
         }
     }
 
-    items.sort_by(|left, right| {
-        left.observed
-            .instance_id
-            .cmp(&right.observed.instance_id)
-    });
+    items.sort_by(|left, right| left.observed.instance_id.cmp(&right.observed.instance_id));
     items
 }
 
@@ -289,14 +280,16 @@ async fn stop_instance(
             .app_runtime
             .lock()
             .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        slot.take()
-            .unwrap_or_else(|| AppRuntimeSupervisor::new({
+        slot.take().unwrap_or_else(|| {
+            AppRuntimeSupervisor::new({
                 let guard = http.shell.read().expect("state lock");
                 guard.ctx.workspace_root.clone()
-            }))
+            })
+        })
     };
     let _ = supervisor.stop_instance(instance_id).await;
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut slot = http
             .app_runtime
@@ -306,7 +299,7 @@ async fn stop_instance(
     }
     {
         let mut guard = http.shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     Ok(ObservedInstance {
         instance_id: instance_id.to_string(),
@@ -351,13 +344,13 @@ async fn restart_instance(
             .app_runtime
             .lock()
             .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        slot.take()
-            .ok_or_else(|| {
-                InstanceApiError::NotFound(format!("instance `{instance_id}` is not managed"))
-            })?
+        slot.take().ok_or_else(|| {
+            InstanceApiError::NotFound(format!("instance `{instance_id}` is not managed"))
+        })?
     };
     let result = supervisor.restart_with_backoff(instance_id, 3).await;
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut slot = http
             .app_runtime
@@ -367,7 +360,7 @@ async fn restart_instance(
     }
     {
         let mut guard = http.shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     match result {
         Ok(observed) => Ok(observed),

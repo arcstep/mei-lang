@@ -339,6 +339,71 @@ fn directory_bytes(path: &Path) -> u64 {
         .sum()
 }
 
+/// Per-app generation cards for `/api/host/apps` overview (0536 card hub).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppGenerationSummary {
+    pub id: String,
+    pub created_at: Option<String>,
+    pub bytes: u64,
+    pub is_current: bool,
+    pub protected_reasons: Vec<String>,
+}
+
+pub fn app_generation_summaries(workspace: &Path, app_id: &str) -> Vec<AppGenerationSummary> {
+    let app_root = resolve_app_root(workspace, app_id);
+    let env_root = app_root.join("env");
+    let current = resolve_app_build_generation_from_current(app_root.as_path()).ok();
+    let links = read_links_state(workspace).unwrap_or_default();
+    let mut ids = BTreeSet::new();
+    if let Ok(entries) = fs::read_dir(env_root.as_path()) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("WS-") {
+                ids.insert(name);
+            }
+        }
+    }
+    let mut out = ids
+        .into_iter()
+        .map(|generation| {
+            let path = app_env_dir(app_root.as_path(), generation.as_str());
+            let bytes = if path.is_dir() {
+                directory_bytes(path.as_path())
+            } else {
+                0
+            };
+            let created_at = read_build_manifest(path.as_path())
+                .ok()
+                .flatten()
+                .map(|manifest| manifest.finished_at);
+            let is_current = current.as_deref() == Some(generation.as_str());
+            let mut protected_reasons = Vec::new();
+            if is_current {
+                protected_reasons.push("current".to_string());
+            }
+            if links.build.candidate.as_deref() == Some(generation.as_str()) {
+                protected_reasons.push("candidate".to_string());
+            }
+            if links.build.previous.as_deref() == Some(generation.as_str()) {
+                protected_reasons.push("previous".to_string());
+            }
+            AppGenerationSummary {
+                id: generation,
+                created_at,
+                bytes,
+                is_current,
+                protected_reasons,
+            }
+        })
+        .collect::<Vec<_>>();
+    out.sort_by(|left, right| right.id.cmp(&left.id));
+    out
+}
+
 pub async fn api_host_builds(State(state): State<SharedState>) -> Response {
     let (workspace, running_generation) = {
         let guard = state.read().expect("state lock");
@@ -370,11 +435,7 @@ pub async fn api_host_build_rollback(
     start_activation(http, generation, true).await
 }
 
-async fn start_activation(
-    http: HostHttpState,
-    generation: String,
-    rollback: bool,
-) -> Response {
+async fn start_activation(http: HostHttpState, generation: String, rollback: bool) -> Response {
     let state = http.shell.clone();
     let (workspace, running_generation) = {
         let guard = state.read().expect("state lock");
@@ -404,13 +465,14 @@ async fn start_activation(
         let has_route_previous = {
             let guard = state.read().expect("state lock");
             guard.launch_manifest.routes.values().any(|route| {
-                route.previous.as_ref().is_some_and(|id| id.contains(&generation))
+                route
+                    .previous
+                    .as_ref()
+                    .is_some_and(|id| id.contains(&generation))
             })
         };
         if !has_route_previous && view.previous.as_deref() != Some(generation.as_str()) {
-            return lifecycle_conflict(
-                "rollback target is not route.previous / links.previous",
-            );
+            return lifecycle_conflict("rollback target is not route.previous / links.previous");
         }
     }
     let Some(target) = view
@@ -466,10 +528,7 @@ async fn start_activation(
         .into_response()
 }
 
-async fn run_generation_activate(
-    http: &HostHttpState,
-    generation: &str,
-) -> anyhow::Result<String> {
+async fn run_generation_activate(http: &HostHttpState, generation: &str) -> anyhow::Result<String> {
     let state = &http.shell;
     let workspace = {
         let guard = state.read().expect("state lock");
@@ -542,8 +601,11 @@ async fn run_generation_activate(
 
     let mut control = mei_host_core::read_host_control_state(workspace.as_path())
         .unwrap_or_else(mei_host_core::HostControlState::empty);
-    let registered =
-        register_candidates_on_manifest(control.launch_manifest.clone(), workspace.as_path(), &specs)?;
+    let registered = register_candidates_on_manifest(
+        control.launch_manifest.clone(),
+        workspace.as_path(),
+        &specs,
+    )?;
     let expected_revision = registered.revision.clone();
     control.launch_manifest = registered.clone();
     control.sync_compat_fields();
@@ -605,10 +667,7 @@ async fn run_generation_activate(
     }
 }
 
-async fn run_generation_rollback(
-    http: &HostHttpState,
-    generation: &str,
-) -> anyhow::Result<String> {
+async fn run_generation_rollback(http: &HostHttpState, generation: &str) -> anyhow::Result<String> {
     let state = &http.shell;
     let workspace = {
         let guard = state.read().expect("state lock");
@@ -700,6 +759,7 @@ fn instance_spec_for_generation(
             profile_file: profile.file.clone(),
             runtime_plan: runtime_plan.clone(),
             default_app: Some(app_id.to_string()),
+            ..Default::default()
         },
         runtime_abi: env!("CARGO_PKG_VERSION").to_string(),
         data_mode_ceiling: None,
@@ -975,7 +1035,16 @@ fn common_generation(generations: &BTreeMap<String, Option<String>>) -> Option<S
         .then_some(first)
 }
 
-pub async fn api_host_builds_cleanup_preview(State(state): State<SharedState>) -> Response {
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupPreviewQuery {
+    pub app_id: Option<String>,
+}
+
+pub async fn api_host_builds_cleanup_preview(
+    State(state): State<SharedState>,
+    axum::extract::Query(query): axum::extract::Query<CleanupPreviewQuery>,
+) -> Response {
     let (workspace, running_generation, manifest) = {
         let guard = state.read().expect("state lock");
         if guard
@@ -1000,6 +1069,17 @@ pub async fn api_host_builds_cleanup_preview(State(state): State<SharedState>) -
             return lifecycle_error(StatusCode::INTERNAL_SERVER_ERROR, "builds_failed", error);
         }
     };
+    let scoped_app = query
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let cleanup_apps = if let Some(app_id) = scoped_app.clone() {
+        vec![app_id]
+    } else {
+        view.apps.clone()
+    };
     let manifest = if manifest.revision.is_empty() {
         mei_host_core::read_host_control_state(workspace.as_path())
             .map(|control| control.launch_manifest)
@@ -1014,19 +1094,22 @@ pub async fn api_host_builds_cleanup_preview(State(state): State<SharedState>) -
         running_generation.as_deref(),
         true,
     );
-    let mut report = match clean_env_generations(workspace.as_path(), view.apps.as_slice(), &policy)
-    {
-        Ok(report) => report,
-        Err(error) => {
-            return lifecycle_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cleanup_preview_failed",
-                error,
-            );
-        }
+    let mut report =
+        match clean_env_generations(workspace.as_path(), cleanup_apps.as_slice(), &policy) {
+            Ok(report) => report,
+            Err(error) => {
+                return lifecycle_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cleanup_preview_failed",
+                    error,
+                );
+            }
+        };
+    let instance_removed = if scoped_app.is_none() {
+        garbage_collect_instances(workspace.as_path(), &manifest, true)
+    } else {
+        Vec::new()
     };
-    let instance_removed =
-        garbage_collect_instances(workspace.as_path(), &manifest, true);
     for instance_id in &instance_removed {
         report.removed.push(format!("instance:{instance_id}"));
     }
@@ -1042,12 +1125,14 @@ pub async fn api_host_builds_cleanup_preview(State(state): State<SharedState>) -
             revision: view.revision.clone(),
             generated_at_ms,
             report: report.clone(),
+            app_ids: cleanup_apps.clone(),
         });
     }
     Json(json!({
         "previewToken": token,
         "revision": view.revision,
         "expiresAtMs": generated_at_ms + CLEANUP_PREVIEW_TTL_MS,
+        "appIds": cleanup_apps,
         "report": report,
     }))
     .into_response()
@@ -1119,7 +1204,11 @@ pub async fn api_host_builds_cleanup(
         manifest
     };
     tokio::spawn(async move {
-        let app_ids = current_view.apps.clone();
+        let app_ids = if preview.app_ids.is_empty() {
+            current_view.apps.clone()
+        } else {
+            preview.app_ids.clone()
+        };
         let policy = cleanup_policy_from_manifest(
             workspace.as_path(),
             &manifest,
@@ -1129,13 +1218,16 @@ pub async fn api_host_builds_cleanup(
         );
         let workspace_for_gc = workspace.clone();
         let manifest_for_gc = manifest.clone();
+        let scoped = !preview.app_ids.is_empty() && preview.app_ids.len() < current_view.apps.len();
         let result = tokio::task::spawn_blocking(move || {
             let mut report =
                 clean_env_generations(workspace.as_path(), app_ids.as_slice(), &policy)?;
-            let removed_instances =
-                garbage_collect_instances(workspace_for_gc.as_path(), &manifest_for_gc, false);
-            for instance_id in removed_instances {
-                report.removed.push(format!("instance:{instance_id}"));
+            if !scoped {
+                let removed_instances =
+                    garbage_collect_instances(workspace_for_gc.as_path(), &manifest_for_gc, false);
+                for instance_id in removed_instances {
+                    report.removed.push(format!("instance:{instance_id}"));
+                }
             }
             Ok::<_, anyhow::Error>(report)
         })

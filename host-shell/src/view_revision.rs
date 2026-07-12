@@ -12,12 +12,10 @@ use serde_json::json;
 use std::time::Instant;
 
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
-use crate::landing::discover_workspace_apps;
 use crate::pages::AppQuery;
 use crate::review_axes::resolve_page_render_axes_for_stage;
 use crate::scene_manifest::{
-    ensure_manifest_index, manifest_for_surface, resolve_route_mode_from_surface,
-    SceneChromeHostContext,
+    resolve_route_mode_from_surface, resolve_view_revision_for_surface, SceneChromeHostContext,
 };
 use crate::state::SharedState;
 
@@ -91,10 +89,6 @@ fn parse_compose_request(
     serde_json::from_str(raw).unwrap_or_else(|_| fallback.clone())
 }
 
-fn surface_revision_digest(manifest: &mei_host_graph::SceneViewManifest) -> Option<String> {
-    mei_host_graph::surface_revision_digest_from_manifest(manifest)
-}
-
 fn compose_from_query(
     query: &ViewRevisionQuery,
     route_mode: UiRouteMode,
@@ -108,46 +102,6 @@ fn compose_from_query(
         focus: query.focus.clone(),
         scope: query.scope.clone(),
     }
-}
-
-pub(crate) fn resolve_view_revision_for_surface(
-    workspace_root: &std::path::Path,
-    app_id: &str,
-    scene_id: &str,
-    route_mode: UiRouteMode,
-    data_mode: mei_lang_kernel::DataMode,
-    _compose: &mei_host_graph::ComposeRequest,
-    _draft_session: &str,
-    _draft_digest: &str,
-    client_manifest_digest: Option<String>,
-    client_surface_digest: Option<String>,
-    recover: bool,
-    local_miss: bool,
-    hits: &mut ArtifactHitMatrix,
-    chrome_host: Option<&SceneChromeHostContext<'_>>,
-) -> anyhow::Result<mei_host_graph::ViewRevisionResponse> {
-    let index = ensure_manifest_index(
-        workspace_root,
-        app_id,
-        scene_id,
-        data_mode,
-        hits,
-        chrome_host,
-    )?;
-    let manifest = manifest_for_surface(&index, route_mode)
-        .ok_or_else(|| anyhow::anyhow!("manifest index missing surface {}", route_mode.slug()))?;
-    let surface_digest = surface_revision_digest(&manifest);
-    let response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
-        manifest: manifest.clone(),
-        client_manifest_digest,
-        client_surface_digest,
-        recover,
-        local_miss,
-        client_layers: Vec::new(),
-        missing_layers: Vec::new(),
-        surface_revision_digest: surface_digest,
-    });
-    Ok(response)
 }
 
 fn apply_view_revision_headers(
@@ -248,14 +202,15 @@ pub async fn api_host_view_revision(
     };
     let workspace_root = workspace_root.as_path();
 
+    // Compose query is accepted for Host API parity; revision negotiation is index-driven.
     let fallback_compose = compose_from_query(&query, route_mode);
-    let mut compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
-    normalize_compose_request(&mut compose);
-    if compose.data_mode.is_none() {
-        compose.data_mode = Some(axes.data_mode.slug().to_string());
+    let mut _compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
+    normalize_compose_request(&mut _compose);
+    if _compose.data_mode.is_none() {
+        _compose.data_mode = Some(axes.data_mode.slug().to_string());
     }
-    if compose.review_projection.is_none() {
-        compose.review_projection = Some(axes.review_projection.slug().to_string());
+    if _compose.review_projection.is_none() {
+        _compose.review_projection = Some(axes.review_projection.slug().to_string());
     }
 
     let client_manifest_digest = query
@@ -275,8 +230,10 @@ pub async fn api_host_view_revision(
 
     let discovery_started = Instant::now();
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
-    let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    let apps = {
+        let guard = state.read().expect("state lock");
+        crate::shell_chrome::apps_for_topbar(&guard)
+    };
     let chrome_host = SceneChromeHostContext {
         apps: apps.as_slice(),
         topbar_menu: Some(&topbar_menu),
@@ -293,9 +250,6 @@ pub async fn api_host_view_revision(
         scene_id.as_str(),
         route_mode,
         axes.data_mode,
-        &compose,
-        "",
-        "",
         client_manifest_digest,
         client_surface_digest,
         recover,

@@ -16,7 +16,6 @@ use crate::state::SharedState;
 use static_serve::{asset_not_found, serve_static_asset_with_cache};
 
 const PUBLIC_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
-const PRIVATE_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
 const COMPONENT_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
 const VENDOR_IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 const IMMUTABLE_BUNDLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
@@ -65,11 +64,14 @@ pub async fn app_bundle(
     if let Some(dist_rel_path) = app_bundle_dist_path(&mode) {
         let dist_path = assets_root.join(dist_rel_path);
         if dist_path.exists() {
+            // Unhashed URLs (`/app-bundles/access.js`) rely on `?v=` busting; without a
+            // query, immutable forever-caches stale bundles across assets:build. Prefer
+            // revalidate so etag still wins when HTML forgets the stamp.
             return serve_static_asset_with_cache(
                 dist_path,
                 "app dist bundle",
                 &headers,
-                IMMUTABLE_BUNDLE_CACHE_CONTROL,
+                PUBLIC_REVALIDATE_CACHE_CONTROL,
             )
             .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response());
         }
@@ -107,18 +109,17 @@ pub async fn workspace_app_asset(
     } else {
         resolve_app_root(workspace_root.as_path(), &app_id).join(&path)
     };
-    let cache_control = if path.ends_with(".svg")
-        || path.ends_with(".png")
-        || path.ends_with(".webp")
-        || path.ends_with(".jpg")
-        || path.ends_with(".jpeg")
-    {
-        IMMUTABLE_BUNDLE_CACHE_CONTROL
-    } else {
-        PRIVATE_REVALIDATE_CACHE_CONTROL
-    };
-    serve_static_asset_with_cache(asset_root, "workspace app asset", &headers, cache_control)
-        .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
+    // Workspace assets keep stable source URLs while authors iterate on their
+    // contents. Marking images immutable leaves stale SVG geometry in existing
+    // browser profiles (for example, an older metric skin without
+    // `preserveAspectRatio="none"` keeps horizontal letterboxing forever).
+    serve_static_asset_with_cache(
+        asset_root,
+        "workspace app asset",
+        &headers,
+        PUBLIC_REVALIDATE_CACHE_CONTROL,
+    )
+    .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
 }
 
 pub async fn component_asset(
@@ -194,7 +195,7 @@ fn merged_styles_response(assets_root: &Path, headers: &HeaderMap) -> Response {
     );
     response.headers_mut().insert(
         HeaderName::from_static("cache-control"),
-        HeaderValue::from_static(IMMUTABLE_BUNDLE_CACHE_CONTROL),
+        HeaderValue::from_static(PUBLIC_REVALIDATE_CACHE_CONTROL),
     );
     let _ = headers;
     response
@@ -221,7 +222,7 @@ fn merged_scripts_response(assets_root: &Path, scripts: &[&str], headers: &Heade
     );
     response.headers_mut().insert(
         HeaderName::from_static("cache-control"),
-        HeaderValue::from_static(IMMUTABLE_BUNDLE_CACHE_CONTROL),
+        HeaderValue::from_static(PUBLIC_REVALIDATE_CACHE_CONTROL),
     );
     let _ = headers;
     response

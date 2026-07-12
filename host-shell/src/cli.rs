@@ -28,6 +28,8 @@ pub enum Command {
 #[derive(Subcommand, Debug)]
 pub enum AppsCommand {
     List(AppsListArgs),
+    Start(AppsStartArgs),
+    Stop(AppsStopArgs),
 }
 
 #[derive(Args, Debug)]
@@ -36,6 +38,42 @@ pub struct AppsListArgs {
     pub workspace: PathBuf,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct AppsStartArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    /// Launch config name under apps/{app}/launch/ or path to a .json file.
+    #[arg(long = "config", value_name = "NAME_OR_PATH")]
+    pub config: Option<String>,
+    /// Control plane URL of a running host (default http://127.0.0.1:9527).
+    #[arg(long = "control-url", value_name = "URL")]
+    pub control_url: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct AppsStopArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long = "control-url", value_name = "URL")]
+    pub control_url: Option<String>,
+}
+
+/// How serve chooses which apps to autostart (0537).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Default)]
+pub enum LaunchMode {
+    /// Only bind control plane; start no app runtimes.
+    #[default]
+    None,
+    /// Start apps whose app.config.json has defaultLaunch set.
+    Defaults,
+    /// Start every discovered app (missing launch → generate default.json).
+    All,
 }
 
 #[derive(Subcommand, Debug)]
@@ -182,9 +220,16 @@ pub struct ServeArgs {
     pub workspace: PathBuf,
     #[arg(long)]
     pub app: Option<String>,
-    /// 声明式 workspace profile 路径；相对路径按 workspace 根解析
+    /// 声明式 workspace profile 路径（迁移遗留）；相对路径按 workspace 根解析
     #[arg(long = "workspace-config", value_name = "PATH")]
     pub workspace_config: Option<PathBuf>,
+    /// Autostart policy (0537). When omitted, no launch autostart; legacy `--app` still works.
+    /// When passed explicitly (including `none`), control-plane launch path wins over `--app`.
+    #[arg(long = "launch", value_enum)]
+    pub launch: Option<LaunchMode>,
+    /// Explicit app launch config file(s). Overrides `--launch` when present.
+    #[arg(long = "app-config", value_name = "PATH")]
+    pub app_config: Vec<PathBuf>,
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
     #[arg(long, default_value = "9527")]

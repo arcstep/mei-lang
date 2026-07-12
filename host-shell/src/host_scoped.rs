@@ -77,17 +77,18 @@ fn render_scope_picker_body_html(apps: &[WorkspaceAppMeta], route_path: &str) ->
 
 fn render_scope_picker_html(
     workspace_root: &Path,
-    apps: &[WorkspaceAppMeta],
+    picker_apps: &[WorkspaceAppMeta],
+    topbar_apps: &[WorkspaceAppMeta],
     topbar_menu: &mei_lang_app::TopbarMenuContext,
     route_label: &str,
     route_path: &str,
     auth_enabled: bool,
     account_view: Option<&mei_lang_app::HostAccountView>,
 ) -> String {
-    let body_html = render_scope_picker_body_html(apps, route_path);
+    let body_html = render_scope_picker_body_html(picker_apps, route_path);
     render_workspace_shell_page(
         workspace_root,
-        apps,
+        topbar_apps,
         topbar_menu,
         workspace_shell_nav_for_route(route_path),
         route_label,
@@ -114,6 +115,7 @@ async fn host_scoped_context(
 ) -> (
     std::path::PathBuf,
     Vec<WorkspaceAppMeta>,
+    Vec<WorkspaceAppMeta>,
     bool,
     Option<mei_lang_app::HostAccountView>,
 ) {
@@ -125,9 +127,16 @@ async fn host_scoped_context(
         filter_apps_for_principal(discovered.as_slice(), principal).as_slice(),
         &topbar_menu,
     );
+    let topbar_apps = crate::shell_chrome::apps_for_topbar(&guard);
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal);
-    (workspace_root, apps, auth_enabled, account_view)
+    (
+        workspace_root,
+        apps,
+        topbar_apps,
+        auth_enabled,
+        account_view,
+    )
 }
 
 async fn host_scoped_light_page(
@@ -140,13 +149,14 @@ async fn host_scoped_light_page(
     Query(query): Query<HostScopeQuery>,
 ) -> Response {
     let principal_ref = principal.as_ref().map(|Extension(p)| p);
-    let (workspace_root, apps, auth_enabled, account_view) =
+    let (workspace_root, apps, topbar_apps, auth_enabled, account_view) =
         host_scoped_context(&state, &auth, principal_ref).await;
     let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
     let Some(app) = resolve_scope_app_id(apps.as_slice(), query.app.as_deref()) else {
         let html = render_scope_picker_html(
             workspace_root.as_path(),
             apps.as_slice(),
+            topbar_apps.as_slice(),
             &topbar_menu,
             route_label,
             route_path,
@@ -171,7 +181,7 @@ async fn host_scoped_light_page(
             _package_root: package_root.as_path(),
             route_mode,
             app_id: app.id.as_str(),
-            apps: apps.as_slice(),
+            apps: topbar_apps.as_slice(),
             app_title,
             topbar_menu: &topbar_menu,
             lightweight_scene: scene_for_links,
@@ -234,13 +244,14 @@ pub async fn host_runtime_observation_page(
     query: Query<HostScopeQuery>,
 ) -> Response {
     let principal_ref = principal.as_ref().map(|Extension(p)| p);
-    let (workspace_root, apps, auth_enabled, account_view) =
+    let (workspace_root, apps, topbar_apps, auth_enabled, account_view) =
         host_scoped_context(&state, &auth, principal_ref).await;
     let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
     let Some(app) = resolve_scope_app_id(apps.as_slice(), query.app.as_deref()) else {
         let html = render_scope_picker_html(
             workspace_root.as_path(),
             apps.as_slice(),
+            topbar_apps.as_slice(),
             &topbar_menu,
             "运行",
             "/runtime",

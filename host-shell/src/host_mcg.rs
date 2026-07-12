@@ -165,12 +165,14 @@ pub async fn host_mcg_page(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let topbar_apps = crate::shell_chrome::apps_for_topbar(&guard);
     let body_html = render_mcg_viewer_body_html(apps.as_slice(), selected_app, bundle);
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal_ref);
     let html = render_workspace_shell_page(
         workspace_root,
-        apps.as_slice(),
+        // Topbar follows LaunchManifest running set; Mcg body picker still uses full discover.
+        topbar_apps.as_slice(),
         &topbar_menu,
         WorkspaceShellNav::Mcg,
         "MCG 检视",

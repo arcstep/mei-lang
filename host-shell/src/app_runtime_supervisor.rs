@@ -33,6 +33,8 @@ pub struct ManagedRuntime {
     pub endpoint: String,
     pub token: String,
     pub spec: InstanceSpec,
+    /// Wall-clock ms when the child became healthy / entered the pool.
+    pub started_at_ms: u64,
 }
 
 impl ManagedRuntime {
@@ -68,6 +70,13 @@ impl AppRuntimeSupervisor {
         self.runtimes
             .iter()
             .map(|(id, rt)| (id.clone(), rt.endpoint.clone()))
+            .collect()
+    }
+
+    pub fn started_at_map(&self) -> BTreeMap<String, u64> {
+        self.runtimes
+            .iter()
+            .map(|(id, rt)| (id.clone(), rt.started_at_ms))
             .collect()
     }
 
@@ -137,9 +146,8 @@ impl AppRuntimeSupervisor {
                 }
             }
         }
-        Err(last_error.unwrap_or_else(|| {
-            anyhow::anyhow!("app-runtime restart failed for `{instance_id}`")
-        }))
+        Err(last_error
+            .unwrap_or_else(|| anyhow::anyhow!("app-runtime restart failed for `{instance_id}`")))
     }
 
     pub async fn shutdown_all(&mut self) -> anyhow::Result<()> {
@@ -186,11 +194,7 @@ impl AppRuntimeSupervisor {
         let mut observed = Vec::new();
         for (instance_id, app_id) in &desired_running {
             if let Some(existing) = self.runtimes.get(instance_id.as_str()) {
-                observed.push(observed_from_managed(
-                    existing,
-                    DesiredState::Running,
-                    None,
-                ));
+                observed.push(observed_from_managed(existing, DesiredState::Running, None));
                 continue;
             }
             let spec = synthesize_instance_spec(
@@ -261,15 +265,10 @@ pub fn generate_instance_token(instance_id: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub fn synthesize_instance_spec(
-    workspace: &Path,
-    app_id: &str,
-    instance_id: &str,
-) -> InstanceSpec {
+pub fn synthesize_instance_spec(workspace: &Path, app_id: &str, instance_id: &str) -> InstanceSpec {
     let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
-    let generation =
-        mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
-            .unwrap_or_else(|_| "current".to_string());
+    let generation = mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+        .unwrap_or_else(|_| "current".to_string());
     let runtime_plan = load_runtime_plan(workspace).unwrap_or(RuntimePlan {
         default_mode: RuntimeMode::Lazy,
         apps: Default::default(),
@@ -291,10 +290,67 @@ pub fn synthesize_instance_spec(
             profile_file: String::new(),
             runtime_plan,
             default_app: Some(app_id.to_string()),
+            ..Default::default()
         },
         runtime_abi: env!("CARGO_PKG_VERSION").to_string(),
         data_mode_ceiling: None,
     }
+}
+
+/// Build an InstanceSpec from an on-disk App Launch Config (0537).
+pub fn instance_spec_from_launch(
+    workspace: &Path,
+    app_id: &str,
+    launch: &mei_host_core::AppLaunchDocument,
+) -> anyhow::Result<InstanceSpec> {
+    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
+    let generation = match launch.config.generation.trim() {
+        "" | "current" => {
+            mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+                .unwrap_or_else(|_| "current".to_string())
+        }
+        other => other.to_string(),
+    };
+    let runtime_plan = if let Some(value) = launch.config.runtime_plan.as_ref() {
+        serde_json::from_value(value.clone()).unwrap_or(RuntimePlan {
+            default_mode: RuntimeMode::Lazy,
+            apps: Default::default(),
+        })
+    } else {
+        load_runtime_plan(workspace).unwrap_or(RuntimePlan {
+            default_mode: RuntimeMode::Lazy,
+            apps: Default::default(),
+        })
+    };
+    let instance_id = format!(
+        "{app_id}@{}@{}",
+        generation,
+        &launch.revision[..8.min(launch.revision.len())]
+    );
+    Ok(InstanceSpec {
+        schema_version: SCHEMA_INSTANCE_SPEC_V1.to_string(),
+        instance_id,
+        app_id: app_id.to_string(),
+        bundle: BundleRef {
+            generation: generation.clone(),
+            bundle_path: format!("apps/{app_id}/env/{generation}"),
+            digest: None,
+            toolchain_version: None,
+            config_digest: Some(launch.revision.clone()),
+        },
+        config_snapshot: ConfigSnapshot {
+            profile_id: launch.id.clone(),
+            profile_revision: launch.revision.clone(),
+            profile_file: launch.path.clone(),
+            runtime_plan,
+            default_app: Some(app_id.to_string()),
+            launch_config_id: Some(launch.id.clone()),
+            launch_config_revision: Some(launch.revision.clone()),
+            launch_config_file: Some(launch.path.clone()),
+        },
+        runtime_abi: env!("CARGO_PKG_VERSION").to_string(),
+        data_mode_ceiling: launch.config.data_mode_ceiling.clone(),
+    })
 }
 
 fn load_runtime_plan(workspace: &Path) -> Option<RuntimePlan> {
@@ -354,8 +410,10 @@ async fn spawn_managed_runtime(
 ) -> anyhow::Result<ManagedRuntime> {
     let reserved_port = reserve_loopback_port()?;
     let binary = crate::tool_exec::resolve_mei_app_runtime(Some(workspace_root))?;
-    let mut child = Command::new(&binary)
-        .arg("serve")
+    let _ = mei_host_core::write_instance_spec(workspace_root, spec);
+    let spec_path = mei_host_core::instance_spec_path(workspace_root, spec.app_id.as_str());
+    let mut cmd = Command::new(&binary);
+    cmd.arg("serve")
         .arg("--workspace")
         .arg(workspace_root)
         .arg("--app")
@@ -366,10 +424,21 @@ async fn spawn_managed_runtime(
         .arg(token)
         .arg("--generation")
         .arg(spec.bundle.generation.as_str())
+        .arg("--instance-spec")
+        .arg(&spec_path)
         .arg("--host")
         .arg(MANAGED_APP_RUNTIME_HOST)
         .arg("--port")
-        .arg(reserved_port.to_string())
+        .arg(reserved_port.to_string());
+    if let Some(ceiling) = spec
+        .data_mode_ceiling
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        cmd.arg("--data-mode-ceiling").arg(ceiling);
+    }
+    let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -412,6 +481,7 @@ async fn spawn_managed_runtime(
         endpoint: listen_endpoint,
         token: token.to_string(),
         spec: spec.clone(),
+        started_at_ms: crate::state::current_time_ms(),
     })
 }
 
@@ -541,9 +611,10 @@ pub async fn bootstrap_supervisor_for_shell(
         }
     }
     let endpoints = supervisor.endpoint_map();
+    let started_at = supervisor.started_at_map();
     {
         let mut guard = shell.write().expect("state lock");
-        guard.sync_app_runtime_endpoints(endpoints);
+        guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     Arc::new(Mutex::new(Some(supervisor)))
 }
