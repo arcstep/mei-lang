@@ -243,6 +243,9 @@ pub(super) fn build_analytics_filter_schema(
                 Value::String(dataset_id.to_string()),
             );
         }
+        if board_filters_default_collapsed(board_filters) {
+            payload.insert("default_collapsed".to_string(), Value::Bool(true));
+        }
         return Value::Object(payload);
     }
 
@@ -343,14 +346,17 @@ fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Va
     }
     let mut fields = Vec::new();
     for item in items {
-        let Some(field_map) = item.as_object() else {
+        let Some(field_map) = resolve_filter_field_map(item) else {
             continue;
         };
-        let key = field_map
+        let Some(key) = field_map
             .get("key")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|s| !s.is_empty())?;
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
         let column = field_map
             .get("column")
             .and_then(Value::as_str)
@@ -381,6 +387,26 @@ fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Va
     } else {
         Some(fields)
     }
+}
+
+/// `filter_field(...)` 在 bindings 里常以 `{__call, __args}` IR 残留；展开后才有 key/column/control。
+fn resolve_filter_field_map(item: &Value) -> Option<&Map<String, Value>> {
+    let map = item.as_object()?;
+    if map.get("__call").and_then(Value::as_str) == Some("filter_field") {
+        return map.get("__args").and_then(Value::as_object);
+    }
+    Some(map)
+}
+
+fn board_filters_default_collapsed(board_filters: Option<&Value>) -> bool {
+    let Some(map) = board_filters.and_then(Value::as_object) else {
+        return false;
+    };
+    map.get("default_collapsed")
+        .and_then(Value::as_bool)
+        .or_else(|| map.get("defaultCollapsed").and_then(Value::as_bool))
+        .or_else(|| map.get("collapsed").and_then(Value::as_bool))
+        .unwrap_or(false)
 }
 
 fn analytics_filter_key_for_column(column: &str, label: Option<&str>) -> (String, String) {

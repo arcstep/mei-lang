@@ -498,8 +498,15 @@ pub fn resolve_scene_assembly_rel(app_root: &Path, scene_id: &str) -> String {
 /// `{scene_id}@{resolve_scene_assembly_rel(...)}`
 pub fn default_scene_assembly_key(app_root: &Path, scene_id: &str) -> String {
     let scene_id = scene_id.trim();
-    let scene_id = if scene_id.is_empty() { "home" } else { scene_id };
-    format!("{scene_id}@{}", resolve_scene_assembly_rel(app_root, scene_id))
+    let scene_id = if scene_id.is_empty() {
+        "home"
+    } else {
+        scene_id
+    };
+    format!(
+        "{scene_id}@{}",
+        resolve_scene_assembly_rel(app_root, scene_id)
+    )
 }
 
 /// 结构节点文件：`.../r-foo.mei` / `.../s-bar.mei` / 遗留 `.../layout.mei`。

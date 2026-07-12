@@ -632,9 +632,7 @@ fn apply_padding_profile_body_props(panel: &mut UiNodeDecl) {
         .map(|padding| Value::String(padding.to_string()));
     if let Some(padding) = explicit.or(from_profile) {
         let mut body_props = panel.body_props.as_object().cloned().unwrap_or_default();
-        body_props
-            .entry("padding".to_string())
-            .or_insert(padding);
+        body_props.entry("padding".to_string()).or_insert(padding);
         body_props
             .entry("box_sizing".to_string())
             .or_insert_with(|| Value::String("border-box".to_string()));

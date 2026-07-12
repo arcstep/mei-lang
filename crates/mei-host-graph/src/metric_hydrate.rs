@@ -161,12 +161,15 @@ fn lower_bundle_dataset(
     if id.is_empty() {
         return None;
     }
-    let source = enrich_file_backed_source(
-        args.get("source")
-            .and_then(|source| resolve_bundle_source(source, ops_sources))
-            .unwrap_or_else(empty_source_decl),
-    );
     let schema = lower_bundle_schema(args.get("schema"));
+    let source = attach_schema_normalize(
+        enrich_file_backed_source(
+            args.get("source")
+                .and_then(|source| resolve_bundle_source(source, ops_sources))
+                .unwrap_or_else(empty_source_decl),
+        ),
+        &schema,
+    );
     Some(DatasetView {
         id,
         title: None,
@@ -305,4 +308,55 @@ fn enrich_file_backed_source(source: SourceDecl) -> SourceDecl {
         content: serde_json::to_string(&meta).ok(),
         ..source
     }
+}
+
+/// 把 schema `source → name`（如 `__EMPTY`→`序号`）写入 source.content.normalize，供懒查询 remap。
+fn attach_schema_normalize(source: SourceDecl, schema: &[ColumnSchema]) -> SourceDecl {
+    let normalize = normalize_map_from_schema(schema);
+    if normalize.is_empty() {
+        return source;
+    }
+    let mut meta = source
+        .content
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let existing = meta
+        .get("normalize")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if !existing.is_empty() {
+        return source;
+    }
+    meta.insert(
+        "normalize".to_string(),
+        Value::Object(
+            normalize
+                .into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect(),
+        ),
+    );
+    SourceDecl {
+        content: serde_json::to_string(&Value::Object(meta)).ok(),
+        ..source
+    }
+}
+
+fn normalize_map_from_schema(schema: &[ColumnSchema]) -> BTreeMap<String, String> {
+    let mut normalize = BTreeMap::new();
+    for column in schema {
+        let Some(source) = column
+            .source
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != column.name.as_str())
+        else {
+            continue;
+        };
+        normalize.insert(source.to_string(), column.name.clone());
+    }
+    normalize
 }

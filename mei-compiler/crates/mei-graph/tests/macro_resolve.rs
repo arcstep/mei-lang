@@ -200,4 +200,3 @@ fn mini_data_geometry_resolves_via_layered_registry() {
     );
     assert!(registry.resolve_path("cockpit/layout-defaults").is_some());
 }
-

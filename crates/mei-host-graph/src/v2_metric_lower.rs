@@ -165,7 +165,10 @@ fn lower_v2_metric_call(
 
 fn lower_metric_scalar(id: &str, args: &Value, ctx: &V2MetricLowerContext) -> Value {
     let map = args.as_object().cloned().unwrap_or_default();
-    let base_rowset = base_rowset_from_scalar_args(&map, ctx);
+    let mut base_rowset = base_rowset_from_scalar_args(&map, ctx);
+    if let Some(filters) = map.get("filters").and_then(Value::as_object) {
+        base_rowset = apply_scalar_filters(base_rowset, filters);
+    }
     let value_expr = if let Some(agg) = map.get("agg") {
         lower_agg_on_rowset(agg, base_rowset.clone(), ctx)
     } else {
@@ -230,6 +233,25 @@ fn base_rowset_from_scalar_args(map: &Map<String, Value>, ctx: &V2MetricLowerCon
     } else {
         json!(null)
     }
+}
+
+fn apply_scalar_filters(rowset: Value, filters: &Map<String, Value>) -> Value {
+    if filters.is_empty() {
+        return rowset;
+    }
+    let predicates: Vec<Value> = filters
+        .iter()
+        .map(|(field, value)| aek("eq", &[("field", json!(field)), ("value", value.clone())]))
+        .collect();
+    let predicate = if predicates.len() == 1 {
+        predicates
+            .into_iter()
+            .next()
+            .expect("single scalar filter predicate")
+    } else {
+        aek("and", &[("predicates", json!(predicates))])
+    };
+    aek("where", &[("rowset", rowset), ("predicate", predicate)])
 }
 
 fn lower_pipeline(steps: &[Value], ctx: &V2MetricLowerContext) -> Value {
@@ -452,6 +474,7 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerConte
         return match name.as_str() {
             "count" => ae("count", vec![("rowset".to_string(), base_rowset)]),
             "sum" => lower_sum_agg(agg, base_rowset),
+            "max" | "min" | "avg" | "median" => lower_field_agg(name.as_str(), agg, base_rowset),
             "ratio" => {
                 let num = agg
                     .get("__args")
@@ -491,6 +514,28 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerConte
         };
     }
     json!(null)
+}
+
+fn lower_field_agg(name: &str, agg: &Value, base_rowset: Value) -> Value {
+    let args = agg.get("__args").and_then(Value::as_object);
+    let field = args
+        .and_then(|m| m.get("field").or_else(|| m.get("arg0")))
+        .and_then(Value::as_str)
+        .unwrap_or("value")
+        .to_string();
+    ae(
+        name,
+        vec![(
+            "value".to_string(),
+            ae(
+                "number",
+                vec![
+                    ("source".to_string(), base_rowset),
+                    ("field".to_string(), json!(field)),
+                ],
+            ),
+        )],
+    )
 }
 
 fn lower_sum_agg(agg: &Value, base_rowset: Value) -> Value {
@@ -1414,6 +1459,55 @@ fn positional_args(args: &Value) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lower_metric_scalar_max_with_filters() {
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "enforcement_units_count",
+                "label": "执法单位",
+                "unit": "个",
+                "dataset": "static_metrics",
+                "agg": {"__call": "max", "__args": {"field": "value"}},
+                "filters": {"metric_id": "enforcement_units_count"}
+            }
+        });
+        let ctx = V2MetricLowerContext::default();
+        let lowered = lower_v2_metric("enforcement_units_count", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered
+                .pointer("/values/value/type")
+                .and_then(|v| v.as_str()),
+            Some("max"),
+            "max(field=value) must not fall back to count, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/value/type")
+                .and_then(|v| v.as_str()),
+            Some("number")
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/value/source/type")
+                .and_then(|v| v.as_str()),
+            Some("where"),
+            "filters must lower to where(...), got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/value/source/predicate/type")
+                .and_then(|v| v.as_str()),
+            Some("eq")
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/value/source/predicate/field")
+                .and_then(|v| v.as_str()),
+            Some("metric_id")
+        );
+    }
+
     #[test]
     fn lower_realtime_warning_detail_has_count_rowset() {
         let raw = json!({

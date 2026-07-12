@@ -335,6 +335,19 @@ pub fn query_metric_dataframe(
         columns = infer_columns(&rows);
     }
     let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &datasets);
+    // 若请求/推断列仍是源键（`__EMPTY`），同步为 schema 逻辑名（`序号`）。
+    if !row_schema.is_empty()
+        && columns.iter().any(|name| {
+            row_schema.iter().any(|col| {
+                col.source
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|source| source == name.as_str())
+            })
+        })
+    {
+        columns = row_schema.iter().map(|col| col.name.clone()).collect();
+    }
 
     let closure_set = effective_metric_ids
         .iter()

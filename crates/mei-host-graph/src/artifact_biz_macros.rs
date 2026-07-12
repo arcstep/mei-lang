@@ -267,6 +267,120 @@ fn rewrite_primary_progress_triptych_body(args: &Map<String, Value>) -> Value {
     })
 }
 
+/// Fill-down progress triptych（pretty-panels 行政检查「无违规」行）。
+/// 与 `long_metric_compound_fill_body` 同理：content_panel 产物里嵌套 biz 宏若未
+/// 在此重写，`v2_lower` 会 `Ok(Vec::new())` 静默丢掉整块。
+fn rewrite_primary_progress_triptych_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("primary_progress_triptych"));
+    let gap = arg_value(args, "gap", json!("6px"));
+    let gap = gap.as_str().unwrap_or("6px");
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id.clone(),
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": transparent_panel_props(json!("100%")),
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!([
+                    arg_value(args, "primary_width", json!("168px")),
+                    "1fr",
+                ]),
+                json!([["primary", "triptych"]]),
+                gap,
+                "stretch",
+            ),
+            "blocks": [
+                rewrite_nested_biz_arg(args.get("primary")),
+                {
+                    "__call": "panel",
+                    "__args": {
+                        "id": id_suffix(id, "_triptych"),
+                        "area": "triptych",
+                        "variant": "container",
+                        "show_heading": false,
+                        "chrome": "bare",
+                        "props": transparent_panel_props(json!("100%")),
+                        "layout": grid_layout(
+                            json!(["1fr"]),
+                            json!(["1fr", "1fr", "1fr"]),
+                            json!([["first", "second", "third"]]),
+                            "4px",
+                            "stretch",
+                        ),
+                        "blocks": [
+                            rewrite_nested_biz_arg(args.get("first")),
+                            rewrite_nested_biz_arg(args.get("second")),
+                            rewrite_nested_biz_arg(args.get("third")),
+                        ]
+                    }
+                }
+            ]
+        }
+    })
+}
+
+fn rewrite_nested_biz_arg(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return Value::Null;
+    };
+    try_rewrite_biz_macro(value).unwrap_or_else(|| value.clone())
+}
+
+/// `progress_metric_fill_slot` → slot panel + `stack_progress` metric（fill-down）。
+fn rewrite_progress_metric_fill_slot(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("metric_progress_slot"));
+    let variant = args.get("variant").and_then(Value::as_str);
+    let mut metric = metric_atom(
+        id_suffix(id.clone(), "_content"),
+        "stack_progress",
+        arg_value(
+            args,
+            "source",
+            json!({"label": "指标", "value": "--", "unit": "", "desc": ""}),
+        ),
+        variant,
+    );
+    if let Some(desc) = args.get("desc") {
+        if let Some(metric_args) = metric.get_mut("__args").and_then(Value::as_object_mut) {
+            metric_args.insert("desc".to_string(), desc.clone());
+        }
+    }
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": {
+                "padding": "0",
+                "background": slot_stretch_background("metric-bg-clean@3x.svg"),
+                "border": "none",
+                "radius": "4px",
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "box_sizing": "border-box",
+                "overflow": "hidden",
+                "__mei_slot_frame_bg": true
+            },
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!(["1fr"]),
+                json!([["content"]]),
+                "0",
+                "stretch",
+            ),
+            "blocks": [metric]
+        }
+    })
+}
+
 fn rewrite_long_metric_compound_body(args: &Map<String, Value>) -> Value {
     let width = arg_value(args, "width", json!("100%"));
     let gap = "2px";
@@ -701,6 +815,8 @@ fn status_card_shell_background(icon: Option<&Value>, strip: bool) -> Value {
         "size": sizes,
         "position": positions,
         "repeat": repeats,
+        "origin": "border-box",
+        "clip": "border-box",
     })
 }
 
@@ -1014,6 +1130,8 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
         "metric_triptych_compound_body" => rewrite_metric_triptych_compound_body(args),
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
         "primary_progress_triptych_body" => rewrite_primary_progress_triptych_body(args),
+        "primary_progress_triptych_fill_body" => rewrite_primary_progress_triptych_fill_body(args),
+        "progress_metric_fill_slot" => rewrite_progress_metric_fill_slot(args),
         "long_metric_compound_body" => rewrite_long_metric_compound_body(args),
         "long_metric_compound_fill_body" => rewrite_long_metric_compound_fill_body(args),
         _ => return None,
@@ -1070,8 +1188,14 @@ mod tests {
             rewritten.get("__mei_viewpoint").and_then(Value::as_str),
             Some("vp_warnings_detail_table")
         );
-        assert_eq!(rewritten.get("overflow").and_then(Value::as_str), Some("auto"));
-        assert_eq!(rewritten.get("padding").and_then(Value::as_str), Some("4px"));
+        assert_eq!(
+            rewritten.get("overflow").and_then(Value::as_str),
+            Some("auto")
+        );
+        assert_eq!(
+            rewritten.get("padding").and_then(Value::as_str),
+            Some("4px")
+        );
         assert_eq!(
             rewritten.get("__mei_layout_fill").and_then(Value::as_bool),
             Some(true)
@@ -1404,6 +1528,59 @@ mod tests {
                 .and_then(|v| v.as_array())
                 .map(|b| b.len()),
             Some(2)
+        );
+
+        let no_violation_fill = json!({
+            "__call": "biz.primary_progress_triptych_fill_body",
+            "__args": {
+                "id": "inspection_no_violation_layout",
+                "area": "block_no_violation",
+                "primary": {
+                    "__call": "biz.progress_metric_fill_slot",
+                    "__args": {
+                        "id": "inspection_no_violation_card",
+                        "area": "primary",
+                        "desc": "81%",
+                        "source": {"label": "无违规", "value": "33994", "unit": "次"}
+                    }
+                },
+                "first": {
+                    "__call": "biz.progress_metric_fill_slot",
+                    "__args": {
+                        "id": "park_rate_a",
+                        "area": "first",
+                        "source": {"label": "三峡商圈", "value": "36", "unit": "%"}
+                    }
+                }
+            }
+        });
+        let rewritten_fill =
+            try_rewrite_biz_macro(&no_violation_fill).expect("rewrite fill triptych");
+        assert_eq!(
+            rewritten_fill.get("__call").and_then(|v| v.as_str()),
+            Some("panel")
+        );
+        assert_eq!(
+            rewritten_fill
+                .pointer("/__args/layout/__args/rows/0")
+                .and_then(|v| v.as_str()),
+            Some("1fr"),
+            "fill triptych should use 1fr row"
+        );
+        assert_eq!(
+            rewritten_fill
+                .pointer("/__args/blocks/0/__args/blocks/0/__args/surface")
+                .and_then(|v| v.as_str()),
+            Some("stack_progress"),
+            "nested progress_metric_fill_slot must expand to stack_progress"
+        );
+        let primary_bg = rewritten_fill
+            .pointer("/__args/blocks/0/__args/props/background/image")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert!(
+            primary_bg.contains("metric-bg-clean@3x.svg"),
+            "progress slot should use clean bg, got {primary_bg}"
         );
 
         let ai_block = json!({

@@ -18,8 +18,8 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_mini_data_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
-        let bundle = workspace
-            .join("apps/mini-data/env/current/build/exchange/mini-data.meibundle");
+        let bundle =
+            workspace.join("apps/mini-data/env/current/build/exchange/mini-data.meibundle");
         assert!(
             bundle.is_file(),
             "run `mei-compiler compile --workspace ws-demo-v2 --app mini-data` first"
@@ -244,7 +244,10 @@ fn mini_data_enforcement_compound_metric_exports_panel_shell_background() {
         .into_iter()
         .find(|doc| {
             doc.slot_group_id.contains("/enforcement/objects")
-                && doc.slots.values().any(|slot| slot.get("panel_shell").is_some())
+                && doc
+                    .slots
+                    .values()
+                    .any(|slot| slot.get("panel_shell").is_some())
         })
         .expect("enforcement/objects eval slot group with panel_shell");
     let compound_slot = compound_doc
@@ -287,7 +290,9 @@ fn mini_data_enforcement_compound_metric_exports_static_mounts() {
                 .find(|(scope, _)| scope.contains("/total") || scope.contains("/top"))
                 .map(|(_, slot)| slot.clone())
         })
-        .unwrap_or_else(|| panic!("enforcement total/top eval slot; groups={enforcement_groups:#?}"));
+        .unwrap_or_else(|| {
+            panic!("enforcement total/top eval slot; groups={enforcement_groups:#?}")
+        });
     let mounts = slot
         .get("component_mounts")
         .and_then(|value| value.as_array())
@@ -429,9 +434,10 @@ fn mini_data_hierarchy_spacing_omitted_defaults_are_injected() {
         "plane omit → region outer margin 1px"
     );
     assert_eq!(
-        t1.body_props.get("padding").and_then(|v| v.as_str()).or_else(|| {
-            t1.props.get("padding").and_then(|v| v.as_str())
-        }),
+        t1.body_props
+            .get("padding")
+            .and_then(|v| v.as_str())
+            .or_else(|| { t1.props.get("padding").and_then(|v| v.as_str()) }),
         Some("1px"),
         "plane omit → padding 1px (body or props)"
     );

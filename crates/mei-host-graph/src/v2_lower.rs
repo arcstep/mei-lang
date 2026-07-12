@@ -1317,7 +1317,10 @@ fn template_macro_cache(app_root: &Path) -> Option<TemplateMacroCache> {
     if !has_any {
         return None;
     }
-    let cache_key = app_root.canonicalize().ok().unwrap_or_else(|| app_root.to_path_buf());
+    let cache_key = app_root
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| app_root.to_path_buf());
     let mutex = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     let mut guard = mutex.lock().ok()?;
     if let Some(cached) = guard.get(&cache_key) {
@@ -1793,10 +1796,7 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTre
         let template_name = surface_template_name(surface).to_string();
         let mut args_with_source = args.clone();
         if let Some(obj) = args_with_source.as_object_mut() {
-            obj.insert(
-                "source".to_string(),
-                resolve_metric_atom_source(args, ctx),
-            );
+            obj.insert("source".to_string(), resolve_metric_atom_source(args, ctx));
             let field_layout = args
                 .get("layout")
                 .cloned()

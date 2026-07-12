@@ -740,13 +740,11 @@ fn build_scene_routes(
         if !seen_scenes.insert(route.scene_id.clone()) {
             continue;
         }
-        let target_file = assembly_target_for_key(
-            app_root.as_path(),
-            registry,
-            route.assembly_key.as_str(),
-        );
+        let target_file =
+            assembly_target_for_key(app_root.as_path(), registry, route.assembly_key.as_str());
         let kind = route_kind_for_target(target_file.as_str());
-        let title = scene_title_from_assembly(app_root.as_path(), registry, route.assembly_key.as_str());
+        let title =
+            scene_title_from_assembly(app_root.as_path(), registry, route.assembly_key.as_str());
         routes.push(CompiledSceneRoute {
             scene_id: route.scene_id.clone(),
             frame_id: None,

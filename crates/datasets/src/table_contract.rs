@@ -138,6 +138,7 @@ pub fn column_meta_from_dataset(dataset: &DatasetView, columns: &[String]) -> Ve
 }
 
 /// 在多个 dataset schema 中，为结果列挑选匹配列数最多的 schema 子集（用于 metric dataframe 明细）。
+/// 同时按 `column.source`（如 `__EMPTY`）匹配，避免懒加载行键未 remap 时选不到逻辑列 schema。
 pub fn resolve_row_schema_for_columns(
     columns: &[String],
     datasets: &BTreeMap<String, DatasetView>,
@@ -151,14 +152,9 @@ pub fn resolve_row_schema_for_columns(
         if view.schema.is_empty() {
             continue;
         }
-        let name_set: BTreeMap<&str, &ColumnSchema> = view
-            .schema
-            .iter()
-            .map(|col| (col.name.as_str(), col))
-            .collect();
         let matched = columns
             .iter()
-            .filter(|name| name_set.contains_key(name.as_str()))
+            .filter(|name| schema_matches_column_or_source(&view.schema, name.as_str()))
             .count();
         if matched > best_matched {
             best_matched = matched;
@@ -168,12 +164,76 @@ pub fn resolve_row_schema_for_columns(
     let Some(schema) = best_schema else {
         return Vec::new();
     };
-    let name_map: BTreeMap<&str, &ColumnSchema> =
-        schema.iter().map(|col| (col.name.as_str(), col)).collect();
     columns
         .iter()
-        .filter_map(|name| name_map.get(name.as_str()).map(|col| (*col).clone()))
+        .filter_map(|name| find_schema_column(schema, name.as_str()).cloned())
         .collect()
+}
+
+fn schema_matches_column_or_source(schema: &[ColumnSchema], name: &str) -> bool {
+    find_schema_column(schema, name).is_some()
+}
+
+fn find_schema_column<'a>(schema: &'a [ColumnSchema], name: &str) -> Option<&'a ColumnSchema> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    schema.iter().find(|col| col.name == trimmed).or_else(|| {
+        schema.iter().find(|col| {
+            col.source
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|source| source == trimmed)
+        })
+    })
+}
+
+/// 选对当前行键覆盖度最高的完整 dataset schema（用于 source→name remap）。
+fn resolve_best_full_schema_for_rows(
+    columns: &[String],
+    rows: &[serde_json::Value],
+    datasets: &BTreeMap<String, DatasetView>,
+) -> Vec<ColumnSchema> {
+    let probe_keys: Vec<String> = if !columns.is_empty() {
+        columns.to_vec()
+    } else {
+        rows.first()
+            .and_then(|row| row.as_object())
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    if probe_keys.is_empty() {
+        return Vec::new();
+    }
+    let mut best: Option<&[ColumnSchema]> = None;
+    let mut best_matched = 0usize;
+    for view in datasets.values() {
+        if view.schema.is_empty() {
+            continue;
+        }
+        let matched = probe_keys
+            .iter()
+            .filter(|name| schema_matches_column_or_source(&view.schema, name.as_str()))
+            .count();
+        // Prefer schemas that actually declare source aliases when tied.
+        let alias_bonus = view
+            .schema
+            .iter()
+            .filter(|col| {
+                col.source
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|source| !source.is_empty() && source != col.name)
+            })
+            .count();
+        let score = matched.saturating_mul(100).saturating_add(alias_bonus);
+        if score > best_matched {
+            best_matched = score;
+            best = Some(view.schema.as_slice());
+        }
+    }
+    best.map(|schema| schema.to_vec()).unwrap_or_default()
 }
 
 pub fn format_rows_with_dataset_schema(
@@ -181,11 +241,19 @@ pub fn format_rows_with_dataset_schema(
     rows: Vec<serde_json::Value>,
     datasets: &BTreeMap<String, DatasetView>,
 ) -> (Vec<ColumnSchema>, Vec<serde_json::Value>) {
+    // 先按完整 dataset schema 做 source→name（`__EMPTY`→`序号` 等），再按请求列裁剪 meta。
+    let full_schema = resolve_best_full_schema_for_rows(columns, &rows, datasets);
+    let rows = if full_schema.is_empty() {
+        rows
+    } else {
+        coerce_rows_to_schema(rows, &full_schema)
+    };
     let schema = resolve_row_schema_for_columns(columns, datasets);
     if schema.is_empty() {
-        return (schema, rows);
+        // 请求列仍是源键时，回退为完整 schema（已 remap 后的逻辑列）。
+        return (full_schema, rows);
     }
-    (schema.clone(), coerce_rows_to_schema(rows, &schema))
+    (schema, rows)
 }
 
 pub fn column_meta_for_row_schema(

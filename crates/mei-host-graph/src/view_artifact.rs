@@ -276,14 +276,29 @@ fn refetch_view_revision_response(
     surface_revision_digest: Option<String>,
     changed_layers: Vec<String>,
 ) -> ViewRevisionResponse {
+    let all_refs = collect_manifest_layer_refs(manifest);
+    let changed_refs = changed_layers
+        .iter()
+        .filter_map(|name| {
+            all_refs
+                .get(name)
+                .cloned()
+                .map(|layer_ref| (name.clone(), layer_ref))
+        })
+        .collect();
     ViewRevisionResponse {
         ready: true,
         status: ViewRevisionStatus::Refetch,
         semantic_core: manifest.semantic_core.clone(),
         manifest_revision_digest,
         surface_revision_digest,
-        manifest: Some(manifest.clone()),
-        assembly_plan: None,
+        manifest: None,
+        assembly_plan: Some(AssemblyPlan {
+            manifest: None,
+            layer_refs: changed_refs,
+            compose_defaults: manifest.compose_defaults.clone().unwrap_or_default(),
+            optional_layers: Vec::new(),
+        }),
         changed_layers,
         inline_layers: None,
     }
@@ -291,8 +306,6 @@ fn refetch_view_revision_response(
 
 pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse {
     let manifest = &input.manifest;
-    let layer_refs = collect_manifest_layer_refs(manifest);
-    let compose_defaults = manifest.compose_defaults.clone().unwrap_or_default();
     let manifest_revision_digest = manifest.revision_digest.clone();
     let server_surface_digest = input
         .surface_revision_digest
@@ -336,12 +349,7 @@ pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse 
             manifest_revision_digest,
             surface_revision_digest: server_surface_digest,
             manifest: None,
-            assembly_plan: Some(AssemblyPlan {
-                manifest: None,
-                layer_refs,
-                compose_defaults,
-                optional_layers: Vec::new(),
-            }),
+            assembly_plan: None,
             changed_layers: Vec::new(),
             inline_layers: None,
         };
@@ -740,8 +748,14 @@ mod view_revision_tests {
             surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::AssembleLocal);
-        assert!(response.assembly_plan.is_some());
+        assert!(response.assembly_plan.is_none());
+        assert!(response.manifest.is_none());
+        assert!(response.inline_layers.is_none());
         assert!(response.changed_layers.is_empty());
+        assert!(
+            serde_json::to_vec(&response).expect("serialize").len() <= 4096,
+            "assemble_local response must stay within the 4KB revision budget"
+        );
     }
 
     #[test]
@@ -782,7 +796,17 @@ mod view_revision_tests {
             surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::Refetch);
-        assert!(response.assembly_plan.is_none());
+        assert_eq!(
+            response
+                .assembly_plan
+                .as_ref()
+                .expect("changed refs")
+                .layer_refs
+                .len(),
+            manifest.layers.len()
+        );
+        assert!(response.manifest.is_none());
+        assert!(response.inline_layers.is_none());
         assert_eq!(response.changed_layers.len(), manifest.layers.len());
     }
 

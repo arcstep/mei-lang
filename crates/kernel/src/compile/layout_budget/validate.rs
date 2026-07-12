@@ -896,6 +896,37 @@ fn validate_duplicate_dimension(
     }
 }
 
+fn background_size_includes_stretch(size: &Value) -> bool {
+    match size {
+        Value::String(s) => s.trim() == "100% 100%",
+        // Multi-layer shells (icon + slot fill + L-corners) keep stretch on the fill layer.
+        Value::Array(items) => items
+            .iter()
+            .any(|item| item.as_str().is_some_and(|s| s.trim() == "100% 100%")),
+        _ => false,
+    }
+}
+
+fn slot_frame_background_complete(background: &Value) -> bool {
+    match background {
+        // Author-owned CSS shorthand (e.g. corner-decor linear-gradient stack).
+        Value::String(s) => !s.trim().is_empty(),
+        Value::Object(bg) => {
+            let size_ok = bg.get("size").is_some_and(background_size_includes_stretch);
+            let origin_ok = bg
+                .get("origin")
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.trim() == "border-box");
+            let clip_ok = bg
+                .get("clip")
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.trim() == "border-box");
+            size_ok && origin_ok && clip_ok
+        }
+        _ => false,
+    }
+}
+
 fn validate_slot_background(
     panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
@@ -907,11 +938,25 @@ fn validate_slot_background(
     if map.get("__mei_slot_frame_bg").and_then(Value::as_bool) != Some(true) {
         return;
     }
-    let bg = map.get("background").and_then(Value::as_object);
+    let Some(background) = map.get("background") else {
+        push_error(
+            diagnostics,
+            "layout_policy_slot_background_incomplete",
+            format!(
+                "panel `{}`: slot chrome missing background.size: 100% 100%, background.origin: border-box, background.clip: border-box",
+                panel.id
+            ),
+            source_path,
+        );
+        return;
+    };
+    if slot_frame_background_complete(background) {
+        return;
+    }
+    let bg = background.as_object();
     let size_ok = bg
         .and_then(|b| b.get("size"))
-        .and_then(Value::as_str)
-        .is_some_and(|s| s.trim() == "100% 100%");
+        .is_some_and(background_size_includes_stretch);
     let origin_ok = bg
         .and_then(|b| b.get("origin"))
         .and_then(Value::as_str)
@@ -920,9 +965,6 @@ fn validate_slot_background(
         .and_then(|b| b.get("clip"))
         .and_then(Value::as_str)
         .is_some_and(|s| s.trim() == "border-box");
-    if size_ok && origin_ok && clip_ok {
-        return;
-    }
     let mut missing = Vec::new();
     if !size_ok {
         missing.push("background.size: 100% 100%");

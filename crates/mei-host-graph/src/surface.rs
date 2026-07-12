@@ -12,6 +12,8 @@ pub fn surface_chrome_props(surface: &str) -> Option<Value> {
         "narrow" | "narrow_metric" => Some(chrome_like("narrow_metric")),
         "compound" | "compound_frame" => Some(chrome_like("compound_frame")),
         "stack_desc" | "icon_left" => Some(chrome_like("stack_desc")),
+        // progress 条由 slot 底图 + desc_mode=progress；内层 metric 透明壳。
+        "stack_progress" => Some(chrome_like("stack_progress")),
         "strip_icon_left" => Some(chrome_like("strip_icon_left")),
         "solid_row_accent" | "solid_row_compact" => Some(chrome_like("solid_row_accent")),
         other => Some(chrome_like(other)),
@@ -44,20 +46,29 @@ pub fn surface_field_layout_call(surface: &str) -> Value {
                 "start",
             )
         }
+        // 与 stack_progress_skin / metric_stack_desc 同构：label 通栏 + value|unit 并排 + desc。
+        // 用 minmax/fr 随 slot 拉伸，禁止六行单列把 value/unit 拆开（会导致挤压重叠）。
         "stack_desc" | "stack_progress" => grid_call(
-            &["1fr", "1fr", "1fr", "1fr", "1fr", "1fr"],
-            &["1fr"],
             &[
-                vec!["label"],
-                vec!["value"],
-                vec!["unit"],
-                vec!["desc"],
-                vec!["."],
-                vec!["."],
+                "minmax(4px, 1fr)",
+                "minmax(14px, auto)",
+                "minmax(20px, 2fr)",
+                "minmax(4px, 0.5fr)",
+                "10px",
+                "minmax(2px, 1fr)",
+            ],
+            &["auto", "auto"],
+            &[
+                vec![".", "."],
+                vec!["label", "label"],
+                vec!["value", "unit"],
+                vec![".", "."],
+                vec!["desc", "desc"],
+                vec![".", "."],
             ],
             "0",
             "stretch",
-            "stretch",
+            "center",
         ),
         _ => grid_call(
             &["2fr", "3fr"],
@@ -113,6 +124,32 @@ fn chrome_like(profile: &str) -> Value {
             "overflow": "hidden",
             "__mei_slot_frame_bg": true
         }),
+        "stack_progress" => json!({
+            "padding": "0 2px",
+            "background": "transparent",
+            "border": "none",
+            "radius": "4px",
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+            "__mei_metric_template": "stack_desc",
+            "__mei_metric_density": "compact",
+            "__mei_metric_inline_align": "compact",
+            "__mei_metric_desc_mode": "progress",
+            "metric_desc_mode": "progress",
+            "metric_desc_shell": {
+                "inset_x": "0px",
+                "extend_x": "10px",
+                "height": "10px",
+                "border_radius": "1px",
+                "fill": "#C9E9F8"
+            },
+            "__mei_metric_label_v_align": "center",
+            "__mei_metric_value_v_align": "end",
+            "__mei_metric_unit_v_align": "end"
+        }),
         "compound_frame" => json!({
             "padding": "0 4px",
             "background": slot_stretch_background("metric-bg-target@3x.svg"),
@@ -140,13 +177,17 @@ fn chrome_like(profile: &str) -> Value {
             "padding": "0 4px",
             "background": {
                 "color": "rgba(98,190,235,0.10)",
+                "size": "100% 100%",
+                "origin": "border-box",
+                "clip": "border-box",
             },
             "border": "none",
             "width": "100%",
             "height": "100%",
             "min_height": "0",
             "box_sizing": "border-box",
-            "overflow": "hidden"
+            "overflow": "hidden",
+            "__mei_slot_frame_bg": true
         }),
         _ => json!({
             "padding": "0",

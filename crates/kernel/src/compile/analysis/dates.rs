@@ -143,6 +143,7 @@ pub fn coerce_calendar_columns_in_rows(
 }
 
 /// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
+/// 同时把 `column.source`（如 `__EMPTY`）重命名为逻辑列名（如 `序号`）。
 pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
     if schema.is_empty() {
         return row.clone();
@@ -151,6 +152,18 @@ pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
         return row.clone();
     };
     let mut out = obj.clone();
+    for column in schema {
+        if let Some(source) = column
+            .source
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != column.name.as_str())
+        {
+            if let Some(value) = take_row_value_by_source(&mut out, source) {
+                out.entry(column.name.clone()).or_insert(value);
+            }
+        }
+    }
     for column in schema {
         let type_name = column.type_name.as_str();
         if type_name == "integer" {
@@ -167,6 +180,29 @@ pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
         }
     }
     Value::Object(out)
+}
+
+/// Excel 表头可能含真实换行，而作者态 `source = "预警\\n类型"` 可能是字面 `\\n`；两者都要命中。
+fn take_row_value_by_source(
+    out: &mut serde_json::Map<String, Value>,
+    source: &str,
+) -> Option<Value> {
+    if let Some(value) = out.remove(source) {
+        return Some(value);
+    }
+    let newline_form = source.replace("\\n", "\n");
+    if newline_form != source {
+        if let Some(value) = out.remove(&newline_form) {
+            return Some(value);
+        }
+    }
+    let escaped_form = source.replace('\n', "\\n");
+    if escaped_form != source {
+        if let Some(value) = out.remove(&escaped_form) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 /// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。

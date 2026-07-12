@@ -80,7 +80,8 @@ fn pretty_panels_enforcement_body_includes_triptych_and_compound_shell() {
             .any(|area| area == "first" || area == "compound"),
         "enforcement_strip_layout should include triptych and compound areas, got {areas:?}"
     );
-    let compound = find_panel_in_tree(panels, "enforcement_objects_card").expect("compound card");
+    let compound =
+        find_panel_in_tree(panels, "enforcement_strip_layout_compound").expect("compound card");
     let bg_json = serde_json::to_string(compound.props.get("background").expect("background"))
         .unwrap_or_default();
     assert!(
@@ -114,14 +115,27 @@ fn pretty_panels_issue_body_exports_four_status_metric_cards() {
             card.props
         );
     }
-    let summary = find_panel_in_tree(panels, "issue_body_summary_content").expect("summary card");
+    // Icon + slot-fill layers live on the shell panel, not the inner metric card.
+    let summary_shell = find_panel_in_tree(panels, "issue_body_summary").expect("summary shell");
+    let images = summary_shell
+        .props
+        .get("background")
+        .and_then(|bg| bg.get("image"))
+        .and_then(|v| v.as_array())
+        .expect("summary shell multilayer background.image");
     assert!(
-        summary
+        images.iter().any(|v| {
+            v.as_str()
+                .is_some_and(|s| s.contains("url(") && !s.contains("linear-gradient"))
+        }),
+        "summary shell should keep icon/slot-fill layers, got {images:?}"
+    );
+    assert_eq!(
+        summary_shell
             .props
-            .get("background")
-            .and_then(|bg| bg.get("image"))
-            .and_then(|v| v.as_str())
-            .is_some(),
-        "summary card should preserve icon background shell"
+            .get("__mei_slot_frame_bg")
+            .and_then(|v| v.as_bool()),
+        Some(true),
+        "summary shell should keep slot-frame flag"
     );
 }

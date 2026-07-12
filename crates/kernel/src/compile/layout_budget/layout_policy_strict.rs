@@ -170,6 +170,35 @@ fn layout_policy_slot_background_incomplete_emits_error() {
 }
 
 #[test]
+fn layout_policy_slot_background_accepts_multilayer_stretch_and_shorthand() {
+    let mut multilayer = empty_panel("status_slot");
+    multilayer.props = json!({
+        "__mei_slot_frame_bg": true,
+        "background": {
+            "color": "rgba(98,190,235,0.10)",
+            "image": ["url(icon.png)", "url(fill.svg)"],
+            "size": ["48px 48px", "100% 100%"],
+            "origin": "border-box",
+            "clip": "border-box",
+        },
+    });
+    let mut shorthand = empty_panel("corner_slot");
+    shorthand.props = json!({
+        "__mei_slot_frame_bg": true,
+        "background": "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat, rgba(98,190,235,0.10)",
+    });
+    let mut panels = vec![multilayer, shorthand];
+    let mut diagnostics = Vec::new();
+    resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code == "layout_policy_slot_background_incomplete"),
+        "unexpected slot background errors: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn layout_policy_placement_absolute_forbidden_emits_error() {
     let mut panel = empty_panel("biz_section");
     panel.props = json!({

@@ -554,10 +554,7 @@ fn panel_shell_lookup_matches_node(node: &StructureFullNode, panel_id: &str) -> 
     // When area name == panel id, structure emits both `…/objects` (area slot)
     // and `…/objects/objects` (nested panel). Binding shell to both paints the
     // SVG frame twice. Keep the area slot; reject the duplicate nested leaf.
-    if segments.len() >= 2
-        && leaf == panel_id
-        && segments[segments.len() - 2] == panel_id
-    {
+    if segments.len() >= 2 && leaf == panel_id && segments[segments.len() - 2] == panel_id {
         return false;
     }
     leaf == panel_id
@@ -2274,8 +2271,7 @@ mod tests {
         let nested_panel = StructureFullNode {
             node_id: "objects_inner".to_string(),
             ui_role: "slot".to_string(),
-            preview_scope: "t1/main/enforcement/enforcement-compound/objects/objects"
-                .to_string(),
+            preview_scope: "t1/main/enforcement/enforcement-compound/objects/objects".to_string(),
             label: "objects".to_string(),
             parent_id: None,
             children: vec![],

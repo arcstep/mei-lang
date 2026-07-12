@@ -1983,7 +1983,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mei-bundle"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-graph",
  "serde",
@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler-tests"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-bundle",
  "mei-graph",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "mei-graph"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-auth"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2058,7 +2058,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-core"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-graph"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "mei-bundle",
@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-shell"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-app"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "csv",
  "leptos",
@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-datasets"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2143,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-kernel"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2164,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-lsp"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-server"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2216,7 +2216,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-toolchain"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lower"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-graph",
  "mei-surface",
@@ -2242,7 +2242,7 @@ dependencies = [
 
 [[package]]
 name = "mei-plug-ds"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "mei-surface"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "mei-syntax"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "chumsky",
  "serde",
@@ -4643,7 +4643,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "ws-spbjw-integration-tests"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "mei-lang-app",
  "mei-lang-datasets",
