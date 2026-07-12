@@ -1,15 +1,14 @@
 /**
- * Golden-case (0537): App Runtime Instance + LaunchManifest.
+ * Golden-case (0537): App Launch Config + single Runtime per app.
  *
- * Prerequisites (optional live host):
+ * Prerequisites:
  *   MEI_E2E_BASE_URL=http://127.0.0.1:19550 npx playwright test e2e/app-runtime-instance.spec.mjs
  *
- * Dual-profile flow (manual / CI with apply rights):
- *   apply configs/mini-data-scoped-rail.json → cutover
- *   apply configs/mini-data-full.json → second InstanceSpec → cutover / rollback
+ * Host start example:
+ *   mei-host-shell serve --workspace ../workspaces/ws-demo-v2 --port 19550 \
+ *     --app-config apps/mini-data/launch/scoped-rail.json
  *
- * Forced runtime (no Host data-plane fallback):
- *   MEI_APP_RUNTIME_REQUIRED=1 mei-host-shell serve --workspace … --port 19550
+ * Switch config (stop+start): MEI_E2E_DUAL_APPLY=1 uses apps start API with scoped-rail then full.
  */
 import { test, expect } from "@playwright/test";
 
@@ -19,10 +18,6 @@ const base = (process.env.MEI_E2E_BASE_URL || process.env.MEI_TEST_BASE_URL || "
 );
 const appId = String(process.env.MEI_E2E_APP_ID || "mini-data").trim();
 const dualApply = String(process.env.MEI_E2E_DUAL_APPLY || "").trim() === "1";
-const scopedProfile = String(
-  process.env.MEI_E2E_SCOPED_PROFILE || "mini-data-scoped-rail",
-).trim();
-const fullProfile = String(process.env.MEI_E2E_FULL_PROFILE || "mini-data-full").trim();
 
 async function json(response) {
   expect(response.ok(), `${response.status()} ${response.url()}`).toBeTruthy();
@@ -37,36 +32,7 @@ async function readInstances(request) {
   return json(await request.get(`${base}/api/host/instances`));
 }
 
-async function waitOpsIdle(request, timeoutMs = 300_000) {
-  await expect
-    .poll(
-      async () => {
-        const ops = await json(await request.get(`${base}/api/host/ops/status`));
-        return ops.job?.status || "idle";
-      },
-      { timeout: timeoutMs },
-    )
-    .not.toBe("running");
-}
-
-async function applyProfile(request, profileId) {
-  const profiles = await json(await request.get(`${base}/api/host/workspace-profiles`));
-  const list = Array.isArray(profiles.profiles) ? profiles.profiles : [];
-  const doc = list.find((item) => item.id === profileId) || null;
-  const expectedRevision = doc?.revision || null;
-  const preview = await request.post(`${base}/api/host/runtime/apply-profile`, {
-    data: { profileId, dryRun: true, expectedRevision },
-  });
-  expect([200, 202]).toContain(preview.status());
-  const accepted = await request.post(`${base}/api/host/runtime/apply-profile`, {
-    data: { profileId, dryRun: false, expectedRevision },
-  });
-  expect([200, 202]).toContain(accepted.status());
-  await waitOpsIdle(request);
-  return accepted.json().catch(() => ({}));
-}
-
-test.describe("app runtime instance + LaunchManifest (0537)", () => {
+test.describe("app launch config + single runtime (0537)", () => {
   test.skip(!base, "set MEI_E2E_BASE_URL (or MEI_TEST_BASE_URL) to run");
 
   test("launch-manifest and instances expose routes and observed state", async ({
@@ -177,48 +143,90 @@ test.describe("app runtime instance + LaunchManifest (0537)", () => {
     }
   });
 
-  test("dual profile apply yields distinct InstanceSpecs and cutover without host restart", async ({
-    request,
-  }) => {
-    test.skip(!dualApply, "set MEI_E2E_DUAL_APPLY=1 to run dual profile apply");
+  test("running overview exposes launch display fields", async ({ request }) => {
+    const apps = await json(await request.get(`${base}/api/host/apps`));
+    expect(Array.isArray(apps.apps)).toBe(true);
+    expect(Array.isArray(apps.running)).toBe(true);
+    const run = (apps.running || []).find((row) => row.appId === appId);
+    test.skip(!run, `no running row for ${appId}`);
+    expect(run.href).toBe(`/apps/${appId}/home`);
+    expect(typeof run.displayName).toBe("string");
+    expect(run.displayName.length).toBeGreaterThan(0);
+    expect(run.launchId || run.instanceId).toBeTruthy();
+  });
 
-    await applyProfile(request, scopedProfile);
-    const scoped = await readInstances(request);
-    const scopedActive = scoped.routes?.[appId]?.active;
-    expect(scopedActive).toBeTruthy();
-    const scopedItem = scoped.instances.find(
-      (item) => (item.instanceId || item.instance_id) === scopedActive,
+  test("shell-chrome topbar lists only running apps", async ({ request }) => {
+    const chrome = await json(
+      await request.get(
+        `${base}/api/host/shell-chrome?appId=${encodeURIComponent(appId)}&scene=home&surface=app`,
+      ),
     );
-    const scopedDigest =
-      scopedItem?.specRef ||
-      scopedItem?.spec_ref ||
-      scopedItem?.specDigest ||
-      scopedItem?.spec_digest;
-
-    await applyProfile(request, fullProfile);
-    const full = await readInstances(request);
-    const fullActive = full.routes?.[appId]?.active;
-    expect(fullActive).toBeTruthy();
-    expect(fullActive).not.toBe(scopedActive);
-    const fullItem = full.instances.find(
-      (item) => (item.instanceId || item.instance_id) === fullActive,
-    );
-    const fullDigest =
-      fullItem?.specRef ||
-      fullItem?.spec_ref ||
-      fullItem?.specDigest ||
-      fullItem?.spec_digest;
-    if (scopedDigest && fullDigest) {
-      expect(fullDigest).not.toBe(scopedDigest);
+    expect(typeof chrome.topbarHtml).toBe("string");
+    expect(typeof chrome.digest).toBe("string");
+    const runningIds = chrome.runningAppIds || [];
+    expect(Array.isArray(runningIds)).toBe(true);
+    if (runningIds.length === 0) {
+      // --launch none: no app tabs in topbar slot content.
+      expect(chrome.topbarHtml.includes(`data-mei-app-id="${appId}"`) || chrome.topbarHtml.includes(`/apps/${appId}/`)).toBeFalsy();
+      return;
     }
+    expect(runningIds).toContain(appId);
+    expect(chrome.topbarHtml).toContain(`/apps/${appId}/home`);
+  });
 
-    // Rollback to previous (scoped) without restarting Host.
-    const rollback = await request.post(
-      `${base}/api/host/routes/${encodeURIComponent(appId)}/rollback`,
+  test("Access topbar shows launch displayName for running app", async ({ page, request }) => {
+    const apps = await json(await request.get(`${base}/api/host/apps`));
+    const run = (apps.running || []).find((row) => row.appId === appId);
+    test.skip(!run, `no running row for ${appId}`);
+
+    await page.goto(`${base}/apps/${encodeURIComponent(appId)}/home`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    });
+    const top = page.locator("#mei-host-topbar-slot");
+    await expect(top).toBeVisible({ timeout: 60_000 });
+    await expect(top).toContainText(run.displayName, { timeout: 60_000 });
+  });
+
+  test("switch launch config stops old process and starts new one", async ({ request }) => {
+    test.skip(!dualApply, "set MEI_E2E_DUAL_APPLY=1 to run launch config switch");
+
+    const startScoped = await request.post(
+      `${base}/api/host/apps/${encodeURIComponent(appId)}/start`,
+      { data: { config: "scoped-rail" } },
+    );
+    expect([200, 202]).toContain(startScoped.status());
+    const apps1 = await json(await request.get(`${base}/api/host/apps`));
+    const run1 = (apps1.running || []).find((row) => row.appId === appId);
+    expect(run1?.instanceId).toBeTruthy();
+    expect(run1?.launchId).toBe("scoped-rail");
+    expect(String(run1?.displayName || "")).toMatch(/scoped/i);
+
+    const startFull = await request.post(
+      `${base}/api/host/apps/${encodeURIComponent(appId)}/start`,
+      { data: { config: "full" } },
+    );
+    expect([200, 202]).toContain(startFull.status());
+    const apps2 = await json(await request.get(`${base}/api/host/apps`));
+    const run2 = (apps2.running || []).find((row) => row.appId === appId);
+    expect(run2?.instanceId).toBeTruthy();
+    expect(run2.instanceId).not.toBe(run1.instanceId);
+    expect(run2?.launchId).toBe("full");
+    expect(String(run2?.displayName || "")).not.toBe(String(run1?.displayName || ""));
+
+    const chrome = await json(
+      await request.get(
+        `${base}/api/host/shell-chrome?appId=${encodeURIComponent(appId)}&scene=home`,
+      ),
+    );
+    expect(chrome.topbarHtml).toContain(run2.displayName);
+
+    const stop = await request.post(
+      `${base}/api/host/apps/${encodeURIComponent(appId)}/stop`,
       { data: {} },
     );
-    expect([200, 202]).toContain(rollback.status());
-    const rolled = await readInstances(request);
-    expect(rolled.routes?.[appId]?.active).toBe(scopedActive);
+    expect([200, 202]).toContain(stop.status());
+    const apps3 = await json(await request.get(`${base}/api/host/apps`));
+    expect((apps3.running || []).find((row) => row.appId === appId)).toBeFalsy();
   });
 });

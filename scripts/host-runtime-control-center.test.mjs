@@ -22,59 +22,53 @@ function assert(condition, message) {
 }
 
 for (const mount of [
-  "data-runtime-profile-mount",
-  "data-runtime-json-mount",
-  "data-runtime-plan-mount",
-  "data-runtime-dry-run-mount",
-  "data-runtime-task-mount",
-  "data-runtime-builds-mount",
-  "data-runtime-cleanup-mount",
-  "data-runtime-instances-mount",
-  "data-runtime-manifest-mount",
+  "data-host-runtime-control-center",
+  "data-runtime-app-grid",
+  "data-runtime-global-ops",
+  "data-runtime-live",
+  "data-runtime-cleanup-modal",
+  "data-runtime-refresh-instances",
 ]) {
   assert(hub.includes(mount), `runtime hub must expose ${mount}`);
 }
 
+assert(!/<div[^>]*data-runtime-profile-mount\b/.test(hub), "legacy profile mount must be removed");
+assert(!hub.includes(">配置档 / 启动清单<"), "legacy profile zone must be removed");
 assert(!hub.includes("<script>"), "runtime hub must not regress to an inline script");
-assert(source.includes("expectedRevision: state.document.revision"), "save must use expectedRevision");
-assert(source.includes("error.status === 409"), "save must preserve revision conflicts");
-assert(source.includes('"/validate"') && source.includes('"/dry-run"'), "draft preview APIs must be used");
-assert(source.includes('"/api/host/runtime/apply-profile"'), "apply-profile API must be used");
-assert(source.includes('"/api/host/runtime/profile"'), "control-plane profile status API must be used");
-assert(source.includes('"/api/host/launch-manifest"'), "launch-manifest API must be used");
-assert(source.includes('"/api/host/instances"'), "instances API must be used");
-assert(source.includes('"/api/host/builds/request"'), "builds/request API must be used");
-assert(source.includes("build worker → launch instances → cutover route"), "apply copy must describe instance pipeline");
-assert(
-  source.includes("control?.selectedProfile?.id || \"default\""),
-  "first boot must prefer the server-selected profile",
-);
-assert(
-  hub.includes("data-runtime-control-status") && hub.includes("data-runtime-access-status"),
-  "runtime hub must expose control and Access status",
-);
-assert(source.includes('"/api/host/builds"'), "workspace builds API must be used");
+assert(!hub.includes("运行控制中心</h1>"), "runtime hub must not show legacy hero title");
+assert(!hub.includes("按应用选择 launch"), "runtime hub must not show legacy hero blurb");
+assert(!hub.includes("工具链 <code>"), "runtime hub must not show toolchain status strip");
+assert(hub.includes('aria-label="应用"'), "runtime hub must expose apps section");
+
+assert(source.includes('"/api/host/apps"'), "control center must call apps API");
+assert(!source.includes('"/api/host/runtime/profile"'), "card hub must not depend on control-plane profile strip");
+assert(source.includes('"/api/host/ops/prebuild"'), "compile-and-load must use ops prebuild");
 assert(
   source.includes('"/api/host/builds/cleanup-preview"') &&
     source.includes('"/api/host/builds/cleanup"'),
   "cleanup must require preview before execute",
 );
+assert(source.includes("appId="), "cleanup preview must scope by appId");
+assert(source.includes('phase === "ready"'), "enter link only when app runtime is ready");
+assert(
+  source.includes("mei-runtime-control__enter"),
+  "running cards still expose enter when ready",
+);
+assert(source.includes("renderCleanupModal"), "cleanup must use temporary modal");
+assert(source.includes("closeCleanupModal"), "cleanup modal must be closable without grid rerender");
+assert(!source.includes("data-runtime-cleanup-inline"), "cleanup must not expand cards inline");
 assert(
   source.includes('import("/workspace-components/mei/overflow-text.js")'),
   "long generation text must reuse floating overflow text",
 );
+assert(!source.includes("global.location.reload()"), "must refresh state without location.reload");
 assert(
-  !source.includes("global.location.reload()"),
-  "generation lifecycle must refresh state without location.reload",
+  !source.includes('title="') || source.includes("data-runtime-locked"),
+  "button titles are ok for disabled reasons; overflow still uses floating popover",
 );
-assert(
-  source.includes("state.applyPreview = null") && !source.includes("await confirmProfileApply();"),
-  "saving must not automatically apply a profile",
-);
-assert(!/\btitle\s*=/u.test(source), "long text must not use a title-only tooltip");
-assert(hub.includes("实例与路由"), "runtime hub zone 02 must be instances/routes");
-assert(hub.includes("Builder 任务"), "runtime hub zone 03 must be builder tasks");
-assert(hub.includes("Bundle 与容量"), "runtime hub zone 04 must be bundle capacity");
+assert(!source.includes("/api/host/workspace-profiles"), "card hub must not depend on workspace-profiles UI");
+assert(source.includes("data-runtime-locked"), "buttons must encode availability locks");
+assert(source.includes("hasCurrentBundle"), "start must require current compile artifact");
 
 const sandbox = {
   console,
@@ -101,6 +95,7 @@ assert(
   }).includes("server-revision"),
   "conflict text must include the server revision",
 );
+assert(api.formatDuration(65000).includes("1m"), "duration helper should format minutes");
 
 const storage = new Map();
 const eventsSandbox = {
@@ -135,6 +130,11 @@ vm.runInContext(eventsSource, eventsSandbox);
 const eventsApi = eventsSandbox.MeiHostRuntimeEvents;
 assert(eventsApi.appliesToCurrentApp({ appId: "mini-data" }), "event should match current app");
 assert(!eventsApi.appliesToCurrentApp({ appId: "other" }), "event should reject another app");
+assert(eventsApi.shellNavFromLocation() === "", "access path has no workspace shellNav");
+eventsSandbox.location.pathname = "/runtime";
+assert(eventsApi.shellNavFromLocation() === "runtime", "runtime path maps shellNav");
+eventsSandbox.location.pathname = "/apps/mini-data/home";
+
 const applied = {
   appId: "mini-data",
   profileId: "local",

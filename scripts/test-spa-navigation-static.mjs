@@ -91,6 +91,32 @@ const viewCompositorSrc = await readFile(
 );
 assert.match(viewCompositorSrc, /isPlaceholderShellDoc/, "isPlaceholderShellDoc export required");
 
+const previewMaterializerSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/preview-materializer.js"),
+  "utf8",
+);
+assert.match(
+  previewMaterializerSrc,
+  /props\.__mei_layout_fill[\s\S]*data-mei-layout-fill/,
+  "compiled fill-down marker must be projected to DOM",
+);
+assert.match(
+  previewMaterializerSrc,
+  /\/app-bundles\/access\.js[\s\S]*\/workspace-app-assets\/[\s\S]*encodeURIComponent\(version\)/,
+  "mutable workspace backgrounds must use the active Runtime asset version",
+);
+assert.doesNotMatch(
+  previewMaterializerSrc,
+  /applyEnforcementSectionComposeClasses/,
+  "fill-down sizing must not depend on enforcement scope heuristics",
+);
+const appShellCss = await readFile(path.join(assetsRoot, "app-shell.css"), "utf8");
+assert.match(
+  appShellCss,
+  /\[data-mei-layout-fill="true"\][\s\S]*align-self:\s*stretch;[\s\S]*justify-self:\s*stretch;/,
+  "common fill-down CSS must stretch both grid axes",
+);
+
 const modulesPath = path.join(root, "scripts", "spa-navigation-modules.json");
 const moduleList = JSON.parse(await readFile(modulesPath, "utf8"));
 assert.ok(Array.isArray(moduleList) && moduleList.length > 0, "spa-navigation module list required");

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build mei-compiler + mei-plug-ds + mei-host-shell from mei-lang source.
+# Build mei-compiler + mei-plug-ds + mei-host-shell + mei-app-runtime from mei-lang source.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,14 +16,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 CARGO_ARGS=(build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
-  -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+  -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
 if [[ "${PROFILE}" == "release" ]]; then
   CARGO_ARGS=(build --release --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
-    -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+    -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
 fi
 
 export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell}"
+export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell,mei-app-runtime}"
 
 # shellcheck source=cargo-target-gc.sh
 source "${SCRIPT_DIR}/cargo-target-gc.sh"
@@ -39,4 +39,4 @@ fi
 
 echo "==> mei-lang build (profile=${PROFILE}, root=${MEI_LANG_ROOT})"
 CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
-echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,plug-ds}"
+echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,plug-ds,app-runtime}"

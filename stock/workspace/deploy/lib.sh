@@ -80,10 +80,22 @@ parse_common_args() {
   SOURCE="${MEI_SOURCE:-installed}"
   RUNTIME="${MEI_RUNTIME:-local}"
   DEPLOY_CONFIG_ARG="${MEI_WORKSPACE_CONFIG:-}"
+  DEPLOY_LAUNCH_MODE="${MEI_LAUNCH:-}"
+  DEPLOY_APP_CONFIGS=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --config) DEPLOY_CONFIG_ARG="$2"; shift 2 ;;
       --config=*) DEPLOY_CONFIG_ARG="${1#*=}"; shift ;;
+      --launch) DEPLOY_LAUNCH_MODE="$2"; shift 2 ;;
+      --launch=*) DEPLOY_LAUNCH_MODE="${1#*=}"; shift ;;
+      --app-config)
+        DEPLOY_APP_CONFIGS+=("$2")
+        shift 2
+        ;;
+      --app-config=*)
+        DEPLOY_APP_CONFIGS+=("${1#*=}")
+        shift
+        ;;
       --runtime) RUNTIME="$2"; shift 2 ;;
       --runtime=*) RUNTIME="${1#*=}"; shift ;;
       --cargo) SOURCE="lang"; shift ;;
@@ -230,7 +242,7 @@ resolve_bin_path() {
 ensure_local_bins() {
   local workspace_root="$1"
   local bin_dir="${workspace_root}/deploy/bin"
-  if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-plug-ds" ]]; then
+  if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-plug-ds" && -x "${bin_dir}/mei-app-runtime" ]]; then
     return 0
   fi
   echo "==> local binaries missing; running install.sh"
@@ -240,7 +252,7 @@ ensure_local_bins() {
 cargo_runtime_bins_ready() {
   local workspace_root="$1"
   local bin_name
-  for bin_name in mei-host-shell mei-compiler mei-plug-ds; do
+  for bin_name in mei-host-shell mei-compiler mei-plug-ds mei-app-runtime; do
     if [[ ! -x "$(resolve_bin_path "${workspace_root}" "${bin_name}")" ]]; then
       return 1
     fi
@@ -275,10 +287,10 @@ run_cargo_runtime_build() {
     maybe_cargo_target_hygiene "${mei_lang_root}"
   fi
   local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
-    -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+    -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
   if [[ "${PROFILE}" == "release" ]]; then
     cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+      -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
   fi
   CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
 }
@@ -435,6 +447,8 @@ run_workspace_serve() {
   fi
 
   DEPLOY_CONFIG_ARG="${MEI_WORKSPACE_CONFIG:-}"
+  DEPLOY_LAUNCH_MODE="${MEI_LAUNCH:-${DEPLOY_LAUNCH_MODE:-}}"
+  DEPLOY_APP_CONFIGS=("${DEPLOY_APP_CONFIGS[@]:-}")
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-prebuild) skip_prebuild=1; shift ;;
@@ -445,6 +459,16 @@ run_workspace_serve() {
       --app=*) app="${1#*=}"; shift ;;
       --config) DEPLOY_CONFIG_ARG="$2"; shift 2 ;;
       --config=*) DEPLOY_CONFIG_ARG="${1#*=}"; shift ;;
+      --launch) DEPLOY_LAUNCH_MODE="$2"; shift 2 ;;
+      --launch=*) DEPLOY_LAUNCH_MODE="${1#*=}"; shift ;;
+      --app-config)
+        DEPLOY_APP_CONFIGS+=("$2")
+        shift 2
+        ;;
+      --app-config=*)
+        DEPLOY_APP_CONFIGS+=("${1#*=}")
+        shift
+        ;;
       --port) port="$2"; shift 2 ;;
       --port=*) port="${1#*=}"; shift ;;
       --host) host="$2"; shift 2 ;;
@@ -537,12 +561,20 @@ run_workspace_serve() {
   local dev_eval_args=()
   local app_args=()
   local workspace_config_args=()
+  local launch_args=()
   if [[ -n "${app}" ]]; then
     app_args+=(--app "${app}")
   fi
   if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
     workspace_config_args+=(--workspace-config "${DEPLOY_CONFIG_ARG}")
   fi
+  if [[ -n "${DEPLOY_LAUNCH_MODE:-}" ]]; then
+    launch_args+=(--launch "${DEPLOY_LAUNCH_MODE}")
+  fi
+  for cfg in "${DEPLOY_APP_CONFIGS[@]:-}"; do
+    [[ -n "${cfg}" ]] || continue
+    launch_args+=(--app-config "${cfg}")
+  done
   if [[ -n "${MEI_DEV_EVAL_PROFILE:-}" ]]; then
     dev_eval_args+=(--dev-eval-profile "${MEI_DEV_EVAL_PROFILE}")
   fi
@@ -566,6 +598,7 @@ run_workspace_serve() {
       run_mei_host_shell '${workspace_root}' \
         serve --workspace '${workspace_root}' \
         $(printf '%q ' "${app_args[@]}") $(printf '%q ' "${workspace_config_args[@]}") \
+        $(printf '%q ' "${launch_args[@]}") \
         --host '${host}' --port '${port}' ${auth_flag} $(printf '%q ' "${dev_eval_args[@]}") $*
     " >"${state_dir}/host.log" 2>&1 &
     echo $! >"${host_pid_file}"
@@ -575,6 +608,7 @@ run_workspace_serve() {
 
   run_mei_host_shell "${workspace_root}" \
     serve --workspace "${workspace_root}" "${app_args[@]}" "${workspace_config_args[@]}" \
+    "${launch_args[@]}" \
     --host "${host}" --port "${port}" ${auth_flag} "${dev_eval_args[@]}" "$@"
 }
 

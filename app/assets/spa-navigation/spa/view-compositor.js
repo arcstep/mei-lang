@@ -219,6 +219,15 @@
         (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
       ),
     });
+    try {
+      global.document?.dispatchEvent?.(
+        new CustomEvent("mei:shell-layer-applied", {
+          detail: { signature, routeMode: doc.route_mode || null },
+        }),
+      );
+    } catch (_error) {
+      // ignore
+    }
   }
 
   function resolveAppId(composeAxes) {

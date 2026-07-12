@@ -5449,6 +5449,27 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   min-width: 0;
   box-sizing: border-box;
 }
+/* Fill-down SSOT: compiler `__mei_layout_fill` is projected to this marker.
+   A marked container is the grid item for its parent slot, so both axes stretch
+   by default; product-specific scope names must not participate in sizing. */
+.mei-compose-scene-root [data-mei-layout-fill="true"] {
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.mei-compose-scene-root
+  [data-mei-layout-fill="true"]
+  > :is(.panel-body-cell, .preview-panel-body) {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
 .mei-compose-content-group,
 .mei-compose-block,
 .mei-compose-region > .mei-compose-block,

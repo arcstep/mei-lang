@@ -5240,7 +5240,10 @@ export async function fetchRuntimeMetrics(
       if (!bootstrapCoversRequestedMetrics(requestedIds)) {
         window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_partial";
       } else {
-        window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "metric_cache_miss_after_seed";
+        // Seed wrote a nearby key (often without preview_scope) but this exact cache
+        // key missed — fall through to network instead of leaving mei-text on `--`.
+        window.__meiEvalPackMissReason =
+          window.__meiEvalPackMissReason || "metric_cache_miss_after_seed";
         if (typeof window !== "undefined") {
           window.__meiLastMetricCacheMiss = {
             api,
@@ -5249,7 +5252,6 @@ export async function fetchRuntimeMetrics(
             payload: normalizeMetricQueryCachePayload(payload),
           };
         }
-        return waitForSharedPromise(Promise.resolve(null), signal);
       }
     }
   }

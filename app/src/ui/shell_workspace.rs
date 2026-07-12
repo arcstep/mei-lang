@@ -79,14 +79,46 @@ pub(crate) fn workspace_shell(
     let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
     view! {
         <div class="shell shell-surface workspace-view-shell mei-text-primary min-h-0 flex flex-1 flex-col">
-            {topbar}
+            <div id="mei-host-topbar-slot" data-mei-host-chrome="top">{topbar}</div>
             <main class="workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-auto px-4 py-3">
                 <div class="mei-workspace-page" inner_html=main_inner_html.to_string()></div>
             </main>
-            {statusbar}
+            <div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>
     }
     .into_any()
+}
+
+/// Topbar + statusbar HTML for workspace pages (`/home` `/runtime` …) — LaunchManifest running apps only.
+pub fn render_workspace_shell_chrome_html(
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: Option<&TopbarMenuContext>,
+    shell_nav: WorkspaceShellNav,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+) -> (String, String) {
+    let topbar = topbar_view(
+        apps,
+        "",
+        topbar_menu,
+        UiRouteMode::App,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        auth_enabled,
+        auth_account,
+        None,
+        None,
+        None,
+        None,
+        Some(shell_nav.shell_nav_active()),
+    );
+    let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
+    (topbar.to_html(), statusbar.to_html())
 }
 
 pub fn render_workspace_page(

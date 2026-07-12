@@ -118,6 +118,15 @@
       const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
       if (top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
       if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+      try {
+        global.document?.dispatchEvent?.(
+          new CustomEvent("mei:shell-layer-applied", {
+            detail: { source: "thin-shell-host" },
+          }),
+        );
+      } catch (_error) {
+        // ignore
+      }
     }
     if (typeof boot.refreshStatusBarChips === "function") {
       boot.refreshStatusBarChips();

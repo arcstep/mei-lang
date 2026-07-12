@@ -1442,6 +1442,32 @@
     }
   }
 
+  function runtimeAssetVersion() {
+    const accessScript = [...document.scripts].find((script) =>
+      String(script.src || "").includes("/app-bundles/access.js"),
+    );
+    if (!accessScript?.src) return "";
+    try {
+      return new URL(accessScript.src, document.baseURI).searchParams.get("v") || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function versionWorkspaceBackgroundImage(raw) {
+    const image = String(raw || "").trim();
+    const version = runtimeAssetVersion();
+    if (!image || !version || !image.includes("/workspace-app-assets/")) return image;
+    return image.replace(
+      /url\((["']?)(\/workspace-app-assets\/[^"')]+)\1\)/g,
+      (match, quote, assetPath) => {
+        if (/[?&]v=/.test(assetPath)) return match;
+        const separator = assetPath.includes("?") ? "&" : "?";
+        return `url(${quote}${assetPath}${separator}v=${encodeURIComponent(version)}${quote})`;
+      },
+    );
+  }
+
   function normalizeBackgroundImageValue(raw) {
     const image = String(raw || "").trim();
     if (!image) return "";
@@ -1454,9 +1480,9 @@
       return image;
     }
     if (image.startsWith("url(")) {
-      return image;
+      return versionWorkspaceBackgroundImage(image);
     }
-    return `url("${image.replace(/"/g, '\\"')}")`;
+    return versionWorkspaceBackgroundImage(`url("${image.replace(/"/g, '\\"')}")`);
   }
 
   function normalizeBackgroundLayerList(raw) {
@@ -1476,7 +1502,7 @@
       if (!value) return;
       // Multi-layer shorthand (e.g. corner L-decor + fill color) must use `background`.
       if (value.includes(",") && /linear-gradient|radial-gradient|url\(/i.test(value)) {
-        style.background = value;
+        style.background = versionWorkspaceBackgroundImage(value);
         return;
       }
       if (
@@ -1487,7 +1513,7 @@
       ) {
         style.backgroundImage = value;
       } else if (value.startsWith("url(")) {
-        style.backgroundImage = value;
+        style.backgroundImage = normalizeBackgroundImageValue(value);
       } else {
         style.background = value;
       }
@@ -1517,6 +1543,16 @@
     if (!(el instanceof HTMLElement) || !props || typeof props !== "object") return;
     const style = el.style;
     applyBackgroundInlineStyle(style, props.background);
+    if (
+      props.__mei_layout_fill === true ||
+      String(props.__mei_layout_fill || "").trim() === "true" ||
+      String(props.__mei_layout_fill || "").trim() === "1"
+    ) {
+      // Fill-down is a compiled layout contract, not an app/scope heuristic.
+      // Preserve it in DOM so the common layout layer can enforce the complete
+      // slot -> content stretch chain.
+      el.setAttribute("data-mei-layout-fill", "true");
+    }
     const stringKeys = [
       ["padding", "padding"],
       ["margin", "margin"],
@@ -1564,6 +1600,10 @@
       String(props.__mei_slot_frame_bg || "").trim() === "1"
     ) {
       el.setAttribute("data-mei-slot-frame-bg", "true");
+      // Slot chrome owns the whole allocated slot by definition. Treat this
+      // semantic marker as fill even for legacy macros that predate
+      // `__mei_layout_fill`.
+      el.setAttribute("data-mei-layout-fill", "true");
       if (slotFrameBackgroundNeedsStretch(props.background)) {
         el.setAttribute("data-mei-slot-bg-stretch", "true");
       } else {

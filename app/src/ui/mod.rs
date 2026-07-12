@@ -36,7 +36,9 @@ mod view_routing;
 pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_upload::UploadFileEntry;
-pub use shell_workspace::{render_workspace_page, WorkspaceShellNav};
+pub use shell_workspace::{
+    render_workspace_page, render_workspace_shell_chrome_html, WorkspaceShellNav,
+};
 
 use preview_chrome::{component_script_preloads, component_scripts};
 pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
