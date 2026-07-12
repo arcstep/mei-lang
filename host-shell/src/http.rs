@@ -1,9 +1,9 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
-    http::StatusCode,
+    extract::{DefaultBodyLimit, OriginalUri, Path, Query, State},
+    http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Redirect, Response},
     routing::{get, post, put},
-    Router,
+    Extension, Router,
 };
 use mei_lang_app::scene_theme_style_for_theme_id;
 use mei_lang_kernel::{decode_theme_ref_token, load_mei_config_for_app};
@@ -19,11 +19,22 @@ use crate::build_api::{
     api_build_graph_mcg_node,
 };
 use crate::build_info::{self, BUILD_VERSION};
+use crate::generation_lifecycle::{
+    api_host_build_activate, api_host_build_rollback, api_host_builds, api_host_builds_cleanup,
+    api_host_builds_cleanup_preview,
+};
+use crate::instance_api::{
+    api_host_instance_restart, api_host_instance_stop, api_host_instances, api_host_launch_manifest,
+};
+use crate::route_lifecycle::{api_host_route_cutover, api_host_route_rollback};
 use crate::host_home::host_home_page;
 use crate::host_mcg::host_mcg_page;
 use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
 use crate::landing::build_discovered_app_summaries;
-use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
+use crate::ops_api::{
+    api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status, api_host_runtime_apply_profile,
+    api_host_builds_request,
+};
 use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap,
@@ -51,6 +62,10 @@ use crate::upload_api::{
     upload_chunk_complete_post, upload_chunk_init_post, upload_chunk_put, upload_chunk_status_get,
     upload_dir_create_post, upload_entry_rename_post, upload_file_delete, upload_file_download_get,
     upload_file_move_post, upload_file_post,
+};
+use crate::workspace_profile_api::{
+    runtime_profile_get, workspace_profile_dry_run_post, workspace_profile_get,
+    workspace_profile_put, workspace_profile_validate_post, workspace_profiles_get,
 };
 
 pub fn router(state: HostHttpState) -> Router {
@@ -95,9 +110,64 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/ready", get(api_host_ready))
         .route("/api/host/readiness", get(api_host_ready))
         .route("/api/host/access-readiness", get(api_host_access_readiness))
+        .route("/api/host/events", get(crate::host_events::api_host_events))
+        .route("/api/host/launch-manifest", get(api_host_launch_manifest))
+        .route("/api/host/instances", get(api_host_instances))
+        .route(
+            "/api/host/instances/:instance_id/stop",
+            post(api_host_instance_stop),
+        )
+        .route(
+            "/api/host/instances/:instance_id/restart",
+            post(api_host_instance_restart),
+        )
+        .route("/api/host/runtime/profile", get(runtime_profile_get))
+        .route("/api/host/workspace-profiles", get(workspace_profiles_get))
+        .route(
+            "/api/host/workspace-profiles/:id",
+            get(workspace_profile_get).put(workspace_profile_put),
+        )
+        .route(
+            "/api/host/workspace-profiles/:id/validate",
+            post(workspace_profile_validate_post),
+        )
+        .route(
+            "/api/host/workspace-profiles/:id/dry-run",
+            post(workspace_profile_dry_run_post),
+        )
         .route("/api/host/ops/status", get(api_host_ops_status))
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
+        .route("/api/host/builds", get(api_host_builds))
+        .route(
+            "/api/host/builds/request",
+            post(api_host_builds_request),
+        )
+        .route(
+            "/api/host/builds/cleanup-preview",
+            post(api_host_builds_cleanup_preview),
+        )
+        .route("/api/host/builds/cleanup", post(api_host_builds_cleanup))
+        .route(
+            "/api/host/builds/:generation/activate",
+            post(api_host_build_activate),
+        )
+        .route(
+            "/api/host/builds/:generation/rollback",
+            post(api_host_build_rollback),
+        )
+        .route(
+            "/api/host/routes/:app_id/cutover",
+            post(api_host_route_cutover),
+        )
+        .route(
+            "/api/host/routes/:app_id/rollback",
+            post(api_host_route_rollback),
+        )
+        .route(
+            "/api/host/runtime/apply-profile",
+            post(api_host_runtime_apply_profile),
+        )
         .route(
             "/api/host/runtime/activate-env",
             post(api_host_runtime_activate_env),
@@ -114,18 +184,18 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
         .route(
             "/api/host/view-revision",
-            get(crate::view_revision::api_host_view_revision),
+            get(gateway_host_view_revision),
         )
         .route(
             "/api/host/scene-manifest",
-            get(crate::scene_manifest::api_host_scene_manifest),
+            get(gateway_host_scene_manifest),
         )
         .route(
             "/api/host/layer-batch",
-            post(crate::scene_manifest::api_host_layer_batch),
+            post(gateway_host_layer_batch),
         )
-        .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
-        .route("/api/host/scene-eval-pack", get(api_scene_eval_pack))
+        .route("/api/host/scene-bootstrap", get(gateway_scene_bootstrap))
+        .route("/api/host/scene-eval-pack", get(gateway_scene_eval_pack))
         .route(
             "/api/host/scene-drilldown-context",
             get(api_scene_drilldown_context),
@@ -256,17 +326,27 @@ pub fn router(state: HostHttpState) -> Router {
 async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoResponse {
     let mut guard = state.write().expect("state lock");
     crate::build_ops::refresh_materialization_flags(&mut guard);
-    let default_access_ready = guard.imported;
+    let default_access_ready = guard.data_plane_enabled && guard.imported;
     let default_warmup_ready = guard.warmed_up;
-    let default_phase = if !guard.imported {
-        "starting"
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let has_active_profile = crate::workspace_profile_api::read_host_control_state(workspace_root)
+        .is_some_and(|value| value.get("activeProfile").is_some());
+    let default_phase = if guard
+        .ops_job
+        .as_ref()
+        .is_some_and(crate::build_ops::OpsJobState::is_running)
+    {
+        "building"
+    } else if !has_active_profile {
+        "unconfigured"
+    } else if !guard.data_plane_enabled || !guard.imported || guard.startup_error.is_some() {
+        "degraded"
     } else if default_warmup_ready {
         "ready"
     } else {
-        "bound"
+        "degraded"
     };
-    let default_app_id = guard.ctx.app_id.clone();
-    let workspace_root = guard.ctx.workspace_root.as_path();
+    let default_app_id = guard.default_app().map(str::to_string);
     let discovered_apps = build_discovered_app_summaries(&guard);
     let any_app_access_ready = discovered_apps
         .iter()
@@ -284,8 +364,8 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "displayLabel": display_label,
         "version": descriptor,
         "hostStartedAtMs": guard.host_started_at_ms,
-        "ready": default_access_ready,
-        "hostReady": default_access_ready,
+        "ready": true,
+        "hostReady": true,
         "accessReady": default_access_ready,
         "warmupReady": default_warmup_ready,
         "fullWarmupReady": default_warmup_ready,
@@ -311,12 +391,22 @@ async fn api_host_version(State(state): State<SharedState>) -> impl IntoResponse
 }
 
 async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
-    let (imported, warmed_up, startup_phase, startup_detail, startup_error) = {
+    let (
+        imported,
+        warmed_up,
+        data_plane_enabled,
+        route_plane_ready,
+        startup_phase,
+        startup_detail,
+        startup_error,
+    ) = {
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
         (
             guard.imported,
             guard.warmed_up,
+            guard.data_plane_enabled,
+            guard.route_plane_ready,
             guard.startup_phase.clone(),
             guard.startup_detail.clone(),
             guard.startup_error.clone(),
@@ -325,8 +415,11 @@ async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(json!({
-            "hostReady": imported,
-            "accessReady": imported,
+            "hostReady": true,
+            "controlReady": true,
+            "accessReady": data_plane_enabled && imported,
+            "routeReady": route_plane_ready,
+            "dataPlaneEnabled": data_plane_enabled,
             "imported": imported,
             "warmedUp": warmed_up,
             "warmupReady": warmed_up,
@@ -337,21 +430,182 @@ async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
     )
 }
 
+async fn gateway_host_view_revision(
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Query(query): Query<crate::view_revision::ViewRevisionQuery>,
+) -> Response {
+    let app_id = query.app_id.trim();
+    if !app_id.is_empty() {
+        if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
+            &http,
+            app_id,
+            Method::GET,
+            uri.path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or(uri.path()),
+            &headers,
+            None,
+            principal.as_ref().map(|p| (**p).clone()),
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    crate::view_revision::api_host_view_revision(
+        State(http.shell),
+        State(http.auth),
+        headers,
+        Query(query),
+    )
+    .await
+}
+
+async fn gateway_host_scene_manifest(
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Query(query): Query<crate::scene_manifest::SceneManifestQuery>,
+) -> Response {
+    let app_id = query.app_id.trim();
+    if !app_id.is_empty() {
+        if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
+            &http,
+            app_id,
+            Method::GET,
+            uri.path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or(uri.path()),
+            &headers,
+            None,
+            principal.as_ref().map(|p| (**p).clone()),
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    crate::scene_manifest::api_host_scene_manifest(
+        State(http.shell),
+        State(http.auth),
+        headers,
+        Query(query),
+    )
+    .await
+}
+
+async fn gateway_host_layer_batch(
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    axum::Json(body): axum::Json<crate::scene_manifest::LayerBatchRequest>,
+) -> Response {
+    let app_id = body.app_id.trim().to_string();
+    if !app_id.is_empty() {
+        let bytes = serde_json::to_vec(&body).unwrap_or_default();
+        if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
+            &http,
+            app_id.as_str(),
+            Method::POST,
+            uri.path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or(uri.path()),
+            &headers,
+            Some(bytes),
+            principal.as_ref().map(|p| (**p).clone()),
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    crate::scene_manifest::api_host_layer_batch(
+        State(http.shell),
+        State(http.auth),
+        headers,
+        axum::Json(body),
+    )
+    .await
+}
+
+async fn gateway_scene_bootstrap(
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Query(query): Query<crate::pages::SceneBootstrapQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if !app_id.is_empty() {
+        if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
+            &http,
+            app_id,
+            Method::GET,
+            uri.path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or(uri.path()),
+            &headers,
+            None,
+            principal.as_ref().map(|p| (**p).clone()),
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    api_scene_bootstrap(State(http.shell), principal, Query(query)).await
+}
+
+async fn gateway_scene_eval_pack(
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Query(query): Query<crate::pages::SceneEvalPackQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if !app_id.is_empty() {
+        if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
+            &http,
+            app_id,
+            Method::GET,
+            uri.path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or(uri.path()),
+            &headers,
+            None,
+            principal.as_ref().map(|p| (**p).clone()),
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    api_scene_eval_pack(State(http.shell), principal, Query(query)).await
+}
+
 async fn api_datasets_query_with_app(
-    State(state): State<SharedState>,
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    api_datasets_query_inner(state, app_id.as_str(), body).await
+    api_datasets_query_inner(http, principal, app_id.as_str(), body).await
 }
 
 async fn api_datasets_query_inner(
-    state: SharedState,
+    http: HostHttpState,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
     app_id: &str,
     body: serde_json::Value,
 ) -> Response {
-    let endpoint = {
-        let guard = state.read().expect("state lock");
+    let (ceiling_slug, plug_ds, runtime_identity) = {
+        let guard = http.shell.read().expect("state lock");
         if !guard.data_mode_ceiling.allows_eval_api() {
             return (
                 StatusCode::FORBIDDEN,
@@ -364,39 +618,69 @@ async fn api_datasets_query_inner(
             )
                 .into_response();
         }
-        match guard.plug_ds_endpoint_for(app_id) {
-            Some(endpoint) => endpoint.to_string(),
-            None => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": format!("plug-ds endpoint missing for app `{app_id}`")})),
-                )
-                    .into_response();
-            }
-        }
+        let plug_ds = guard.plug_ds_endpoint_for(app_id).map(str::to_string);
+        let supervisor = http.app_runtime.lock().ok();
+        let runtime_identity = supervisor.as_ref().and_then(|slot| {
+            crate::state::runtime_identity_for_app(
+                &guard,
+                slot,
+                app_id,
+                principal.as_ref().map(|p| (**p).clone()),
+            )
+        });
+        (guard.data_mode_ceiling.slug().to_string(), plug_ds, runtime_identity)
     };
+    let _ = ceiling_slug;
     let path = format!("/api/datasets/query/{app_id}");
-    crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+    match crate::app_runtime_proxy::resolve_datasets_proxy_target(
+        app_id,
+        runtime_identity.as_ref(),
+        plug_ds.as_deref(),
+    ) {
+        crate::app_runtime_proxy::DatasetsProxyTarget::AppRuntime(identity) => {
+            crate::app_runtime_proxy::proxy_post_json(&identity, path.as_str(), body).await
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::PlugDs(endpoint) => {
+            crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::RuntimeRequired => {
+            crate::legacy_compat::runtime_required_unavailable_response(app_id, "datasets/query")
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("no dataset endpoint for app `{app_id}`")})),
+        )
+            .into_response(),
+    }
 }
 
 async fn api_datasets_query(
-    State(state): State<SharedState>,
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
     let app_id = {
-        let guard = state.read().expect("state lock");
-        guard.ctx.app_id.clone()
+        let guard = http.shell.read().expect("state lock");
+        guard.default_app().map(str::to_string)
     };
-    api_datasets_query_inner(state, app_id.as_str(), body).await
+    let Some(app_id) = app_id else {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Access data plane is unconfigured"})),
+        )
+            .into_response();
+    };
+    api_datasets_query_inner(http, principal, app_id.as_str(), body).await
 }
 
 async fn api_datasets_metrics(
-    State(state): State<SharedState>,
+    State(http): State<HostHttpState>,
+    principal: Option<Extension<mei_host_auth::AuthPrincipal>>,
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    let endpoint = {
-        let guard = state.read().expect("state lock");
+    let (plug_ds, runtime_identity) = {
+        let guard = http.shell.read().expect("state lock");
         if !guard.data_mode_ceiling.allows_eval_api() {
             return (
                 StatusCode::FORBIDDEN,
@@ -409,19 +693,44 @@ async fn api_datasets_metrics(
             )
                 .into_response();
         }
-        match guard.plug_ds_endpoint_for(app_id.as_str()) {
-            Some(endpoint) => endpoint.to_string(),
-            None => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": format!("plug-ds endpoint missing for app `{app_id}`")})),
-                )
-                    .into_response();
-            }
-        }
+        let plug_ds = guard
+            .plug_ds_endpoint_for(app_id.as_str())
+            .map(str::to_string);
+        let supervisor = http.app_runtime.lock().ok();
+        let runtime_identity = supervisor.as_ref().and_then(|slot| {
+            crate::state::runtime_identity_for_app(
+                &guard,
+                slot,
+                app_id.as_str(),
+                principal.as_ref().map(|p| (**p).clone()),
+            )
+        });
+        (plug_ds, runtime_identity)
     };
     let path = format!("/api/datasets/metrics/{app_id}");
-    crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+    match crate::app_runtime_proxy::resolve_datasets_proxy_target(
+        app_id.as_str(),
+        runtime_identity.as_ref(),
+        plug_ds.as_deref(),
+    ) {
+        crate::app_runtime_proxy::DatasetsProxyTarget::AppRuntime(identity) => {
+            crate::app_runtime_proxy::proxy_post_json(&identity, path.as_str(), body).await
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::PlugDs(endpoint) => {
+            crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::RuntimeRequired => {
+            crate::legacy_compat::runtime_required_unavailable_response(
+                app_id.as_str(),
+                "datasets/metrics",
+            )
+        }
+        crate::app_runtime_proxy::DatasetsProxyTarget::None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("no dataset endpoint for app `{app_id}`")})),
+        )
+            .into_response(),
+    }
 }
 
 async fn api_datasets_fixture(
@@ -538,15 +847,30 @@ mod tests {
             .unwrap_or_default();
         let shell = Arc::new(RwLock::new(crate::state::ShellState {
             ctx: HostContext::new(workspace.clone(), default_app),
+            default_app_id: Some(
+                apps.first()
+                    .map(|(app_id, _)| app_id.to_string())
+                    .unwrap_or_else(|| "data-demo".to_string()),
+            ),
+            selected_profile_id: Some("default".to_string()),
+            selected_profile_file: Some("workspace.json".to_string()),
+            selected_profile_revision: Some("test".to_string()),
+            selected_profile_source: Some("workspace_default".to_string()),
+            data_plane_enabled: true,
             package_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             plug_ds_endpoint,
             plug_ds_by_app,
             plug_ds_managed: false,
+            app_runtime_by_instance: std::collections::BTreeMap::new(),
+            launch_manifest: mei_host_core::LaunchManifest::empty(),
+            route_plane_ready: false,
             imported: true,
             warmed_up: true,
             host_started_at_ms: 1,
             ops_job: None,
             last_ops_job: None,
+            cleanup_preview: None,
+            events: crate::state::host_event_channel(),
             startup_phase: "ready".to_string(),
             startup_detail: None,
             startup_error: None,
@@ -560,7 +884,44 @@ mod tests {
                 mei_host_auth::AuthEnforcement::Disabled,
             ),
             managed_plug: Arc::new(Mutex::new(None)),
+            app_runtime: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn write_generation_fixture(workspace: &std::path::Path, app_id: &str, generation: &str) {
+        let app_root = workspace.join("apps").join(app_id);
+        std::fs::create_dir_all(app_root.join("src")).expect("app dir");
+        std::fs::write(
+            app_root.join("app.config.json"),
+            format!(r#"{{"schemaVersion":1,"app":{{"id":"{app_id}"}}}}"#),
+        )
+        .expect("app config");
+        let env_dir = app_root.join("env").join(generation);
+        std::fs::create_dir_all(env_dir.join("build/exchange")).expect("build dir");
+        std::fs::write(
+            env_dir
+                .join("build/exchange")
+                .join(format!("{app_id}.meibundle")),
+            b"fixture",
+        )
+        .expect("bundle fixture");
+        std::fs::create_dir_all(env_dir.join("var")).expect("var dir");
+        mei_lang_kernel::write_build_manifest(
+            env_dir.as_path(),
+            &mei_lang_kernel::BuildManifest {
+                schema_version: mei_lang_kernel::BUILD_MANIFEST_SCHEMA.to_string(),
+                env_version: generation.to_string(),
+                app_id: app_id.to_string(),
+                toolchain_version: "test-toolchain".to_string(),
+                build_generation: Some(generation.to_string()),
+                workspace_version: Some("20260712".to_string()),
+                config_digest: Some("config-r1".to_string()),
+                source_revision: None,
+                stock_revision: None,
+                finished_at: "2026-07-12T00:00:00Z".to_string(),
+            },
+        )
+        .expect("manifest");
     }
 
     #[tokio::test]
@@ -757,6 +1118,523 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workspace_profile_routes_list_and_report_revision_conflict() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"workspace":{"id":"test"},"future":{"kept":true}}"#,
+        )
+        .expect("workspace config");
+        std::fs::create_dir_all(tmp.path().join("configs")).expect("configs");
+        std::fs::write(
+            tmp.path().join("configs/local.json"),
+            r#"{"workspace":{"id":"local"}}"#,
+        )
+        .expect("local config");
+
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/workspace-profiles")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["profiles"].as_array().map(Vec::len), Some(2));
+
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/host/workspace-profiles/default")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"expectedRevision":"stale","config":{"future":{"kept":true}}}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["error"]["code"], "revision_conflict");
+        assert!(value["error"]["details"]["currentRevision"].is_string());
+    }
+
+    #[tokio::test]
+    async fn apply_profile_rejects_concurrent_ops_job() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace config");
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("state lock");
+            crate::build_ops::begin_ops_job(&mut guard, "prebuild").expect("start job");
+        }
+        let response = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/runtime/apply-profile")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"profileId":"default","expectedRevision":"ignored"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn builds_request_rejects_concurrent_ops_job() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace config");
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("state lock");
+            crate::build_ops::begin_ops_job(&mut guard, "prebuild").expect("start job");
+        }
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/request")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                          "schemaVersion":"mei-build-request-v1",
+                          "profileId":"local",
+                          "profileRevision":"r1",
+                          "profileFile":"configs/local.json",
+                          "apps":["mini-data"]
+                        }"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn generation_activate_rejects_missing_target_app() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"workspace":{"defaultApp":"app-a"}}"#,
+        )
+        .expect("workspace");
+        write_generation_fixture(tmp.path(), "app-a", "WS-20260712.0");
+        std::fs::create_dir_all(tmp.path().join("apps/app-b/src")).expect("app-b");
+        std::fs::write(
+            tmp.path().join("apps/app-b/app.config.json"),
+            r#"{"app":{"id":"app-b"}}"#,
+        )
+        .expect("app-b config");
+        let response = router(test_state(tmp.path().to_path_buf()))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/WS-20260712.0/activate")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn generation_cleanup_requires_matching_preview_token() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"workspace":{"defaultApp":"app-a"},"build":{"retainBuildGenerations":1}}"#,
+        )
+        .expect("workspace");
+        write_generation_fixture(tmp.path(), "app-a", "WS-20260711.0");
+        write_generation_fixture(tmp.path(), "app-a", "WS-20260712.0");
+        let state = test_state(tmp.path().to_path_buf());
+        let response = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/cleanup-preview")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let preview: serde_json::Value = serde_json::from_slice(&body).expect("preview json");
+        let response = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/cleanup")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "previewToken": "wrong-token",
+                            "revision": preview["revision"],
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        write_generation_fixture(tmp.path(), "app-a", "WS-20260713.0");
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/cleanup")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "previewToken": preview["previewToken"],
+                            "revision": preview["revision"],
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(tmp.path().join("apps/app-a/env/WS-20260711.0").is_dir());
+    }
+
+    #[tokio::test]
+    async fn generation_cleanup_preview_rejects_running_job() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace");
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("state lock");
+            crate::build_ops::begin_ops_job(&mut guard, "prebuild").expect("start job");
+        }
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/builds/cleanup-preview")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn launch_manifest_and_instances_endpoints_list_observed_state() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace");
+        let mut manifest = mei_host_core::LaunchManifest::empty();
+        manifest.instances.insert(
+            "inst-a".to_string(),
+            mei_host_core::DesiredInstance {
+                spec_ref: "sha:a".to_string(),
+                desired_state: mei_host_core::DesiredState::Running,
+            },
+        );
+        manifest.routes.insert(
+            "mini-data".to_string(),
+            mei_host_core::RouteBinding {
+                active: Some("inst-a".to_string()),
+                candidate: None,
+                previous: None,
+            },
+        );
+        manifest = manifest.with_recomputed_revision();
+        let revision = manifest.revision.clone();
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("state lock");
+            guard.install_launch_manifest(manifest);
+        }
+        let app = router(state);
+        let manifest_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/launch-manifest")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(manifest_response.status(), StatusCode::OK);
+        let manifest_body = http_body_util::BodyExt::collect(manifest_response.into_body())
+            .await
+            .expect("body")
+            .to_bytes();
+        let manifest_json: serde_json::Value =
+            serde_json::from_slice(&manifest_body).expect("json");
+        assert_eq!(manifest_json["revision"], revision);
+        assert_eq!(
+            manifest_json["manifest"]["routes"]["mini-data"]["active"],
+            "inst-a"
+        );
+
+        let instances_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/instances")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(instances_response.status(), StatusCode::OK);
+        let instances_body = http_body_util::BodyExt::collect(instances_response.into_body())
+            .await
+            .expect("body")
+            .to_bytes();
+        let instances_json: serde_json::Value =
+            serde_json::from_slice(&instances_body).expect("json");
+        assert_eq!(instances_json["revision"], revision);
+        assert_eq!(instances_json["instances"][0]["instanceId"], "inst-a");
+        assert_eq!(instances_json["instances"][0]["appId"], "mini-data");
+        assert_eq!(instances_json["instances"][0]["routeRole"], "active");
+    }
+
+    #[tokio::test]
+    async fn route_cutover_rejects_stale_manifest_revision() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace");
+        let mut manifest = mei_host_core::LaunchManifest::empty();
+        manifest.instances.insert(
+            "inst-new".to_string(),
+            mei_host_core::DesiredInstance {
+                spec_ref: "s".to_string(),
+                desired_state: mei_host_core::DesiredState::Running,
+            },
+        );
+        manifest.routes.insert(
+            "mini-data".to_string(),
+            mei_host_core::RouteBinding {
+                active: Some("inst-old".to_string()),
+                candidate: Some("inst-new".to_string()),
+                previous: None,
+            },
+        );
+        manifest = manifest.with_recomputed_revision();
+        let control = mei_host_core::HostControlState::new(manifest.clone());
+        mei_host_core::write_host_control_state(tmp.path(), &control).expect("control");
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("lock");
+            guard.install_launch_manifest(manifest);
+            guard
+                .app_runtime_by_instance
+                .insert("inst-new".to_string(), "http://127.0.0.1:1".to_string());
+        }
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/routes/mini-data/cutover")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"instanceId":"inst-new","expectedManifestRevision":"stale"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn route_rollback_switches_active_to_previous() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace");
+        let old = mei_host_core::InstanceSpec {
+            schema_version: mei_host_core::SCHEMA_INSTANCE_SPEC_V1.to_string(),
+            instance_id: "inst-old".to_string(),
+            app_id: "mini-data".to_string(),
+            bundle: mei_host_core::BundleRef {
+                generation: "WS-20260711.0".to_string(),
+                bundle_path: "apps/mini-data/env/WS-20260711.0".to_string(),
+                digest: None,
+                toolchain_version: None,
+                config_digest: None,
+            },
+            config_snapshot: mei_host_core::ConfigSnapshot {
+                profile_id: "local".to_string(),
+                profile_revision: "r1".to_string(),
+                profile_file: "configs/local.json".to_string(),
+                runtime_plan: mei_lang_kernel::RuntimePlan {
+                    default_mode: mei_lang_kernel::RuntimeMode::Lazy,
+                    apps: Default::default(),
+                },
+                default_app: None,
+            },
+            runtime_abi: "1".to_string(),
+            data_mode_ceiling: None,
+        };
+        mei_host_core::write_instance_spec(tmp.path(), &old).expect("spec");
+        let mut manifest = mei_host_core::LaunchManifest::empty();
+        for id in ["inst-old", "inst-new"] {
+            manifest.instances.insert(
+                id.to_string(),
+                mei_host_core::DesiredInstance {
+                    spec_ref: "s".to_string(),
+                    desired_state: mei_host_core::DesiredState::Running,
+                },
+            );
+        }
+        manifest.routes.insert(
+            "mini-data".to_string(),
+            mei_host_core::RouteBinding {
+                active: Some("inst-new".to_string()),
+                candidate: None,
+                previous: Some("inst-old".to_string()),
+            },
+        );
+        manifest = manifest.with_recomputed_revision();
+        mei_host_core::write_host_control_state(
+            tmp.path(),
+            &mei_host_core::HostControlState::new(manifest.clone()),
+        )
+        .expect("control");
+        let state = test_state(tmp.path().to_path_buf());
+        {
+            let mut guard = state.shell.write().expect("lock");
+            guard.install_launch_manifest(manifest);
+            guard
+                .app_runtime_by_instance
+                .insert("inst-old".to_string(), "http://127.0.0.1:1".to_string());
+            guard
+                .app_runtime_by_instance
+                .insert("inst-new".to_string(), "http://127.0.0.1:2".to_string());
+        }
+        let response = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/routes/mini-data/rollback")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let loaded = mei_host_core::read_host_control_state(tmp.path())
+            .expect("control")
+            .launch_manifest;
+        assert_eq!(
+            loaded.routes["mini-data"].active.as_deref(),
+            Some("inst-old")
+        );
+        assert_eq!(
+            loaded.routes["mini-data"].previous.as_deref(),
+            Some("inst-new")
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_apply_validation_does_not_change_active_profile() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("workspace.json"), "{}").expect("workspace config");
+        std::fs::create_dir_all(tmp.path().join("deploy/state")).expect("state dir");
+        let active_path = tmp.path().join("deploy/state/host-control.json");
+        let active = r#"{"schemaVersion":"mei-host-control-v1","activeProfile":{"id":"old","revision":"r0"}}"#;
+        std::fs::write(&active_path, active).expect("active state");
+        let response = router(test_state(tmp.path().to_path_buf()))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/runtime/apply-profile")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"profileId":"default","expectedRevision":"stale"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            std::fs::read_to_string(active_path).expect("active state"),
+            active
+        );
+    }
+
+    #[tokio::test]
+    async fn host_events_streams_named_sse_event() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = test_state(tmp.path().to_path_buf());
+        let shell = state.shell.clone();
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/events")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+        {
+            let guard = shell.read().expect("state lock");
+            let _ = guard.events.send(crate::state::HostEvent::new(
+                "revision-published",
+                serde_json::json!({"appId": "data-demo", "revision": "r1"}),
+            ));
+        }
+        let mut body = response.into_body();
+        let frame = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            http_body_util::BodyExt::frame(&mut body),
+        )
+        .await
+        .expect("sse timeout")
+        .expect("sse body")
+        .expect("sse frame");
+        let data = frame.into_data().expect("sse data");
+        let text = String::from_utf8_lossy(data.as_ref());
+        assert!(text.contains("event: revision-published"));
+        assert!(text.contains("\"revision\":\"r1\""));
+    }
+
+    #[tokio::test]
     async fn build_context_export_route_is_registered() {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::write(
@@ -884,6 +1762,81 @@ mod tests {
         assert!(html.contains("statusbar-shell"));
         assert!(html.contains("host-shell.css"));
         assert!(html.contains("/config"));
+    }
+
+    #[tokio::test]
+    async fn empty_workspace_control_plane_binds_pages_and_profile_apis() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"first-boot"}}"#,
+        )
+        .expect("workspace");
+        let shell = Arc::new(RwLock::new(crate::state::ShellState::new(
+            tmp.path().to_path_buf(),
+            String::new(),
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            std::collections::BTreeMap::new(),
+            false,
+        )));
+        let selected = crate::workspace_profile_api::resolve_runtime_profile(tmp.path(), None)
+            .expect("resolve")
+            .expect("default");
+        crate::workspace_profile_api::install_selected_profile(&shell, Some(&selected));
+        {
+            let mut guard = shell.write().expect("state");
+            guard.startup_phase = "unconfigured".to_string();
+            guard.startup_detail = Some("控制面已就绪".to_string());
+        }
+        let state = HostHttpState {
+            shell,
+            auth: mei_host_auth::AuthServeState::new(
+                tmp.path().to_path_buf(),
+                mei_host_auth::AuthEnforcement::Disabled,
+            ),
+            managed_plug: Arc::new(Mutex::new(None)),
+            app_runtime: Arc::new(Mutex::new(None)),
+        };
+
+        for uri in [
+            "/home",
+            "/runtime",
+            "/config",
+            "/api/host/runtime/profile",
+            "/api/host/workspace-profiles",
+        ] {
+            let response = router(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        }
+
+        let response = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/access-readiness?app=missing&scene=home")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["ready"], false);
+        assert_eq!(value["reason"], "unconfigured");
+        assert!(!tmp.path().join("apps").exists());
+        assert!(!tmp.path().join("deploy/state/host-control.json").exists());
     }
 
     #[tokio::test]

@@ -15,6 +15,8 @@ pub enum Command {
     Serve(ServeArgs),
     #[command(subcommand)]
     Build(BuildCommand),
+    #[command(subcommand, name = "build-worker")]
+    BuildWorker(BuildWorkerCommand),
     #[command(subcommand)]
     Workspace(WorkspaceCommand),
     #[command(subcommand, name = "apps")]
@@ -50,6 +52,24 @@ pub enum BuildCommand {
     Clean(BuildCleanArgs),
     MigrateEnv(BuildMigrateEnvArgs),
     Status(BuildStatusArgs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BuildWorkerCommand {
+    /// Run one-shot compile/import/snapshot/seal pipeline from a BuildRequest JSON.
+    Run(BuildWorkerRunArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct BuildWorkerRunArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    /// Path to BuildRequest JSON (`mei-build-request-v1`).
+    #[arg(long)]
+    pub request: PathBuf,
+    /// Optional path for BuildResult JSON; defaults to stdout.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -161,7 +181,10 @@ pub struct ServeArgs {
     #[arg(long)]
     pub workspace: PathBuf,
     #[arg(long)]
-    pub app: String,
+    pub app: Option<String>,
+    /// 声明式 workspace profile 路径；相对路径按 workspace 根解析
+    #[arg(long = "workspace-config", value_name = "PATH")]
+    pub workspace_config: Option<PathBuf>,
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
     #[arg(long, default_value = "9527")]
@@ -176,6 +199,15 @@ pub struct ServeArgs {
         default_value = "eval"
     )]
     pub data_mode_ceiling: String,
+    /// 开发态求值配置：full（默认）| static | scoped（见 0535；亦读 MEI_DEV_EVAL_PROFILE）
+    #[arg(long = "dev-eval-profile", value_name = "PROFILE")]
+    pub dev_eval_profile: Option<String>,
+    /// scoped 时的动态求值 scope 前缀（逗号分隔；亦读 MEI_EVAL_SCOPE）
+    #[arg(long = "eval-scope", value_name = "PREFIXES")]
+    pub eval_scope: Option<String>,
+    /// scoped 时的预热 scope 前缀（逗号分隔；亦读 MEI_WARMUP_SCOPE）
+    #[arg(long = "warmup-scope", value_name = "PREFIXES")]
+    pub warmup_scope: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]

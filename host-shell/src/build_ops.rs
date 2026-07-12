@@ -41,13 +41,31 @@ pub fn resolve_app_id(workspace: &Path, app: Option<&str>) -> anyhow::Result<Str
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAppProgress {
+    pub app_id: String,
+    pub phase: String,
+    pub completed: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpsJobState {
     pub kind: String,
     pub status: String,
+    pub phase: String,
     pub started_at_ms: u64,
     pub finished_at_ms: Option<u64>,
     pub message: Option<String>,
     pub error: Option<String>,
+    pub profile_id: Option<String>,
+    pub profile_revision: Option<String>,
+    pub generation: Option<String>,
+    #[serde(default)]
+    pub apps: Vec<OpsAppProgress>,
+    #[serde(default)]
+    pub log_summary: Vec<String>,
 }
 
 impl OpsJobState {
@@ -55,15 +73,33 @@ impl OpsJobState {
         Self {
             kind: kind.to_string(),
             status: "running".to_string(),
+            phase: "queued".to_string(),
             started_at_ms,
             finished_at_ms: None,
             message: None,
             error: None,
+            profile_id: None,
+            profile_revision: None,
+            generation: None,
+            apps: Vec::new(),
+            log_summary: vec!["job queued".to_string()],
         }
     }
 
     pub fn is_running(&self) -> bool {
         self.status == "running"
+    }
+
+    fn push_log(&mut self, message: impl Into<String>) {
+        const MAX_LOG_SUMMARY: usize = 24;
+        self.log_summary.push(message.into());
+        if self.log_summary.len() > MAX_LOG_SUMMARY {
+            self.log_summary.remove(0);
+        }
+    }
+
+    pub fn append_log(&mut self, message: impl Into<String>) {
+        self.push_log(message);
     }
 }
 
@@ -118,6 +154,16 @@ pub fn rewarm_after_import(workspace: &Path, app: &str, policy: &str) -> anyhow:
         "eval-cache incremental invalidation (reload/hot-reload)"
     );
 
+    let dev_eval = crate::dev_eval_scope::current_for_app(app);
+    if !dev_eval.allows_rewarm() {
+        tracing::info!(
+            app_id = %app,
+            profile = dev_eval.profile.slug(),
+            "skipping warmup rewarm under non-full dev eval profile"
+        );
+        return Ok(());
+    }
+
     crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "all")?;
     Ok(())
 }
@@ -160,6 +206,7 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
         Some(toolchain_hint()),
     )?;
     let build_id = generation.env_version.clone();
+    let config_digest = generation.config_digest.clone();
 
     crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
     import_with_options(workspace.as_path(), app, None)?;
@@ -176,6 +223,7 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
             Some(toolchain_hint()),
         ),
         workspace_version: resolve_workspace_version(workspace.as_path()),
+        config_digest,
         store_dirs: std::iter::once(app.to_string())
             .map(|app_id| {
                 let app_root = resolve_app_root(workspace.as_path(), app_id.as_str());
@@ -213,14 +261,24 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
     let links = read_links_state(workspace).ok();
     let version =
         crate::build_info::version_descriptor(Some(workspace), Some(shell.host_started_at_ms));
-    let access_ready = shell.imported;
+    let access_ready = shell.data_plane_enabled && shell.imported;
     let warmup_ready = shell.warmed_up;
-    let phase = if !shell.imported {
-        "starting"
+    let has_active_profile = crate::workspace_profile_api::read_host_control_state(workspace)
+        .is_some_and(|value| {
+            value
+                .get("activeProfile")
+                .is_some_and(|profile| profile.is_object())
+        });
+    let phase = if shell.ops_job.as_ref().is_some_and(OpsJobState::is_running) {
+        "building"
+    } else if !has_active_profile {
+        "unconfigured"
+    } else if !shell.data_plane_enabled || !shell.imported || shell.startup_error.is_some() {
+        "degraded"
     } else if warmup_ready {
         "ready"
     } else {
-        "bound"
+        "degraded"
     };
     let app_ids: Vec<String> = discover_apps(workspace)
         .unwrap_or_default()
@@ -234,18 +292,38 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
             current_by_app.insert(app_id.clone(), json!(current));
         }
     }
+    let dev_eval = crate::dev_eval_scope::current_for_app(shell.default_app().unwrap_or("*"));
+    let probe_scope = dev_eval
+        .eval_scopes
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "home".to_string());
+    let probe_eval_allowed = dev_eval.allows_eval_scope(probe_scope.as_str());
+    let probe_warmup_scope = dev_eval
+        .warmup_scopes
+        .first()
+        .cloned()
+        .unwrap_or_else(|| probe_scope.clone());
+    let probe_warmup_allowed = dev_eval.allows_warmup_scope(probe_warmup_scope.as_str());
     json!({
         "hostShellOps": true,
         "binary": crate::build_info::binary_descriptor(),
         "version": version,
         "displayLabel": resolve_build_footer_label(workspace),
-        "appId": shell.ctx.app_id,
-        "defaultAppId": shell.ctx.app_id,
+        "appId": shell.default_app(),
+        "defaultAppId": shell.default_app(),
         "scopeNote": "ops materialization and plug-ds primary endpoint are default-app scoped",
         "discoveredApps": build_discovered_app_summaries(shell),
         "accessReady": access_ready,
         "warmupReady": warmup_ready,
         "phase": phase,
+        "devEval": {
+            "config": dev_eval.client_payload(),
+            "probeEvalScope": probe_scope,
+            "probeEvalAllowed": probe_eval_allowed,
+            "probeWarmupScope": probe_warmup_scope,
+            "probeWarmupAllowed": probe_warmup_allowed,
+        },
         "env": {
             "currentByApp": current_by_app,
             "candidate": links.as_ref().and_then(|state| state.build.candidate.clone()),
@@ -263,22 +341,35 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
             "managed": shell.plug_ds_managed,
         },
         "workspaceVersion": identity.workspace_version,
+        "jobPhase": shell.ops_job.as_ref().map(|job| job.phase.as_str()),
+        "jobApps": shell.ops_job.as_ref().map(|job| job.apps.as_slice()),
+        "jobLogSummary": shell.ops_job.as_ref().map(|job| job.log_summary.as_slice()),
+        "jobProfileId": shell.ops_job.as_ref().and_then(|job| job.profile_id.as_deref()),
+        "jobProfileRevision": shell.ops_job.as_ref().and_then(|job| job.profile_revision.as_deref()),
         "job": shell.ops_job,
         "lastJob": shell.last_ops_job,
     })
 }
 
 pub fn refresh_materialization_flags(shell: &mut ShellState) {
-    shell.imported = mei_host_graph::mcg_registry_path(
-        shell.ctx.workspace_root.as_path(),
-        shell.ctx.app_id.as_str(),
-    )
-    .is_file();
-    shell.warmed_up = mei_host_graph::mrg_registry_path(
-        shell.ctx.workspace_root.as_path(),
-        shell.ctx.app_id.as_str(),
-    )
-    .is_file();
+    let Some(app_id) = shell.default_app().map(str::to_string) else {
+        shell.imported = false;
+        shell.warmed_up = false;
+        return;
+    };
+    let app_root = resolve_app_root(shell.ctx.workspace_root.as_path(), app_id.as_str());
+    let current = app_root.join("env/current");
+    if !current.exists() && !current.is_symlink() {
+        shell.imported = false;
+        shell.warmed_up = false;
+        return;
+    }
+    shell.imported =
+        mei_host_graph::mcg_registry_path(shell.ctx.workspace_root.as_path(), app_id.as_str())
+            .is_file();
+    shell.warmed_up =
+        mei_host_graph::mrg_registry_path(shell.ctx.workspace_root.as_path(), app_id.as_str())
+            .is_file();
 }
 
 pub fn begin_ops_job(shell: &mut ShellState, kind: &str) -> Result<(), String> {
@@ -286,16 +377,90 @@ pub fn begin_ops_job(shell: &mut ShellState, kind: &str) -> Result<(), String> {
         return Err("another host-shell ops job is already running".to_string());
     }
     shell.ops_job = Some(OpsJobState::running(kind, crate::state::current_time_ms()));
+    emit_job_event(shell);
     Ok(())
+}
+
+pub fn begin_profile_ops_job(
+    shell: &mut ShellState,
+    profile_id: &str,
+    profile_revision: &str,
+    app_ids: &[String],
+) -> Result<(), String> {
+    begin_ops_job(shell, "apply-profile")?;
+    if let Some(job) = shell.ops_job.as_mut() {
+        job.profile_id = Some(profile_id.to_string());
+        job.profile_revision = Some(profile_revision.to_string());
+        job.apps = app_ids
+            .iter()
+            .map(|app_id| OpsAppProgress {
+                app_id: app_id.clone(),
+                phase: "queued".to_string(),
+                completed: false,
+                message: None,
+            })
+            .collect();
+    }
+    emit_job_event(shell);
+    Ok(())
+}
+
+pub fn update_ops_job_phase(shell: &mut ShellState, phase: &str, message: impl Into<String>) {
+    if let Some(job) = shell.ops_job.as_mut() {
+        let message = message.into();
+        job.phase = phase.to_string();
+        job.push_log(message);
+    }
+    emit_job_event(shell);
+}
+
+pub fn update_ops_job_generation(shell: &mut ShellState, generation: &str) {
+    if let Some(job) = shell.ops_job.as_mut() {
+        job.generation = Some(generation.to_string());
+        job.push_log(format!("generation: {generation}"));
+    }
+    emit_job_event(shell);
+}
+
+pub fn update_ops_app_progress(
+    shell: &mut ShellState,
+    app_id: &str,
+    phase: &str,
+    completed: bool,
+    message: impl Into<String>,
+) {
+    if let Some(job) = shell.ops_job.as_mut() {
+        let message = message.into();
+        if let Some(app) = job.apps.iter_mut().find(|app| app.app_id == app_id) {
+            app.phase = phase.to_string();
+            app.completed = completed;
+            app.message = Some(message.clone());
+        }
+        job.push_log(format!("{app_id}: {message}"));
+    }
+    emit_job_event(shell);
+}
+
+fn emit_job_event(shell: &ShellState) {
+    let Some(job) = shell.ops_job.as_ref() else {
+        return;
+    };
+    let payload = serde_json::to_value(job).unwrap_or_else(|_| json!({}));
+    let _ = shell
+        .events
+        .send(crate::state::HostEvent::new("job-phase", payload));
 }
 
 pub fn finish_ops_job_success(shell: &mut ShellState, message: String) {
     let finished_at_ms = crate::state::current_time_ms();
     if let Some(job) = shell.ops_job.as_mut() {
-        job.status = "success".to_string();
+        job.status = "succeeded".to_string();
+        job.phase = "succeeded".to_string();
         job.finished_at_ms = Some(finished_at_ms);
-        job.message = Some(message);
+        job.message = Some(message.clone());
+        job.push_log(message);
     }
+    emit_job_event(shell);
     if let Some(job) = shell.ops_job.clone() {
         shell.last_ops_job = Some(job);
         shell.ops_job = None;
@@ -307,9 +472,12 @@ pub fn finish_ops_job_failure(shell: &mut ShellState, error: String) {
     let finished_at_ms = crate::state::current_time_ms();
     if let Some(job) = shell.ops_job.as_mut() {
         job.status = "failed".to_string();
+        job.phase = "failed".to_string();
         job.finished_at_ms = Some(finished_at_ms);
         job.error = Some(error.clone());
+        job.push_log(error);
     }
+    emit_job_event(shell);
     if let Some(job) = shell.ops_job.clone() {
         shell.last_ops_job = Some(job);
         shell.ops_job = None;

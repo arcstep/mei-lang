@@ -4,7 +4,10 @@ use mei_lang_datasets::configure_metric_response_cache_ttl_ms;
 use mei_lang_kernel::load_mei_config_for_app;
 
 use crate::cli::WarmupArgs;
-use crate::{collect_warmup_targets, frontier_targets_from_metrics, run_warmup_targets_with_tier};
+use crate::{
+    collect_warmup_targets, frontier_targets_from_metrics, run_warmup_targets_with_tier,
+    WarmupScopeFilter,
+};
 
 pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
     let workspace = args
@@ -16,6 +19,22 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
     let tier = WarmupTier::parse(args.tier.as_str());
     let app_config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     configure_metric_response_cache_ttl_ms(app_config.runtime.server_eval_cache.ttl_ms);
+    let dev_eval = WarmupScopeFilter::from_env();
+    let warmup_scopes_label = if dev_eval.warmup_scopes.is_empty() {
+        "-".to_string()
+    } else {
+        dev_eval.warmup_scopes.join(",")
+    };
+    println!(
+        "[{}] warmup config: profile={} warmupScopes={}",
+        log_timestamp_rfc3339(),
+        if dev_eval.profile.is_empty() {
+            "full"
+        } else {
+            dev_eval.profile.as_str()
+        },
+        warmup_scopes_label,
+    );
     let targets = resolve_warmup_targets(&ctx, &args)?;
     println!(
         "[{}] warmup start: app={} policy={} tier={} worksets={}",
@@ -108,6 +127,10 @@ pub async fn run_serve(args: crate::cli::ServeArgs) -> anyhow::Result<()> {
         .canonicalize()
         .unwrap_or_else(|_| args.workspace.clone());
     let app = args.app.clone();
+    tracing::warn!(
+        app_id = %app,
+        "mei-plug-ds serve is retained as CLI/diagnostics; production Access data plane should use mei-app-runtime"
+    );
     let ctx = HostContext::new(workspace, app);
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

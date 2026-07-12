@@ -1,9 +1,16 @@
 use std::path::Path;
 
 use mei_host_graph::McgRegistryWriter;
-use mei_lang_kernel::{discover_apps, load_workspace_config, resolve_app_id, WorkspaceAppMeta};
+use mei_lang_kernel::{
+    discover_apps, load_workspace_config, resolve_app_id, resolve_app_root, WorkspaceAppMeta,
+};
 
 pub fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
+    let app_root = resolve_app_root(source_root, app_id);
+    let current = app_root.join("env/current");
+    if !current.exists() && !current.is_symlink() {
+        return false;
+    }
     let registry = McgRegistryWriter::load(source_root, app_id);
     !registry.nodes.is_empty()
 }
@@ -42,10 +49,13 @@ pub fn build_discovered_app_summaries(shell: &crate::state::ShellState) -> Vec<s
     discovered
         .iter()
         .map(|app| {
-            let access_ready = app_has_prebuilt_access_entry(workspace, app.id.as_str());
-            let is_default = app.id == shell.ctx.app_id;
+            let materialized = app_has_prebuilt_access_entry(workspace, app.id.as_str());
+            let access_ready = shell.data_plane_enabled && materialized;
+            let is_default = shell.default_app() == Some(app.id.as_str());
             let has_plug_ds = shell.plug_ds_endpoint_for(app.id.as_str()).is_some();
-            let phase = if !access_ready {
+            let phase = if !shell.data_plane_enabled {
+                "disabled"
+            } else if !materialized {
                 "missing"
             } else if is_default && shell.warmed_up {
                 "ready"
@@ -57,7 +67,7 @@ pub fn build_discovered_app_summaries(shell: &crate::state::ShellState) -> Vec<s
             json!({
                 "appId": app.id,
                 "accessReady": access_ready,
-                "hasRegistry": access_ready,
+                "hasRegistry": materialized,
                 "hasPlugDs": has_plug_ds,
                 "isDefault": is_default,
                 "phase": phase,
@@ -132,8 +142,14 @@ mod tests {
             r#"{"schemaVersion":1,"app":{"id":"mini-park"}}"#,
         )
         .expect("mini-park config");
-        let mrg_dir = tmp.path().join("apps/data-demo/build/active/registry");
+        let env_dir = tmp.path().join("apps/data-demo/env/WS-20260712.0");
+        let mrg_dir = env_dir.join("build/registry");
         std::fs::create_dir_all(&mrg_dir).expect("registry dir");
+        std::os::unix::fs::symlink(
+            "WS-20260712.0",
+            tmp.path().join("apps/data-demo/env/current"),
+        )
+        .expect("env/current");
         std::fs::write(
             mrg_dir.join("mcg-registry.json"),
             r#"{

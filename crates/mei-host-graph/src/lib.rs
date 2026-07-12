@@ -46,7 +46,8 @@ pub use assemble::{
     t2_page_scenes_for_section_scope, AssembleOutcome, ScopeRoute,
 };
 pub use assemble_cache::{
-    assemble_cache_key, clear_assemble_cache_for_app, store_assemble_outcome, take_assemble_outcome,
+    assemble_cache_key, assemble_cache_key_partitioned, clear_assemble_cache_for_app,
+    clear_assemble_cache_for_partition, store_assemble_outcome, take_assemble_outcome,
 };
 pub use content_store::{
     content_hash_bytes, get, put_if_absent, read_payload_bytes, read_payload_json,
@@ -67,12 +68,16 @@ pub use layer_overlay::{
     layout_overlay_from_draft, persist_layout_overlay, persist_theme_tokens, LayoutOverlayDocument,
     ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA, THEME_TOKENS_SCHEMA,
 };
-pub use layer_store::{clear_layers_for_app, layer_entry_meta, store_layer, take_layer};
+pub use layer_store::{
+    clear_layers_for_app, clear_layers_for_partition, layer_entry_meta, store_layer,
+    store_layer_partitioned, take_layer, take_layer_partitioned,
+};
 pub use manifest_index::{
-    clear_manifest_index_for_app, load_manifest_index_from_content_store, manifest_index_cache_key,
-    manifest_index_to_scene_manifest, persist_manifest_index, store_manifest_index_memory,
-    take_manifest_index, ManifestIndexDocument, SurfaceManifestSlice, MANIFEST_INDEX_KIND,
-    MANIFEST_INDEX_SCHEMA,
+    clear_manifest_index_for_app, clear_manifest_index_for_partition,
+    load_manifest_index_from_content_store, manifest_index_cache_key,
+    manifest_index_cache_key_partitioned, manifest_index_to_scene_manifest,
+    persist_manifest_index, store_manifest_index_memory, take_manifest_index,
+    ManifestIndexDocument, SurfaceManifestSlice, MANIFEST_INDEX_KIND, MANIFEST_INDEX_SCHEMA,
 };
 pub use mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter};
 pub use mrg::client_bootstrap::{

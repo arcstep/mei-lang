@@ -22,6 +22,7 @@ mei-lang-kernel = { path = "../crates/kernel" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["process"] }
 tower-http.workspace = true
 tracing.workspace = true

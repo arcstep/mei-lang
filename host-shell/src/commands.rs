@@ -25,6 +25,7 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         }
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
+        Command::BuildWorker(sub) => crate::build_worker::dispatch_build_worker(sub),
         Command::Workspace(sub) => run_workspace(sub),
         Command::Apps(sub) => run_apps(sub),
         Command::EvalCache(sub) => run_eval_cache(sub),
@@ -138,6 +139,7 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
             Some(cli_toolchain_hint()),
         ),
         workspace_version: mei_lang_kernel::resolve_workspace_version(workspace.as_path()),
+        config_digest: None,
         store_dirs: app_ids
             .iter()
             .map(|app_id| {
@@ -225,6 +227,7 @@ fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
         &app_ids,
         &mei_lang_kernel::CleanEnvPolicy {
             dry_run: args.dry_run,
+            ..Default::default()
         },
     )?;
     if report.dry_run {
@@ -539,6 +542,58 @@ fn run_mrg_status(args: MrgStatusArgs) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or_else(|_| args.workspace.clone());
+    let selected = crate::workspace_profile_api::resolve_runtime_profile(
+        workspace.as_path(),
+        args.workspace_config.as_deref(),
+    )?;
+    if args.workspace_config.is_some() {
+        if let Some(profile) = selected.as_ref() {
+            // Serve resolves the path once; compiler/plug-ds children consume the same path.
+            std::env::set_var("MEI_WORKSPACE_CONFIG", profile.path.as_os_str());
+        }
+    }
+    let mut args = args;
+    args.workspace = workspace.clone();
+    args.app = args
+        .app
+        .take()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if args.app.is_none()
+        && selected
+            .as_ref()
+            .is_some_and(|profile| profile.source == "last_successful")
+    {
+        let apps = crate::workspace_profile_api::last_successful_apps(workspace.as_path());
+        let preferred = selected
+            .as_ref()
+            .and_then(|profile| std::fs::read(&profile.path).ok())
+            .and_then(|bytes| {
+                serde_json::from_slice::<mei_lang_kernel::WorkspaceConfig>(&bytes).ok()
+            })
+            .and_then(|config| config.workspace.default_app)
+            .or_else(|| apps.first().cloned());
+        if let Some(app_id) = preferred {
+            let ctx = mei_host_core::HostContext::new(workspace.clone(), app_id.clone());
+            let has_startable_artifact =
+                crate::landing::app_has_prebuilt_access_entry(workspace.as_path(), app_id.as_str())
+                    || ctx.bundle_path().is_file();
+            if has_startable_artifact {
+                args.app = Some(app_id);
+            }
+        }
+    }
+    if args.app.is_none() {
+        return run_serve_control_plane(args, selected).await;
+    }
+    tracing::warn!(
+        app = %args.app.as_deref().unwrap_or(""),
+        "serve --app is a migration-period path; prefer control-plane LaunchManifest routes when available"
+    );
     let early_bind = std::env::var("MEI_SERVE_EARLY_BIND")
         .map(|value| {
             let trimmed = value.trim();
@@ -546,10 +601,107 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         })
         .unwrap_or(false);
     if early_bind {
-        run_serve_early_bind(args).await
+        run_serve_early_bind(args, selected).await
     } else {
-        run_serve_blocking_init(args).await
+        run_serve_blocking_init(args, selected).await
     }
+}
+
+async fn run_serve_control_plane(
+    args: ServeArgs,
+    selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
+) -> anyhow::Result<()> {
+    use std::collections::BTreeMap;
+
+    let workspace = args.workspace;
+    crate::build_info::log_host_identity(Some(workspace.as_path()), "serve-control-plane");
+    let package_root = resolve_package_root()?;
+    let auth_enforcement = if args.auth {
+        mei_host_auth::AuthEnforcement::Required
+    } else {
+        mei_host_auth::AuthEnforcement::Disabled
+    };
+    mei_host_auth::prepare_auth_for_serve(workspace.as_path(), auth_enforcement, "mei-host-shell")?;
+    let has_active_state = crate::workspace_profile_api::read_host_control_state(
+        workspace.as_path(),
+    )
+    .is_some_and(|value| {
+        value
+            .get("activeProfile")
+            .is_some_and(serde_json::Value::is_object)
+    });
+    let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
+        workspace.clone(),
+        String::new(),
+        package_root,
+        BTreeMap::new(),
+        false,
+    )));
+    crate::workspace_profile_api::install_selected_profile(&shell, selected.as_ref());
+    {
+        let mut guard = shell.write().expect("state lock");
+        guard.startup_phase = if has_active_state {
+            "degraded".to_string()
+        } else {
+            "unconfigured".to_string()
+        };
+        guard.startup_detail = Some(if has_active_state {
+            "最近成功配置存在，但当前无可启动的数据面编译物；Access 已禁用".to_string()
+        } else {
+            "控制面已就绪；请选择配置档并应用后启用 Access".to_string()
+        });
+        guard.startup_error = None;
+        guard.data_plane_enabled = false;
+    }
+    let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
+    let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
+        workspace.as_path(),
+        &shell,
+        None,
+    )
+    .await;
+    let state = HostHttpState {
+        shell,
+        auth: auth_state.clone(),
+        managed_plug: Arc::new(Mutex::new(None)),
+        app_runtime: app_runtime.clone(),
+    };
+    let addr = format!("{}:{}", args.host, args.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let listen_url = format!("http://{addr}");
+    let route_ready = {
+        let guard = state.shell.read().expect("state lock");
+        guard.route_plane_ready
+    };
+    crate::startup_banner::emit_host_listening_banner(
+        listen_url.as_str(),
+        &[
+            crate::build_info::host_version_banner_line(workspace.as_path()).as_str(),
+            if route_ready {
+                "control plane ready — LaunchManifest routes active"
+            } else {
+                "control plane ready — Access unconfigured/disabled"
+            },
+        ],
+    );
+    println!("Open:      {listen_url}/runtime");
+    let app = crate::http::router(state)
+        .layer(axum::middleware::from_fn_with_state(
+            auth_state,
+            mei_host_auth::auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::request_logging::log_request,
+        ));
+    let serve_result = axum::serve(listener, app)
+        .await
+        .map_err(|error| anyhow::anyhow!(error));
+    if let Some(mut supervisor) = app_runtime.lock().ok().and_then(|mut guard| guard.take()) {
+        if let Err(error) = supervisor.shutdown_all().await {
+            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
+        }
+    }
+    serve_result
 }
 
 fn serve_data_mode_ceiling(args: &ServeArgs) -> anyhow::Result<mei_lang_kernel::DataModeCeiling> {
@@ -557,7 +709,73 @@ fn serve_data_mode_ceiling(args: &ServeArgs) -> anyhow::Result<mei_lang_kernel::
         .map_err(anyhow::Error::msg)
 }
 
-async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
+fn install_dev_eval_config(args: &ServeArgs) -> crate::dev_eval_scope::DevEvalConfig {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or_else(|_| args.workspace.clone());
+    let config = crate::dev_eval_scope::DevEvalConfig::resolve(
+        workspace.as_path(),
+        args.dev_eval_profile.as_deref(),
+        args.eval_scope.as_deref(),
+        args.warmup_scope.as_deref(),
+    );
+    crate::dev_eval_scope::install(config.clone());
+    let explicit_dev_eval = args
+        .dev_eval_profile
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || args
+            .eval_scope
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        || args
+            .warmup_scope
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        || ["MEI_DEV_EVAL_PROFILE", "MEI_EVAL_SCOPE", "MEI_WARMUP_SCOPE"]
+            .iter()
+            .any(|name| {
+                std::env::var(name)
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            });
+    if !explicit_dev_eval {
+        let explicit_workspace_config = std::env::var("MEI_WORKSPACE_CONFIG")
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        let selected_config_plan = mei_lang_kernel::load_workspace_config(workspace.as_path())
+            .deploy
+            .runtime_plan;
+        if explicit_workspace_config {
+            if let Some(plan) = selected_config_plan {
+                crate::dev_eval_scope::install_runtime_plan(plan);
+            }
+        } else if let Some(plan) = crate::dev_eval_scope::applied_runtime_plan(workspace.as_path())
+        {
+            crate::dev_eval_scope::install_runtime_plan(plan);
+        } else if let Some(plan) = selected_config_plan {
+            crate::dev_eval_scope::install_runtime_plan(plan);
+        }
+    }
+    crate::dev_eval_scope::current()
+}
+
+fn resolve_serve_data_mode_ceiling(
+    args: &ServeArgs,
+    dev_eval: &crate::dev_eval_scope::DevEvalConfig,
+) -> anyhow::Result<mei_lang_kernel::DataModeCeiling> {
+    let mut ceiling = serve_data_mode_ceiling(args)?;
+    if dev_eval.profile.forces_static_ceiling() {
+        ceiling = mei_lang_kernel::DataModeCeiling::Static;
+    }
+    Ok(ceiling)
+}
+
+async fn run_serve_blocking_init(
+    args: ServeArgs,
+    selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
+) -> anyhow::Result<()> {
     use std::collections::BTreeMap;
 
     let workspace = args
@@ -566,7 +784,8 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
-    let data_mode_ceiling = serve_data_mode_ceiling(&args)?;
+    let dev_eval = install_dev_eval_config(&args);
+    let data_mode_ceiling = resolve_serve_data_mode_ceiling(&args, &dev_eval)?;
     if let Some(report) = mei_host_core::ensure_workspace_stock_materialized(
         workspace.as_path(),
         package_root.as_path(),
@@ -583,7 +802,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             );
         }
     }
-    let default_app_id = args.app.clone();
+    let default_app_id = args.app.clone().expect("serve app resolved");
     let default_ctx = mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
     ensure_registry_materialized(&default_ctx)?;
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
@@ -595,6 +814,12 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&default_ctx);
     let mut managed_pool = None;
     let mut plug_ds_by_app = BTreeMap::new();
+    let covered_by_runtime = {
+        let manifest = mei_host_core::read_host_control_state(workspace.as_path())
+            .map(|state| state.launch_manifest)
+            .unwrap_or_else(mei_host_core::LaunchManifest::empty);
+        crate::legacy_compat::apps_covered_by_desired_runtime(&manifest)
+    };
     if data_mode_ceiling.requires_plug_ds() {
         if let Some(endpoint) = external_plug_ds.as_ref() {
             plug_ds_by_app.insert(default_app_id.clone(), endpoint.clone());
@@ -602,12 +827,17 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
                 workspace.as_path(),
                 app_ids.as_slice(),
+                &covered_by_runtime,
             )
             .await?;
             plug_ds_by_app = pool.endpoints.clone();
             managed_pool = Some(pool);
         }
-        if plug_ds_by_app.is_empty() {
+        let needing = crate::legacy_compat::apps_needing_managed_plug_ds(
+            app_ids.as_slice(),
+            &covered_by_runtime,
+        );
+        if plug_ds_by_app.is_empty() && !needing.is_empty() {
             anyhow::bail!("no plug-ds endpoints available for serve");
         }
     }
@@ -626,8 +856,10 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             managed_pool.is_some(),
         );
         state.data_mode_ceiling = data_mode_ceiling;
+        state.data_plane_enabled = true;
         state
     }));
+    crate::workspace_profile_api::install_selected_profile(&shell, selected.as_ref());
     refresh_host_materialization_flags(&shell);
     {
         let mut guard = shell.write().expect("state lock");
@@ -661,6 +893,19 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     crate::startup_banner::emit_access_warmup_ready_banner(warmup_refs.as_slice());
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let managed_plug = Arc::new(Mutex::new(managed_pool));
+    let auto_launch = std::env::var("MEI_APP_RUNTIME_AUTOLAUNCH")
+        .ok()
+        .filter(|value| {
+            let trimmed = value.trim();
+            trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
+        })
+        .map(|_| default_app_id.as_str());
+    let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
+        workspace.as_path(),
+        &shell,
+        auto_launch,
+    )
+    .await;
     tokio::spawn(crate::hot_reload::run_cli_artifact_hot_reload_loop(
         shell.clone(),
         app_ids.clone(),
@@ -669,6 +914,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         shell,
         auth: auth_state.clone(),
         managed_plug: managed_plug.clone(),
+        app_runtime: app_runtime.clone(),
     };
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     if args.auth {
@@ -686,6 +932,18 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         );
         for (app_id, endpoint) in &plug_ds_by_app {
             println!("           {app_id} -> {endpoint}");
+        }
+    }
+    {
+        let guard = state.shell.read().expect("state lock");
+        if !guard.app_runtime_by_instance.is_empty() {
+            println!(
+                "AppRuntime: managed ({} instance(s))",
+                guard.app_runtime_by_instance.len()
+            );
+            for (instance_id, endpoint) in &guard.app_runtime_by_instance {
+                println!("           {instance_id} -> {endpoint}");
+            }
         }
     }
     let version_line = crate::build_info::host_version_banner_line(workspace.as_path());
@@ -713,10 +971,18 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
+    if let Some(mut supervisor) = app_runtime.lock().ok().and_then(|mut guard| guard.take()) {
+        if let Err(error) = supervisor.shutdown_all().await {
+            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
+        }
+    }
     serve_result
 }
 
-async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
+async fn run_serve_early_bind(
+    args: ServeArgs,
+    selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
+) -> anyhow::Result<()> {
     use std::collections::BTreeMap;
 
     let workspace = args
@@ -725,8 +991,9 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
-    let data_mode_ceiling = serve_data_mode_ceiling(&args)?;
-    let default_app_id = args.app.clone();
+    let dev_eval = install_dev_eval_config(&args);
+    let data_mode_ceiling = resolve_serve_data_mode_ceiling(&args, &dev_eval)?;
+    let default_app_id = args.app.clone().expect("serve app resolved");
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
     let app_ids: Vec<String> = if discovered.is_empty() {
         vec![default_app_id.clone()]
@@ -748,14 +1015,30 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
             false,
         );
         state.data_mode_ceiling = data_mode_ceiling;
+        state.data_plane_enabled = true;
         state
     }));
+    crate::workspace_profile_api::install_selected_profile(&shell, selected.as_ref());
     let managed_plug = Arc::new(Mutex::new(None::<crate::managed_plug::ManagedPlugDsPool>));
+    let auto_launch = std::env::var("MEI_APP_RUNTIME_AUTOLAUNCH")
+        .ok()
+        .filter(|value| {
+            let trimmed = value.trim();
+            trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
+        })
+        .map(|_| default_app_id.as_str());
+    let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
+        workspace.as_path(),
+        &shell,
+        auto_launch,
+    )
+    .await;
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let state = HostHttpState {
         shell: shell.clone(),
         auth: auth_state.clone(),
         managed_plug: managed_plug.clone(),
+        app_runtime: app_runtime.clone(),
     };
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -784,6 +1067,7 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     };
     tokio::spawn(crate::startup::run_background_startup(shell, startup_plan));
     let managed_plug_for_shutdown = state.managed_plug.clone();
+    let app_runtime_for_shutdown = app_runtime.clone();
     let app = crate::http::router(state)
         .layer(axum::middleware::from_fn(
             crate::request_logging::log_request,
@@ -802,6 +1086,15 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     {
         if let Err(error) = pool.shutdown().await {
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
+        }
+    }
+    if let Some(mut supervisor) = app_runtime_for_shutdown
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+    {
+        if let Err(error) = supervisor.shutdown_all().await {
+            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
         }
     }
     serve_result

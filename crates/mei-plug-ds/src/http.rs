@@ -51,6 +51,13 @@ async fn api_datasets_query(
     State(state): State<Arc<PlugState>>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
+    if let Err(error) = enforce_request_dev_eval_scope(&state.ctx, &body, "dataset query") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": error.to_string()})),
+        )
+            .into_response();
+    }
     match crate::plugin::query_dataset(&state.ctx, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => {
@@ -144,6 +151,13 @@ async fn api_datasets_metrics(
         )
             .into_response();
     }
+    if let Err(error) = enforce_request_dev_eval_scope(&state.ctx, &body, "metric query") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": error.to_string()})),
+        )
+            .into_response();
+    }
     match crate::plugin::query_metrics(&state.ctx, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => {
@@ -159,6 +173,49 @@ async fn api_datasets_metrics(
                 .into_response()
         }
     }
+}
+
+fn enforce_request_dev_eval_scope(
+    ctx: &HostContext,
+    body: &serde_json::Value,
+    request_kind: &str,
+) -> anyhow::Result<()> {
+    let preview_scope = body
+        .get("preview_scope")
+        .and_then(serde_json::Value::as_str);
+    let mut metric_ids = body
+        .get("metric_ids")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if let Some(metric_id) = body.get("metric_id").and_then(serde_json::Value::as_str) {
+        metric_ids.push(metric_id.to_string());
+    }
+    if let Some(groups) = body
+        .get("metric_groups")
+        .and_then(serde_json::Value::as_array)
+    {
+        for group in groups {
+            metric_ids.extend(
+                group
+                    .get("metric_ids")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string),
+            );
+        }
+    }
+    crate::dataset_api::enforce_dev_eval_scope(
+        ctx,
+        preview_scope,
+        request_kind,
+        metric_ids.as_slice(),
+    )
 }
 
 #[cfg(test)]
@@ -229,5 +286,44 @@ mod tests {
             .get("error")
             .and_then(|error| error.as_str())
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn frozen_metric_scope_is_rejected_before_evaluation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{
+              "schemaVersion": 2,
+              "workspace": {"id":"test","defaultApp":"data-demo"},
+              "deploy": {
+                "devEval": {
+                  "profile": "scoped",
+                  "evalScopes": ["home/t1/r-right-rail/s-warning"]
+                }
+              }
+            }"#,
+        )
+        .expect("write workspace");
+        let app = test_router(tmp.path().to_path_buf(), "data-demo");
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/datasets/metrics/data-demo")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                          "scene_id":"home",
+                          "preview_scope":"home/t1/r-right-rail/s-enforcement",
+                          "dataset_id":"metrics/enforcement.bundle.mei",
+                          "metric_ids":["enforcement_objects_count"]
+                        }"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

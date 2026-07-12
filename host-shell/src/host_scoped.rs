@@ -62,7 +62,7 @@ fn render_scope_picker_body_html(apps: &[WorkspaceAppMeta], route_path: &str) ->
             .collect::<Vec<_>>()
             .join("");
         format!(
-            r#"<ul class="mei-host-shell__setup">{links}</ul>"#,
+            r#"<h2>请选择要管理的应用</h2><ul class="mei-host-shell__setup">{links}</ul>"#,
             links = links,
         )
     };

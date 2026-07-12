@@ -55,19 +55,71 @@ fn extract_wildcard_app_id(path: &str, prefix: &str) -> Option<String> {
     }
 }
 
+/// Reserved first segments under `/apps/` that still mean mode-first URLs
+/// (`/apps/{mode}/{app_id}/...`). Anything else is treated as app-first
+/// (`/apps/{app_id}` or `/apps/{app_id}/{stage}`).
+fn is_mode_first_segment(segment: &str) -> bool {
+    matches!(
+        segment.trim().to_ascii_lowercase().as_str(),
+        "app"
+            | "access"
+            | "access-only"
+            | "access_only"
+            | "presentation"
+            | "slides"
+            | "build"
+            | "manage"
+            | "run"
+            | "copilot"
+            | "speaker"
+            | "upload"
+            | "config"
+            | "runtime"
+            | "view"
+            | "layout"
+            | "prototype"
+    )
+}
+
 fn extract_app_route_context(path: &str) -> Option<(String, String, Option<String>)> {
     let rest = path.strip_prefix("/apps/")?;
-    let mut segments = rest.splitn(2, '/');
-    let mode = segments.next().unwrap_or("").trim().to_ascii_lowercase();
+    let mut segments = rest.split('/');
+    let first = segments.next().unwrap_or("").trim();
+    if first.is_empty() {
+        return None;
+    }
+    let first_lower = first.to_ascii_lowercase();
+
+    // Canonical Access path: `/apps/{app_id}` or `/apps/{app_id}/{stage}`.
+    if !is_mode_first_segment(first_lower.as_str()) {
+        let app_id = normalize_id(first);
+        if app_id.is_empty() {
+            return None;
+        }
+        let stage = segments
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        return Some(("app".to_string(), app_id, stage));
+    }
+
+    // Legacy mode-first: `/apps/{mode}/{app_id}/...` (optional `/scene/{scene}`).
+    let mode = first_lower;
     let app_raw = segments.next().unwrap_or("").trim();
     if app_raw.is_empty() {
         return None;
     }
+    let remainder: Vec<&str> = segments.collect();
     let (app_id, scene_id) = if matches!(
         mode.as_str(),
-        "app" | "access" | "access-only" | "presentation" | "slides"
+        "app" | "access" | "access-only" | "access_only" | "presentation" | "slides"
     ) {
-        if let Some((app, scene)) = app_raw.split_once("/scene/") {
+        if remainder.first().copied() == Some("scene") {
+            let scene = remainder.get(1).copied().unwrap_or("").trim();
+            (normalize_id(app_raw), Some(scene.to_string()))
+        } else if let Some((app, scene)) = app_raw.split_once("/scene/") {
+            // Defensive: keep split_once for odd encodings.
             (normalize_id(app), Some(scene.trim().to_string()))
         } else {
             (normalize_id(app_raw), None)

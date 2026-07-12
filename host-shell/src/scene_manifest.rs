@@ -30,8 +30,9 @@ pub struct SceneManifestQuery {
     pub chrome: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LayerBatchRequest {
+    #[serde(default)]
     pub app_id: String,
     pub scene: Option<String>,
     pub layers: Vec<String>,

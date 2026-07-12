@@ -23,7 +23,8 @@ pub use eval::{eval_metric_ids, load_compiled_for_warmup};
 pub use mei_host_graph::WarmupTier;
 pub use plugin::{materialize_targets, query_dataset, query_metrics, DsPluginImpl};
 pub use warmup::{
-    collect_all_t2_page_scenes, collect_warmup_targets, frontier_targets_from_metrics, WarmupTarget,
+    collect_all_t2_page_scenes, collect_warmup_targets, frontier_targets_from_metrics,
+    WarmupScopeFilter, WarmupTarget,
 };
 pub use warmup_orchestrator::{
     hydrate_existing_l1_slots, run_warmup_targets_with_tier, WarmupOrchestratorReport,

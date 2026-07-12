@@ -301,6 +301,20 @@ pub(crate) fn evaluate_access_readiness(
     route_mode: UiRouteMode,
     axes: PageRenderAxes,
 ) -> AccessReadiness {
+    if !shell.data_plane_enabled {
+        return AccessReadiness {
+            ready: false,
+            reason: if crate::workspace_profile_api::read_host_control_state(
+                shell.ctx.workspace_root.as_path(),
+            )
+            .is_some_and(|value| value.get("activeProfile").is_some())
+            {
+                "disabled"
+            } else {
+                "unconfigured"
+            },
+        };
+    }
     if shell.startup_error.is_some() {
         return AccessReadiness {
             ready: false,
@@ -315,7 +329,9 @@ pub(crate) fn evaluate_access_readiness(
         };
     }
     if route_mode.is_access_like() {
-        if access_readiness_requires_bootstrap(axes) {
+        let dev_eval = crate::dev_eval_scope::current();
+        let skip_gates = dev_eval.profile.skips_access_bootstrap_gate();
+        if !skip_gates && access_readiness_requires_bootstrap(axes) {
             let bootstrap = mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
             if !bootstrap.allowed {
                 return AccessReadiness {
@@ -324,7 +340,10 @@ pub(crate) fn evaluate_access_readiness(
                 };
             }
         }
-        if access_readiness_requires_plug_ds(axes) && shell.plug_ds_endpoint_for(app_id).is_none() {
+        if !skip_gates
+            && access_readiness_requires_plug_ds(axes)
+            && shell.plug_ds_endpoint_for(app_id).is_none()
+        {
             return AccessReadiness {
                 ready: false,
                 reason: "plug_ds",
@@ -508,19 +527,31 @@ async fn run_background_startup_inner(
     let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&default_ctx);
     let mut managed_pool = None;
     let mut plug_ds_by_app = BTreeMap::new();
-    if plan.data_mode_ceiling.requires_plug_ds() {
+    let skip_plug_ds = crate::dev_eval_scope::current()
+        .profile
+        .skips_plug_ds_startup();
+    let covered_by_runtime = {
+        let guard = shell.read().expect("state lock");
+        crate::legacy_compat::apps_covered_by_desired_runtime(&guard.launch_manifest)
+    };
+    if plan.data_mode_ceiling.requires_plug_ds() && !skip_plug_ds {
         if let Some(endpoint) = external_plug_ds.as_ref() {
             plug_ds_by_app.insert(plan.default_app_id.clone(), endpoint.clone());
         } else {
             let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
                 plan.workspace.as_path(),
                 plan.app_ids.as_slice(),
+                &covered_by_runtime,
             )
             .await?;
             plug_ds_by_app = pool.endpoints.clone();
             managed_pool = Some(pool);
         }
-        if plug_ds_by_app.is_empty() {
+        let needing = crate::legacy_compat::apps_needing_managed_plug_ds(
+            plan.app_ids.as_slice(),
+            &covered_by_runtime,
+        );
+        if plug_ds_by_app.is_empty() && !needing.is_empty() {
             anyhow::bail!("no plug-ds endpoints available for serve");
         }
     }
@@ -544,7 +575,11 @@ async fn run_background_startup_inner(
     crate::build_ops::refresh_materialization_flags(&mut shell.write().expect("state lock"));
 
     if defer_warmup_to_prebuild() {
-        if plan.data_mode_ceiling.requires_metric_warmup() {
+        let wants_warmup = plan.data_mode_ceiling.requires_metric_warmup()
+            && !crate::dev_eval_scope::current()
+                .profile
+                .skips_startup_warmup();
+        if wants_warmup {
             wait_for_prebuild_warmup(&shell, &plan).await?;
         }
     } else {
@@ -901,6 +936,7 @@ mod tests {
             false,
         );
         shell.imported = true;
+        shell.data_plane_enabled = true;
 
         let data_demo = evaluate_access_readiness(
             &shell,

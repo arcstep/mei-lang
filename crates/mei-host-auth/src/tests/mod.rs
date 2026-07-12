@@ -9,6 +9,30 @@ fn sanitize_next_path_rejects_external_urls() {
 }
 
 #[test]
+fn app_first_path_parses_app_and_stage() {
+    use crate::{authorize_path, AuthPrincipal, AuthRole};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let principal = AuthPrincipal {
+        username: "guest".into(),
+        profile: String::new(),
+        role: AuthRole::Guest,
+        app_allowlist: BTreeSet::from(["mini-data".to_string()]),
+        app_denylist: BTreeSet::new(),
+        scene_allowlist: BTreeMap::from([(
+            "mini-data".to_string(),
+            BTreeSet::from(["home".to_string()]),
+        )]),
+        session_exp: 0,
+    };
+    // Canonical Access: `/apps/{app}/{stage}` must not treat app id as mode.
+    assert!(authorize_path("/apps/mini-data/home", &principal).is_ok());
+    assert!(authorize_path("/apps/mini-data", &principal).is_ok());
+    assert!(authorize_path("/apps/mini-data/other", &principal).is_err());
+    assert!(authorize_path("/apps/unknown-app/home", &principal).is_err());
+}
+
+#[test]
 fn guest_scene_allowlist_blocks_unlisted_scene() {
     use crate::{authorize_path, AuthPrincipal, AuthRole};
     use std::collections::{BTreeMap, BTreeSet};

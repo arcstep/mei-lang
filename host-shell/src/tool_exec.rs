@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use mei_lang_kernel::{RuntimeMode, RuntimePlan};
+
 /// Resolve `mei-compiler` binary.
 ///
 /// Order: `MEI_COMPILER_BIN` → sibling of current exe → `deploy/bin` under workspace → PATH.
@@ -11,6 +13,13 @@ pub fn resolve_mei_compiler(workspace: Option<&Path>) -> anyhow::Result<PathBuf>
 /// Resolve `mei-plug-ds` binary.
 pub fn resolve_mei_plug_ds(workspace: Option<&Path>) -> anyhow::Result<PathBuf> {
     resolve_tool_binary("mei-plug-ds", "MEI_PLUG_DS_BIN", workspace)
+}
+
+/// Resolve `mei-app-runtime` binary.
+///
+/// Order: `MEI_APP_RUNTIME_BIN` → sibling of current exe → `deploy/bin` under workspace → PATH.
+pub fn resolve_mei_app_runtime(workspace: Option<&Path>) -> anyhow::Result<PathBuf> {
+    resolve_tool_binary("mei-app-runtime", "MEI_APP_RUNTIME_BIN", workspace)
 }
 
 fn resolve_tool_binary(
@@ -60,17 +69,54 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn resolve_mei_app_runtime_reads_env_override() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bin = tmp.path().join("fake-app-runtime");
+        fs::write(&bin, b"#!/bin/sh\n").expect("write");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&bin).expect("meta").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&bin, perms).expect("chmod");
+        }
+        std::env::set_var("MEI_APP_RUNTIME_BIN", &bin);
+        let resolved = resolve_mei_app_runtime(None).expect("resolve");
+        std::env::remove_var("MEI_APP_RUNTIME_BIN");
+        assert_eq!(resolved, bin);
+    }
+}
+
 pub fn run_mei_compiler_compile(workspace: &Path, app: &str) -> anyhow::Result<()> {
+    run_mei_compiler_compile_with_config(workspace, app, None)
+}
+
+pub fn run_mei_compiler_compile_with_config(
+    workspace: &Path,
+    app: &str,
+    config_path: Option<&Path>,
+) -> anyhow::Result<()> {
     let compiler = resolve_mei_compiler(Some(workspace))?;
     let workspace = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
-    let status = Command::new(&compiler)
+    let mut command = Command::new(&compiler);
+    command
         .arg("compile")
         .arg("--workspace")
         .arg(&workspace)
         .arg("--app")
-        .arg(app)
+        .arg(app);
+    if let Some(config_path) = config_path {
+        command.env("MEI_WORKSPACE_CONFIG", config_path);
+    }
+    let status = command
         .status()
         .map_err(|e| anyhow::anyhow!("spawn {}: {e}", compiler.display()))?;
     if status.success() {
@@ -89,11 +135,23 @@ pub fn run_mei_plug_ds_warmup(
     policy: &str,
     tier: &str,
 ) -> anyhow::Result<()> {
+    run_mei_plug_ds_warmup_with_plan(workspace, app, policy, tier, None, None)
+}
+
+pub fn run_mei_plug_ds_warmup_with_plan(
+    workspace: &Path,
+    app: &str,
+    policy: &str,
+    tier: &str,
+    config_path: Option<&Path>,
+    runtime_plan: Option<&RuntimePlan>,
+) -> anyhow::Result<()> {
     let plug_ds = resolve_mei_plug_ds(Some(workspace))?;
     let workspace = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
-    let status = Command::new(&plug_ds)
+    let mut command = Command::new(&plug_ds);
+    command
         .arg("warmup")
         .arg("--workspace")
         .arg(&workspace)
@@ -102,7 +160,37 @@ pub fn run_mei_plug_ds_warmup(
         .arg("--policy")
         .arg(policy)
         .arg("--tier")
-        .arg(tier)
+        .arg(tier);
+    if let Some(config_path) = config_path {
+        command.env("MEI_WORKSPACE_CONFIG", config_path);
+    }
+    if let Some(plan) = runtime_plan {
+        let app_plan = plan.apps.get(app).or_else(|| plan.apps.get("*"));
+        let hot_scopes = app_plan
+            .into_iter()
+            .flat_map(|app| app.targets.iter())
+            .filter(|target| target.mode == RuntimeMode::Hot)
+            .map(|target| target.scope.trim().trim_matches('/'))
+            .filter(|scope| !scope.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        let hot_metrics = app_plan
+            .into_iter()
+            .flat_map(|app| app.metric_overrides.iter())
+            .filter(|(_, mode)| **mode == RuntimeMode::Hot)
+            .map(|(metric_id, _)| metric_id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        if plan.default_mode == RuntimeMode::Hot {
+            command.env("MEI_DEV_EVAL_PROFILE", "full");
+        } else {
+            command
+                .env("MEI_DEV_EVAL_PROFILE", "scoped")
+                .env("MEI_WARMUP_SCOPE", hot_scopes)
+                .env("MEI_WARMUP_METRICS", hot_metrics);
+        }
+    }
+    let status = command
         .status()
         .map_err(|e| anyhow::anyhow!("spawn {}: {e}", plug_ds.display()))?;
     if status.success() {

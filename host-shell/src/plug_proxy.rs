@@ -8,6 +8,7 @@ pub fn configured_plug_ds_endpoint(ctx: &HostContext) -> Option<String> {
     if let Ok(url) = std::env::var("MEI_PLUG_DS_URL") {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
+            crate::legacy_compat::warn_migration_plug_ds_url();
             return Some(trimmed.to_string());
         }
     }

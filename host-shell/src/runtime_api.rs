@@ -200,6 +200,7 @@ pub async fn api_host_runtime_activate_env(
         )
             .into_response();
     }
+    crate::legacy_compat::warn_migration_activate_env(app_id);
     let workspace = {
         let guard = state.read().expect("state lock");
         let discovered = discover_apps(guard.ctx.workspace_root.as_path()).unwrap_or_default();

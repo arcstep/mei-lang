@@ -66,6 +66,19 @@ pub fn manifest_index_cache_key(
     .to_string()
 }
 
+pub fn manifest_index_cache_key_partitioned(
+    partition: &mei_host_core::CachePartitionKey,
+    semantic_core: &SemanticCacheCore,
+    layout_policy_revision: &str,
+    data_mode: &str,
+) -> String {
+    partition.prefix_key(&manifest_index_cache_key(
+        semantic_core,
+        layout_policy_revision,
+        data_mode,
+    ))
+}
+
 pub fn persist_manifest_index(
     app_root: &Path,
     document: &ManifestIndexDocument,
@@ -163,7 +176,47 @@ pub fn manifest_index_to_scene_manifest(
 
 pub fn clear_manifest_index_for_app(app_id: &str) {
     if let Ok(mut cache) = memory_index_store().lock() {
-        cache.retain(|_, doc| doc.app_id != app_id);
+        let part_prefix = format!("part:{app_id}/");
+        cache.retain(|key, doc| doc.app_id != app_id && !key.starts_with(part_prefix.as_str()));
     }
     crate::layer_store::clear_layers_for_app(app_id);
+}
+
+pub fn clear_manifest_index_for_partition(partition: &mei_host_core::CachePartitionKey) -> usize {
+    let removed = if let Ok(mut cache) = memory_index_store().lock() {
+        let before = cache.len();
+        cache.retain(|key, _| !partition.matches_key(key));
+        before.saturating_sub(cache.len())
+    } else {
+        0
+    };
+    crate::layer_store::clear_layers_for_partition(partition);
+    removed
+}
+
+#[cfg(test)]
+mod partition_tests {
+    use super::*;
+    use crate::semantic_cache::build_semantic_cache_core;
+    use mei_host_core::CachePartitionKey;
+
+    #[test]
+    fn dual_partition_manifest_keys_do_not_collide() {
+        let core = build_semantic_cache_core(
+            "mini-data",
+            "home",
+            None,
+            "reg-1",
+            "client-1",
+            "data-1",
+            "epoch-1",
+        );
+        let a = CachePartitionKey::new("mini-data", "WS-1", "cfg-a");
+        let b = CachePartitionKey::new("mini-data", "WS-1", "cfg-b");
+        let key_a = manifest_index_cache_key_partitioned(&a, &core, "layout-1", "scoped");
+        let key_b = manifest_index_cache_key_partitioned(&b, &core, "layout-1", "scoped");
+        assert_ne!(key_a, key_b);
+        assert!(a.matches_key(key_a.as_str()));
+        assert!(!b.matches_key(key_a.as_str()));
+    }
 }

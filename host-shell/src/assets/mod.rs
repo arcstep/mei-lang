@@ -142,9 +142,17 @@ pub async fn component_asset(
         )
         .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response());
     }
-    let workspace_root = state.read().expect("state lock").ctx.workspace_root.clone();
+    let (workspace_root, package_root) = {
+        let guard = state.read().expect("state lock");
+        (guard.ctx.workspace_root.clone(), guard.package_root.clone())
+    };
     let components_root = resolve_components_root(workspace_root.as_path());
-    let asset_path = resolve_component_asset_path(&components_root, &path);
+    let workspace_asset = resolve_component_asset_path(&components_root, &path);
+    let asset_path = if workspace_asset.exists() {
+        workspace_asset
+    } else {
+        package_root.join("stock/components").join(&path)
+    };
     if path.ends_with(".js.map") && !asset_path.exists() {
         return StatusCode::NO_CONTENT.into_response();
     }

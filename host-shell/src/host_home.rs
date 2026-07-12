@@ -18,7 +18,11 @@ use crate::landing::{
 use crate::state::SharedState;
 use crate::workspace_page::render_workspace_shell_page;
 
-pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMeta]) -> String {
+pub fn render_host_home_body_html(
+    workspace_root: &Path,
+    apps: &[WorkspaceAppMeta],
+    data_plane_enabled: bool,
+) -> String {
     let workspace = load_workspace_config(workspace_root);
     let workspace_label = workspace
         .workspace
@@ -39,16 +43,29 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
     let default_app = choose_default_app(workspace_root, apps).map(|app| app.id.as_str());
 
     let app_section = if apps.is_empty() {
-        r#"<p class="mei-host-shell__message">当前工作区尚未发现可加载的应用。可先使用顶栏工作区导航进入配置、上传或运行，或执行 prebuild 后再刷新。</p>"#
+        r#"<section class="mei-host-shell__message">
+  <h2>控制面已就绪</h2>
+  <p>当前工作区尚未发现可加载的应用。可先进入运行控制中心选择并应用 workspace profile。</p>
+  <p><a class="mei-host-shell__btn" href="/runtime">打开运行控制中心</a></p>
+</section>"#
             .to_string()
     } else {
         let cards = apps
             .iter()
             .map(|app| {
-                let access_ready = app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
+                let access_ready = data_plane_enabled
+                    && app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
                 let access_href = format!("/apps/{}/home", app.id);
-                let status = if access_ready { "ready" } else { "missing" };
-                let status_label = if access_ready {
+                let status = if !data_plane_enabled {
+                    "disabled"
+                } else if access_ready {
+                    "ready"
+                } else {
+                    "missing"
+                };
+                let status_label = if !data_plane_enabled {
+                    "Access 未配置"
+                } else if access_ready {
                     "已编译"
                 } else {
                     "待预构建"
@@ -67,9 +84,7 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
   <p class="mei-host-shell__card-id"><code>{app_id}</code></p>
   <p class="mei-host-shell__card-desc">{summary}</p>
   <p class="mei-host-shell__card-status" data-status="{status}">{status_label}</p>
-  <div class="mei-host-shell__card-actions">
-    <a class="mei-host-shell__btn" href="{access_href}">进入应用</a>
-  </div>
+  <div class="mei-host-shell__card-actions">{access_action}</div>
 </article>"#,
                     title = html_escape(app.title.as_str()),
                     default_mark = default_mark,
@@ -77,7 +92,14 @@ pub fn render_host_home_body_html(workspace_root: &Path, apps: &[WorkspaceAppMet
                     summary = html_escape(app.title.as_str()),
                     status = status,
                     status_label = status_label,
-                    access_href = html_escape(access_href.as_str()),
+                    access_action = if access_ready {
+                        format!(
+                            r#"<a class="mei-host-shell__btn" href="{}">进入应用</a>"#,
+                            html_escape(access_href.as_str())
+                        )
+                    } else {
+                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">配置运行</a>"#.to_string()
+                    },
                 )
             })
             .collect::<Vec<_>>()
@@ -114,7 +136,8 @@ pub async fn host_home_page(
     );
     let auth_enabled = auth.auth_enforcement == mei_host_auth::AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let body_html = render_host_home_body_html(workspace_root, apps.as_slice());
+    let body_html =
+        render_host_home_body_html(workspace_root, apps.as_slice(), guard.data_plane_enabled);
     let html = render_workspace_shell_page(
         workspace_root,
         apps.as_slice(),
@@ -143,7 +166,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).expect("create temp root");
         let topbar_menu = mei_lang_app::load_topbar_menu_context(root.as_path());
-        let body = render_host_home_body_html(root.as_path(), &[]);
+        let body = render_host_home_body_html(root.as_path(), &[], false);
         let html = render_workspace_shell_page(
             root.as_path(),
             &[],

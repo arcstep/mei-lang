@@ -21,6 +21,8 @@ struct DatasetQueryRequest {
     scene_id: Option<String>,
     #[serde(default)]
     target: Option<String>,
+    #[serde(default)]
+    preview_scope: Option<String>,
     dataset_id: String,
     #[serde(default)]
     page: Option<usize>,
@@ -44,6 +46,8 @@ struct MetricQueryRequest {
     scene_id: Option<String>,
     #[serde(default)]
     target: Option<String>,
+    #[serde(default)]
+    preview_scope: Option<String>,
     #[serde(default)]
     dataset_id: String,
     #[serde(default)]
@@ -95,6 +99,17 @@ pub fn query_dataset(ctx: &HostContext, body: &Value) -> Result<Value> {
     let started = Instant::now();
     let request: DatasetQueryRequest =
         serde_json::from_value(body.clone()).context("parse dataset query request")?;
+    enforce_dev_eval_scope(
+        ctx,
+        request.preview_scope.as_deref(),
+        "dataset query",
+        request
+            .metric_id
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )?;
     let scene_id = scene_id_from_request(request.scene_id.as_deref());
     let target = request.target.as_deref().filter(|value| !value.is_empty());
     info!(
@@ -185,6 +200,16 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
     let request: MetricQueryRequest =
         serde_json::from_value(body.clone()).context("parse metric query request")?;
     let groups = normalize_metric_query_groups(&request)?;
+    let requested_metric_ids = groups
+        .iter()
+        .flat_map(|group| group.metric_ids.iter().cloned())
+        .collect::<Vec<_>>();
+    enforce_dev_eval_scope(
+        ctx,
+        request.preview_scope.as_deref(),
+        "metric query",
+        requested_metric_ids.as_slice(),
+    )?;
     let scene_id = scene_id_from_request(request.scene_id.as_deref());
     let target = request
         .target
@@ -431,4 +456,45 @@ fn scene_id_from_request(scene_id: Option<&str>) -> &str {
 fn perf_with_total(mut perf: BTreeMap<String, u64>, total_ms: u64) -> BTreeMap<String, u64> {
     perf.insert("total_ms".to_string(), total_ms);
     perf
+}
+
+pub(crate) fn enforce_dev_eval_scope(
+    ctx: &HostContext,
+    preview_scope: Option<&str>,
+    request_kind: &str,
+    metric_ids: &[String],
+) -> Result<()> {
+    let gate = mei_lang_kernel::RuntimeDevEvalGate::resolve_for_app(
+        ctx.workspace_root.as_path(),
+        ctx.app_id.as_str(),
+    );
+    let decisions = if metric_ids.is_empty() {
+        vec![gate.decide_scope(preview_scope)]
+    } else {
+        metric_ids
+            .iter()
+            .map(|metric_id| gate.decide_metric(Some(metric_id.as_str()), preview_scope))
+            .collect::<Vec<_>>()
+    };
+    if decisions.iter().all(|decision| decision.accepted) {
+        return Ok(());
+    }
+    let decision = decisions
+        .iter()
+        .find(|decision| !decision.accepted)
+        .copied()
+        .expect("rejected dev eval decision");
+    warn!(
+        app_id = %ctx.app_id,
+        profile = gate.profile.slug(),
+        preview_scope = preview_scope.unwrap_or("-"),
+        metric_ids = %metric_ids.join(","),
+        reason = decision.reason,
+        "{request_kind} rejected by dev eval gate"
+    );
+    anyhow::bail!(
+        "{request_kind} rejected by dev eval gate: reason={} preview_scope={}",
+        decision.reason,
+        preview_scope.unwrap_or("-")
+    )
 }

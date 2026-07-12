@@ -68,10 +68,9 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
         .map(|resolved| resolved.node.encode())
 }
 
-/// Access 规范：`/apps/{app_id}/{stage_id}` → 直接 200 渲染。
+/// Access 规范：`/apps/{app_id}/{stage_id}` → 优先反代 app-runtime；无 runtime 时 fallback Host 本地 assemble（deprecated）。
 pub async fn app_stage_page(
-    State(state): State<SharedState>,
-    State(auth): State<AuthServeState>,
+    State(http): State<crate::state::HostHttpState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
@@ -85,12 +84,25 @@ pub async fn app_stage_page(
     if stage.is_empty() {
         return (StatusCode::NOT_FOUND, "stage required").into_response();
     }
+    if let Some(response) = crate::app_runtime_proxy::maybe_proxy_access_get(
+        &http,
+        app_id.as_str(),
+        uri.path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or(uri.path()),
+        &headers,
+        principal.as_ref().map(|ext| ext.0.clone()),
+    )
+    .await
+    {
+        return response;
+    }
     query.scene = Some(stage.to_string());
     query.surface = Some(UiRouteMode::App.slug().to_string());
     crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
     app_page(
-        State(state),
-        State(auth),
+        State(http.shell.clone()),
+        State(http.auth.clone()),
         principal,
         OriginalUri(uri),
         headers,
@@ -100,16 +112,28 @@ pub async fn app_stage_page(
     .await
 }
 
-/// Access 应用根：`/apps/{app_id}` → 解析 default_scene 后 200（不 307）。
+/// Access 应用根：`/apps/{app_id}` → 优先反代；无 runtime 时 fallback Host 本地（deprecated）。
 pub async fn app_root_page(
-    State(state): State<SharedState>,
-    State(auth): State<AuthServeState>,
+    State(http): State<crate::state::HostHttpState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     Path(app_id): Path<String>,
     Query(mut query): Query<AppQuery>,
 ) -> Response {
+    if let Some(response) = crate::app_runtime_proxy::maybe_proxy_access_get(
+        &http,
+        app_id.as_str(),
+        uri.path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or(uri.path()),
+        &headers,
+        principal.as_ref().map(|ext| ext.0.clone()),
+    )
+    .await
+    {
+        return response;
+    }
     query.surface = Some(UiRouteMode::App.slug().to_string());
     // 不强制 scene：走 __default_access__ 解析，仍 200
     if query
@@ -123,8 +147,8 @@ pub async fn app_root_page(
     }
     crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
     app_page(
-        State(state),
-        State(auth),
+        State(http.shell.clone()),
+        State(http.auth.clone()),
         principal,
         OriginalUri(uri),
         headers,
@@ -143,6 +167,8 @@ pub async fn app_page(
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
+    // DEPRECATED: Host in-process Access assemble. Prefer `/apps/{app}/{stage}` gateway
+    // reverse-proxy to mei-app-runtime when LaunchManifest route is active.
     let request_started = Instant::now();
     if matches!(
         mode.as_str(),
@@ -208,19 +234,21 @@ pub async fn app_page(
     let needs_access_readiness_gate = route_mode.is_access_like();
     if needs_access_readiness_gate {
         let starting_location = {
-            let workspace_root = {
+            let (workspace_root, data_plane_enabled) = {
                 let guard = state.read().expect("state lock");
-                guard.ctx.workspace_root.clone()
+                (guard.ctx.workspace_root.clone(), guard.data_plane_enabled)
             };
-            if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
-                workspace_root.as_path(),
-                app_id.as_str(),
-            ) {
-                tracing::warn!(
-                    app_id = %app_id,
-                    error = %error,
-                    "lazy app import before access gate failed"
-                );
+            if data_plane_enabled {
+                if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+                    workspace_root.as_path(),
+                    app_id.as_str(),
+                ) {
+                    tracing::warn!(
+                        app_id = %app_id,
+                        error = %error,
+                        "lazy app import before access gate failed"
+                    );
+                }
             }
             let mut guard = state.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
@@ -748,15 +776,18 @@ pub async fn host_starting_page(
         UiRouteMode::from_slug(poll_mode.as_str())
     };
     let already_ready = {
-        if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
-            workspace.as_path(),
-            poll_app.as_str(),
-        ) {
-            tracing::warn!(
-                app_id = %poll_app,
-                error = %error,
-                "lazy app import on starting page failed"
-            );
+        let data_plane_enabled = state.read().expect("state lock").data_plane_enabled;
+        if data_plane_enabled {
+            if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+                workspace.as_path(),
+                poll_app.as_str(),
+            ) {
+                tracing::warn!(
+                    app_id = %poll_app,
+                    error = %error,
+                    "lazy app import on starting page failed"
+                );
+            }
         }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
@@ -834,14 +865,18 @@ pub async fn api_host_access_readiness(
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
         };
-        if let Err(error) =
-            crate::startup::try_ensure_app_registry_materialized(workspace_root.as_path(), app_id)
-        {
-            tracing::warn!(
-                app_id = %app_id,
-                error = %error,
-                "lazy app import on access-readiness failed"
-            );
+        let data_plane_enabled = state.read().expect("state lock").data_plane_enabled;
+        if data_plane_enabled {
+            if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+                workspace_root.as_path(),
+                app_id,
+            ) {
+                tracing::warn!(
+                    app_id = %app_id,
+                    error = %error,
+                    "lazy app import on access-readiness failed"
+                );
+            }
         }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
@@ -855,15 +890,16 @@ pub async fn api_host_access_readiness(
         );
         let readiness =
             crate::startup::evaluate_access_readiness(&guard, app_id, scene_id, route_mode, axes);
-        let assemble_ready = matches!(
-            mei_host_graph::assemble_scope_from_registry(
-                guard.ctx.workspace_root.as_path(),
-                app_id,
-                scene_id,
-            ),
-            Ok(Some(_))
-        );
-        let bootstrap_reason = if route_mode.is_access_like() {
+        let assemble_ready = readiness.ready
+            && matches!(
+                mei_host_graph::assemble_scope_from_registry(
+                    guard.ctx.workspace_root.as_path(),
+                    app_id,
+                    scene_id,
+                ),
+                Ok(Some(_))
+            );
+        let bootstrap_reason = if readiness.ready && route_mode.is_access_like() {
             Some(
                 mei_host_graph::bootstrap_embed_status(
                     guard.ctx.workspace_root.as_path(),
@@ -1788,10 +1824,16 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
         });
     let envelope_json = serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string());
     let hits_json = serde_json::to_string(&hits).unwrap_or_else(|_| "{}".to_string());
+    let dev_eval_json =
+        serde_json::to_string(&crate::dev_eval_scope::current_for_app(app_id).client_payload())
+            .unwrap_or_else(|_| {
+                "{\"profile\":\"full\",\"scopes\":[],\"fill\":\"placeholder\"}".to_string()
+            });
     let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};window.__mei.dev_eval={dev_eval_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
         envelope_json = envelope_json,
         hits_json = hits_json,
+        dev_eval_json = dev_eval_json,
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + script.len());
@@ -1871,6 +1913,7 @@ mod inject_scene_manifest_tests {
         assert!(out.contains("thin_shell"));
         assert!(out.contains("scene_manifest_refs"));
         assert!(out.contains("view_revision_envelope"));
+        assert!(out.contains("dev_eval"));
         assert!(out.contains("artifact_hits"));
         assert!(!out.contains(r#""layers":"#));
     }
