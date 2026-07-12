@@ -662,6 +662,481 @@
   margin-top: 4px;
 }
 
+.mei-host-shell__card:has(.mei-runtime-control) {
+  width: min(96vw, 1240px);
+  max-width: 1240px;
+}
+
+.mei-runtime-control {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mei-runtime-control__hero,
+.mei-runtime-control__zone-head,
+.mei-runtime-control__task > div,
+.mei-runtime-control__preview > header,
+.mei-runtime-control__app-plan > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mei-runtime-control__eyebrow,
+.mei-runtime-control__zone-index {
+  margin: 0 0 4px;
+  color: var(--mei-shell-color-accent);
+  font-size: var(--mei-shell-font-0);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mei-runtime-control__title,
+.mei-runtime-control__zone h2,
+.mei-runtime-control__app-plan h3,
+.mei-runtime-control__rules h4,
+.mei-runtime-control__preview h3 {
+  margin: 0;
+}
+
+.mei-runtime-control__title {
+  font-size: var(--mei-shell-font-4);
+}
+
+.mei-runtime-control__version {
+  display: grid;
+  gap: 5px;
+  min-width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 10px;
+  background: var(--mei-shell-color-card-bg);
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__live {
+  min-height: 22px;
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--mei-shell-color-accent);
+  background: var(--mei-shell-color-card-bg);
+  color: var(--mei-shell-color-text-body);
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__live[data-tone="error"] {
+  border-left-color: var(--mei-shell-color-banner-danger-border);
+}
+
+.mei-runtime-control__live[data-tone="success"] {
+  border-left-color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-runtime-control__zone {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 88%, transparent);
+}
+
+.mei-runtime-control__zone-head {
+  margin-bottom: 14px;
+}
+
+.mei-runtime-control__toolbar,
+.mei-runtime-control__raw-actions,
+.mei-runtime-control__plan-top,
+.mei-runtime-control__copy > div {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mei-runtime-control label,
+.mei-runtime-control__copy {
+  display: grid;
+  gap: 5px;
+  color: var(--mei-shell-color-host-footer-text);
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control input,
+.mei-runtime-control select,
+.mei-runtime-control textarea {
+  min-width: 0;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 7px;
+  background: var(--mei-shell-color-card-bg);
+  color: var(--mei-shell-color-text-primary);
+  font: inherit;
+}
+
+.mei-runtime-control input,
+.mei-runtime-control select {
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.mei-runtime-control input:focus-visible,
+.mei-runtime-control select:focus-visible,
+.mei-runtime-control textarea:focus-visible,
+.mei-runtime-control button:focus-visible,
+.mei-runtime-control summary:focus-visible {
+  outline: 2px solid var(--mei-shell-color-accent);
+  outline-offset: 2px;
+}
+
+.mei-runtime-control__profile-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.6fr);
+  gap: 18px;
+}
+
+.mei-runtime-control__profile-meta dl,
+.mei-runtime-control__task dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.mei-runtime-control__profile-meta dl > div,
+.mei-runtime-control__task dl > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.mei-runtime-control dt {
+  color: var(--mei-shell-color-host-footer-text);
+}
+
+.mei-runtime-control dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.mei-runtime-control__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 999px;
+  color: var(--mei-shell-color-text-body);
+  font-size: var(--mei-shell-font-0);
+}
+
+.mei-runtime-control__badge.is-dirty {
+  border-color: var(--mei-shell-color-banner-warn-border);
+  color: var(--mei-shell-color-status-warn);
+}
+
+.mei-runtime-control__badge.is-clean {
+  border-color: var(--mei-shell-color-feedback-ok);
+  color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-runtime-control__badge.is-inherited {
+  opacity: 0.7;
+}
+
+.mei-runtime-control__raw {
+  margin-top: 14px;
+}
+
+.mei-runtime-control__raw > summary,
+.mei-runtime-control__advanced > summary,
+.mei-runtime-control__preview > details > summary {
+  padding: 8px 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.mei-runtime-control__raw textarea {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  resize: vertical;
+  padding: 12px;
+  font-family: var(--mei-shell-family-ui);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.mei-runtime-control__raw-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.mei-runtime-control__validation {
+  margin: 10px 0 0;
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__validation.is-valid {
+  color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-runtime-control__validation.is-invalid {
+  color: var(--mei-shell-color-banner-danger-border);
+}
+
+.mei-runtime-control__validation ul,
+.mei-runtime-control__preview ul {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.mei-runtime-control__plan-top {
+  justify-content: space-between;
+  padding: 10px 0 14px;
+}
+
+.mei-runtime-control__apps {
+  display: grid;
+  gap: 10px;
+}
+
+.mei-runtime-control__app-plan,
+.mei-runtime-control__preview,
+.mei-runtime-control__task {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 10px;
+  background: var(--mei-shell-color-card-bg);
+}
+
+.mei-runtime-control__app-plan > header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mei-runtime-control__rules {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mei-shell-color-border-slate);
+}
+
+.mei-runtime-control__rule-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(110px, 0.25fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.mei-runtime-control__icon-btn,
+.mei-runtime-control__add-btn {
+  min-height: 32px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mei-shell-color-text-body);
+  cursor: pointer;
+}
+
+.mei-runtime-control__add-btn {
+  justify-self: start;
+  padding: 5px 9px;
+}
+
+.mei-runtime-control__icon-btn:hover,
+.mei-runtime-control__add-btn:hover {
+  border-color: var(--mei-shell-color-accent);
+  color: var(--mei-shell-color-text-primary);
+}
+
+.mei-runtime-control__advanced {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--mei-shell-color-border-slate);
+}
+
+.mei-runtime-control__notice,
+.mei-runtime-control__empty {
+  margin: 8px 0;
+  color: var(--mei-shell-color-host-footer-text);
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__dry-run {
+  margin-top: 14px;
+}
+
+.mei-runtime-control__stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mei-runtime-control__stats > div {
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 75%, var(--mei-shell-color-shadow-deep));
+}
+
+.mei-runtime-control__stats dd {
+  margin-top: 4px;
+  font-size: var(--mei-shell-font-3);
+  font-weight: 700;
+}
+
+.mei-runtime-control__task.is-running {
+  border-color: var(--mei-shell-color-accent);
+}
+
+.mei-runtime-control__pulse {
+  width: 9px;
+  height: 9px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--mei-shell-color-accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--mei-shell-color-accent) 18%, transparent);
+}
+
+.mei-runtime-overflow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mei-runtime-overflow__preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mei-runtime-overflow__expand {
+  min-width: 24px;
+  min-height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--mei-shell-color-accent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mei-shell-color-text-primary);
+  cursor: pointer;
+}
+
+.mei-runtime-control__generation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mei-runtime-control__generation {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--mei-shell-color-border-slate);
+  border-radius: 10px;
+  background: var(--mei-shell-color-card-bg);
+}
+
+.mei-runtime-control__generation.is-active {
+  border-color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-runtime-control__generation > header,
+.mei-runtime-control__generation > header > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mei-runtime-control__generation > header {
+  justify-content: space-between;
+}
+
+.mei-runtime-control__generation > header .mei-host-shell__actions {
+  margin-top: 0;
+}
+
+.mei-runtime-control__generation dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 12px 0 0;
+}
+
+.mei-runtime-control__generation dl > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.mei-runtime-control__cleanup {
+  margin-top: 12px;
+}
+
+.mei-runtime-control__cleanup li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mei-runtime-control__danger-confirm {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--mei-shell-color-status-warn);
+}
+
+.mei-runtime-control__danger-confirm input {
+  min-height: auto;
+}
+
+.mei-runtime-control__diagnostic-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .mei-runtime-control__hero,
+  .mei-runtime-control__zone-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mei-runtime-control__version {
+    min-width: 0;
+  }
+
+  .mei-runtime-control__profile-meta,
+  .mei-runtime-control__rule-row,
+  .mei-runtime-control__generation dl,
+  .mei-runtime-control__diagnostic-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mei-runtime-control__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .mei-host-shell__mcg-toolbar {
   display: flex;
   flex-wrap: wrap;

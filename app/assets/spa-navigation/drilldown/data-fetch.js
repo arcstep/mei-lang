@@ -97,6 +97,15 @@
       detail?.host_scene_file,
       detail?.scene_path,
     );
+    const previewScope = nonEmptyString(
+      config?.previewScope,
+      config?.preview_scope,
+      detail?.preview_scope,
+      detail?._mei?.preview_scope,
+      config?.pageSceneId,
+      config?.boardSceneId,
+      sceneId,
+    );
     if (!appPath || !sceneId || !datasetId) {
       recordPopupDebugIssue({
         level: "error",
@@ -158,6 +167,7 @@
               active_scene_id: sceneId,
               active_target_file: target,
               entry_target: target,
+              preview_scope: previewScope,
             },
           },
           {

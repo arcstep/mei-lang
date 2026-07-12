@@ -108,6 +108,25 @@ function safeTrim(value) {
   return String(value ?? "").trim();
 }
 
+function runtimePreviewScope(props, element = null) {
+  const fromProps = safeTrim(
+    props?._mei?.preview_scope ||
+      props?._mei?.previewScope ||
+      props?.preview_scope ||
+      props?.previewScope,
+  );
+  if (fromProps) return fromProps;
+  if (typeof window === "undefined") return "";
+  const resolver = window.__meiLangBoot?.devEvalScopeFromElement;
+  return typeof resolver === "function" ? safeTrim(resolver(element)) : "";
+}
+
+function devEvalAllowsRuntimeQuery(props, element = null) {
+  if (typeof window === "undefined") return true;
+  const allows = window.__meiLangBoot?.devEvalAllowsRuntimeQuery;
+  return typeof allows !== "function" || allows(props, element);
+}
+
 export function runtimeCallerMeta(element, fallbackComponent = "") {
   const props = parseProps(element);
   const queryStateId = queryStateIdOf(props);
@@ -1351,6 +1370,9 @@ export function collectPanelRuntimeMetricIdsFromPanel(panel, anchorProps, queryS
   }
   panel.querySelectorAll("[data-props]").forEach((node) => {
     const candidateProps = parseProps(node);
+    if (!devEvalAllowsRuntimeQuery(candidateProps, node)) {
+      return;
+    }
     for (const candidateRef of collectRuntimeMetricRefsFromProps(candidateProps)) {
       if (!candidateRef?.dataset_id || !candidateRef?.metric_id) continue;
       if (safeTrim(candidateRef.dataset_id) !== safeTrim(runtimeRef.dataset_id)) continue;
@@ -1402,6 +1424,9 @@ function resolveMetricBatchPanel(element, props, queryStateId = "") {
 }
 
 function schedulePanelMetricBatch(panel, element, props, options = {}) {
+  if (!devEvalAllowsRuntimeQuery(props, element)) {
+    return Promise.resolve(null);
+  }
   const effectiveQueryStateId = String(options.queryStateId || queryStateIdOf(props) || "").trim();
   const batchKey = panelMetricBatchKey(
     panel,
@@ -1507,6 +1532,9 @@ export function prefetchPanelRuntimeMetrics(panel, anchor, props, options = {}) 
   if (!elementIsDisplayed(panel)) {
     return Promise.resolve(null);
   }
+  if (!devEvalAllowsRuntimeQuery(props, anchor)) {
+    return Promise.resolve(null);
+  }
   return schedulePanelMetricBatch(panel, anchor, props, {
     ...options,
     prefetchEager: true,
@@ -1540,6 +1568,9 @@ export function prefetchViewportRuntimeMetrics(root = document) {
         return;
       }
       const props = parseProps(node);
+      if (!devEvalAllowsRuntimeQuery(props, node)) {
+        return;
+      }
       const runtimeRefs = collectRuntimeMetricRefsFromProps(props);
       if (!runtimeRefs.length) {
         const runtimeRef = resolveRuntimeMetricRef(props);
@@ -4191,6 +4222,9 @@ export async function fetchSceneRuntimeMetricBatch(
     meta = {},
   } = {}
 ) {
+  if (!devEvalAllowsRuntimeQuery(props)) {
+    return null;
+  }
   const capability = metricBatchQueryCapabilityConfig(props);
   const api = capability.api;
   const normalizedGroups = normalizeSceneMetricBatchGroups(groups);
@@ -4221,6 +4255,7 @@ export async function fetchSceneRuntimeMetricBatch(
     : baseCoords;
   const basePayload = {
     ...coords,
+    preview_scope: runtimePreviewScope(props) || undefined,
     search: queryStatePayload.search || undefined,
     filters: queryStatePayload.filters,
     query_state: {
@@ -4371,6 +4406,9 @@ function scheduleSceneRuntimeMetricRequest(
     datasetId: explicitDatasetId = "",
   } = {}
 ) {
+  if (!devEvalAllowsRuntimeQuery(props)) {
+    return null;
+  }
   if (shouldPauseHomeRuntimeMetricFetch(props)) {
     return null;
   }
@@ -4655,6 +4693,9 @@ export async function fetchDatasetRows(
     meta = {},
   } = {}
 ) {
+  if (!devEvalAllowsRuntimeQuery(props)) {
+    return null;
+  }
   const capability = resolveDatasetQueryCapability(props);
   const api = capability.api;
   const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
@@ -4699,6 +4740,7 @@ export async function fetchDatasetRows(
   });
   const payload = {
     ...coords,
+    preview_scope: runtimePreviewScope(props) || undefined,
     dataset_id: datasetId,
     metric_id: metricId || undefined,
     page: normalizedPage,
@@ -4986,6 +5028,9 @@ export async function fetchRuntimeMetrics(
   if (isStaticSkeletonDisplay(props)) {
     return null;
   }
+  if (!devEvalAllowsRuntimeQuery(props)) {
+    return null;
+  }
   const capability = metricQueryCapabilityConfig(props);
   const api = capability.api;
   const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
@@ -5013,6 +5058,7 @@ export async function fetchRuntimeMetrics(
     : baseCoords;
   const payload = {
     ...coords,
+    preview_scope: runtimePreviewScope(props) || undefined,
     dataset_id: runtimeRef.dataset_id,
     metric_ids: [...ids].sort(),
     search: queryStatePayload.search || undefined,
@@ -5314,6 +5360,9 @@ export async function fetchPanelRuntimeMetrics(
     metricIds: explicitMetricIds = undefined,
   } = {}
 ) {
+  if (!devEvalAllowsRuntimeQuery(props, element)) {
+    return null;
+  }
   const resolvedQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
   const requestedMetricIds = normalizeExplicitMetricIds(explicitMetricIds);
   if (requestedMetricIds.length > 0) {

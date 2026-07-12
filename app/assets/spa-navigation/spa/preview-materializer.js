@@ -1157,6 +1157,37 @@
     };
   }
 
+  function propsWithPreviewScope(props, scopeKey) {
+    const scope = String(scopeKey || "").trim();
+    if (!scope) return props || {};
+    const next = { ...(props || {}) };
+    next._mei = {
+      ...(next._mei && typeof next._mei === "object" && !Array.isArray(next._mei)
+        ? next._mei
+        : {}),
+      preview_scope: scope,
+    };
+    return next;
+  }
+
+  function placeholderMountProps(mount, scopeKey) {
+    const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+    const role = String(rawProps.metric_role || rawProps.metricRole || "").trim();
+    const placeholder = boot.devEvalPlaceholderProps?.(mount) || {
+      content: "--",
+      text: "--",
+      value: "--",
+      "data-mei-dev-eval-placeholder": "1",
+    };
+    return propsWithPreviewScope(
+      {
+        ...(role ? { metric_role: role } : {}),
+        ...placeholder,
+      },
+      scopeKey,
+    );
+  }
+
 
   function isUnresolvedMeiRef(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -1708,7 +1739,7 @@
     }
   }
 
-  function ensureComponentHostChildren(host, mounts, sceneMountByMetric) {
+  function ensureComponentHostChildren(host, mounts, sceneMountByMetric, scopeKey, allowEval = true) {
     if (!(host instanceof HTMLElement)) return 0;
     let applied = 0;
     for (const mount of mounts || []) {
@@ -1723,10 +1754,17 @@
       const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
       const metricId = String(rawProps?.content?.id || rawProps?.content?.metric_id || "").trim();
       const sceneMount = metricId ? sceneMountByMetric?.get(metricId) : null;
-      const props = enrichRuntimeMetricRef(
-        enrichComposeComponentProps(rawProps),
-        sceneMount,
-      );
+      const allowMetric =
+        allowEval &&
+        (!metricId ||
+          typeof boot.devEvalAllowsMetric !== "function" ||
+          boot.devEvalAllowsMetric(metricId, scopeKey));
+      const props = allowMetric
+        ? propsWithPreviewScope(
+            enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount),
+            scopeKey,
+          )
+        : placeholderMountProps(mount, scopeKey);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
@@ -2957,6 +2995,13 @@
         const componentMounts = Array.isArray(entry?.component_mounts)
           ? entry.component_mounts
           : [];
+        const allowEval =
+          typeof boot.devEvalAllowsEvalScope !== "function" ||
+          boot.devEvalAllowsEvalScope(scopeKey);
+        if (!allowEval) {
+          container.setAttribute("data-mei-dev-eval-placeholder", "1");
+          container.setAttribute("data-mei-dev-eval-scope", scopeKey);
+        }
         const headScope = isSectionHeadScope(scopeKey);
         const slotLabel = resolveEvalSlotLabel(entry);
         const headChrome = entry?.head_chrome;
@@ -2977,7 +3022,13 @@
             host = ensureMetricCardComponentHost(container);
           }
           if (host instanceof HTMLElement) {
-            bound += ensureComponentHostChildren(host, filteredMounts, sceneMountByMetric);
+            bound += ensureComponentHostChildren(
+              host,
+              filteredMounts,
+              sceneMountByMetric,
+              scopeKey,
+              allowEval,
+            );
           }
           applyMetricCardShellFromMounts(container, filteredMounts);
         } else if (!componentMounts.length && isStackMetricEvalEntry(entry, container)) {
@@ -2994,10 +3045,16 @@
           const synthesized = buildSyntheticStackMetricMounts(
             slotLabel || structureLabel,
             entry?.content_kind,
-            inferSceneMountForScope(scopeKey, sceneMountByMetric),
+            allowEval ? inferSceneMountForScope(scopeKey, sceneMountByMetric) : null,
           );
           if (host instanceof HTMLElement) {
-            bound += ensureComponentHostChildren(host, synthesized, sceneMountByMetric);
+            bound += ensureComponentHostChildren(
+              host,
+              synthesized,
+              sceneMountByMetric,
+              scopeKey,
+              allowEval,
+            );
           }
           applyMetricCardShellFromMounts(container, synthesized);
         }
@@ -3005,10 +3062,27 @@
           applyPanelShellFromSlot(container, entry.panel_shell);
         }
         mounts.forEach((mount, index) => {
-          const props = enrichRuntimeMetricRef(
-            enrichComposeComponentProps(propsFromMount(mount)),
-            mount,
-          );
+          const mountMetricId = String(
+            mount?.metric_id ||
+              mount?.props?.metric_id ||
+              mount?.props?.content?.metric_id ||
+              mount?.props?.content?.id ||
+              "",
+          ).trim();
+          const allowMetric =
+            allowEval &&
+            (!mountMetricId ||
+              typeof boot.devEvalAllowsMetric !== "function" ||
+              boot.devEvalAllowsMetric(mountMetricId, scopeKey));
+          const props = allowMetric
+            ? propsWithPreviewScope(
+                enrichRuntimeMetricRef(
+                  enrichComposeComponentProps(propsFromMount(mount)),
+                  mount,
+                ),
+                scopeKey,
+              )
+            : placeholderMountProps(mount, scopeKey);
           const host = findHostForMount(root, mount, scopeKey, useKeys, index, container);
           if (host instanceof HTMLElement) {
             applyPropsToHost(host, props);
@@ -3066,6 +3140,7 @@
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
+    applyDevEvalPlaceholders(root);
     if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
     boot.renderPipelineMark?.("bind_eval_slots:end", {
       bound,
@@ -3074,6 +3149,38 @@
       ),
     });
     return bound > 0;
+  }
+
+  function applyDevEvalPlaceholders(root) {
+    if (!(root instanceof HTMLElement)) return;
+    if (typeof boot.devEvalAllowsPreviewScope !== "function") return;
+    const config = boot.devEvalReadConfig?.() || {};
+    if (config.profile === "full") return;
+    root.querySelectorAll("[data-preview-scope], [data-mei-preview-scope]").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      const scope =
+        el.getAttribute("data-preview-scope") ||
+        el.getAttribute("data-mei-preview-scope") ||
+        "";
+      if (!scope || boot.devEvalAllowsPreviewScope(scope)) return;
+      el.setAttribute("data-mei-dev-eval-placeholder", "1");
+      el.querySelectorAll(".component-host, [data-props], mei-text, .mei-text").forEach((host) => {
+        if (!(host instanceof HTMLElement)) return;
+        const ownerScope = host.closest("[data-preview-scope], [data-mei-preview-scope]");
+        if (ownerScope !== el) return;
+        host.setAttribute("data-mei-dev-eval-placeholder", "1");
+        if (!host.getAttribute("data-props")) {
+          host.setAttribute(
+            "data-props",
+            JSON.stringify(boot.devEvalPlaceholderProps?.({}) || { text: "--", value: "--" }),
+          );
+        }
+        if (/mei-text|metric|label|value/i.test(host.tagName + host.className)) {
+          const text = String(host.textContent || "").trim();
+          if (!text || text === "—" || text === "-") host.textContent = "--";
+        }
+      });
+    });
   }
 
   function normalizeMapStageHintPointerEvents(root) {

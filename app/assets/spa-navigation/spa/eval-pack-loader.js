@@ -170,6 +170,14 @@
     const appId = ctx?.appId;
     const sceneId = ctx?.sceneId || "home";
     if (!appId) throw new Error("eval pack requires appId");
+    const scopeHint = String(opts.scope || opts.fingerprint || sceneId || "").trim();
+    if (
+      typeof boot.devEvalShouldFetchEvalPack === "function" &&
+      !boot.devEvalShouldFetchEvalPack(scopeHint)
+    ) {
+      boot.renderPipelineMark?.("eval_pack:skip_dev_scope", { scope: scopeHint });
+      return { skipped: true, reason: "dev_eval_scope" };
+    }
     const params = new URLSearchParams({
       app: appId,
       scene: sceneId,
@@ -279,6 +287,7 @@
   async function ensureEvalPackSeeded(ctx, revision, options) {
     const opts = options || {};
     const payload = await ensureEvalPackPayload(ctx, revision || {}, options);
+    if (payload?.skipped) return 0;
     const count = seedEvalPackRuntimeCache();
     // Neighbor scope warmup must not compete with cold-start critical path.
     if (opts.prefetchNeighbors !== false) {
@@ -321,7 +330,9 @@
       fingerprint,
       neighborHops,
       revision: {},
+      scope: ctx?.sceneId || fingerprint,
     });
+    if (payload?.skipped) return 0;
     global.__meiEvalPackSource = fingerprint ? "jit" : "eval_pack_api";
     return seedEvalPackRuntimeCache();
   }

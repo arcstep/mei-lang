@@ -157,6 +157,23 @@ apply_workspace_deploy_env() {
   elif [[ -z "${MEI_APP:-}" ]]; then
     export MEI_APP="data-demo"
   fi
+
+  # deploy.devEval → MEI_DEV_EVAL_*（CLI/环境变量已显式设置时不覆盖）
+  if command -v jq >/dev/null 2>&1 && [[ -f "${config_file}" ]]; then
+    local dev_profile dev_eval_scopes dev_warmup_scopes
+    dev_profile="$(jq -r '.deploy.devEval.profile // empty' "${config_file}" 2>/dev/null || true)"
+    dev_eval_scopes="$(jq -r '(.deploy.devEval.evalScopes // .deploy.devEval.scopes // []) | join(",")' "${config_file}" 2>/dev/null || true)"
+    dev_warmup_scopes="$(jq -r '(.deploy.devEval.warmupScopes // []) | join(",")' "${config_file}" 2>/dev/null || true)"
+    if [[ -n "${dev_profile}" && -z "${MEI_DEV_EVAL_PROFILE:-}" ]]; then
+      export MEI_DEV_EVAL_PROFILE="${dev_profile}"
+    fi
+    if [[ -n "${dev_eval_scopes}" && -z "${MEI_EVAL_SCOPE:-}" ]]; then
+      export MEI_EVAL_SCOPE="${dev_eval_scopes}"
+    fi
+    if [[ -n "${dev_warmup_scopes}" && -z "${MEI_WARMUP_SCOPE:-}" ]]; then
+      export MEI_WARMUP_SCOPE="${dev_warmup_scopes}"
+    fi
+  fi
 }
 
 runtime_json_path() {
@@ -412,6 +429,7 @@ run_workspace_serve() {
   background="${MEI_SERVE_BACKGROUND:-0}"
   warmup_policy="${MEI_WARMUP_POLICY:-home}"
   auth_flag=""
+  app="${MEI_APP:-}"
   if [[ "${MEI_AUTH:-0}" == "1" ]]; then
     auth_flag="--auth"
   fi
@@ -423,6 +441,8 @@ run_workspace_serve() {
       --prebuild-first) prebuild_before_serve=1; shift ;;
       --background) background=1; shift ;;
       --auth) auth_flag="--auth"; shift ;;
+      --app) app="$2"; shift 2 ;;
+      --app=*) app="${1#*=}"; shift ;;
       --config) DEPLOY_CONFIG_ARG="$2"; shift 2 ;;
       --config=*) DEPLOY_CONFIG_ARG="${1#*=}"; shift ;;
       --port) port="$2"; shift 2 ;;
@@ -444,18 +464,22 @@ run_workspace_serve() {
   apply_runtime_env_from_flags
   export MEI_PROFILE="${PROFILE}" MEI_SOURCE="${SOURCE}" MEI_RUNTIME="${RUNTIME}"
 
-  if declare -F apply_workspace_deploy_env >/dev/null 2>&1; then
-    apply_workspace_deploy_env "${workspace_root}"
+  if [[ -n "${app}" ]]; then
+    export MEI_APP="${app}"
+  else
+    unset MEI_APP
   fi
-  app="${MEI_APP:-data-demo}"
-  export MEI_APP
 
   ensure_runtime_binaries "${workspace_root}"
 
   local state_dir="${workspace_root}/deploy/state"
   mkdir -p "${state_dir}"
 
-  if [[ "${skip_prebuild}" -eq 1 ]]; then
+  if [[ -z "${app}" ]]; then
+    prebuild_before_serve=0
+    unset MEI_SERVE_EARLY_BIND MEI_DEFER_WARMUP_TO_PREBUILD
+    echo "==> control-plane first boot — prebuild is deferred until profile apply"
+  elif [[ "${skip_prebuild}" -eq 1 ]]; then
     prebuild_before_serve=0
   elif [[ "${prebuild_before_serve}" -eq 1 ]]; then
     export MEI_SERVE_EARLY_BIND=0
@@ -470,7 +494,7 @@ run_workspace_serve() {
       MEI_WORKSPACE_CONFIG="${MEI_WORKSPACE_CONFIG:-}" \
       "${deploy_dir}/prebuild.sh" "${prebuild_args[@]}"
     echo ""
-  else
+  elif [[ -n "${app}" ]]; then
     echo "==> prebuild deferred — host binds first; warmup logs stream below"
     echo "    (also saved: deploy/state/prebuild.log)"
     export MEI_SERVE_EARLY_BIND=1
@@ -488,10 +512,16 @@ run_workspace_serve() {
     echo $! >"${state_dir}/prebuild.pid"
   fi
 
-  local url="http://${host}:${port}/apps/app/${app}/scene/home"
+  local url="http://${host}:${port}/runtime"
+  if [[ -n "${app}" ]]; then
+    url="http://${host}:${port}/apps/app/${app}/scene/home"
+  fi
   echo "Workspace: ${workspace_root}"
-  if [[ -n "${MEI_WORKSPACE_CONFIG:-}" ]]; then
-    echo "Config:    ${MEI_WORKSPACE_CONFIG}"
+  if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
+    echo "Config:    ${DEPLOY_CONFIG_ARG}"
+  fi
+  if [[ -n "${MEI_DEV_EVAL_PROFILE:-}" ]]; then
+    echo "DevEval:   profile=${MEI_DEV_EVAL_PROFILE} eval=${MEI_EVAL_SCOPE:-} warmup=${MEI_WARMUP_SCOPE:-}"
   fi
   print_runtime_banner "${workspace_root}"
   if [[ -n "${MEI_PLUG_DS_URL:-}" ]]; then
@@ -504,6 +534,24 @@ run_workspace_serve() {
   echo ""
 
   local host_pid_file="${state_dir}/host.pid"
+  local dev_eval_args=()
+  local app_args=()
+  local workspace_config_args=()
+  if [[ -n "${app}" ]]; then
+    app_args+=(--app "${app}")
+  fi
+  if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
+    workspace_config_args+=(--workspace-config "${DEPLOY_CONFIG_ARG}")
+  fi
+  if [[ -n "${MEI_DEV_EVAL_PROFILE:-}" ]]; then
+    dev_eval_args+=(--dev-eval-profile "${MEI_DEV_EVAL_PROFILE}")
+  fi
+  if [[ -n "${MEI_EVAL_SCOPE:-}" ]]; then
+    dev_eval_args+=(--eval-scope "${MEI_EVAL_SCOPE}")
+  fi
+  if [[ -n "${MEI_WARMUP_SCOPE:-}" ]]; then
+    dev_eval_args+=(--warmup-scope "${MEI_WARMUP_SCOPE}")
+  fi
 
   if [[ "${background}" -eq 1 ]]; then
     nohup bash -c "
@@ -511,11 +559,14 @@ run_workspace_serve() {
       PROFILE='${PROFILE}'
       SOURCE='${SOURCE}'
       apply_runtime_env_from_flags
-      export MEI_WORKSPACE_CONFIG='${MEI_WORKSPACE_CONFIG:-}'
       export MEI_APP='${app}'
+      export MEI_DEV_EVAL_PROFILE='${MEI_DEV_EVAL_PROFILE:-}'
+      export MEI_EVAL_SCOPE='${MEI_EVAL_SCOPE:-}'
+      export MEI_WARMUP_SCOPE='${MEI_WARMUP_SCOPE:-}'
       run_mei_host_shell '${workspace_root}' \
-        serve --workspace '${workspace_root}' --app '${app}' \
-        --host '${host}' --port '${port}' ${auth_flag} $*
+        serve --workspace '${workspace_root}' \
+        $(printf '%q ' "${app_args[@]}") $(printf '%q ' "${workspace_config_args[@]}") \
+        --host '${host}' --port '${port}' ${auth_flag} $(printf '%q ' "${dev_eval_args[@]}") $*
     " >"${state_dir}/host.log" 2>&1 &
     echo $! >"${host_pid_file}"
     echo "host-shell pid=$(cat "${host_pid_file}") log=deploy/state/host.log"
@@ -523,8 +574,8 @@ run_workspace_serve() {
   fi
 
   run_mei_host_shell "${workspace_root}" \
-    serve --workspace "${workspace_root}" --app "${app}" \
-    --host "${host}" --port "${port}" ${auth_flag} "$@"
+    serve --workspace "${workspace_root}" "${app_args[@]}" "${workspace_config_args[@]}" \
+    --host "${host}" --port "${port}" ${auth_flag} "${dev_eval_args[@]}" "$@"
 }
 
 emit_deploy_status_banner() {

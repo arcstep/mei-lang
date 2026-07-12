@@ -341,6 +341,15 @@
     const previewAnchor = config?.previewCompileAnchor;
     const resolvedSceneId = nonEmptyString(previewAnchor?.sceneId, sceneId);
     const resolvedScenePath = nonEmptyString(previewAnchor?.scenePath, ownerScenePath);
+    const previewScope = nonEmptyString(
+      config?.previewScope,
+      config?.preview_scope,
+      detail?.preview_scope,
+      detail?._mei?.preview_scope,
+      config?.pageSceneId,
+      config?.boardSceneId,
+      resolvedSceneId,
+    );
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -465,6 +474,7 @@
         active_scene_id: resolvedSceneId,
         active_target_file: resolvedScenePath,
         entry_target: resolvedScenePath,
+        preview_scope: previewScope,
       },
       query_state: queryStateId || undefined,
     };

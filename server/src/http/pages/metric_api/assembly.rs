@@ -119,6 +119,8 @@ pub struct MetricQueryRequest {
     #[serde(default)]
     pub target: Option<String>,
     #[serde(default)]
+    pub preview_scope: Option<String>,
+    #[serde(default)]
     pub dataset_id: String,
     #[serde(default)]
     pub metric_ids: Vec<String>,

@@ -86,6 +86,42 @@ pub async fn dataset_metric_api(
         .filter(|value| !value.is_empty())
         .unwrap_or("-");
     let request_groups = normalize_metric_query_groups(&request)?;
+    let dev_eval_gate = mei_lang_kernel::RuntimeDevEvalGate::resolve_for_app(
+        state.source_root.as_path(),
+        app_id.as_str(),
+    );
+    let metric_ids = request_groups
+        .iter()
+        .flat_map(|group| group.metric_ids.iter().cloned())
+        .collect::<Vec<_>>();
+    let decisions = if metric_ids.is_empty() {
+        vec![dev_eval_gate.decide_scope(request.preview_scope.as_deref())]
+    } else {
+        metric_ids
+            .iter()
+            .map(|metric_id| {
+                dev_eval_gate
+                    .decide_metric(Some(metric_id.as_str()), request.preview_scope.as_deref())
+            })
+            .collect::<Vec<_>>()
+    };
+    if let Some(dev_eval_decision) = decisions.iter().find(|decision| !decision.accepted) {
+        tracing::warn!(
+            profile = dev_eval_gate.profile.slug(),
+            preview_scope = request.preview_scope.as_deref().unwrap_or("-"),
+            metric_ids = %metric_ids.join(","),
+            reason = dev_eval_decision.reason,
+            "metric query rejected by dev eval gate"
+        );
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            format!(
+                "metric query rejected by dev eval gate: reason={} preview_scope={}",
+                dev_eval_decision.reason,
+                request.preview_scope.as_deref().unwrap_or("-")
+            ),
+        ));
+    }
     let request_group_count = request_groups.len();
     let requested_dataset_id = if request_group_count > 1 {
         format!("batch:{request_group_count}")

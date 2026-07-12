@@ -1474,6 +1474,127 @@
 })();
 
 
+/* ===== host-runtime-events.js ===== */
+/**
+ * Bounded host-control SSE client shared by Runtime and Access surfaces.
+ * EventSource reconnects automatically; session-scoped dedupe prevents reload loops.
+ */
+(function (global) {
+  "use strict";
+
+  const EVENTS_API = "/api/host/events";
+  const RELOAD_KEY_PREFIX = "mei:host-event-applied:v1:";
+
+  function currentAppId() {
+    const parsed = global.__mei?.view_revision_envelope?.app_id;
+    if (parsed) return String(parsed);
+    const match = global.location?.pathname?.match(/^\/apps\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function eventPayload(event) {
+    try {
+      const envelope = JSON.parse(event.data || "{}");
+      return envelope && typeof envelope.payload === "object" ? envelope.payload : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function appliesToCurrentApp(payload) {
+    const appId = currentAppId();
+    if (!appId) return false;
+    if (payload.appId) return payload.appId === appId;
+    return Array.isArray(payload.apps) && payload.apps.includes(appId);
+  }
+
+  function applyToken(payload) {
+    const appId = currentAppId();
+    if (payload.profileId || payload.profileRevision) {
+      return [appId, payload.profileId || "", payload.profileRevision || ""].join(":");
+    }
+    return [appId, payload.revision || "", payload.envVersion || ""].join(":");
+  }
+
+  function claimApplyEvent(payload) {
+    const token = applyToken(payload);
+    if (!token || /^:*$/u.test(token)) return false;
+    const key = `${RELOAD_KEY_PREFIX}${token}`;
+    try {
+      if (global.sessionStorage.getItem(key) === "1") return false;
+      global.sessionStorage.setItem(key, "1");
+    } catch (_error) {
+      // Storage can be unavailable in privacy modes. The in-memory token still
+      // protects this page lifetime.
+      if (claimApplyEvent.memory === token) return false;
+      claimApplyEvent.memory = token;
+    }
+    return true;
+  }
+
+  async function refreshAccess(payload) {
+    if (!appliesToCurrentApp(payload) || !claimApplyEvent(payload)) return;
+    if (payload.runtimePlan && typeof payload.runtimePlan === "object") {
+      global.__mei = global.__mei || {};
+      global.__mei.dev_eval = {
+        ...(global.__mei.dev_eval || {}),
+        runtimePlan: payload.runtimePlan,
+        appId: currentAppId(),
+      };
+    }
+    const boot = global.__meiLangBoot;
+    if (typeof boot?.tryCacheFirstViewRestore === "function") {
+      try {
+        const result = await boot.tryCacheFirstViewRestore(global.location.href, {
+          forceRematerialize: true,
+          skipRemoteWhenValid: false,
+        });
+        if (result?.restored) return;
+      } catch (error) {
+        console.warn("[host-events] view revision reassembly failed", error);
+      }
+    }
+    global.setTimeout(() => global.location.reload(), 120);
+  }
+
+  function dispatch(eventType, event) {
+    const payload = eventPayload(event);
+    global.dispatchEvent(
+      new CustomEvent("mei:host-event", {
+        detail: { type: eventType, payload },
+      }),
+    );
+    if (eventType === "profile-applied" || eventType === "revision-published") {
+      void refreshAccess(payload);
+    }
+  }
+
+  function connect() {
+    if (typeof global.EventSource !== "function") return null;
+    const source = new global.EventSource(EVENTS_API);
+    for (const type of [
+      "job-phase",
+      "profile-applied",
+      "revision-published",
+      "generation-activated",
+      "generation-rolled-back",
+    ]) {
+      source.addEventListener(type, (event) => dispatch(type, event));
+    }
+    return source;
+  }
+
+  global.MeiHostRuntimeEvents = {
+    appliesToCurrentApp,
+    applyToken,
+    claimApplyEvent,
+    connect,
+  };
+
+  connect();
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== frame-stage/preamble.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -16778,6 +16899,15 @@
       detail?.host_scene_file,
       detail?.scene_path,
     );
+    const previewScope = nonEmptyString(
+      config?.previewScope,
+      config?.preview_scope,
+      detail?.preview_scope,
+      detail?._mei?.preview_scope,
+      config?.pageSceneId,
+      config?.boardSceneId,
+      sceneId,
+    );
     if (!appPath || !sceneId || !datasetId) {
       recordPopupDebugIssue({
         level: "error",
@@ -16839,6 +16969,7 @@
               active_scene_id: sceneId,
               active_target_file: target,
               entry_target: target,
+              preview_scope: previewScope,
             },
           },
           {
@@ -17677,6 +17808,15 @@
     const previewAnchor = config?.previewCompileAnchor;
     const resolvedSceneId = nonEmptyString(previewAnchor?.sceneId, sceneId);
     const resolvedScenePath = nonEmptyString(previewAnchor?.scenePath, ownerScenePath);
+    const previewScope = nonEmptyString(
+      config?.previewScope,
+      config?.preview_scope,
+      detail?.preview_scope,
+      detail?._mei?.preview_scope,
+      config?.pageSceneId,
+      config?.boardSceneId,
+      resolvedSceneId,
+    );
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -17801,6 +17941,7 @@
         active_scene_id: resolvedSceneId,
         active_target_file: resolvedScenePath,
         entry_target: resolvedScenePath,
+        preview_scope: previewScope,
       },
       query_state: queryStateId || undefined,
     };
@@ -32487,6 +32628,254 @@
 })(typeof window !== "undefined" ? window : globalThis);
 
 
+/* ===== spa-navigation/spa/dev-eval-scope.js ===== */
+/**
+ * Development selective eval / warmup scope (0535).
+ * Reads window.__mei.dev_eval injected by host-shell.
+ *
+ * 双集合：
+ * - warmupScopes：允许预热的 scope 前缀（仅服务端使用；客户端用于诊断展示）
+ * - evalScopes：允许客户端动态求值（bind / eval-pack）的 scope 前缀
+ * 向后兼容：旧 `scopes` 字段回退为 evalScopes。
+ */
+(function initDevEvalScope(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function readConfig() {
+    const raw = global.__mei?.dev_eval;
+    if (!raw || typeof raw !== "object") {
+      return {
+        profile: "full",
+        warmupScopes: [],
+        evalScopes: [],
+        fill: "placeholder",
+        runtimePlan: null,
+        appId: "",
+      };
+    }
+    const profile = String(raw.profile || "full").trim().toLowerCase() || "full";
+    const normalize = (list) =>
+      Array.isArray(list)
+        ? list
+            .map((value) => String(value || "").trim().replace(/^\/+|\/+$/g, ""))
+            .filter(Boolean)
+        : [];
+    let evalScopes = normalize(raw.evalScopes);
+    if (!evalScopes.length) {
+      evalScopes = normalize(raw.scopes);
+    }
+    return {
+      profile,
+      warmupScopes: normalize(raw.warmupScopes),
+      evalScopes,
+      fill: String(raw.fill || "placeholder").trim() || "placeholder",
+      runtimePlan:
+        raw.runtimePlan && typeof raw.runtimePlan === "object" ? raw.runtimePlan : null,
+      appId: String(raw.appId || global.__mei?.view_revision_envelope?.app_id || ""),
+    };
+  }
+
+  function normalizeScope(value) {
+    return String(value || "")
+      .trim()
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/^(content:|scope:)/i, "");
+  }
+
+  function scopeMatches(previewScope, prefixes) {
+    const scope = normalizeScope(previewScope);
+    if (!scope) return false;
+    if (scope === "scene:default") {
+      return prefixes.some((prefix) => prefix === "scene:default" || prefix === "*");
+    }
+    return prefixes.some((prefix) => {
+      const needle = normalizeScope(prefix);
+      if (!needle || needle === "*") return true;
+      return scope === needle || scope.startsWith(`${needle}/`);
+    });
+  }
+
+  function runtimePlanApp(config) {
+    const plan = config.runtimePlan;
+    if (!plan) return null;
+    return plan.apps?.[config.appId] && typeof plan.apps[config.appId] === "object"
+      ? plan.apps[config.appId]
+      : plan.apps?.["*"];
+  }
+
+  function runtimeMode(previewScope) {
+    const config = readConfig();
+    const plan = config.runtimePlan;
+    if (!plan) return null;
+    const app = runtimePlanApp(config);
+    const scope = normalizeScope(previewScope);
+    let selected = {
+      specificity: 0,
+      mode: String(plan.defaultMode || "hot").toLowerCase(),
+    };
+    for (const target of Array.isArray(app?.targets) ? app.targets : []) {
+      const prefix = normalizeScope(target?.scope);
+      if (
+        prefix === "*" ||
+        scope === prefix ||
+        (prefix && scope.startsWith(`${prefix}/`))
+      ) {
+        if (prefix.length >= selected.specificity) {
+          selected = {
+            specificity: prefix.length,
+            mode: String(target?.mode || selected.mode).toLowerCase(),
+          };
+        }
+      }
+    }
+    return selected.mode;
+  }
+
+  function runtimeMetricMode(metricId, previewScope) {
+    const config = readConfig();
+    const app = runtimePlanApp(config);
+    const id = String(metricId || "").trim();
+    const override = id ? String(app?.metricOverrides?.[id] || "").toLowerCase() : "";
+    if (override === "hot" || override === "lazy" || override === "frozen") {
+      return override;
+    }
+    return runtimeMode(previewScope);
+  }
+
+  function allowsMetric(metricId, previewScope) {
+    const mode = runtimeMetricMode(metricId, previewScope);
+    if (mode === "hot") return true;
+    if (mode === "frozen") return false;
+    if (mode === "lazy") {
+      // A lazy metric is materialized only when the user explicitly enters a
+      // lazy target (for example a secondary stage/drilldown), never merely
+      // because it shares a hot section with another metric.
+      return runtimeMode(previewScope) === "lazy";
+    }
+    return allowsEvalScope(previewScope);
+  }
+
+  function allowsEvalScope(previewScope) {
+    const config = readConfig();
+    const mode = runtimeMode(previewScope);
+    if (mode) return mode !== "frozen";
+    if (config.profile === "full") return true;
+    if (config.profile === "static" || config.profile === "off") return false;
+    if (config.profile === "scoped") {
+      if (!config.evalScopes.length) return false;
+      return scopeMatches(previewScope, config.evalScopes);
+    }
+    return true;
+  }
+
+  function allowsWarmupScope(previewScope) {
+    const config = readConfig();
+    const mode = runtimeMode(previewScope);
+    if (mode) return mode === "hot";
+    if (config.profile === "full") return true;
+    if (config.profile === "static" || config.profile === "off") return false;
+    if (config.profile === "scoped") {
+      if (!config.warmupScopes.length) return false;
+      return scopeMatches(previewScope, config.warmupScopes);
+    }
+    return true;
+  }
+
+  function shouldFetchEvalPack(scopeKey) {
+    const config = readConfig();
+    const mode = runtimeMode(scopeKey || "");
+    if (mode) return mode !== "frozen";
+    if (config.profile === "static" || config.profile === "off") return false;
+    if (config.profile === "full") return true;
+    return allowsEvalScope(scopeKey || "");
+  }
+
+  function placeholderPropsForMount(mount) {
+    const kind = String(mount?.kind || mount?.component || mount?.use_key || "").toLowerCase();
+    if (kind.includes("chart") || kind.includes("echarts")) {
+      return {
+        option: {
+          animation: false,
+          xAxis: { type: "category", data: ["A", "B", "C"] },
+          yAxis: { type: "value" },
+          series: [{ type: "bar", data: [3, 5, 2] }],
+        },
+        "data-mei-dev-eval-placeholder": "1",
+      };
+    }
+    if (kind.includes("map") || kind.includes("maplibre")) {
+      return { "data-mei-dev-eval-placeholder": "1" };
+    }
+    return {
+      content: "--",
+      text: "--",
+      value: "--",
+      label: "--",
+      "data-mei-dev-eval-placeholder": "1",
+    };
+  }
+
+  function scopeFromProps(props) {
+    return normalizeScope(
+      props?._mei?.preview_scope ||
+        props?._mei?.previewScope ||
+        props?.preview_scope ||
+        props?.previewScope ||
+        "",
+    );
+  }
+
+  function scopeFromElement(element) {
+    if (!(element instanceof Element)) return "";
+    const scoped = element.closest("[data-preview-scope], [data-mei-preview-scope]");
+    return normalizeScope(
+      scoped?.getAttribute("data-preview-scope") ||
+        scoped?.getAttribute("data-mei-preview-scope") ||
+        "",
+    );
+  }
+
+  function metricIdsFromProps(props) {
+    const content = props?.content && typeof props.content === "object" ? props.content : null;
+    return [
+      props?.metric_id,
+      props?.metricId,
+      props?.__mei_runtime_ref?.metric_id,
+      content?.__mei_runtime_ref?.metric_id,
+      content?.metric_id,
+      content?.__ref === "metric" ? content?.id : "",
+    ]
+      .map((value) => String(value || "").trim())
+      .filter((value, index, values) => value && values.indexOf(value) === index);
+  }
+
+  function allowsRuntimeQuery(props, element) {
+    const config = readConfig();
+    const scope = scopeFromProps(props) || scopeFromElement(element);
+    const metricIds = metricIdsFromProps(props);
+    if (config.runtimePlan && metricIds.length) {
+      return metricIds.every((metricId) => allowsMetric(metricId, scope));
+    }
+    if (config.profile === "full") return true;
+    return allowsEvalScope(scope);
+  }
+
+  boot.devEvalReadConfig = readConfig;
+  boot.devEvalAllowsPreviewScope = allowsEvalScope; // 向后兼容别名
+  boot.devEvalAllowsEvalScope = allowsEvalScope;
+  boot.devEvalRuntimeMetricMode = runtimeMetricMode;
+  boot.devEvalAllowsMetric = allowsMetric;
+  boot.devEvalAllowsWarmupScope = allowsWarmupScope;
+  boot.devEvalShouldFetchEvalPack = shouldFetchEvalPack;
+  boot.devEvalPlaceholderProps = placeholderPropsForMount;
+  boot.devEvalScopeFromProps = scopeFromProps;
+  boot.devEvalScopeFromElement = scopeFromElement;
+  boot.devEvalAllowsRuntimeQuery = allowsRuntimeQuery;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/spa/view-revision-client.js ===== */
 /**
  * Client view-revision negotiation: revision-first layer assembly gate.
@@ -35250,6 +35639,37 @@
     };
   }
 
+  function propsWithPreviewScope(props, scopeKey) {
+    const scope = String(scopeKey || "").trim();
+    if (!scope) return props || {};
+    const next = { ...(props || {}) };
+    next._mei = {
+      ...(next._mei && typeof next._mei === "object" && !Array.isArray(next._mei)
+        ? next._mei
+        : {}),
+      preview_scope: scope,
+    };
+    return next;
+  }
+
+  function placeholderMountProps(mount, scopeKey) {
+    const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+    const role = String(rawProps.metric_role || rawProps.metricRole || "").trim();
+    const placeholder = boot.devEvalPlaceholderProps?.(mount) || {
+      content: "--",
+      text: "--",
+      value: "--",
+      "data-mei-dev-eval-placeholder": "1",
+    };
+    return propsWithPreviewScope(
+      {
+        ...(role ? { metric_role: role } : {}),
+        ...placeholder,
+      },
+      scopeKey,
+    );
+  }
+
 
   function isUnresolvedMeiRef(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -35801,7 +36221,7 @@
     }
   }
 
-  function ensureComponentHostChildren(host, mounts, sceneMountByMetric) {
+  function ensureComponentHostChildren(host, mounts, sceneMountByMetric, scopeKey, allowEval = true) {
     if (!(host instanceof HTMLElement)) return 0;
     let applied = 0;
     for (const mount of mounts || []) {
@@ -35816,10 +36236,17 @@
       const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
       const metricId = String(rawProps?.content?.id || rawProps?.content?.metric_id || "").trim();
       const sceneMount = metricId ? sceneMountByMetric?.get(metricId) : null;
-      const props = enrichRuntimeMetricRef(
-        enrichComposeComponentProps(rawProps),
-        sceneMount,
-      );
+      const allowMetric =
+        allowEval &&
+        (!metricId ||
+          typeof boot.devEvalAllowsMetric !== "function" ||
+          boot.devEvalAllowsMetric(metricId, scopeKey));
+      const props = allowMetric
+        ? propsWithPreviewScope(
+            enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount),
+            scopeKey,
+          )
+        : placeholderMountProps(mount, scopeKey);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
@@ -37050,6 +37477,13 @@
         const componentMounts = Array.isArray(entry?.component_mounts)
           ? entry.component_mounts
           : [];
+        const allowEval =
+          typeof boot.devEvalAllowsEvalScope !== "function" ||
+          boot.devEvalAllowsEvalScope(scopeKey);
+        if (!allowEval) {
+          container.setAttribute("data-mei-dev-eval-placeholder", "1");
+          container.setAttribute("data-mei-dev-eval-scope", scopeKey);
+        }
         const headScope = isSectionHeadScope(scopeKey);
         const slotLabel = resolveEvalSlotLabel(entry);
         const headChrome = entry?.head_chrome;
@@ -37070,7 +37504,13 @@
             host = ensureMetricCardComponentHost(container);
           }
           if (host instanceof HTMLElement) {
-            bound += ensureComponentHostChildren(host, filteredMounts, sceneMountByMetric);
+            bound += ensureComponentHostChildren(
+              host,
+              filteredMounts,
+              sceneMountByMetric,
+              scopeKey,
+              allowEval,
+            );
           }
           applyMetricCardShellFromMounts(container, filteredMounts);
         } else if (!componentMounts.length && isStackMetricEvalEntry(entry, container)) {
@@ -37087,10 +37527,16 @@
           const synthesized = buildSyntheticStackMetricMounts(
             slotLabel || structureLabel,
             entry?.content_kind,
-            inferSceneMountForScope(scopeKey, sceneMountByMetric),
+            allowEval ? inferSceneMountForScope(scopeKey, sceneMountByMetric) : null,
           );
           if (host instanceof HTMLElement) {
-            bound += ensureComponentHostChildren(host, synthesized, sceneMountByMetric);
+            bound += ensureComponentHostChildren(
+              host,
+              synthesized,
+              sceneMountByMetric,
+              scopeKey,
+              allowEval,
+            );
           }
           applyMetricCardShellFromMounts(container, synthesized);
         }
@@ -37098,10 +37544,27 @@
           applyPanelShellFromSlot(container, entry.panel_shell);
         }
         mounts.forEach((mount, index) => {
-          const props = enrichRuntimeMetricRef(
-            enrichComposeComponentProps(propsFromMount(mount)),
-            mount,
-          );
+          const mountMetricId = String(
+            mount?.metric_id ||
+              mount?.props?.metric_id ||
+              mount?.props?.content?.metric_id ||
+              mount?.props?.content?.id ||
+              "",
+          ).trim();
+          const allowMetric =
+            allowEval &&
+            (!mountMetricId ||
+              typeof boot.devEvalAllowsMetric !== "function" ||
+              boot.devEvalAllowsMetric(mountMetricId, scopeKey));
+          const props = allowMetric
+            ? propsWithPreviewScope(
+                enrichRuntimeMetricRef(
+                  enrichComposeComponentProps(propsFromMount(mount)),
+                  mount,
+                ),
+                scopeKey,
+              )
+            : placeholderMountProps(mount, scopeKey);
           const host = findHostForMount(root, mount, scopeKey, useKeys, index, container);
           if (host instanceof HTMLElement) {
             applyPropsToHost(host, props);
@@ -37159,6 +37622,7 @@
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
+    applyDevEvalPlaceholders(root);
     if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
     boot.renderPipelineMark?.("bind_eval_slots:end", {
       bound,
@@ -37167,6 +37631,38 @@
       ),
     });
     return bound > 0;
+  }
+
+  function applyDevEvalPlaceholders(root) {
+    if (!(root instanceof HTMLElement)) return;
+    if (typeof boot.devEvalAllowsPreviewScope !== "function") return;
+    const config = boot.devEvalReadConfig?.() || {};
+    if (config.profile === "full") return;
+    root.querySelectorAll("[data-preview-scope], [data-mei-preview-scope]").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      const scope =
+        el.getAttribute("data-preview-scope") ||
+        el.getAttribute("data-mei-preview-scope") ||
+        "";
+      if (!scope || boot.devEvalAllowsPreviewScope(scope)) return;
+      el.setAttribute("data-mei-dev-eval-placeholder", "1");
+      el.querySelectorAll(".component-host, [data-props], mei-text, .mei-text").forEach((host) => {
+        if (!(host instanceof HTMLElement)) return;
+        const ownerScope = host.closest("[data-preview-scope], [data-mei-preview-scope]");
+        if (ownerScope !== el) return;
+        host.setAttribute("data-mei-dev-eval-placeholder", "1");
+        if (!host.getAttribute("data-props")) {
+          host.setAttribute(
+            "data-props",
+            JSON.stringify(boot.devEvalPlaceholderProps?.({}) || { text: "--", value: "--" }),
+          );
+        }
+        if (/mei-text|metric|label|value/i.test(host.tagName + host.className)) {
+          const text = String(host.textContent || "").trim();
+          if (!text || text === "—" || text === "-") host.textContent = "--";
+        }
+      });
+    });
   }
 
   function normalizeMapStageHintPointerEvents(root) {
@@ -38641,6 +39137,14 @@
     const appId = ctx?.appId;
     const sceneId = ctx?.sceneId || "home";
     if (!appId) throw new Error("eval pack requires appId");
+    const scopeHint = String(opts.scope || opts.fingerprint || sceneId || "").trim();
+    if (
+      typeof boot.devEvalShouldFetchEvalPack === "function" &&
+      !boot.devEvalShouldFetchEvalPack(scopeHint)
+    ) {
+      boot.renderPipelineMark?.("eval_pack:skip_dev_scope", { scope: scopeHint });
+      return { skipped: true, reason: "dev_eval_scope" };
+    }
     const params = new URLSearchParams({
       app: appId,
       scene: sceneId,
@@ -38750,6 +39254,7 @@
   async function ensureEvalPackSeeded(ctx, revision, options) {
     const opts = options || {};
     const payload = await ensureEvalPackPayload(ctx, revision || {}, options);
+    if (payload?.skipped) return 0;
     const count = seedEvalPackRuntimeCache();
     // Neighbor scope warmup must not compete with cold-start critical path.
     if (opts.prefetchNeighbors !== false) {
@@ -38792,7 +39297,9 @@
       fingerprint,
       neighborHops,
       revision: {},
+      scope: ctx?.sceneId || fingerprint,
     });
+    if (payload?.skipped) return 0;
     global.__meiEvalPackSource = fingerprint ? "jit" : "eval_pack_api";
     return seedEvalPackRuntimeCache();
   }

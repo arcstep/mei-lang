@@ -9,6 +9,13 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-data-demo}"
 POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
+
+# 0535: ensure dev_eval env vars are exported from workspace config (no-op if
+# already set by parent process via start.sh). Must run after parse_common_args
+# so DEPLOY_CONFIG_ARG is resolved.
+if declare -F apply_workspace_deploy_env >/dev/null 2>&1; then
+  apply_workspace_deploy_env "${WORKSPACE_ROOT}"
+fi
 if [[ "${SOURCE}" == "lang" ]]; then
   ensure_runtime_binaries "${WORKSPACE_ROOT}"
 fi
