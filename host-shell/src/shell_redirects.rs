@@ -167,7 +167,10 @@ pub async fn redirect_apps_view_to_stage(Path(app_id): Path<String>, uri: Origin
         .to_ascii_lowercase();
     let scene = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
     // 布局/原型产品面已封口：一律落到 Access 舞台
-    let stage = if matches!(surface.as_str(), "layout" | "prototype" | "build" | "manage") {
+    let stage = if matches!(
+        surface.as_str(),
+        "layout" | "prototype" | "build" | "manage"
+    ) {
         "home"
     } else {
         scene.as_str()
@@ -211,7 +214,10 @@ pub async fn redirect_apps_app_scene_id(
 }
 
 /// Mode-first legacy: `/apps/app/{app_id}` → `/apps/{app_id}/{stage}`
-pub async fn redirect_mode_first_app_root(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
+pub async fn redirect_mode_first_app_root(
+    Path(app_id): Path<String>,
+    uri: OriginalUri,
+) -> Response {
     let stage = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
     redirect_to_stage(app_id.trim(), &stage, &uri.0)
 }

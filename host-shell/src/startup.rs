@@ -826,9 +826,7 @@ mod tests {
 
     #[test]
     fn build_starting_location_preserves_return_target() {
-        let uri: Uri = "/apps/mini-data/home?chrome=none"
-            .parse()
-            .expect("uri");
+        let uri: Uri = "/apps/mini-data/home?chrome=none".parse().expect("uri");
         let location = build_starting_location(&uri, "mini-data", "home", "app");
         assert!(location.contains("return=%2Fapps%2Fmini-data%2Fhome%3Fchrome%3Dnone"));
     }

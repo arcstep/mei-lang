@@ -661,31 +661,6 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
     );
 }
 
-fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::UiNodeDecl]) -> Vec<String> {
-    let mut found = Vec::new();
-    fn walk(nodes: &[mei_lang_kernel::UiTreeNode], found: &mut Vec<String>) {
-        for node in nodes {
-            match node {
-                mei_lang_kernel::UiTreeNode::Panel(panel) => {
-                    if let Some(vp) = panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()) {
-                        found.push(vp.to_string());
-                    }
-                    walk(&panel.blocks, found);
-                }
-                mei_lang_kernel::UiTreeNode::Block(_) => {}
-                mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => {}
-            }
-        }
-    }
-    for panel in panels {
-        if let Some(vp) = panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()) {
-            found.push(vp.to_string());
-        }
-        walk(&panel.blocks, &mut found);
-    }
-    found
-}
-
 #[test]
 fn ws_demo_v2_presentation_map_viewpoints() {
     let workspace = ensure_imported();

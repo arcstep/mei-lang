@@ -180,10 +180,7 @@ fn discover_stage_roots(workspace_root: &Path, app_id: &str) -> Vec<StageRoot> {
                 if !dir.is_dir() {
                     continue;
                 }
-                let Some(stage_id) = dir
-                    .file_name()
-                    .and_then(|v| v.to_str())
-                    .map(str::to_string)
+                let Some(stage_id) = dir.file_name().and_then(|v| v.to_str()).map(str::to_string)
                 else {
                     continue;
                 };
@@ -316,7 +313,8 @@ fn scan_stage_scripts(stage: &StageRoot) -> Vec<PresentationScriptEntry> {
         let Some(file_stem) = script_id_from_file_name(file_name) else {
             continue;
         };
-        if stage.kind == StageKind::Scene && !scene_mdx_belongs_to_stage(&file_stem, &stage.stage_id)
+        if stage.kind == StageKind::Scene
+            && !scene_mdx_belongs_to_stage(&file_stem, &stage.stage_id)
         {
             continue;
         }
@@ -403,11 +401,9 @@ fn list_all_script_entries(
         let chosen = if defaults.len() == 1 {
             Some(defaults[0])
         } else if defaults.len() > 1 {
-            defaults.into_iter().max_by_key(|index| {
-                entries[*index]
-                    .modified_ms
-                    .unwrap_or(0)
-            })
+            defaults
+                .into_iter()
+                .max_by_key(|index| entries[*index].modified_ms.unwrap_or(0))
         } else {
             None
         };
@@ -449,19 +445,13 @@ fn resolve_script_abs_path(
     let app_root = resolve_app_root(workspace_root, app_id);
     let rel = sanitize_rel_dir(&entry.path)?;
     let path = app_root.join(&rel);
-    let canonical_app = app_root.canonicalize().map_err(|error| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("应用目录不可用: {error}"),
-        )
-    })?;
+    let canonical_app = app_root
+        .canonicalize()
+        .map_err(|error| (StatusCode::NOT_FOUND, format!("应用目录不可用: {error}")))?;
     if path.exists() {
-        let canonical = path.canonicalize().map_err(|error| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("演说稿路径不可用: {error}"),
-            )
-        })?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| (StatusCode::NOT_FOUND, format!("演说稿路径不可用: {error}")))?;
         if !canonical.starts_with(&canonical_app) {
             return Err((StatusCode::BAD_REQUEST, "演说稿路径越界".to_string()));
         }

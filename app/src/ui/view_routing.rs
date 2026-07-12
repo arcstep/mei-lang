@@ -155,7 +155,9 @@ pub fn cross_app_href(
         };
     }
     match view {
-        UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype => app_access_href(app_path),
+        UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype => {
+            app_access_href(app_path)
+        }
         UiRouteMode::Run | UiRouteMode::Copilot => app_access_href(app_path),
         UiRouteMode::Config => host_config_href(Some(app_path)),
         UiRouteMode::Upload => host_upload_href(Some(app_path), None),

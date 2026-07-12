@@ -34,7 +34,10 @@ test.describe("view-revision assemble", () => {
     expect(second.ok()).toBeTruthy();
     const matched = await second.json();
     expect(matched.status).toBe("assemble_local");
-    expect(matched.assembly_plan).toBeTruthy();
+    expect(matched.assembly_plan).toBeFalsy();
+    expect(matched.manifest).toBeFalsy();
+    expect(matched.inline_layers).toBeFalsy();
+    expect((await second.body()).byteLength).toBeLessThanOrEqual(4096);
   });
 
   test("view-revision recover refetches all layers", async ({ page }) => {
@@ -47,9 +50,11 @@ test.describe("view-revision assemble", () => {
     const json = await response.json();
     expect(json.status).toBe("refetch");
     expect(json.changed_layers?.length).toBeGreaterThan(0);
-    expect(json.manifest?.layers).toBeTruthy();
-    const manifestLayerCount = Object.keys(json.manifest.layers).length;
-    expect(json.changed_layers.length).toBe(manifestLayerCount);
+    expect(json.manifest).toBeFalsy();
+    expect(json.inline_layers).toBeFalsy();
+    expect(Object.keys(json.assembly_plan?.layer_refs || {})).toHaveLength(
+      json.changed_layers.length,
+    );
   });
 
   test("client bundles expose view-revision modules", async ({ page }) => {
@@ -60,6 +65,8 @@ test.describe("view-revision assemble", () => {
       viewRevision: typeof window.__meiLangBoot?.viewRevisionClient?.fetchViewRevision === "function",
       readClientDigests: typeof window.__meiLangBoot?.readClientDigests === "function",
       layerCache: typeof window.__meiLangBoot?.layerArtifactCache?.listHoldings === "function",
+      batchRead: typeof window.__meiLangBoot?.layerArtifactCache?.getLayers === "function",
+      batchWrite: typeof window.__meiLangBoot?.layerArtifactCache?.putLayers === "function",
       composeFromLayers: typeof window.__meiLangBoot?.viewCompositor?.composeFromLayers === "function",
       previewMaterializer:
         typeof window.__meiLangBoot?.previewMaterializer?.materializePreview === "function",
@@ -67,6 +74,8 @@ test.describe("view-revision assemble", () => {
     expect(exposed.viewRevision).toBeTruthy();
     expect(exposed.readClientDigests).toBeTruthy();
     expect(exposed.layerCache).toBeTruthy();
+    expect(exposed.batchRead).toBeTruthy();
+    expect(exposed.batchWrite).toBeTruthy();
     expect(exposed.composeFromLayers).toBeTruthy();
     expect(exposed.previewMaterializer).toBeTruthy();
   });
@@ -130,6 +139,51 @@ test.describe("view-revision assemble", () => {
     htmlFragmentRequests.length = 0;
     await page.reload({ waitUntil: "networkidle" });
     expect(htmlFragmentRequests).toEqual([]);
+  });
+
+  test("pretty-panels warm F5 restores in one readonly transaction", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const layerBatchRequests = [];
+    const drilldownRequests = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/host/layer-batch")) layerBatchRequests.push(url);
+      if (url.includes("/api/host/scene-drilldown-context")) drilldownRequests.push(url);
+    });
+    await page.goto(`${base}/apps/pretty-panels/home`, { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector("#mei-compose-root, .preview-pane-scroll")
+          ?.getAttribute("data-mei-compose-materialized") === "1",
+      { timeout: 60000 },
+    );
+    await page.waitForFunction(
+      () =>
+        Number(
+          window.__meiLangBoot?.layerArtifactCache?.readDiagnostics?.()
+            ?.completedReadwriteTransactions || 0,
+        ) >= 1,
+      { timeout: 60000 },
+    );
+    layerBatchRequests.length = 0;
+    drilldownRequests.length = 0;
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.__meiRenderPipeline?.last?.marks?.some((mark) => mark.name === "user_visible_ready"),
+      { timeout: 60000 },
+    );
+    const diagnostics = await page.evaluate(
+      () => window.__meiLangBoot?.layerArtifactCache?.readDiagnostics?.() || {},
+    );
+    expect(layerBatchRequests).toEqual([]);
+    expect(drilldownRequests.length).toBeLessThanOrEqual(1);
+    expect(diagnostics.opens).toBe(1);
+    expect(diagnostics.readonlyTransactions).toBe(1);
+    expect(diagnostics.readwriteTransactions).toBe(0);
+    expect(diagnostics.writes).toBe(0);
+    expect(diagnostics.prunes).toBe(0);
   });
 
   test("data-demo cold start uses compose preview without scene-revision", async ({ page }) => {

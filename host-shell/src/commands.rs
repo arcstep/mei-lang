@@ -275,8 +275,8 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
             .clone();
     let report = import_with_options(&workspace, &args.app, args.bundle)?;
     // CLI `deploy/reload.sh` / `mei-host-shell reload` 与运行中 host 共用磁盘产物：
-    // import 清 bootstrap 后必须 rewarm，否则 Access 会卡在 manifest_missing。
-    crate::build_ops::rewarm_after_import(workspace.as_path(), args.app.as_str(), "standard")?;
+    // import 清 bootstrap 后必须 rewarm（policy=home），否则 Access 会卡在 manifest_missing。
+    crate::build_ops::rewarm_after_import(workspace.as_path(), args.app.as_str(), "home")?;
     let changed = report.registry_revision != prev_revision;
     if args.json {
         let payload = serde_json::json!({

@@ -17,7 +17,10 @@ use crate::state::SharedState;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const BUNDLE_WRITE_DEBOUNCE: Duration = Duration::from_secs(1);
-const DEFAULT_WARMUP_POLICY: &str = "standard";
+/// Access 主场景预热策略。pretty-panels 等 app 的 workset 定义在
+/// `src/warmup/home.critical.mei`；`standard` 匹配不到 workset，会写出
+/// `client_manifest=false`，热重载会陷入 `manifest_missing` 死循环。
+const DEFAULT_WARMUP_POLICY: &str = "home";
 
 pub fn hot_reload_enabled() -> bool {
     std::env::var("MEI_DISABLE_HOT_RELOAD")

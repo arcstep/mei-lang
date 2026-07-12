@@ -9,14 +9,15 @@ use mei_host_auth::AuthServeState;
 use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
 use serde::Deserialize;
 use serde_json::json;
+use std::time::Instant;
 
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
 use crate::landing::discover_workspace_apps;
 use crate::pages::AppQuery;
 use crate::review_axes::resolve_page_render_axes_for_stage;
 use crate::scene_manifest::{
-    ensure_manifest_index, manifest_for_surface, materialize_layers_for_request,
-    resolve_route_mode_from_surface, SceneChromeHostContext,
+    ensure_manifest_index, manifest_for_surface, resolve_route_mode_from_surface,
+    SceneChromeHostContext,
 };
 use crate::state::SharedState;
 
@@ -115,9 +116,9 @@ pub(crate) fn resolve_view_revision_for_surface(
     scene_id: &str,
     route_mode: UiRouteMode,
     data_mode: mei_lang_kernel::DataMode,
-    compose: &mei_host_graph::ComposeRequest,
-    draft_session: &str,
-    draft_digest: &str,
+    _compose: &mei_host_graph::ComposeRequest,
+    _draft_session: &str,
+    _draft_digest: &str,
     client_manifest_digest: Option<String>,
     client_surface_digest: Option<String>,
     recover: bool,
@@ -136,7 +137,7 @@ pub(crate) fn resolve_view_revision_for_surface(
     let manifest = manifest_for_surface(&index, route_mode)
         .ok_or_else(|| anyhow::anyhow!("manifest index missing surface {}", route_mode.slug()))?;
     let surface_digest = surface_revision_digest(&manifest);
-    let mut response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
+    let response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
         manifest: manifest.clone(),
         client_manifest_digest,
         client_surface_digest,
@@ -146,108 +147,7 @@ pub(crate) fn resolve_view_revision_for_surface(
         missing_layers: Vec::new(),
         surface_revision_digest: surface_digest,
     });
-    if response.status == mei_host_graph::ViewRevisionStatus::Refetch
-        && !response.changed_layers.is_empty()
-    {
-        let inline_layer_names = bootstrap_inline_layer_names(&response.changed_layers, route_mode);
-        if !inline_layer_names.is_empty() {
-            let inline = materialize_layers_for_request(
-                workspace_root,
-                app_id,
-                scene_id,
-                route_mode,
-                data_mode,
-                compose,
-                draft_session,
-                draft_digest,
-                &inline_layer_names,
-                hits,
-                chrome_host,
-            )?;
-            response.inline_layers = Some(inline);
-            if response.manifest.is_none() {
-                response.manifest = Some(manifest);
-            }
-        }
-    }
     Ok(response)
-}
-
-fn layer_matches_bootstrap_prefix(layer_name: &str, prefix: &str) -> bool {
-    if layer_name == prefix {
-        return true;
-    }
-    if prefix.ends_with('.') {
-        return layer_name.starts_with(prefix);
-    }
-    layer_name.starts_with(&format!("{prefix}:"))
-}
-
-fn bootstrap_inline_layer_names(changed_layers: &[String], route_mode: UiRouteMode) -> Vec<String> {
-    const BOOTSTRAP_PREFIXES: &[&str] = &[
-        "structure.full",
-        "runtime.plans",
-        "eval.slot_group.",
-        "theme.tokens",
-        "layout.overlay",
-    ];
-    let shell_key = format!("shell.{}", route_mode.slug());
-    let mut names: Vec<String> = changed_layers
-        .iter()
-        .filter(|name| {
-            BOOTSTRAP_PREFIXES
-                .iter()
-                .any(|prefix| layer_matches_bootstrap_prefix(name, prefix))
-                || name.as_str() == shell_key.as_str()
-        })
-        .cloned()
-        .collect();
-    if names.is_empty() {
-        names = changed_layers.to_vec();
-    } else if changed_layers.len() <= 24 {
-        names = changed_layers.to_vec();
-    } else {
-        for name in changed_layers {
-            if name.starts_with("eval.slot_group.")
-                && !names.iter().any(|existing| existing == name)
-            {
-                names.push(name.clone());
-            }
-        }
-    }
-    names.sort();
-    names.dedup();
-    names
-}
-
-#[cfg(test)]
-mod bootstrap_inline_tests {
-    use super::*;
-    use mei_lang_app::UiRouteMode;
-
-    #[test]
-    fn bootstrap_inline_includes_scope_eval_slot_groups_when_many_layers_change() {
-        let mut changed_layers = vec![
-            "structure.full".to_string(),
-            "theme.tokens".to_string(),
-            "eval.slot_group.scene:default".to_string(),
-            "eval.slot_group.scope:t1/right_rail/warning/head".to_string(),
-            "eval.slot_group.scope:t1/right_rail/warning/supervision-stats".to_string(),
-        ];
-        for idx in 0..30 {
-            changed_layers.push(format!("shell.extra-{idx}"));
-        }
-        let names = bootstrap_inline_layer_names(&changed_layers, UiRouteMode::App);
-        assert!(names
-            .iter()
-            .any(|name| name == "eval.slot_group.scene:default"));
-        assert!(names
-            .iter()
-            .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/head"));
-        assert!(names
-            .iter()
-            .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/supervision-stats"));
-    }
 }
 
 fn apply_view_revision_headers(
@@ -277,6 +177,7 @@ pub async fn api_host_view_revision(
     _headers: HeaderMap,
     Query(query): Query<ViewRevisionQuery>,
 ) -> Response {
+    let request_started = Instant::now();
     let app_id = query.app_id.trim();
     if app_id.is_empty() {
         return (
@@ -292,6 +193,7 @@ pub async fn api_host_view_revision(
         .filter(|value| !value.is_empty())
         .unwrap_or("home")
         .to_string();
+    let gate_started = Instant::now();
     {
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
@@ -306,6 +208,7 @@ pub async fn api_host_view_revision(
             .into_response();
         }
     }
+    let gate_ms = gate_started.elapsed().as_millis();
     let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
     let scene_id = if route_mode.is_build() {
         query
@@ -370,6 +273,7 @@ pub async fn api_host_view_revision(
     let recover = parse_bool_flag(query.recover.as_deref());
     let local_miss = parse_bool_flag(query.local_miss.as_deref());
 
+    let discovery_started = Instant::now();
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
@@ -379,8 +283,10 @@ pub async fn api_host_view_revision(
         auth_enabled: false,
         auth_account: None,
     };
+    let discovery_ms = discovery_started.elapsed().as_millis();
 
     let mut hits = ArtifactHitMatrix::default();
+    let revision_started = Instant::now();
     let revision = match resolve_view_revision_for_surface(
         workspace_root,
         app_id,
@@ -406,9 +312,12 @@ pub async fn api_host_view_revision(
                 .into_response();
         }
     };
+    let revision_ms = revision_started.elapsed().as_millis();
 
     let obs = LayerArtifactObservability { hits };
+    let serialize_started = Instant::now();
     let mut response = Json(&revision).into_response();
+    let serialize_ms = serialize_started.elapsed().as_millis();
     apply_view_revision_headers(&mut response, &revision);
     if recover || local_miss {
         if let Ok(value) = HeaderValue::from_str("1") {
@@ -423,6 +332,15 @@ pub async fn api_host_view_revision(
                 .headers_mut()
                 .insert(HeaderName::from_static(name), header_value);
         }
+    }
+    let server_timing = format!(
+        "gate;dur={gate_ms}, app_discovery;dur={discovery_ms}, revision;dur={revision_ms}, serialize;dur={serialize_ms}, handler;dur={}",
+        request_started.elapsed().as_millis()
+    );
+    if let Ok(value) = HeaderValue::from_str(server_timing.as_str()) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("server-timing"), value);
     }
     response
 }

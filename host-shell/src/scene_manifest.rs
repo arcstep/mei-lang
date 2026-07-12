@@ -1024,9 +1024,7 @@ fn stage_kind_for_scene(
     scene_id: &str,
 ) -> StageKind {
     match mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id) {
-        Ok(Some(outcome)) => {
-            StageKind::from_scene_routes(&outcome.compiled.scene_routes, scene_id)
-        }
+        Ok(Some(outcome)) => StageKind::from_scene_routes(&outcome.compiled.scene_routes, scene_id),
         _ => StageKind::Scene,
     }
 }

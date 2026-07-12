@@ -16,6 +16,8 @@ use mei_lang_kernel::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
@@ -137,10 +139,11 @@ pub async fn app_page(
     State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
+    let request_started = Instant::now();
     if matches!(
         mode.as_str(),
         "run" | "copilot" | "presentation" | "slides" | "speaker"
@@ -197,6 +200,11 @@ pub async fn app_page(
             .unwrap_or_else(|| "home".to_string());
     }
     let _copilot_presentation_id = tour_id.as_deref();
+    let revision_first_shell = wants_revision_first_shell(route_mode, &query);
+    let thin_template_cache_key =
+        (revision_first_shell && auth.auth_enforcement != AuthEnforcement::Required).then(|| {
+            thin_shell_template_cache_key(app_id.as_str(), scene_id.as_str(), route_mode, &query)
+        });
     let needs_access_readiness_gate = route_mode.is_access_like();
     if needs_access_readiness_gate {
         let starting_location = {
@@ -224,14 +232,7 @@ pub async fn app_page(
                 route_mode,
                 axes,
             );
-            let assemble_ready = matches!(
-                mei_host_graph::assemble_scope_from_registry(
-                    guard.ctx.workspace_root.as_path(),
-                    app_id.as_str(),
-                    scene_id.as_str(),
-                ),
-                Ok(Some(_))
-            );
+            let assemble_ready = readiness.ready;
             if readiness.ready && assemble_ready {
                 None
             } else {
@@ -248,9 +249,17 @@ pub async fn app_page(
             return Redirect::temporary(location.as_str()).into_response();
         }
     }
+    let gate_ms = request_started.elapsed().as_millis() as u64;
+    if let Some(entry) = thin_template_cache_key
+        .as_deref()
+        .and_then(crate::thin_shell_page_cache::get)
+    {
+        return cached_thin_shell_response(entry, &headers, request_started);
+    }
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
     let package_root = guard.package_root.as_path();
+    let discovery_started = Instant::now();
     let discovered = match discover_workspace_apps(workspace_root) {
         Ok(apps) => apps,
         Err(error) => {
@@ -261,6 +270,7 @@ pub async fn app_page(
                 .into_response();
         }
     };
+    let app_discovery_ms = discovery_started.elapsed().as_millis() as u64;
     let apps = filter_apps_for_principal(
         discovered.as_slice(),
         principal.as_ref().map(|Extension(p)| p),
@@ -280,7 +290,6 @@ pub async fn app_page(
         )
             .into_response();
     }
-    let request_started = Instant::now();
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
     let app_ctx = guard.host_ctx_for_app(app_id.as_str());
@@ -325,30 +334,33 @@ pub async fn app_page(
         )
             .into_response();
     }
-    let stage_kind = match mei_host_graph::assemble_scope_from_registry(
+    let shell_assemble_outcome = mei_host_graph::assemble_scope_from_registry(
         workspace_root,
         app_id.as_str(),
         scene_id.as_str(),
-    ) {
-        Ok(Some(outcome)) => crate::review_axes::StageKind::from_scene_routes(
+    )
+    .ok()
+    .flatten();
+    let stage_kind = match shell_assemble_outcome.as_ref() {
+        Some(outcome) => crate::review_axes::StageKind::from_scene_routes(
             &outcome.compiled.scene_routes,
             scene_id.as_str(),
         ),
         _ => crate::review_axes::StageKind::Scene,
     };
-    let axes_resolution = crate::review_axes::resolve_page_render_axes_with_ceiling_detailed_for_stage(
-        guard.data_mode_ceiling,
-        &query,
-        route_mode,
-        stage_kind,
-    );
+    let axes_resolution =
+        crate::review_axes::resolve_page_render_axes_with_ceiling_detailed_for_stage(
+            guard.data_mode_ceiling,
+            &query,
+            route_mode,
+            stage_kind,
+        );
     let axes = axes_resolution.axes;
     let chrome_hidden = query
         .chrome
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot);
-    let revision_first_shell = wants_revision_first_shell(route_mode, &query);
     let shell_compose = compose_request_for_shell(route_mode, &query, axes, chrome_hidden);
     let data_mode_ceiling_notice_owned = if axes_resolution.data_mode_clamped {
         Some(format!(
@@ -375,6 +387,7 @@ pub async fn app_page(
             scene_id.as_str(),
             &shell_compose,
             Some(&chrome_host),
+            shell_assemble_outcome.as_ref(),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
     } else if route_mode.is_app_surface() && !route_mode.is_app() {
@@ -400,6 +413,7 @@ pub async fn app_page(
             "",
             "",
             Some(&chrome_host),
+            shell_assemble_outcome.as_ref(),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
     } else {
@@ -523,8 +537,12 @@ pub async fn app_page(
         (rendered, ssr_emit_ms, false)
     };
     html = crate::gis_config::fill_gis_tiles_placeholders(html, &gis);
+    let mut etag_hasher = DefaultHasher::new();
+    html.hash(&mut etag_hasher);
+    let etag = format!("W/\"{:x}\"", etag_hasher.finish());
     let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
     html = fill_manage_wall_clock_placeholders(html, ssr_emit_ms, handler_html_ready_ms);
+    let serialize_started = Instant::now();
     let payload_stats = measure_page_html_payload(html.as_str());
     html = fill_page_load_observability_placeholders(
         html,
@@ -534,8 +552,43 @@ pub async fn app_page(
         payload_stats.data_props_bytes,
         payload_stats.data_props_count,
     );
+    let serialize_ms = serialize_started.elapsed().as_millis() as u64;
     let _ = mei_host_graph::flush_telemetry_to_registry(workspace_root, app_id.as_str());
+    if let Some(cache_key) = thin_template_cache_key {
+        crate::thin_shell_page_cache::put(app_id.as_str(), cache_key, html.clone(), etag.clone());
+    }
+    if revision_first_shell
+        && headers
+            .get(axum::http::header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.split(',').any(|part| part.trim() == etag))
+    {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        if let Ok(value) = HeaderValue::from_str(etag.as_str()) {
+            response
+                .headers_mut()
+                .insert(axum::http::header::ETAG, value);
+        }
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-cache, must-revalidate"),
+        );
+        return response;
+    }
     let mut response = Html(html).into_response();
+    if let Ok(value) = HeaderValue::from_str(etag.as_str()) {
+        response
+            .headers_mut()
+            .insert(axum::http::header::ETAG, value);
+    }
+    let server_timing = format!(
+        "gate;dur={gate_ms}, app_discovery;dur={app_discovery_ms}, ssr_emit;dur={ssr_emit_ms}, serialize;dur={serialize_ms}, handler;dur={handler_html_ready_ms}"
+    );
+    if let Ok(value) = HeaderValue::from_str(server_timing.as_str()) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("server-timing"), value);
+    }
     if let Ok(value) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
         response.headers_mut().insert(
             HeaderName::from_static("x-mei-handler-html-ready-ms"),
@@ -567,7 +620,11 @@ pub async fn app_page(
             HeaderName::from_static("x-mei-assemble-local"),
             HeaderValue::from_static("0"),
         );
-        let page_cache_status = if page_cache_hit { "hit" } else { "miss" };
+        let page_cache_status = if page_cache_hit {
+            "template-hit"
+        } else {
+            "template-bypass"
+        };
         if let Ok(value) = HeaderValue::from_str(page_cache_status) {
             response
                 .headers_mut()
@@ -575,7 +632,7 @@ pub async fn app_page(
         }
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
-            HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+            HeaderValue::from_static("private, no-cache, must-revalidate"),
         );
     }
     if route_mode == UiRouteMode::Runtime && !revision_first_shell {
@@ -1247,6 +1304,63 @@ fn wants_revision_first_shell(route_mode: UiRouteMode, query: &AppQuery) -> bool
     route_mode.is_build() && build_preview_route_requested(query)
 }
 
+fn thin_shell_template_cache_key(
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    query: &AppQuery,
+) -> String {
+    format!("{app_id}:{scene_id}:{}:{query:?}", route_mode.slug())
+}
+
+fn cached_thin_shell_response(
+    entry: crate::thin_shell_page_cache::ThinShellCacheEntry,
+    request_headers: &HeaderMap,
+    request_started: Instant,
+) -> Response {
+    let not_modified = request_headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|part| part.trim() == entry.etag));
+    let mut response = if not_modified {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        Html(entry.html).into_response()
+    };
+    if let Ok(value) = HeaderValue::from_str(entry.etag.as_str()) {
+        response
+            .headers_mut()
+            .insert(axum::http::header::ETAG, value);
+    }
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache, must-revalidate"),
+    );
+    response.headers_mut().insert(
+        HeaderName::from_static("x-mei-page-cache"),
+        HeaderValue::from_static("template-hit"),
+    );
+    response.headers_mut().insert(
+        HeaderName::from_static("x-mei-view-revision-status"),
+        HeaderValue::from_static("bootstrap"),
+    );
+    let elapsed_ms = request_started.elapsed().as_millis();
+    if let Ok(value) = HeaderValue::from_str(elapsed_ms.to_string().as_str()) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-handler-html-ready-ms"),
+            value,
+        );
+    }
+    if let Ok(value) =
+        HeaderValue::from_str(format!("thin_template;dur=0, handler;dur={elapsed_ms}").as_str())
+    {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("server-timing"), value);
+    }
+    response
+}
+
 fn compose_request_for_shell(
     route_mode: UiRouteMode,
     query: &AppQuery,
@@ -1294,6 +1408,7 @@ pub(crate) fn render_thin_access_shell(
     scene_id: &str,
     compose: &mei_host_graph::ComposeRequest,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
+    assemble_outcome: Option<&mei_host_graph::AssembleOutcome>,
 ) -> String {
     render_thin_scene_shell(
         html,
@@ -1306,6 +1421,7 @@ pub(crate) fn render_thin_access_shell(
         "",
         "",
         chrome_host,
+        assemble_outcome,
     )
 }
 
@@ -1320,7 +1436,7 @@ const THIN_SHELL_ACCESS_FAB_HTML: &str = concat!(
 
 pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
         app_id = app_id,
         scene_id = scene_id,
         fab = THIN_SHELL_ACCESS_FAB_HTML,
@@ -1384,17 +1500,14 @@ pub(crate) fn render_thin_scene_shell(
     draft_session: &str,
     draft_digest: &str,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
+    assemble_outcome: Option<&mei_host_graph::AssembleOutcome>,
 ) -> String {
     let handler_started = std::time::Instant::now();
-    let assemble_outcome =
-        mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
-            .ok()
-            .flatten();
     let html = inject_thin_shell_body_presentation(
         html,
         workspace_root,
         route_mode,
-        assemble_outcome.as_ref().map(|outcome| &outcome.compiled),
+        assemble_outcome.map(|outcome| &outcome.compiled),
     );
     let html = inject_thin_shell_runtime_assets(html, route_mode);
     let html = fill_page_shell_placeholders(html, workspace_root);
@@ -1409,10 +1522,7 @@ pub(crate) fn render_thin_scene_shell(
         draft_digest,
         chrome_host,
     );
-    if should_inject_eval_pack(workspace_root, app_id, scene_id) {
-        html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
-    }
-    if let Some(outcome) = assemble_outcome.as_ref() {
+    if let Some(outcome) = assemble_outcome {
         let data_mode = compose
             .data_mode
             .as_deref()
@@ -1651,14 +1761,36 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
         chrome_host,
     )
     .ok();
-    let manifest_json = manifest
+    let envelope = manifest
         .as_ref()
-        .and_then(|value| serde_json::to_string(value).ok())
-        .unwrap_or_else(|| "{}".to_string());
+        .map(|value| {
+            json!({
+                "schema_version": "mei.view-revision-envelope.v1",
+                "app_id": value.app_id.as_str(),
+                "scene_id": value.scene_id.as_str(),
+                "manifest_revision_digest": value.revision_digest.as_str(),
+                "surface_revision_digest": value.surface_revision_digest.as_deref(),
+                "compose_defaults": value.compose_defaults.as_ref(),
+                "scene_bundle_url": format!(
+                    "/api/host/scene-manifest?app_id={}&scene={}&surface={}",
+                    app_id,
+                    scene_id,
+                    route_mode.slug()
+                ),
+            })
+        })
+        .unwrap_or_else(|| {
+            json!({
+                "schema_version": "mei.view-revision-envelope.v1",
+                "app_id": app_id,
+                "scene_id": scene_id,
+            })
+        });
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string());
     let hits_json = serde_json::to_string(&hits).unwrap_or_else(|_| "{}".to_string());
     let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.scene_manifest_refs={manifest_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
-        manifest_json = manifest_json,
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
+        envelope_json = envelope_json,
         hits_json = hits_json,
     );
     if let Some(pos) = html.find("</head>") {
@@ -1738,7 +1870,9 @@ mod inject_scene_manifest_tests {
         );
         assert!(out.contains("thin_shell"));
         assert!(out.contains("scene_manifest_refs"));
+        assert!(out.contains("view_revision_envelope"));
         assert!(out.contains("artifact_hits"));
+        assert!(!out.contains(r#""layers":"#));
     }
 }
 
@@ -1799,14 +1933,6 @@ pub(crate) fn inject_layer_plane_scripts(
     } else {
         format!("{scripts}{html}")
     }
-}
-
-pub(crate) fn should_inject_eval_pack(
-    workspace_root: &std::path::Path,
-    app_id: &str,
-    scene_id: &str,
-) -> bool {
-    mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id).is_some()
 }
 
 pub(crate) fn inject_client_bootstrap_script(

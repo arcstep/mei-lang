@@ -39,6 +39,16 @@ fn is_noisy_success_request(method: &Method, path: &str) -> bool {
         || path.starts_with("/gis/")
 }
 
+/// 预期内的客户端探测 404（非业务故障），避免刷 WARN。
+fn is_expected_probe_not_found(method: &Method, path: &str) -> bool {
+    if *method != Method::GET {
+        return false;
+    }
+    path == "/favicon.ico"
+        || path == "/.well-known/appspecific/com.chrome.devtools.json"
+        || path.starts_with("/.well-known/")
+}
+
 fn is_background_poll_request(method: &Method, path: &str) -> bool {
     if *method != Method::GET {
         return false;
@@ -141,17 +151,28 @@ pub async fn log_request(request: Request, next: Next) -> Response {
             "request finished with error status"
         );
     } else if status.is_client_error() {
-        tracing::warn!(
-            request_id = %request_id,
-            route_kind = %route_kind,
-            app_id = %app_id,
-            status = %status,
-            latency_ms,
-            response_bytes,
-            method = %method,
-            uri = %uri,
-            "request finished with client error status"
-        );
+        if status.as_u16() == 404 && is_expected_probe_not_found(&method, path.as_str()) {
+            tracing::debug!(
+                request_id = %request_id,
+                route_kind = %route_kind,
+                status = %status,
+                method = %method,
+                uri = %uri,
+                "expected probe not found (suppressed warn)"
+            );
+        } else {
+            tracing::warn!(
+                request_id = %request_id,
+                route_kind = %route_kind,
+                app_id = %app_id,
+                status = %status,
+                latency_ms,
+                response_bytes,
+                method = %method,
+                uri = %uri,
+                "request finished with client error status"
+            );
+        }
     } else if let Some(cmd) = client_cmd.as_ref() {
         crate::client_trace::log_client_command_request(
             cmd,

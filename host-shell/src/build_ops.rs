@@ -138,8 +138,9 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
         .registry_revision
         .clone();
     let report = import_with_options(workspace.as_path(), app, None)?;
-    // 日常改 .mei 的热重载闭环：import 会清 stale bootstrap，必须立刻 warmup 写回
-    rewarm_after_import(workspace.as_path(), app, "standard")?;
+    // 日常改 .mei 的热重载闭环：import 会清 stale bootstrap，必须立刻 warmup 写回。
+    // 须用 home（与 prebuild / warmup_policy 对齐）；standard 无 workset → manifest_missing。
+    rewarm_after_import(workspace.as_path(), app, "home")?;
     Ok(ReloadOutcome {
         accepted: true,
         blocks_changed: report.registry_revision != prev_revision,

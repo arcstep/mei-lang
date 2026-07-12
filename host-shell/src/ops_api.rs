@@ -80,7 +80,7 @@ pub async fn api_host_ops_prebuild(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("standard")
+        .unwrap_or("home")
         .to_string();
     let (workspace, default_app_id) = {
         let mut guard = state.write().expect("state lock");
