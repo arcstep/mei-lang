@@ -329,15 +329,82 @@ fn clean_env_generations_respects_links_protected_vers() {
     .expect("write app config");
     fs::create_dir_all(app_env_dir(&ws.join("apps/demo"), "WS-20260228.0")).expect("mkdir");
     fs::create_dir_all(app_env_dir(&ws.join("apps/demo"), "WS-20260301.0")).expect("mkdir");
+    fs::create_dir_all(app_env_dir(&ws.join("apps/demo"), "WS-20260302.0")).expect("mkdir");
+    fs::create_dir_all(app_env_dir(&ws.join("apps/demo"), "WS-20260303.0")).expect("mkdir");
+    attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0").expect("attach current");
+    let mut links = LinksState::default();
+    links.build.candidate = Some("WS-20260301.0".to_string());
+    links.build.previous = Some("WS-20260302.0".to_string());
+    write_links_state(ws, &links).expect("links");
+    let report = clean_env_generations(
+        ws,
+        &[String::from("demo")],
+        &CleanEnvPolicy {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .expect("clean");
+    assert!(report.removed.iter().any(|l| l.contains("WS-20260303.0")));
+    assert!(report.retained.iter().any(|l| l.contains("WS-20260228.0")));
+    assert!(report.retained.iter().any(|l| l.contains("WS-20260301.0")));
+    assert!(report.retained.iter().any(|l| l.contains("WS-20260302.0")));
+}
+
+#[test]
+fn clean_env_generations_retains_recent_n_and_extra_protection() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    write_ws(ws, "20260228");
+    fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir app");
+    fs::write(
+        ws.join("apps/demo/app.config.json"),
+        r#"{"schemaVersion":1,"entry":{"main":"main.mei"}}"#,
+    )
+    .expect("write app config");
+    for generation in [
+        "WS-20260227.0",
+        "WS-20260228.0",
+        "WS-20260301.0",
+        "WS-20260302.0",
+        "WS-20260303.0",
+    ] {
+        fs::create_dir_all(app_env_dir(&ws.join("apps/demo"), generation)).expect("mkdir env");
+    }
     attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0").expect("attach current");
     let report = clean_env_generations(
         ws,
         &[String::from("demo")],
-        &CleanEnvPolicy { dry_run: true },
+        &CleanEnvPolicy {
+            dry_run: true,
+            retain_generations: Some(2),
+            protected_generations: std::collections::BTreeMap::from([(
+                "WS-20260301.0".to_string(),
+                vec!["ops-job".to_string()],
+            )]),
+        },
     )
     .expect("clean");
-    assert!(report.removed.iter().any(|l| l.contains("WS-20260301.0")));
-    assert!(report.retained.iter().any(|l| l.contains("WS-20260228.0")));
+    assert!(report
+        .removed
+        .iter()
+        .any(|entry| entry.contains("WS-20260227.0")));
+    for generation in [
+        "WS-20260228.0",
+        "WS-20260301.0",
+        "WS-20260302.0",
+        "WS-20260303.0",
+    ] {
+        assert!(report
+            .retained
+            .iter()
+            .any(|entry| entry.contains(generation)));
+    }
+    assert!(report.entries.iter().any(|entry| {
+        entry.generation == "WS-20260301.0"
+            && entry.protected
+            && entry.reasons.iter().any(|reason| reason == "ops-job")
+    }));
 }
 
 #[test]

@@ -1,0 +1,31 @@
+[package]
+name = "mei-app-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mei-app-runtime"
+path = "src/bin/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+mei-host-core = { path = "../mei-host-core" }
+mei-host-graph = { path = "../mei-host-graph" }
+mei-lang-app = { path = "../../app" }
+mei-lang-datasets = { path = "../datasets" }
+mei-lang-kernel = { path = "../kernel" }
+mei-plug-ds = { path = "../mei-plug-ds" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

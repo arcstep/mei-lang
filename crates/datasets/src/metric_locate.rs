@@ -399,6 +399,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
         }
     }
 
@@ -482,6 +483,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
         };
         let (owner, resolved) = locate_runtime_metric_resource(
             &compiled,
@@ -579,6 +581,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
         };
         let (owner, resolved) = locate_runtime_metric_resource(&compiled, resource_id, metric_key)
             .expect("locate snapshot metric");

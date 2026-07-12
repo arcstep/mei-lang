@@ -18,8 +18,8 @@ pub use build_generation::{
 pub use env_clean::{
     clean_env_generations, migrate_apps_to_env_layout, migrate_build_var_store_to_env,
     resolve_build_footer_label, resolve_build_footer_label_with_hint,
-    resolve_workspace_footer_label, resolve_workspace_footer_label_with_hint, CleanEnvPolicy,
-    CleanEnvReport, MigrateEnvReport,
+    resolve_workspace_footer_label, resolve_workspace_footer_label_with_hint, CleanEnvEntry,
+    CleanEnvPolicy, CleanEnvReport, MigrateEnvReport,
 };
 pub use env_paths::*;
 pub use lifecycle::*;

@@ -586,6 +586,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
         };
         let referenced = BTreeSet::from(["scenes/05-监督预警.mei::warning_list".to_string()]);
         let runtime = minimal_dataset(owner.as_str());

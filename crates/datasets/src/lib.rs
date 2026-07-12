@@ -1,4 +1,5 @@
 mod agg_result_cache;
+mod cache_partition;
 mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
@@ -38,6 +39,7 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
+pub use cache_partition::{partition_cache_key, partition_matches_key, partition_prefix};
 pub use eval_cache_invalidation::{
     invalidate_stale_eval_artifacts, metric_eval_artifact_reusable, EvalCacheInvalidationPlan,
     EvalCacheInvalidationReport,
@@ -62,8 +64,9 @@ pub use metric_locate::{
 };
 pub use metric_response_cache::{
     cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
-    configure_metric_response_cache_ttl_ms, enforce_memory_pin_limits,
-    evict_metric_response_cache_key, mark_smart_warmup_triggered, metric_response_cache_scope_key,
+    clear_metric_response_cache_for_partition, configure_metric_response_cache_ttl_ms,
+    enforce_memory_pin_limits, evict_metric_response_cache_key, mark_smart_warmup_triggered,
+    metric_response_cache_key_partitioned, metric_response_cache_scope_key,
     metric_response_prebuild_dataset_key, metric_response_prebuild_shared_key,
     populate_l1_from_loaded_metric_artifact, prebuild_metric_response_key_matches_dataset_query,
     record_scope_cache_miss, should_trigger_smart_warmup, store_cached_metric_response,

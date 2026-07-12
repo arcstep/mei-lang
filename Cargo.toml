@@ -17,6 +17,7 @@ members = [
   "crates/mei-host-graph",
   "crates/mei-host-auth",
   "crates/mei-plug-ds",
+  "crates/mei-app-runtime",
   "host-shell",
   "server",
 ]
@@ -24,7 +25,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "2.4.5"
+version = "2.5.0"
 license = "MIT"
 
 [workspace.dependencies]

@@ -5,6 +5,9 @@ use mei_lang_kernel::{resolve_app_registry_root, resolve_app_root};
 use crate::config::{load_app_config, AppConfig};
 
 /// Runtime host context shared by shell and plugins.
+///
+/// For pinned generation + instance identity (do not follow mutable `env/current`),
+/// prefer [`crate::RuntimeContext`] via [`HostContext::with_runtime`].
 #[derive(Debug, Clone)]
 pub struct HostContext {
     pub workspace_root: PathBuf,

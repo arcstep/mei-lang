@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use sha2::{Digest, Sha256};
 
 use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
@@ -126,6 +127,7 @@ pub struct PrebuildGeneration {
     pub build_generation: String,
     pub toolchain_version: String,
     pub workspace_version: String,
+    pub config_digest: Option<String>,
     pub store_dirs: BTreeMap<String, PathBuf>,
 }
 
@@ -152,6 +154,7 @@ pub fn begin_prebuild_generation_with_hint(
     let build_spec = resolve_build_generation_for_prebuild(source_root);
     let env_version = resolve_env_generation_id_for_prebuild(source_root);
     let workspace_version = build_spec.date.clone();
+    let config_digest = workspace_config_digest(source_root);
     let mut store_dirs = BTreeMap::new();
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id);
@@ -175,8 +178,17 @@ pub fn begin_prebuild_generation_with_hint(
         build_generation: build_spec.tag,
         toolchain_version,
         workspace_version,
+        config_digest,
         store_dirs,
     })
+}
+
+fn workspace_config_digest(source_root: &Path) -> Option<String> {
+    let path = std::env::var_os("MEI_WORKSPACE_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| source_root.join("workspace.json"));
+    let bytes = fs::read(path).ok()?;
+    Some(format!("{:x}", Sha256::digest(bytes)))
 }
 
 pub fn finish_prebuild_generation(
@@ -199,6 +211,7 @@ pub fn finish_prebuild_generation(
                 toolchain_version: generation.toolchain_version.clone(),
                 build_generation: Some(generation.build_generation.clone()),
                 workspace_version: Some(generation.workspace_version.clone()),
+                config_digest: generation.config_digest.clone(),
                 source_revision: source_revision.map(str::to_string),
                 stock_revision: stock_revision.map(str::to_string),
                 finished_at: finished_at.clone(),

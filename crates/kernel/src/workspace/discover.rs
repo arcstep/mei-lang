@@ -2,16 +2,18 @@ use std::{collections::HashSet, fs, path::Path};
 
 use anyhow::{bail, Context, Result};
 
-use crate::mei_config::{is_v2_app_root, load_workspace_config, resolve_apps_root};
+use crate::mei_config::{
+    is_v2_app_root, load_workspace_config, resolve_workspace_path, WorkspaceConfig,
+    DEFAULT_APPS_REL,
+};
 use crate::model::WorkspaceAppMeta;
 
-fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
+fn segment_discover_skip_dirs(config: &WorkspaceConfig) -> HashSet<String> {
     let mut out: HashSet<String> = ["node_modules", ".git", "target", "dist"]
         .into_iter()
         .map(str::to_string)
         .collect();
-    let cfg = load_workspace_config(segment_root);
-    for d in cfg.discover_skip_directories() {
+    for d in config.discover_skip_directories() {
         out.insert(d);
     }
     out
@@ -73,6 +75,15 @@ fn discover_apps_under(
 
 /// 在 `{workspace}/apps/` 下发现应用。
 pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
+    let config = load_workspace_config(source_root);
+    discover_apps_with_config(source_root, &config)
+}
+
+/// 使用指定 workspace profile 发现应用，不隐式回退到默认 `workspace.json`。
+pub fn discover_apps_with_config(
+    source_root: &Path,
+    config: &WorkspaceConfig,
+) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = Vec::new();
     if !source_root.is_dir() {
         bail!(
@@ -80,11 +91,17 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
             source_root.display()
         );
     }
-    let apps_root = resolve_apps_root(source_root);
+    let apps_rel = config
+        .paths
+        .apps
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(DEFAULT_APPS_REL);
+    let apps_root = resolve_workspace_path(source_root, apps_rel);
     if !apps_root.is_dir() {
         return Ok(apps);
     }
-    let skip_dirs = segment_discover_skip_dirs(source_root);
+    let skip_dirs = segment_discover_skip_dirs(config);
     for child in fs::read_dir(&apps_root)
         .with_context(|| format!("discover_apps: read_dir {}", apps_root.display()))?
     {

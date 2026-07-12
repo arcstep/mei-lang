@@ -67,6 +67,8 @@ pub struct BuildManifest {
     pub build_generation: Option<String>,
     #[serde(default, rename = "workspaceVersion")]
     pub workspace_version: Option<String>,
+    #[serde(default, rename = "configDigest")]
+    pub config_digest: Option<String>,
     #[serde(default, rename = "sourceRevision")]
     pub source_revision: Option<String>,
     #[serde(default, rename = "stockRevision")]

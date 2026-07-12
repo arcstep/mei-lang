@@ -371,6 +371,214 @@ pub struct WorkspaceDeployConfig {
     pub promote_policy: Option<String>,
     #[serde(default, rename = "reachabilityGate")]
     pub reachability_gate: WorkspaceDeployReachabilityGate,
+    /// 开发态选择性预热 / 求值（0535）；生产配置应省略或 `profile=full`。
+    #[serde(
+        default,
+        rename = "devEval",
+        skip_serializing_if = "WorkspaceDeployDevEvalConfig::is_empty"
+    )]
+    pub dev_eval: WorkspaceDeployDevEvalConfig,
+    /// 统一运行计划；新配置优先于 `devEval`，旧字段仍原样反序列化/序列化。
+    #[serde(
+        default,
+        rename = "runtimePlan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub runtime_plan: Option<RuntimePlan>,
+}
+
+/// 运行时目标模式。序列化值是稳定的客户端/服务端协议。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeMode {
+    #[default]
+    Hot,
+    Lazy,
+    Frozen,
+}
+
+impl RuntimeMode {
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Hot => "hot",
+            Self::Lazy => "lazy",
+            Self::Frozen => "frozen",
+        }
+    }
+}
+
+/// Workspace 级运行计划。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimePlan {
+    #[serde(rename = "defaultMode")]
+    pub default_mode: RuntimeMode,
+    #[serde(default)]
+    pub apps: BTreeMap<String, RuntimePlanApp>,
+}
+
+impl Default for RuntimePlan {
+    fn default() -> Self {
+        Self {
+            default_mode: RuntimeMode::Hot,
+            apps: BTreeMap::new(),
+        }
+    }
+}
+
+impl RuntimePlan {
+    pub fn validate(&self) -> Result<()> {
+        for (app_id, app) in &self.apps {
+            let app_id = app_id.trim();
+            if app_id.is_empty()
+                || (app_id != "*"
+                    && !app_id.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+                    }))
+            {
+                anyhow::bail!("deploy.runtimePlan.apps contains invalid app id `{app_id}`");
+            }
+            let mut scopes = std::collections::BTreeSet::new();
+            for target in &app.targets {
+                let scope = target.scope.trim().trim_matches('/');
+                if scope.is_empty() {
+                    anyhow::bail!(
+                        "deploy.runtimePlan.apps.{app_id}.targets contains an empty scope"
+                    );
+                }
+                if !scopes.insert(scope.to_string()) {
+                    anyhow::bail!(
+                        "deploy.runtimePlan.apps.{app_id}.targets contains duplicate scope `{scope}`"
+                    );
+                }
+            }
+            for metric_id in app.metric_overrides.keys() {
+                if metric_id.trim().is_empty() || metric_id.chars().any(char::is_control) {
+                    anyhow::bail!(
+                        "deploy.runtimePlan.apps.{app_id}.metricOverrides contains invalid metric id"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RuntimePlanApp {
+    pub targets: Vec<RuntimePlanTarget>,
+    #[serde(rename = "metricOverrides")]
+    pub metric_overrides: BTreeMap<String, RuntimeMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimePlanTarget {
+    pub scope: String,
+    pub mode: RuntimeMode,
+}
+
+/// `deploy.devEval`：由 workspace config 驱动 `MEI_DEV_EVAL_*`。
+///
+/// 0535 双集合语义：
+/// - `warmupScopes`：允许参与启动 / rewarm 预热的 scope 前缀（空 = 跳过启动 warmup）
+/// - `evalScopes`：允许客户端动态求值（bind / eval-pack）的 scope 前缀（空 = 全部 placeholder）
+/// - `scopes`：向后兼容；未设 `evalScopes` 时回退为 `evalScopes`
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceDeployDevEvalConfig {
+    /// `full` | `static` | `scoped`
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// `preview_scope` 前缀列表（向后兼容；未设 `evalScopes` 时作为 eval 集合）
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    /// 允许预热的 scope 前缀（`scoped` 时；空 = 跳过启动 warmup）
+    #[serde(default, rename = "warmupScopes")]
+    pub warmup_scopes: Vec<String>,
+    /// 允许动态求值的 scope 前缀（`scoped` 时；空 = 全部 placeholder）
+    #[serde(default, rename = "evalScopes")]
+    pub eval_scopes: Vec<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl WorkspaceDeployDevEvalConfig {
+    pub fn is_empty(&self) -> bool {
+        self.profile
+            .as_ref()
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+            && self.scopes.is_empty()
+            && self.warmup_scopes.is_empty()
+            && self.eval_scopes.is_empty()
+            && self
+                .note
+                .as_ref()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+    }
+
+    /// 将旧 `devEval` 双集合语义映射为统一三态计划。
+    pub fn to_runtime_plan(&self) -> RuntimePlan {
+        let profile = self
+            .profile
+            .as_deref()
+            .unwrap_or("full")
+            .trim()
+            .to_ascii_lowercase();
+        match profile.as_str() {
+            "static" | "off" | "none" => RuntimePlan {
+                default_mode: RuntimeMode::Frozen,
+                apps: BTreeMap::new(),
+            },
+            "scoped" | "scope" | "focused" => {
+                let eval_scopes = if self.eval_scopes.is_empty() {
+                    &self.scopes
+                } else {
+                    &self.eval_scopes
+                };
+                let mut targets = BTreeMap::<String, RuntimeMode>::new();
+                for scope in eval_scopes {
+                    let scope = scope.trim().trim_matches('/');
+                    if !scope.is_empty() {
+                        targets.insert(scope.to_string(), RuntimeMode::Lazy);
+                    }
+                }
+                for scope in &self.warmup_scopes {
+                    let scope = scope.trim().trim_matches('/');
+                    if !scope.is_empty() {
+                        targets.insert(scope.to_string(), RuntimeMode::Hot);
+                    }
+                }
+                let app = RuntimePlanApp {
+                    targets: targets
+                        .into_iter()
+                        .map(|(scope, mode)| RuntimePlanTarget { scope, mode })
+                        .collect(),
+                    metric_overrides: BTreeMap::new(),
+                };
+                RuntimePlan {
+                    default_mode: RuntimeMode::Frozen,
+                    apps: BTreeMap::from([("*".to_string(), app)]),
+                }
+            }
+            _ => RuntimePlan::default(),
+        }
+    }
+}
+
+impl WorkspaceDeployConfig {
+    /// 新 `runtimePlan` 优先；未配置时兼容映射旧 `devEval`。
+    pub fn effective_runtime_plan(&self) -> RuntimePlan {
+        if let Some(runtime_plan) = &self.runtime_plan {
+            runtime_plan.clone()
+        } else if !self.dev_eval.is_empty() {
+            self.dev_eval.to_runtime_plan()
+        } else {
+            RuntimePlan::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

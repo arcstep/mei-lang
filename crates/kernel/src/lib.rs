@@ -12,6 +12,7 @@ mod mei_config;
 mod model;
 mod ops_journal;
 mod runtime;
+mod runtime_dev_eval;
 mod runtime_resource_index;
 mod source_version;
 mod theme_tokens;
@@ -19,6 +20,7 @@ mod typed_refs;
 mod warmup_manifest;
 mod warmup_t2_page_autogen;
 mod workspace;
+mod workspace_profile;
 
 pub use cache_generation::{
     bump_cache_generation, cache_generation_path, is_file_source_dataset, load_cache_generation,
@@ -149,15 +151,16 @@ pub use mei_config::{
     workspace_config_path, write_build_manifest, write_links_state, write_mei_config,
     write_workspace_auth_bundle, write_workspace_config, AccessAiExternalConfig, AppEntryConfig,
     AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig, AuthUserConfig, BuildGenerationSpec,
-    BuildLinks, BuildManifest, CleanEnvPolicy, CleanEnvReport, ClientBootstrapConfig,
-    CompileScopeFilterConfig, DiscoverConfig, FileCacheConfig, FileCacheSettings, LinksState,
-    MeiConfig, MemoryWarmupConfig, MigrateEnvReport, OpsBasemapEntry, OpsConfig, OpsConfigPatch,
-    OpsSourceEntry, PrebuildGeneration, RuntimeConfig, RuntimeWarmupApp,
+    BuildLinks, BuildManifest, CleanEnvEntry, CleanEnvPolicy, CleanEnvReport,
+    ClientBootstrapConfig, CompileScopeFilterConfig, DiscoverConfig, FileCacheConfig,
+    FileCacheSettings, LinksState, MeiConfig, MemoryWarmupConfig, MigrateEnvReport,
+    OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, PrebuildGeneration, RuntimeConfig,
+    RuntimeMode, RuntimePlan, RuntimePlanApp, RuntimePlanTarget, RuntimeWarmupApp,
     RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource, SmartWarmupConfig,
     StockCatalogKind, ToolchainLinks, VersionDisplayIdentity, WorkspaceAuthBundle,
     WorkspaceAuthConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
-    WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceHostState, WorkspaceOpsConfig,
-    WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
+    WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceDeployDevEvalConfig, WorkspaceHostState,
+    WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
     WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
     WorkspaceStockConfig, WorkspaceStockPreviewConfig, WorkspaceStockSourceEntry,
     WorkspaceToolchainConfig, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
@@ -199,6 +202,7 @@ pub use runtime::{
     initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step, RuntimeIntent,
     RuntimeSceneView, RuntimeState, RuntimeSubjectTimerState, RuntimeTraceItem,
 };
+pub use runtime_dev_eval::{RuntimeDevEvalDecision, RuntimeDevEvalGate, RuntimeDevEvalProfile};
 pub use runtime_resource_index::{
     build_runtime_resource_index, build_runtime_resource_map, is_forbidden_legacy_resource_id,
     locate_dataset_resource, resolve_dataset_resource_id, resolve_dataset_selector_value,
@@ -230,8 +234,13 @@ pub use warmup_t2_page_autogen::{
     SuggestedWarmupDatasetRequest,
 };
 pub use workspace::{
-    audit_component_preview_coverage, discover_apps, discover_build_apps, load_component_assets,
-    read_source_file, source_tree,
+    audit_component_preview_coverage, discover_apps, discover_apps_with_config,
+    discover_build_apps, load_component_assets, read_source_file, source_tree,
+};
+pub use workspace_profile::{
+    RuntimePlanAppDryRun, RuntimePlanReferenceCheck, WorkspaceProfileDocument,
+    WorkspaceProfileDryRun, WorkspaceProfileError, WorkspaceProfileService,
+    WorkspaceProfileSummary, WorkspaceProfileValidation, WorkspaceProfileValidationIssue,
 };
 
 /// Stable revision token derived from kernel sources at compile time.

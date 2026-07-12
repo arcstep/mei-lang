@@ -280,6 +280,16 @@ pub fn metric_response_cache_scope_key(
     )
 }
 
+/// Partition-prefixed scope key for same-process multi-instance isolation.
+pub fn metric_response_cache_key_partitioned(
+    app_id: &str,
+    generation: &str,
+    config_digest: &str,
+    inner_scope_key: &str,
+) -> String {
+    crate::cache_partition::partition_cache_key(app_id, generation, config_digest, inner_scope_key)
+}
+
 pub fn cached_metric_response_covers_request(
     entry: &CachedMetricResponse,
     requested_metric_ids: &BTreeSet<String>,
@@ -388,6 +398,21 @@ pub fn clear_metric_response_cache() -> usize {
     removed
 }
 
+pub fn clear_metric_response_cache_for_partition(
+    app_id: &str,
+    generation: &str,
+    config_digest: &str,
+) -> usize {
+    let Ok(mut cache) = metric_response_cache().lock() else {
+        return 0;
+    };
+    let before = cache.entries.len();
+    cache.entries.retain(|key, _| {
+        !crate::cache_partition::partition_matches_key(app_id, generation, config_digest, key)
+    });
+    before.saturating_sub(cache.entries.len())
+}
+
 pub fn clear_all_metric_caches() -> (usize, usize) {
     (
         clear_metric_response_cache(),
@@ -494,6 +519,54 @@ mod tests {
             false
         )
         .is_some());
+        clear_metric_response_cache();
+    }
+
+    #[test]
+    fn dual_partition_metric_response_entries_are_isolated() {
+        clear_metric_response_cache();
+        let key_a = metric_response_cache_key_partitioned(
+            "mini-data",
+            "WS-1",
+            "cfg-scoped",
+            "scope|metric.a",
+        );
+        let key_b = metric_response_cache_key_partitioned(
+            "mini-data",
+            "WS-1",
+            "cfg-full",
+            "scope|metric.a",
+        );
+        assert_ne!(key_a, key_b);
+        store_cached_metric_response(
+            key_a.clone(),
+            1,
+            &BTreeMap::new(),
+            &BTreeSet::from(["metric.a".to_string()]),
+            true,
+        );
+        assert!(take_cached_metric_response(
+            &key_a,
+            &BTreeSet::from(["metric.a".to_string()]),
+            false
+        )
+        .is_some());
+        assert!(take_cached_metric_response(
+            &key_b,
+            &BTreeSet::from(["metric.a".to_string()]),
+            false
+        )
+        .is_none());
+        assert_eq!(
+            clear_metric_response_cache_for_partition("mini-data", "WS-1", "cfg-scoped"),
+            1
+        );
+        assert!(take_cached_metric_response(
+            &key_a,
+            &BTreeSet::from(["metric.a".to_string()]),
+            false
+        )
+        .is_none());
         clear_metric_response_cache();
     }
 }

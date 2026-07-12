@@ -1,15 +1,16 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::mei_config::types::{APP_BUILD_STORE_REL, APP_VAR_STORE_REL};
 use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
 use super::build_generation::{
     format_version_footer_full, format_version_footer_short, is_build_generation_tag,
-    resolve_version_display_identity_with_hint,
+    require_build_generation_tag, resolve_version_display_identity_with_hint,
 };
 use super::env_paths::{
     app_env_root, env_generation_from_env_dir, normalize_env_generation_id,
@@ -29,13 +30,28 @@ pub struct MigrateEnvReport {
 #[derive(Debug, Clone, Default)]
 pub struct CleanEnvPolicy {
     pub dry_run: bool,
+    pub retain_generations: Option<usize>,
+    pub protected_generations: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanEnvReport {
     pub removed: Vec<String>,
     pub retained: Vec<String>,
     pub dry_run: bool,
+    pub entries: Vec<CleanEnvEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanEnvEntry {
+    pub app_id: String,
+    pub generation: String,
+    pub path: String,
+    pub bytes: u64,
+    pub protected: bool,
+    pub reasons: Vec<String>,
 }
 
 pub fn migrate_build_var_store_to_env(
@@ -140,8 +156,8 @@ fn normalize_links_build_fields(source_root: &Path, links: &mut super::types::Li
     }
 }
 
-fn protected_env_versions(source_root: &Path) -> BTreeSet<String> {
-    let mut keep = BTreeSet::new();
+fn protected_env_versions(source_root: &Path) -> BTreeMap<String, Vec<String>> {
+    let mut keep = BTreeMap::<String, Vec<String>>::new();
     let apps_root = resolve_apps_root(source_root);
     if apps_root.is_dir() {
         if let Ok(entries) = fs::read_dir(&apps_root) {
@@ -151,20 +167,23 @@ fn protected_env_versions(source_root: &Path) -> BTreeSet<String> {
                 }
                 if let Some(env_dir) = resolve_app_env_dir_following_current(&entry.path()) {
                     if let Some(ver) = env_generation_from_env_dir(env_dir.as_path()) {
-                        keep.insert(ver);
+                        let app_id = entry.file_name().to_string_lossy().to_string();
+                        keep.entry(ver)
+                            .or_default()
+                            .push(format!("current:{app_id}"));
                     }
                 }
             }
         }
     }
     if let Ok(links) = read_links_state(source_root) {
-        for ver in [
-            links.build.candidate.as_deref(),
-            links.build.previous.as_deref(),
+        for (reason, ver) in [
+            ("candidate", links.build.candidate.as_deref()),
+            ("previous", links.build.previous.as_deref()),
         ] {
             if let Some(v) = ver.map(str::trim).filter(|s| !s.is_empty()) {
                 if let Ok(normalized) = normalize_env_generation_id(source_root, v) {
-                    keep.insert(normalized);
+                    keep.entry(normalized).or_default().push(reason.to_string());
                 }
             }
         }
@@ -172,12 +191,80 @@ fn protected_env_versions(source_root: &Path) -> BTreeSet<String> {
     keep
 }
 
+fn workspace_generations(source_root: &Path, app_ids: &[String]) -> BTreeSet<String> {
+    let mut generations = BTreeSet::new();
+    for app_id in app_ids {
+        let env_root = app_env_root(resolve_app_root(source_root, app_id).as_path());
+        let Ok(entries) = fs::read_dir(env_root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let generation = entry.file_name().to_string_lossy().to_string();
+            if is_build_generation_tag(generation.as_str()) {
+                generations.insert(generation);
+            }
+        }
+    }
+    generations
+}
+
+fn directory_bytes(path: &Path) -> u64 {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    if !metadata.is_dir() {
+        return 0;
+    }
+    fs::read_dir(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| directory_bytes(entry.path().as_path()))
+        .sum()
+}
+
 pub fn clean_env_generations(
     source_root: &Path,
     app_ids: &[String],
     policy: &CleanEnvPolicy,
 ) -> Result<CleanEnvReport> {
-    let keep = protected_env_versions(source_root);
+    let mut keep = protected_env_versions(source_root);
+    for (generation, reasons) in &policy.protected_generations {
+        if !is_build_generation_tag(generation) {
+            continue;
+        }
+        keep.entry(generation.clone())
+            .or_default()
+            .extend(reasons.iter().cloned());
+    }
+    if let Some(retain) = policy.retain_generations.filter(|retain| *retain > 0) {
+        let mut generations = workspace_generations(source_root, app_ids)
+            .into_iter()
+            .collect::<Vec<_>>();
+        generations.sort_by(|left, right| {
+            let left_spec = require_build_generation_tag(left).ok();
+            let right_spec = require_build_generation_tag(right).ok();
+            right_spec
+                .as_ref()
+                .map(|spec| (spec.date.as_str(), spec.fixver))
+                .cmp(
+                    &left_spec
+                        .as_ref()
+                        .map(|spec| (spec.date.as_str(), spec.fixver)),
+                )
+        });
+        for generation in generations.into_iter().take(retain) {
+            keep.entry(generation)
+                .or_default()
+                .push(format!("retain:{retain}"));
+        }
+    }
     let mut report = CleanEnvReport {
         dry_run: policy.dry_run,
         ..CleanEnvReport::default()
@@ -194,8 +281,23 @@ pub fn clean_env_generations(
                 continue;
             }
             let ver = entry.file_name().to_string_lossy().to_string();
+            if !is_build_generation_tag(ver.as_str()) {
+                continue;
+            }
             let label = format!("{app_id}/{ver}");
-            if keep.contains(ver.as_str()) {
+            let mut reasons = keep.get(ver.as_str()).cloned().unwrap_or_default();
+            reasons.sort();
+            reasons.dedup();
+            let protected = !reasons.is_empty();
+            report.entries.push(CleanEnvEntry {
+                app_id: app_id.clone(),
+                generation: ver.clone(),
+                path: entry.path().to_string_lossy().to_string(),
+                bytes: directory_bytes(entry.path().as_path()),
+                protected,
+                reasons,
+            });
+            if protected {
                 report.retained.push(label);
                 continue;
             }
@@ -207,6 +309,12 @@ pub fn clean_env_generations(
             }
         }
     }
+    report.entries.sort_by(|left, right| {
+        right
+            .generation
+            .cmp(&left.generation)
+            .then(left.app_id.cmp(&right.app_id))
+    });
     Ok(report)
 }
 
