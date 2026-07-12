@@ -115,12 +115,16 @@
   }
 
   async function storeLayerDocuments(appId, sceneId, manifest, batchLayers) {
-    if (!batchLayers || !boot.layerStore?.putLayerByRef) return;
+    if (!batchLayers || !boot.layerStore?.putLayersByRef) return;
+    const entries = [];
     for (const [name, bytes] of Object.entries(batchLayers)) {
       const ref = layerRefFromManifest(name, manifest);
       if (!ref || bytes == null) continue;
-      await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
+      entries.push({ holding: ref, bytes });
     }
+    await boot.layerStore.putLayersByRef(appId, sceneId, entries, manifest, {
+      awaitPersist: false,
+    });
   }
 
   async function resolveLayerBytes(ref, appId, sceneId, manifest) {
@@ -135,9 +139,7 @@
         cached.bytes != null
       ) {
         bytes = cached.bytes;
-        if (boot.layerStore?.putLayerByRef) {
-          await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
-        }
+        boot.layerStore?.fillMemoryByRef?.(appId, sceneId, ref, bytes);
         return bytes;
       }
     }
@@ -151,6 +153,7 @@
       const fetched = await fetchManifest(appId, sceneId, axes, ctx?.surface);
       activeManifest = fetched.manifest;
     }
+    const refs = [];
     const missing = [];
     for (const name of layerNames) {
       const ref = layerRefFromManifest(name, activeManifest);
@@ -158,8 +161,17 @@
         missing.push(name);
         continue;
       }
-      const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
-      if (!cached) missing.push(name);
+      refs.push(ref);
+    }
+    boot.renderPipelineMark?.("layer_restore:begin", { count: refs.length });
+    if (boot.layerStore?.restoreLayersByRefs) {
+      const restored = await boot.layerStore.restoreLayersByRefs(appId, sceneId, refs);
+      missing.push(...restored.misses.map((holding) => holding.name));
+    } else {
+      for (const ref of refs) {
+        const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
+        if (!cached) missing.push(ref.name);
+      }
     }
     if (!missing.length) {
       return { manifest: activeManifest, layers: {}, hits: boot.lastArtifactHits };

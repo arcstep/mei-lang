@@ -1787,9 +1787,35 @@ function buildRankingOption(rows, mapping, props, diagnostics) {
   return buildRankingSideOption(rows, mapping, props, diagnostics);
 }
 
+function rankingFillHeightEnabled(props) {
+  return (
+    props?.fillHeight === true ||
+    props?.fillHeight === "true" ||
+    props?.fill_height === true ||
+    props?.fill_height === "true" ||
+    ((props?.compact === true || props?.compact === "true") && !(Number(props?.chartHeight) > 0))
+  );
+}
+
+function resolveRankingAboveHeight(chartEl, props) {
+  if (Number(props.chartHeight) > 0) {
+    return Number(props.chartHeight);
+  }
+  if (rankingFillHeightEnabled(props)) {
+    const host = chartEl?.getRootNode?.()?.host;
+    const fromHost = Number(host?.clientHeight) || 0;
+    const fromParent = Number(chartEl?.parentElement?.clientHeight) || 0;
+    const fromSelf = Number(chartEl?.clientHeight) || 0;
+    const resolved = Math.max(fromHost, fromParent, fromSelf);
+    if (resolved > 0) return resolved;
+  }
+  return 152;
+}
+
 function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   const theme = model.theme || resolveRankingTheme(props);
-  const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : 152;
+  const fillHeight = rankingFillHeightEnabled(props);
+  const chartHeight = resolveRankingAboveHeight(chartEl, props);
   const items = Array.isArray(model.items) ? model.items : [];
   const maxChars = Number(model.maxChars) > 0 ? Number(model.maxChars) : 28;
   const maxValue = rankingValueAxisMax(items.map((item) => item.value));
@@ -1801,9 +1827,16 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   const titleH = showTitle ? Math.max(14, Math.ceil(titleFontPx * 1.15)) : 0;
   const listHeight = Math.max(48, chartHeight - titleH + pullUp);
   const slotPx = items.length > 0 ? Math.floor(listHeight / items.length) : 0;
-  chartEl.style.height = `${chartHeight}px`;
-  chartEl.style.minHeight = `${chartHeight}px`;
-  chartEl.style.maxHeight = `${chartHeight}px`;
+  if (fillHeight) {
+    chartEl.style.height = "100%";
+    chartEl.style.minHeight = "0";
+    chartEl.style.maxHeight = "none";
+    chartEl.style.flex = "1 1 auto";
+  } else {
+    chartEl.style.height = `${chartHeight}px`;
+    chartEl.style.minHeight = `${chartHeight}px`;
+    chartEl.style.maxHeight = `${chartHeight}px`;
+  }
   chartEl.style.overflow = pullUp > 0 ? "visible" : "hidden";
   if (chartEl.parentElement) {
     chartEl.parentElement.style.overflow = pullUp > 0 ? "visible" : "hidden";
@@ -1827,7 +1860,8 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
       </div>`;
     })
     .join("");
-  chartEl.innerHTML = `<div class="mei-rank-above" style="height:${chartHeight}px;padding-left:${padLeft}px;margin-top:${-pullUp}px;box-sizing:border-box">
+  const heightCss = fillHeight ? "height:100%;min-height:0;" : `height:${chartHeight}px;`;
+  chartEl.innerHTML = `<div class="mei-rank-above" style="${heightCss}padding-left:${padLeft}px;margin-top:${-pullUp}px;box-sizing:border-box">
     ${showTitle ? `<div class="mei-rank-above-title">${escapeHtml(title)}</div>` : ""}
     <div class="mei-rank-above-list">${rowsHtml}</div>
   </div>`;

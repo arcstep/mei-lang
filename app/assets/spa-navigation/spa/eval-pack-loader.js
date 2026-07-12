@@ -277,9 +277,21 @@
   }
 
   async function ensureEvalPackSeeded(ctx, revision, options) {
+    const opts = options || {};
     const payload = await ensureEvalPackPayload(ctx, revision || {}, options);
     const count = seedEvalPackRuntimeCache();
-    void prefetchNeighborEvalPacks(ctx?.appId, payload);
+    // Neighbor scope warmup must not compete with cold-start critical path.
+    if (opts.prefetchNeighbors !== false) {
+      const appId = ctx?.appId;
+      const run = () => {
+        void prefetchNeighborEvalPacks(appId, payload);
+      };
+      if (typeof global.requestIdleCallback === "function") {
+        global.requestIdleCallback(run, { timeout: 2500 });
+      } else {
+        global.setTimeout(run, 0);
+      }
+    }
     return count;
   }
 
@@ -296,6 +308,7 @@
         await ensureEvalPackSeeded(
           { appId, sceneId: neighborScope },
           { client_revision: neighborRevision },
+          { prefetchNeighbors: false },
         );
       } catch (_) {
         /* neighbor warmup is best-effort */

@@ -20,9 +20,11 @@
     url: "",
     surface: "",
     startedAt: 0,
+    runBeganAt: 0,
     marks: [],
     fetches: [],
     reported: false,
+    visibleReadyScheduled: false,
     lastSummary: null,
   };
 
@@ -49,11 +51,25 @@
     state.runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     state.url = String(detail.url || global.location?.href || "");
     state.surface = String(detail.surface || "").trim().toLowerCase();
-    state.startedAt = nowMs();
+    state.runBeganAt = nowMs();
+    state.startedAt = detail.fromNavigationStart === true ? 0 : state.runBeganAt;
     state.marks = [];
     state.fetches = [];
     state.reported = false;
+    state.visibleReadyScheduled = false;
     mark("run_begin", detail);
+    if (detail.fromNavigationStart === true) {
+      const nav = readNavigationTiming();
+      if (nav) {
+        markAt("document:response_start", nav.responseStart, {});
+        markAt("document:response_end", nav.responseEnd, {});
+        if (nav.domInteractive > 0) markAt("document:interactive", nav.domInteractive, {});
+        if (nav.domContentLoadedEventEnd > 0) {
+          markAt("document:dom_content_loaded", nav.domContentLoadedEventEnd, {});
+        }
+        if (nav.loadEventEnd > 0) markAt("document:load", nav.loadEventEnd, {});
+      }
+    }
   }
 
   function mark(name, detail) {
@@ -93,22 +109,37 @@
     return "other";
   }
 
+  function resourceIdentity(url) {
+    try {
+      const parsed = new URL(String(url || ""), global.location?.href || "http://localhost/");
+      return `${parsed.pathname}${parsed.search}`;
+    } catch (_) {
+      return String(url || "");
+    }
+  }
+
   function ingestResourceTiming() {
     if (typeof performance === "undefined" || typeof performance.getEntriesByType !== "function") {
       return [];
     }
-    const seen = new Set(state.fetches.map((row) => row.name));
     const rows = [];
     for (const entry of performance.getEntriesByType("resource")) {
       const name = String(entry.name || "");
       if (!HOST_API_RE.test(name) && !BUNDLE_RE.test(name) && !name.includes("/styles.bundle.css")) {
         continue;
       }
-      if (seen.has(name)) continue;
       const kind = classifyFetchUrl(name);
+      const identity = resourceIdentity(name);
+      const duplicate = state.fetches.some(
+        (row) =>
+          row.kind === kind &&
+          resourceIdentity(row.name) === identity &&
+          Math.abs(Number(row.startMs || 0) - Number(entry.startTime || 0)) <= 8,
+      );
+      if (duplicate) continue;
       rows.push({
         kind,
-        name: name.slice(-96),
+        name,
         ms: Math.round(entry.duration || 0),
         startMs: Math.round(entry.startTime || 0),
         transferSize: Number(entry.transferSize) || 0,
@@ -117,6 +148,24 @@
     }
     state.fetches.push(...rows);
     return rows;
+  }
+
+  function readNavigationTiming() {
+    if (typeof performance === "undefined" || typeof performance.getEntriesByType !== "function") {
+      return null;
+    }
+    const nav = performance.getEntriesByType("navigation")[0];
+    if (!nav) return null;
+    return {
+      responseStart: Math.round(Number(nav.responseStart) || 0),
+      responseEnd: Math.round(Number(nav.responseEnd) || 0),
+      domInteractive: Math.round(Number(nav.domInteractive) || 0),
+      domContentLoadedEventEnd: Math.round(Number(nav.domContentLoadedEventEnd) || 0),
+      loadEventEnd: Math.round(Number(nav.loadEventEnd) || 0),
+      transferSize: Number(nav.transferSize) || 0,
+      encodedBodySize: Number(nav.encodedBodySize) || 0,
+      decodedBodySize: Number(nav.decodedBodySize) || 0,
+    };
   }
 
   function readBodyPerf() {
@@ -141,12 +190,26 @@
     const opts = options || {};
     ingestResourceTiming();
     const bodyPerf = readBodyPerf();
+    const navigation = readNavigationTiming();
     const wallMs = Math.round(nowMs() - (state.startedAt || 0));
     const lastMark = state.marks[state.marks.length - 1];
     const surfaceReady = state.marks.find((row) => row.name === "surface_ready");
     const coldStart = phaseSpan("cold_start");
     const assembly = phaseSpan("assembly");
     const compose = phaseSpan("preview_compose");
+    const phaseNames = [
+      "revision_store_parse",
+      "layer_restore",
+      "idb_open",
+      "idb_transaction",
+      "compose_structure",
+      "bind_eval_slots",
+      "apply_chrome",
+      "component_wake",
+    ];
+    const phases = Object.fromEntries(
+      phaseNames.map((name) => [name, phaseSpan(name)]).filter(([, value]) => value),
+    );
     const byKind = {};
     for (const row of state.fetches) {
       const bucket = byKind[row.kind] || {
@@ -163,9 +226,7 @@
       if (row.fromCache) bucket.cached += 1;
       byKind[row.kind] = bucket;
     }
-    const documentMs = Number.isFinite(bodyPerf.handlerReadyMs)
-      ? Math.round(bodyPerf.handlerReadyMs)
-      : byKind.document?.maxMs || 0;
+    const documentMs = navigation?.responseEnd || byKind.document?.maxMs || 0;
     const clientAfterDocumentMs = Math.max(0, wallMs - documentMs);
     const summary = {
       runId: state.runId,
@@ -178,7 +239,9 @@
       coldStartMs: coldStart?.durationMs ?? null,
       assemblyMs: assembly?.durationMs ?? null,
       previewComposeMs: compose?.durationMs ?? null,
+      phases,
       bodyPerf,
+      navigation,
       fetchByKind: byKind,
       marks: state.marks.slice(-32),
       fetches: state.fetches.slice(-24),
@@ -276,7 +339,7 @@
             const ms = Math.round(nowMs() - started);
             state.fetches.push({
               kind,
-              name: url.slice(-96),
+              name: url,
               ms,
               startMs: Math.round(started - (state.startedAt || 0)),
               transferSize: 0,
@@ -311,6 +374,7 @@
         name === "view-cold-start" ||
         name === "view-revision-outcome" ||
         name === "preview-fragment-hydrate-miss" ||
+        name === "missing-layers" ||
         name === "render-pipeline"
       ) {
         mark(name, detail || {});
@@ -353,25 +417,60 @@
         : { surface: readSurfaceFromDom() };
     if (typeof boot.isSurfaceMaterialized === "function" && boot.isSurfaceMaterialized(ctx)) {
       mark("surface_ready", boot.surfaceSnapshot?.(ctx) || {});
-      finalizeRun({ source: "surface_ready_poll" });
+      scheduleUserVisibleReady();
       return true;
     }
     return false;
   }
 
+  function scheduleUserVisibleReady() {
+    if (state.visibleReadyScheduled || state.reported) return;
+    state.visibleReadyScheduled = true;
+    const finish = () => {
+      mark("user_visible_ready");
+      finalizeRun({ source: "user_visible_ready" });
+    };
+    if (typeof global.requestAnimationFrame !== "function") {
+      global.setTimeout(finish, 0);
+      return;
+    }
+    global.requestAnimationFrame(() => {
+      global.requestAnimationFrame(finish);
+    });
+  }
+
   function installLifecycleHooks() {
-    beginRun({ url: global.location?.href, surface: readSurfaceFromDom() });
+    beginRun({
+      url: global.location?.href,
+      surface: readSurfaceFromDom(),
+      fromNavigationStart: true,
+    });
     mark("bundle_boot");
     installFetchTap();
     hookCacheDiag();
     hookAssemblyCoordinator();
 
-    global.addEventListener("mei:spa-navigation-complete", () => {
+    const onSpaNavComplete = () => {
       mark("spa_navigation_complete");
-      if (!tryMarkSurfaceReady()) {
-        finalizeRun({ source: "spa_navigation_complete" });
-      }
-    });
+      if (tryMarkSurfaceReady()) return;
+      let attempts = 0;
+      const iv = global.setInterval(() => {
+        attempts += 1;
+        if (tryMarkSurfaceReady()) {
+          global.clearInterval(iv);
+          return;
+        }
+        if (attempts >= 40) {
+          global.clearInterval(iv);
+          if (!state.reported) {
+            finalizeRun({ source: "surface_ready_timeout" });
+          }
+        }
+      }, 50);
+    };
+    // Coordinator dispatches on document; window listeners miss non-bubbling CustomEvents.
+    global.document?.addEventListener("mei:spa-navigation-complete", onSpaNavComplete);
+    global.addEventListener("mei:spa-navigation-complete", onSpaNavComplete);
 
     if (global.document?.readyState === "loading") {
       global.document.addEventListener("DOMContentLoaded", () => mark("dom_ready"), { once: true });

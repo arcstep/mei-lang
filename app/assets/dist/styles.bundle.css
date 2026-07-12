@@ -3537,9 +3537,6 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
   .access-drilldown-shell-zone[data-shell-zone-id="detail"]
-  .access-drilldown-shell-host,
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
-  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
   .access-drilldown-shell-host {
   overflow: auto;
 }
@@ -3557,6 +3554,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   padding: 0;
   overflow: visible;
 }
+/* analytics Layer2：过滤区保持 visible，避免 absolute/fixed 多选面板被裁切叠层；滚动交给 filter-bar 内部 */
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
   .access-drilldown-shell-zone[data-shell-zone-role="filter"],
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
@@ -3564,8 +3562,16 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   .access-drilldown-shell-surface,
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="analytics"]
   .access-drilldown-shell-zone[data-shell-zone-role="filter"]
+  .access-drilldown-shell-host,
+.mei-layer2-page-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"],
+.mei-layer2-page-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
+  .access-drilldown-shell-surface,
+.mei-layer2-page-panel[data-drilldown-layout-mode="analytics"]
+  .access-drilldown-shell-zone[data-shell-zone-role="filter"]
   .access-drilldown-shell-host {
-  overflow: auto;
+  overflow: visible;
 }
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] mei-dataset-filter-bar {
   display: block;
@@ -5250,7 +5256,8 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 .mei-compose-compound-section > .mei-compose-enforcement-strip,
 .mei-compose-compound-section > [data-mei-content-kind="compound-metric"],
 .mei-compose-compound-section > [data-mei-ui-role="content"],
-.mei-compose-compound-section > [data-mei-ui-role="slot"] {
+/* 勿用裸 [data-mei-ui-role=slot]：会把 title_zone/title 一并打进 body 行 */
+.mei-compose-compound-section > [data-mei-ui-role="slot"]:not([data-preview-scope$="/title_zone"]):not([data-preview-scope$="/head"]):not([data-preview-scope$="/title"]):not([data-preview-scope$="/title/title"]) {
   grid-area: body;
   margin: 0;
   padding: 0;

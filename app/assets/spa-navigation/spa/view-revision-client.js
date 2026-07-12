@@ -34,6 +34,38 @@
     return a === b;
   }
 
+  function readDocumentRevisionEnvelope() {
+    const envelope = globalThis.__mei?.view_revision_envelope;
+    if (envelope && typeof envelope === "object") return envelope;
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs || typeof refs !== "object") return null;
+    return {
+      app_id: refs.app_id || "",
+      scene_id: refs.scene_id || "",
+      manifest_revision_digest: refs.revision_digest || refs.manifest_revision_digest || "",
+      surface_revision_digest: refs.surface_revision_digest || "",
+    };
+  }
+
+  function documentEnvelopeMatchesStored(ctx, stored) {
+    const envelope = readDocumentRevisionEnvelope();
+    if (!envelope || !stored) return false;
+    const appId = String(ctx.app_id || ctx.appId || "").trim();
+    const sceneId = String(ctx.scene_id || ctx.sceneId || "home").trim();
+    if (envelope.app_id && String(envelope.app_id) !== appId) return false;
+    if (envelope.scene_id && String(envelope.scene_id) !== sceneId) return false;
+    return (
+      revisionsMatchManifest(
+        envelope.manifest_revision_digest || envelope.revision_digest,
+        stored.manifest_revision_digest,
+      ) &&
+      revisionsMatchManifest(
+        envelope.surface_revision_digest,
+        stored.surface_revision_digest,
+      )
+    );
+  }
+
   function layerRefFromManifestValue(layerName, value) {
     if (!value || typeof value !== "object") return null;
     const artifactId = String(value.artifact_id || "").trim();
@@ -93,6 +125,7 @@
   function composeDefaultsFromResponse(response, ctx) {
     return (
       response?.compose_defaults ||
+      response?.assembly_plan?.compose_defaults ||
       response?.manifest?.compose_defaults ||
       globalThis.__mei?.scene_manifest_refs?.compose_defaults ||
       buildComposeRequest(ctx)
@@ -157,12 +190,73 @@
 
   async function storeInlineLayers(ctx, inlineLayers, manifest) {
     if (!inlineLayers || !boot.layerStore) return;
+    const entries = [];
     for (const [name, bytes] of Object.entries(inlineLayers)) {
       const ref = layerRefFromManifestValue(name, manifest?.layers?.[name]);
       if (!ref) continue;
       const document = extractLayerDocument(bytes);
-      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, document, manifest);
+      entries.push({ holding: ref, bytes: document });
     }
+    await boot.layerStore.putLayersByRef?.(
+      ctx.app_id || ctx.appId,
+      ctx.scene_id || ctx.sceneId,
+      entries,
+      manifest,
+      { awaitPersist: false },
+    );
+  }
+
+  function planFromValidatedStored(ctx, response) {
+    const stored = boot.readViewRevision?.(ctx);
+    const manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
+    if (!manifest?.layers) return null;
+    if (
+      !revisionsMatchManifest(
+        response?.manifest_revision_digest,
+        stored?.manifest_revision_digest,
+      ) ||
+      !revisionsMatchManifest(
+        response?.surface_revision_digest,
+        stored?.surface_revision_digest,
+      )
+    ) {
+      return null;
+    }
+    return {
+      manifest,
+      layer_refs: Object.fromEntries(
+        layerRefsFromManifest(manifest).map((ref) => [
+          ref.name,
+          { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+        ]),
+      ),
+      compose_defaults: composeDefaultsFromResponse(response, ctx),
+    };
+  }
+
+  function mergeManifestForRefetch(ctx, response) {
+    const stored = boot.readViewRevision?.(ctx);
+    const previous = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx) || {};
+    const changedRefs = response?.assembly_plan?.layer_refs || {};
+    const layers = { ...(previous.layers || {}) };
+    for (const [name, ref] of Object.entries(changedRefs)) {
+      layers[name] = {
+        artifact_id: ref.artifact_id,
+        content_hash: ref.content_hash,
+        ...(ref.bytes != null ? { bytes: ref.bytes } : {}),
+        ...(ref.encoding ? { encoding: ref.encoding } : {}),
+      };
+    }
+    return {
+      ...previous,
+      schema_version: previous.schema_version || "mei.scene-view-manifest.v2",
+      app_id: ctx.app_id || ctx.appId || previous.app_id || "",
+      scene_id: ctx.scene_id || ctx.sceneId || previous.scene_id || "home",
+      revision_digest: response.manifest_revision_digest,
+      surface_revision_digest: response.surface_revision_digest,
+      compose_defaults: response.assembly_plan?.compose_defaults || previous.compose_defaults,
+      layers,
+    };
   }
 
   async function applyViewRevision(ctx, response) {
@@ -170,25 +264,32 @@
       return { outcome: ViewRevisionOutcome.LOCAL_MISS, response };
     }
     const status = String(response.status || response._headers?.status || "").trim();
-    if (status === ViewRevisionOutcome.ASSEMBLE_LOCAL && response.assembly_plan) {
+    if (status === ViewRevisionOutcome.ASSEMBLE_LOCAL) {
+      const plan = response.assembly_plan || planFromValidatedStored(ctx, response);
+      if (!plan) {
+        return { outcome: ViewRevisionOutcome.LOCAL_MISS, response };
+      }
       return {
         outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-        plan: response.assembly_plan,
+        plan,
         response,
       };
     }
     const inlined = new Set(Object.keys(response.inline_layers || {}));
+    const manifest =
+      response.manifest ||
+      response.assembly_plan?.manifest ||
+      mergeManifestForRefetch(ctx, response);
     if (response.inline_layers && boot.layerStore) {
       await storeInlineLayers(
         ctx,
         response.inline_layers,
-        response.manifest || response.assembly_plan?.manifest || null,
+        manifest,
       );
     }
     if (response.changed_layers?.length && boot.sceneManifestLoader?.ensureLayers) {
       const toFetch = response.changed_layers.filter((name) => !inlined.has(name));
       if (toFetch.length) {
-        const manifest = response.manifest || response.assembly_plan?.manifest;
         await boot.sceneManifestLoader.ensureLayers(
           toFetch,
           ctx.app_id,
@@ -201,6 +302,16 @@
     return {
       outcome: ViewRevisionOutcome.REFETCH,
       changed_layers: response.changed_layers || [],
+      plan: {
+        manifest,
+        layer_refs: Object.fromEntries(
+          layerRefsFromManifest(manifest).map((ref) => [
+            ref.name,
+            { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+          ]),
+        ),
+        compose_defaults: composeDefaultsFromResponse(response, ctx),
+      },
       response,
     };
   }
@@ -289,41 +400,27 @@
         ]),
       );
     }
-    const missing = [];
     const layers = {};
+    const holdings = [];
     for (const [name, ref] of Object.entries(layerRefs)) {
-      const holding = {
+      holdings.push({
         name,
         artifact_id: ref.artifact_id,
         content_hash: ref.content_hash,
-      };
-      let bytes = boot.layerStore?.takeLayerByRef?.(holding);
-      if (!bytes && boot.sceneManifestLoader?.resolveLayerBytes) {
-        bytes = await boot.sceneManifestLoader.resolveLayerBytes(
-          holding,
+      });
+    }
+    boot.renderPipelineMark?.("layer_restore:begin", { count: holdings.length });
+    const restored = boot.layerStore?.restoreLayersByRefs
+      ? await boot.layerStore.restoreLayersByRefs(
           ctx.app_id || ctx.appId,
           ctx.scene_id || ctx.sceneId,
-          assemblyPlan?.manifest,
-        );
-      } else if (!bytes && boot.layerArtifactCache) {
-        const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
-        if (
-          cached &&
-          cached.content_hash === ref.content_hash &&
-          cached.bytes != null
-        ) {
-          bytes = cached.bytes;
-          if (boot.layerStore?.putLayerByRef) {
-            boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, holding, bytes, assemblyPlan.manifest);
-          }
-        }
-      }
-      if (!bytes) {
-        missing.push(name);
-        continue;
-      }
+          holdings,
+        )
+      : { resolved: new Map(), misses: holdings };
+    for (const [name, bytes] of restored.resolved) {
       layers[name] = extractLayerDocument(bytes);
     }
+    const missing = restored.misses.map((holding) => holding.name);
     if (missing.length) {
       return { ok: false, missing, layers };
     }
@@ -420,6 +517,9 @@
 
   async function tryClientOnlyAssemble(ctx, options = {}) {
     const stored = boot.readViewRevision?.(ctx);
+    if (!documentEnvelopeMatchesStored(ctx, stored)) {
+      return null;
+    }
     let manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
     const manifestDigest =
       stored?.manifest_revision_digest || boot.readSharedManifestDigest?.(ctx) || "";
@@ -505,7 +605,47 @@
       return { ...result, assemble };
     }
     const missing = assemble.missing || [];
+    if (
+      missing.length &&
+      result.outcome === ViewRevisionOutcome.ASSEMBLE_LOCAL &&
+      plan?.manifest?.layers &&
+      boot.sceneManifestLoader?.ensureLayers
+    ) {
+      await boot.sceneManifestLoader.ensureLayers(
+        missing,
+        ctx.app_id || ctx.appId,
+        ctx.scene_id || ctx.sceneId,
+        { ...ctx, local_miss: true, signal: opts.signal },
+        plan.manifest,
+      );
+      assemble = await tryAssembleLocal(ctx, plan, assembleOptions);
+      if (assemble.ok) {
+        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+        return { ...result, assemble, recoveredMissing: missing };
+      }
+    }
     if (missing.length) {
+      const detail = {
+        missingCount: missing.length,
+        missingSample: missing.slice(0, 12),
+        priorOutcome: result.outcome || "",
+        hadDigests: !(
+          opts.omit_digests === true ||
+          (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx))
+        ),
+        degraded: "missing_layers",
+        recover: true,
+      };
+      console.warn(
+        "[view-revision] missing layers after negotiate/assemble_local — contract bug; explicit recover degraded",
+        detail,
+      );
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("missing_layers", detail);
+      }
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("missing-layers", detail);
+      }
       result = await negotiateViewRevision(ctx, { recover: true, signal: opts.signal });
       assemble = await tryAssembleLocal(
         ctx,
@@ -529,7 +669,7 @@
           };
           boot.rememberViewRevision(ctx, rememberPayload);
         }
-        return { ...result, assemble };
+        return { ...result, assemble, degraded: "missing_layers" };
       }
     }
     boot.lastViewRevisionOutcome = ViewRevisionOutcome.LOCAL_MISS;

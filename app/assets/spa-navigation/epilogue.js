@@ -79,6 +79,7 @@
         } else if (
           typeof boot.rememberViewRevision === "function" &&
           ctx &&
+          outcome.source !== "coordinator" &&
           globalThis.__mei?.scene_manifest_refs
         ) {
           boot.rememberViewRevision(ctx, globalThis.__mei.scene_manifest_refs);
@@ -113,7 +114,12 @@
           source: outcome.source,
         });
       }
-      if (typeof boot.renderPipelineFinalize === "function") {
+      // Coordinator path finishes materialize in phaseRuntime; let surface_ready /
+      // spa_navigation_complete finalize so assembly/surface marks are not truncated.
+      if (
+        outcome.source !== "coordinator" &&
+        typeof boot.renderPipelineFinalize === "function"
+      ) {
         boot.renderPipelineFinalize({
           restored: !!outcome.restored,
           source: outcome.source,

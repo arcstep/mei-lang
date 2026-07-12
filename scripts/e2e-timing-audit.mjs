@@ -28,7 +28,6 @@ const HOST_API = [
   { kind: "document", test: (u) => /\/view(\?|$)/.test(u.pathname) && !u.pathname.includes("/api/") },
   { kind: "view-revision", test: (u) => u.pathname.includes("/api/host/view-revision") },
   { kind: "layer-batch", test: (u) => u.pathname.includes("/api/host/layer-batch") },
-  { kind: "view-revision", test: (u) => u.pathname.includes("/api/host/view-revision") },
   { kind: "scene-manifest", test: (u) => u.pathname.includes("/api/host/scene-manifest") },
   { kind: "scene-bootstrap", test: (u) => u.pathname.includes("/api/host/scene-bootstrap") },
 ];
@@ -163,6 +162,7 @@ async function collectClientSnapshot(page) {
         transferMs: Math.round(e.responseEnd - e.responseStart),
       }));
     const body = document.body;
+    const pipeline = window.__meiRenderPipeline?.last || {};
     return {
       url: location.href,
       surface: ctx.surface || ctx.mode || "app",
@@ -196,6 +196,13 @@ async function collectClientSnapshot(page) {
       })),
       lastOutcome: boot.lastViewRevisionOutcome || null,
       digests: boot.readClientDigests?.(ctx) || {},
+      pipeline: {
+        userVisibleReadyMs: Number(pipeline.wallMs) || null,
+        documentMs: Number(pipeline.documentMs) || null,
+        layerRestoreMs: Number(pipeline.phases?.layer_restore?.durationMs) || 0,
+        composeStructureMs: Number(pipeline.phases?.compose_structure?.durationMs) || 0,
+        bindEvalSlotsMs: Number(pipeline.phases?.bind_eval_slots?.durationMs) || 0,
+      },
     };
   });
 }
@@ -412,6 +419,28 @@ async function main() {
     await benchBrowser.close();
   }
 
+  report.prettyPanelsWarmF5 = [];
+  {
+    const warmBrowser = await chromium.launch({ headless: true });
+    const warmPage = await warmBrowser.newPage();
+    await warmPage.goto(`${base}/apps/pretty-panels/home`, {
+      waitUntil: "networkidle",
+      timeout: 120000,
+    });
+    for (let run = 1; run <= 10; run += 1) {
+      await warmPage.reload({ waitUntil: "domcontentloaded", timeout: 120000 });
+      await warmPage.waitForFunction(
+        () => window.__meiRenderPipeline?.last?.endedAt === "user_visible_ready",
+        { timeout: 120000 },
+      );
+      report.prettyPanelsWarmF5.push({
+        run,
+        ...(await collectClientSnapshot(warmPage)).pipeline,
+      });
+    }
+    await warmBrowser.close();
+  }
+
   for (const phase of report.phases) {
     printPhase(phase);
   }
@@ -433,6 +462,16 @@ async function main() {
         `${row.app.padEnd(12)} | wall=${String(row.wallMs).padStart(5)}ms | cold_start:end=${cold != null ? `${cold}ms` : "n/a"} | materialized=${row.materialized}`,
       );
     }
+  }
+  if (report.prettyPanelsWarmF5.length) {
+    const sorted = report.prettyPanelsWarmF5
+      .map((row) => row.userVisibleReadyMs)
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    const quantile = (p) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
+    console.log(
+      `\npretty-panels 暖 F5: p50=${quantile(0.5)}ms p95=${quantile(0.95)}ms（预算 500/800ms）`,
+    );
   }
 
   if (jsonOut) {

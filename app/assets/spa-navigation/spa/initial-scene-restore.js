@@ -453,6 +453,29 @@
       const thinShellPlaceholder =
         composeRoot instanceof HTMLElement &&
         composeRoot.getAttribute("data-mei-compose-placeholder") === "1";
+      if (opts.skipRemoteWhenValid === true) {
+        const cachedVrCtx = vrCtxFromViewCtx(ctx);
+        const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(cachedVrCtx, {
+          forceRematerialize: thinShellPlaceholder,
+        });
+        if (cachedOnly?.ok) {
+          if (!skipComplete) {
+            await completeMaterializedSurface(ctx, {
+              layers: cachedOnly.layers,
+              ssrPreview: false,
+              warmOnly: true,
+              generation: opts.generation,
+            });
+          }
+          return {
+            restored: true,
+            doc: document,
+            revision: boot.readViewRevision?.(cachedVrCtx) || null,
+            source: "client_cache",
+            viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+          };
+        }
+      }
       if (!thinShellPlaceholder && isSsrInjectedPreviewRoot(composeRoot)) {
         if (boot.hostChromeReady?.(ctx)) {
           if (typeof boot.hideThinShellFallback === "function") {

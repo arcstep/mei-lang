@@ -10385,9 +10385,11 @@
     url: "",
     surface: "",
     startedAt: 0,
+    runBeganAt: 0,
     marks: [],
     fetches: [],
     reported: false,
+    visibleReadyScheduled: false,
     lastSummary: null,
   };
 
@@ -10414,11 +10416,25 @@
     state.runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     state.url = String(detail.url || global.location?.href || "");
     state.surface = String(detail.surface || "").trim().toLowerCase();
-    state.startedAt = nowMs();
+    state.runBeganAt = nowMs();
+    state.startedAt = detail.fromNavigationStart === true ? 0 : state.runBeganAt;
     state.marks = [];
     state.fetches = [];
     state.reported = false;
+    state.visibleReadyScheduled = false;
     mark("run_begin", detail);
+    if (detail.fromNavigationStart === true) {
+      const nav = readNavigationTiming();
+      if (nav) {
+        markAt("document:response_start", nav.responseStart, {});
+        markAt("document:response_end", nav.responseEnd, {});
+        if (nav.domInteractive > 0) markAt("document:interactive", nav.domInteractive, {});
+        if (nav.domContentLoadedEventEnd > 0) {
+          markAt("document:dom_content_loaded", nav.domContentLoadedEventEnd, {});
+        }
+        if (nav.loadEventEnd > 0) markAt("document:load", nav.loadEventEnd, {});
+      }
+    }
   }
 
   function mark(name, detail) {
@@ -10458,22 +10474,37 @@
     return "other";
   }
 
+  function resourceIdentity(url) {
+    try {
+      const parsed = new URL(String(url || ""), global.location?.href || "http://localhost/");
+      return `${parsed.pathname}${parsed.search}`;
+    } catch (_) {
+      return String(url || "");
+    }
+  }
+
   function ingestResourceTiming() {
     if (typeof performance === "undefined" || typeof performance.getEntriesByType !== "function") {
       return [];
     }
-    const seen = new Set(state.fetches.map((row) => row.name));
     const rows = [];
     for (const entry of performance.getEntriesByType("resource")) {
       const name = String(entry.name || "");
       if (!HOST_API_RE.test(name) && !BUNDLE_RE.test(name) && !name.includes("/styles.bundle.css")) {
         continue;
       }
-      if (seen.has(name)) continue;
       const kind = classifyFetchUrl(name);
+      const identity = resourceIdentity(name);
+      const duplicate = state.fetches.some(
+        (row) =>
+          row.kind === kind &&
+          resourceIdentity(row.name) === identity &&
+          Math.abs(Number(row.startMs || 0) - Number(entry.startTime || 0)) <= 8,
+      );
+      if (duplicate) continue;
       rows.push({
         kind,
-        name: name.slice(-96),
+        name,
         ms: Math.round(entry.duration || 0),
         startMs: Math.round(entry.startTime || 0),
         transferSize: Number(entry.transferSize) || 0,
@@ -10482,6 +10513,24 @@
     }
     state.fetches.push(...rows);
     return rows;
+  }
+
+  function readNavigationTiming() {
+    if (typeof performance === "undefined" || typeof performance.getEntriesByType !== "function") {
+      return null;
+    }
+    const nav = performance.getEntriesByType("navigation")[0];
+    if (!nav) return null;
+    return {
+      responseStart: Math.round(Number(nav.responseStart) || 0),
+      responseEnd: Math.round(Number(nav.responseEnd) || 0),
+      domInteractive: Math.round(Number(nav.domInteractive) || 0),
+      domContentLoadedEventEnd: Math.round(Number(nav.domContentLoadedEventEnd) || 0),
+      loadEventEnd: Math.round(Number(nav.loadEventEnd) || 0),
+      transferSize: Number(nav.transferSize) || 0,
+      encodedBodySize: Number(nav.encodedBodySize) || 0,
+      decodedBodySize: Number(nav.decodedBodySize) || 0,
+    };
   }
 
   function readBodyPerf() {
@@ -10506,12 +10555,26 @@
     const opts = options || {};
     ingestResourceTiming();
     const bodyPerf = readBodyPerf();
+    const navigation = readNavigationTiming();
     const wallMs = Math.round(nowMs() - (state.startedAt || 0));
     const lastMark = state.marks[state.marks.length - 1];
     const surfaceReady = state.marks.find((row) => row.name === "surface_ready");
     const coldStart = phaseSpan("cold_start");
     const assembly = phaseSpan("assembly");
     const compose = phaseSpan("preview_compose");
+    const phaseNames = [
+      "revision_store_parse",
+      "layer_restore",
+      "idb_open",
+      "idb_transaction",
+      "compose_structure",
+      "bind_eval_slots",
+      "apply_chrome",
+      "component_wake",
+    ];
+    const phases = Object.fromEntries(
+      phaseNames.map((name) => [name, phaseSpan(name)]).filter(([, value]) => value),
+    );
     const byKind = {};
     for (const row of state.fetches) {
       const bucket = byKind[row.kind] || {
@@ -10528,9 +10591,7 @@
       if (row.fromCache) bucket.cached += 1;
       byKind[row.kind] = bucket;
     }
-    const documentMs = Number.isFinite(bodyPerf.handlerReadyMs)
-      ? Math.round(bodyPerf.handlerReadyMs)
-      : byKind.document?.maxMs || 0;
+    const documentMs = navigation?.responseEnd || byKind.document?.maxMs || 0;
     const clientAfterDocumentMs = Math.max(0, wallMs - documentMs);
     const summary = {
       runId: state.runId,
@@ -10543,7 +10604,9 @@
       coldStartMs: coldStart?.durationMs ?? null,
       assemblyMs: assembly?.durationMs ?? null,
       previewComposeMs: compose?.durationMs ?? null,
+      phases,
       bodyPerf,
+      navigation,
       fetchByKind: byKind,
       marks: state.marks.slice(-32),
       fetches: state.fetches.slice(-24),
@@ -10641,7 +10704,7 @@
             const ms = Math.round(nowMs() - started);
             state.fetches.push({
               kind,
-              name: url.slice(-96),
+              name: url,
               ms,
               startMs: Math.round(started - (state.startedAt || 0)),
               transferSize: 0,
@@ -10676,6 +10739,7 @@
         name === "view-cold-start" ||
         name === "view-revision-outcome" ||
         name === "preview-fragment-hydrate-miss" ||
+        name === "missing-layers" ||
         name === "render-pipeline"
       ) {
         mark(name, detail || {});
@@ -10718,25 +10782,60 @@
         : { surface: readSurfaceFromDom() };
     if (typeof boot.isSurfaceMaterialized === "function" && boot.isSurfaceMaterialized(ctx)) {
       mark("surface_ready", boot.surfaceSnapshot?.(ctx) || {});
-      finalizeRun({ source: "surface_ready_poll" });
+      scheduleUserVisibleReady();
       return true;
     }
     return false;
   }
 
+  function scheduleUserVisibleReady() {
+    if (state.visibleReadyScheduled || state.reported) return;
+    state.visibleReadyScheduled = true;
+    const finish = () => {
+      mark("user_visible_ready");
+      finalizeRun({ source: "user_visible_ready" });
+    };
+    if (typeof global.requestAnimationFrame !== "function") {
+      global.setTimeout(finish, 0);
+      return;
+    }
+    global.requestAnimationFrame(() => {
+      global.requestAnimationFrame(finish);
+    });
+  }
+
   function installLifecycleHooks() {
-    beginRun({ url: global.location?.href, surface: readSurfaceFromDom() });
+    beginRun({
+      url: global.location?.href,
+      surface: readSurfaceFromDom(),
+      fromNavigationStart: true,
+    });
     mark("bundle_boot");
     installFetchTap();
     hookCacheDiag();
     hookAssemblyCoordinator();
 
-    global.addEventListener("mei:spa-navigation-complete", () => {
+    const onSpaNavComplete = () => {
       mark("spa_navigation_complete");
-      if (!tryMarkSurfaceReady()) {
-        finalizeRun({ source: "spa_navigation_complete" });
-      }
-    });
+      if (tryMarkSurfaceReady()) return;
+      let attempts = 0;
+      const iv = global.setInterval(() => {
+        attempts += 1;
+        if (tryMarkSurfaceReady()) {
+          global.clearInterval(iv);
+          return;
+        }
+        if (attempts >= 40) {
+          global.clearInterval(iv);
+          if (!state.reported) {
+            finalizeRun({ source: "surface_ready_timeout" });
+          }
+        }
+      }, 50);
+    };
+    // Coordinator dispatches on document; window listeners miss non-bubbling CustomEvents.
+    global.document?.addEventListener("mei:spa-navigation-complete", onSpaNavComplete);
+    global.addEventListener("mei:spa-navigation-complete", onSpaNavComplete);
 
     if (global.document?.readyState === "loading") {
       global.document.addEventListener("DOMContentLoaded", () => mark("dom_ready"), { once: true });
@@ -12770,6 +12869,7 @@
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
+          .map((entry) => resolveFilterFieldEntry(entry))
           .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
           .map((entry) => ({
             key: nonEmptyString(entry.key),
@@ -12794,6 +12894,15 @@
       allowExtra: raw.allow_extra === true || raw.allowExtra === true,
       title: nonEmptyString(raw.title),
     };
+  }
+
+  /** `filter_field(...)` 可能以 `{__call:"filter_field", __args:{...}}` IR 残留在 bindings 里。 */
+  function resolveFilterFieldEntry(entry) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    if (entry.__call === "filter_field" && entry.__args && typeof entry.__args === "object") {
+      return entry.__args;
+    }
+    return entry;
   }
 
   function resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots) {
@@ -15222,7 +15331,13 @@
       title: nonEmptyString(filterSchema.title) || "筛选条件",
       default_collapsed: Boolean(filterSchema.defaultCollapsed),
       preset_filter_count: presetFilterCount,
-      query_state: config?.queryStateId || undefined,
+      query_state: nonEmptyString(
+        config?.queryStateId,
+        detail?.query_state_id,
+        detail?.queryStateId,
+        config?.tableMetricId ? `drilldown::${config.tableMetricId}` : "",
+        config?.metricId ? `drilldown::${config.metricId}` : "",
+      ) || undefined,
       default_filters: tableProps?.default_filters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
       dataset: rowsetDatasetId
@@ -17096,10 +17211,19 @@
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
         if (analyticsLock) {
-          const scrollable = zone.id === "detail" || zone.role === "filter";
+          const scrollable = zone.id === "detail";
           lockAnalyticsShellFill(host, { scrollable });
+          if (zone.role === "filter") {
+            host.style.overflow = "visible";
+            if (host !== wrapper) {
+              wrapper.style.overflow = "visible";
+            }
+          }
           if (host !== wrapper) {
             lockAnalyticsShellFill(wrapper);
+            if (zone.role === "filter") {
+              wrapper.style.overflow = "visible";
+            }
           }
         }
         zoneHosts[zone.id] = host;
@@ -27401,14 +27525,42 @@
   }
 
   function readViewRevisionStore() {
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("revision_store_parse:begin");
     try {
       const raw = global.sessionStorage.getItem(VIEW_REVISION_STORE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        boot.renderPipelineMark?.("revision_store_parse:end", {
+          source: "session",
+          bytes: raw.length,
+          durationMs: Math.round(
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+          ),
+        });
+        return parsed;
+      }
     } catch (_) {}
     try {
       const raw = global.localStorage.getItem(VIEW_REVISION_LS_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        boot.renderPipelineMark?.("revision_store_parse:end", {
+          source: "local",
+          bytes: raw.length,
+          durationMs: Math.round(
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+          ),
+        });
+        return parsed;
+      }
     } catch (_) {}
+    boot.renderPipelineMark?.("revision_store_parse:end", {
+      source: "empty",
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return {};
   }
 
@@ -28427,25 +28579,20 @@
 
 
 /* ===== spa-navigation/spa/view-assembly-coordinator.js ===== */
-/**
- * ViewAssemblyCoordinator: single cold_start pipeline for F5 and surface tab switches.
- */
+/** Single cold_start pipeline for F5 and surface tab switches. */
 (function initViewAssemblyCoordinator(global) {
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const DEBOUNCE_MS = 50;
-
   let assemblyGeneration = 0;
   let activeController = null;
   let debounceTimer = null;
   let pendingIntent = null;
   const layerResidentWaiters = new Map();
-
   function isEnabled() {
     return globalThis.__mei?.view_assembly_v2 !== false;
   }
-
   function parseIntent(intentLike) {
     if (intentLike?.app_id || intentLike?.appId) {
       return typeof boot.parseViewContext === "function"
@@ -28489,13 +28636,17 @@
   }
 
   function tracePhase(phase, generation, extra) {
+    const detail = { phase, generation, ...(extra || {}) };
+    if (typeof boot.renderPipelineMark === "function") {
+      boot.renderPipelineMark(`assembly:${phase}`, detail);
+    }
     if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("assembly-phase", { phase, generation, ...(extra || {}) });
+      boot.cacheDiagTrace("assembly-phase", detail);
     }
     try {
       global.document?.dispatchEvent(
         new CustomEvent("mei:assembly-phase", {
-          detail: { phase, generation, ...(extra || {}) },
+          detail,
         }),
       );
     } catch (_) {}
@@ -28702,28 +28853,33 @@
       });
       if (outcome?.restored) {
         const layers = outcome.viewRevision?.assemble?.layers || outcome.layers || null;
-        if (layers) notifyLayerResident("structure.full", layers, generation);
-        syncManifestForSurface(ctx);
-        if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        const surfaceReady =
-          typeof boot.isSurfaceMaterialized === "function"
-            ? boot.isSurfaceMaterialized(ctx)
-            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady(ctx) : true) &&
-              (typeof boot.isSsrShellPlaceholder === "function"
-                ? !boot.isSsrShellPlaceholder(ctx)
-                : true);
-        if (surfaceReady) {
-          tracePhase("preview", generation, { ok: true, source: outcome.source, cacheFirst: true });
+        if (layers) {
+          notifyLayerResident("structure.full", layers, generation);
+          syncManifestForSurface(ctx);
+          if (
+            !isStale(generation, signal) &&
+            typeof boot.applyHostChromeFromManifestRefs === "function"
+          ) {
+            boot.applyHostChromeFromManifestRefs();
+          }
+          // viaCoordinator skips materialize on purpose; do NOT omit_digests-refetch
+          // just because the surface is not painted yet — phaseRuntime/verify own that.
+          const surfaceReady =
+            typeof boot.isSurfaceMaterialized === "function"
+              ? boot.isSurfaceMaterialized(ctx)
+              : true;
+          tracePhase("preview", generation, {
+            ok: true,
+            source: outcome.source,
+            cacheFirst: true,
+            deferredMaterialize: !surfaceReady,
+          });
           return {
             outcome,
             assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
             layers,
           };
         }
-        negotiateOpts.forceRematerialize = true;
-        negotiateOpts.omit_digests = true;
       }
     }
     if (!boot.viewRevisionClient?.negotiateWithLocalMiss) {
@@ -28737,7 +28893,7 @@
         result.response?.manifest ||
         result.plan?.manifest ||
         result.response?.assembly_plan?.manifest;
-      syncManifestRefs(manifest || { layers: result.assemble.layers }, ctx);
+      if (manifest) syncManifestRefs(manifest, ctx);
     }
     if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
       boot.applyHostChromeFromManifestRefs();
@@ -28860,13 +29016,15 @@
 
     await phasePanel(ctx, generation, opts);
     await phaseStructureTree(ctx, generation, null, signal);
-    await bootstrapPromise;
+    void bootstrapPromise;
 
     let previewResult = await phasePreview(ctx, generation, opts, signal);
     let layers = previewResult?.assemble?.layers || previewResult?.layers;
 
+    // Re-negotiate only when preview produced no usable layers.
     if (
       previewResult?.assemble?.ok === true &&
+      !layers &&
       typeof boot.isSurfaceMaterialized === "function" &&
       !boot.isSurfaceMaterialized(ctx) &&
       !opts._surfaceReadyRetried
@@ -28876,7 +29034,7 @@
         notifyLayerResident("structure.full", retry.assemble.layers, generation);
         const manifest =
           retry.response?.manifest || retry.plan?.manifest || retry.response?.assembly_plan?.manifest;
-        syncManifestRefs(manifest || { layers: retry.assemble.layers }, ctx);
+        if (manifest) syncManifestRefs(manifest, ctx);
         previewResult = retry;
         layers = retry.assemble.layers;
       }
@@ -28973,13 +29131,26 @@
   const DB_NAME = "mei-layer-artifact-cache-v1";
   const STORE_NAME = "layers";
   const DB_VERSION = 1;
-  const MAX_ENTRIES_PER_APP = 64;
+  const MAX_ENTRIES_PER_APP = 512;
+  let dbPromise = null;
+  const diagnostics = {
+    opens: 0,
+    readonlyTransactions: 0,
+    readwriteTransactions: 0,
+    completedReadwriteTransactions: 0,
+    reads: 0,
+    writes: 0,
+    prunes: 0,
+  };
 
   function openDb() {
     if (typeof indexedDB === "undefined") {
       return Promise.resolve(null);
     }
-    return new Promise((resolve) => {
+    if (dbPromise) return dbPromise;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    diagnostics.opens += 1;
+    dbPromise = new Promise((resolve) => {
       try {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
         request.onupgradeneeded = () => {
@@ -28989,10 +29160,75 @@
             store.createIndex("app_scene", ["app_id", "scene_id"], { unique: false });
           }
         };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
+        request.onsuccess = () => {
+          const db = request.result;
+          db.onversionchange = () => {
+            db.close();
+            dbPromise = null;
+          };
+          boot.renderPipelineMark?.("idb_open:end", {
+            durationMs: Math.round(
+              (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+            ),
+          });
+          resolve(db);
+        };
+        request.onerror = () => {
+          dbPromise = null;
+          resolve(null);
+        };
+        request.onblocked = () => {
+          boot.renderPipelineMark?.("idb_open:blocked");
+        };
       } catch (_) {
+        dbPromise = null;
         resolve(null);
+      }
+    });
+    boot.renderPipelineMark?.("idb_open:begin");
+    return dbPromise;
+  }
+
+  async function getLayers(artifactIds) {
+    const keys = Array.from(
+      new Set((Array.isArray(artifactIds) ? artifactIds : []).map((value) => String(value || "").trim()).filter(Boolean)),
+    );
+    if (!keys.length) return new Map();
+    const db = await openDb();
+    if (!db) return new Map();
+    diagnostics.readonlyTransactions += 1;
+    diagnostics.reads += keys.length;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("idb_transaction:begin", {
+      mode: "readonly",
+      count: keys.length,
+    });
+    return new Promise((resolve) => {
+      const rows = new Map();
+      try {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const store = tx.objectStore(STORE_NAME);
+        for (const key of keys) {
+          const request = store.get(key);
+          request.onsuccess = () => {
+            if (request.result) rows.set(key, request.result);
+          };
+        }
+        tx.oncomplete = () => {
+          boot.renderPipelineMark?.("idb_transaction:end", {
+            mode: "readonly",
+            count: keys.length,
+            hits: rows.size,
+            durationMs: Math.round(
+              (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+            ),
+          });
+          resolve(rows);
+        };
+        tx.onerror = () => resolve(rows);
+        tx.onabort = () => resolve(rows);
+      } catch (_) {
+        resolve(rows);
       }
     });
   }
@@ -29000,25 +29236,13 @@
   async function getLayer(artifactId) {
     const key = String(artifactId || "").trim();
     if (!key) return null;
-    const db = await openDb();
-    if (!db) return null;
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readonly");
-        const request = tx.objectStore(STORE_NAME).get(key);
-        request.onsuccess = () => resolve(request.result || null);
-        request.onerror = () => resolve(null);
-      } catch (_) {
-        resolve(null);
-      }
-    });
+    const rows = await getLayers([key]);
+    return rows.get(key) || null;
   }
 
-  async function putLayer(entry) {
-    if (!entry?.artifact_id) return false;
-    const db = await openDb();
-    if (!db) return false;
-    const record = {
+  function normalizeRecord(entry) {
+    if (!entry?.artifact_id) return null;
+    return {
       artifact_id: String(entry.artifact_id),
       name: String(entry.name || ""),
       content_hash: String(entry.content_hash || ""),
@@ -29027,12 +29251,68 @@
       bytes: entry.bytes,
       stored_at: Date.now(),
     };
+  }
+
+  async function putLayers(entries) {
+    const records = (Array.isArray(entries) ? entries : []).map(normalizeRecord).filter(Boolean);
+    if (!records.length) return true;
+    const db = await openDb();
+    if (!db) return false;
+    diagnostics.readwriteTransactions += 1;
+    diagnostics.writes += records.length;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("idb_transaction:begin", {
+      mode: "readwrite",
+      count: records.length,
+    });
     return new Promise((resolve) => {
       try {
         const tx = db.transaction(STORE_NAME, "readwrite");
-        tx.objectStore(STORE_NAME).put(record);
-        tx.oncomplete = () => resolve(true);
+        const store = tx.objectStore(STORE_NAME);
+        for (const record of records) store.put(record);
+        tx.oncomplete = () => {
+          diagnostics.completedReadwriteTransactions += 1;
+          boot.renderPipelineMark?.("idb_transaction:end", {
+            mode: "readwrite",
+            count: records.length,
+            durationMs: Math.round(
+              (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+            ),
+          });
+          resolve(true);
+        };
         tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+      } catch (_) {
+        resolve(false);
+      }
+    });
+  }
+
+  async function putLayer(entry) {
+    return putLayers([entry]);
+  }
+
+  async function deleteLayers(artifactIds) {
+    const keys = Array.from(
+      new Set((Array.isArray(artifactIds) ? artifactIds : []).map((value) => String(value || "").trim()).filter(Boolean)),
+    );
+    if (!keys.length) return true;
+    const db = await openDb();
+    if (!db) return false;
+    diagnostics.readwriteTransactions += 1;
+    diagnostics.writes += keys.length;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        for (const key of keys) store.delete(key);
+        tx.oncomplete = () => {
+          diagnostics.completedReadwriteTransactions += 1;
+          resolve(true);
+        };
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
       } catch (_) {
         resolve(false);
       }
@@ -29040,20 +29320,7 @@
   }
 
   async function deleteLayer(artifactId) {
-    const key = String(artifactId || "").trim();
-    if (!key) return false;
-    const db = await openDb();
-    if (!db) return false;
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        tx.objectStore(STORE_NAME).delete(key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => resolve(false);
-      } catch (_) {
-        resolve(false);
-      }
-    });
+    return deleteLayers([artifactId]);
   }
 
   async function listHoldings(appId, sceneId) {
@@ -29083,6 +29350,7 @@
 
   async function pruneStale(manifest, appId, sceneId) {
     if (!manifest?.layers) return;
+    diagnostics.prunes += 1;
     const validIds = new Set();
     for (const value of Object.values(manifest.layers)) {
       const artifactId = value?.artifact_id;
@@ -29092,28 +29360,40 @@
     if (!db) return;
     const holdings = await listHoldings(appId, sceneId);
     const stale = holdings.filter((row) => !validIds.has(row.artifact_id));
-    for (const row of stale) {
-      await deleteLayer(row.artifact_id);
-    }
+    const deleteIds = stale.map((row) => row.artifact_id);
     if (holdings.length > MAX_ENTRIES_PER_APP) {
       const sorted = holdings
         .slice()
         .sort((a, b) => String(a.artifact_id).localeCompare(String(b.artifact_id)));
       for (const row of sorted.slice(0, sorted.length - MAX_ENTRIES_PER_APP)) {
         if (!validIds.has(row.artifact_id)) {
-          await deleteLayer(row.artifact_id);
+          deleteIds.push(row.artifact_id);
         }
       }
     }
+    await deleteLayers(deleteIds);
+  }
+
+  function readDiagnostics() {
+    return { ...diagnostics };
+  }
+
+  function resetDiagnostics() {
+    for (const key of Object.keys(diagnostics)) diagnostics[key] = 0;
   }
 
   boot.layerArtifactCache = {
     openDb,
     getLayer,
+    getLayers,
     putLayer,
+    putLayers,
     deleteLayer,
+    deleteLayers,
     listHoldings,
     pruneStale,
+    readDiagnostics,
+    resetDiagnostics,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -29129,6 +29409,7 @@
   const store = new Map();
   const revisionStore = new Map();
   const holdingsIndex = new Map();
+  const scheduledPrunes = new Set();
 
   function semanticLayerKey(artifactId) {
     return String(artifactId || "").trim();
@@ -29187,9 +29468,9 @@
     holdingsIndex.set(key, next);
   }
 
-  async function putLayerByRef(appId, sceneId, holding, bytes, manifest) {
+  function fillMemoryByRef(appId, sceneId, holding, bytes) {
     const key = semanticLayerKey(holding.artifact_id);
-    if (!key) return;
+    if (!key) return false;
     putLayer(key, bytes, holding.content_hash);
     const record = {
       name: holding.name,
@@ -29197,19 +29478,66 @@
       content_hash: holding.content_hash,
     };
     rememberHolding(appId, sceneId, record);
-    if (boot.layerArtifactCache?.putLayer) {
-      await boot.layerArtifactCache.putLayer({
-        artifact_id: holding.artifact_id,
-        name: holding.name,
-        content_hash: holding.content_hash,
+    return true;
+  }
+
+  function schedulePrune(manifest, appId, sceneId) {
+    if (!manifest || !boot.layerArtifactCache?.pruneStale) return;
+    const digest = String(
+      manifest.manifest_digest || manifest.surface_digest || manifest.revision || "",
+    );
+    const key = `${appId}:${sceneId}:${digest}`;
+    if (scheduledPrunes.has(key)) return;
+    scheduledPrunes.add(key);
+    const run = () => {
+      void boot.layerArtifactCache
+        .pruneStale(manifest, appId, sceneId)
+        .catch(() => {})
+        .finally(() => scheduledPrunes.delete(key));
+    };
+    if (typeof global.requestIdleCallback === "function") {
+      global.requestIdleCallback(run, { timeout: 5000 });
+    } else {
+      global.setTimeout(run, 1000);
+    }
+  }
+
+  async function putLayersByRef(appId, sceneId, entries, manifest, options) {
+    const rows = Array.isArray(entries) ? entries : [];
+    const records = [];
+    for (const entry of rows) {
+      if (!entry?.holding || !fillMemoryByRef(appId, sceneId, entry.holding, entry.bytes)) {
+        continue;
+      }
+      records.push({
+        artifact_id: entry.holding.artifact_id,
+        name: entry.holding.name,
+        content_hash: entry.holding.content_hash,
         app_id: appId,
         scene_id: sceneId,
-        bytes,
+        bytes: entry.bytes,
       });
     }
-    if (manifest && boot.layerArtifactCache?.pruneStale) {
-      await boot.layerArtifactCache.pruneStale(manifest, appId, sceneId);
-    }
+    const persist = async () => {
+      const ok = boot.layerArtifactCache?.putLayers
+        ? await boot.layerArtifactCache.putLayers(records)
+        : true;
+      schedulePrune(manifest, appId, sceneId);
+      return ok;
+    };
+    if (options?.awaitPersist === true) return persist();
+    void persist();
+    return true;
+  }
+
+  async function putLayerByRef(appId, sceneId, holding, bytes, manifest) {
+    return putLayersByRef(
+      appId,
+      sceneId,
+      [{ holding, bytes }],
+      manifest,
+      { awaitPersist: true },
+    );
   }
 
   function takeLayerByRef(holding) {
@@ -29222,6 +29550,48 @@
       return null;
     }
     return cached;
+  }
+
+  async function restoreLayersByRefs(appId, sceneId, holdings) {
+    const rows = Array.isArray(holdings) ? holdings : [];
+    const resolved = new Map();
+    const missing = [];
+    let l1Hits = 0;
+    for (const holding of rows) {
+      const bytes = takeLayerByRef(holding);
+      if (bytes != null) {
+        resolved.set(holding.name, bytes);
+        l1Hits += 1;
+      } else if (holding?.artifact_id) {
+        missing.push(holding);
+      }
+    }
+    const persisted = boot.layerArtifactCache?.getLayers
+      ? await boot.layerArtifactCache.getLayers(missing.map((holding) => holding.artifact_id))
+      : new Map();
+    let idbHits = 0;
+    for (const holding of missing) {
+      const row = persisted.get(String(holding.artifact_id));
+      if (!row) continue;
+      if (
+        holding.content_hash &&
+        row.content_hash &&
+        String(holding.content_hash) !== String(row.content_hash)
+      ) {
+        continue;
+      }
+      fillMemoryByRef(appId, sceneId, holding, row.bytes);
+      resolved.set(holding.name, row.bytes);
+      idbHits += 1;
+    }
+    const misses = rows.filter((holding) => !resolved.has(holding.name));
+    boot.renderPipelineMark?.("layer_restore:end", {
+      count: rows.length,
+      l1Hits,
+      idbHits,
+      misses: misses.length,
+    });
+    return { resolved, misses, l1Hits, idbHits };
   }
 
   async function listHoldings(appId, sceneId) {
@@ -29260,9 +29630,12 @@
     rememberRevision,
     revisionFor,
     putLayer,
+    fillMemoryByRef,
     putLayerByRef,
+    putLayersByRef,
     takeLayer,
     takeLayerByRef,
+    restoreLayersByRefs,
     hasLayer,
     listHoldings,
     syncHoldingsFromManifest,
@@ -29310,6 +29683,38 @@
     const b = String(localDigest || "").trim();
     if (!a || !b) return false;
     return a === b;
+  }
+
+  function readDocumentRevisionEnvelope() {
+    const envelope = globalThis.__mei?.view_revision_envelope;
+    if (envelope && typeof envelope === "object") return envelope;
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs || typeof refs !== "object") return null;
+    return {
+      app_id: refs.app_id || "",
+      scene_id: refs.scene_id || "",
+      manifest_revision_digest: refs.revision_digest || refs.manifest_revision_digest || "",
+      surface_revision_digest: refs.surface_revision_digest || "",
+    };
+  }
+
+  function documentEnvelopeMatchesStored(ctx, stored) {
+    const envelope = readDocumentRevisionEnvelope();
+    if (!envelope || !stored) return false;
+    const appId = String(ctx.app_id || ctx.appId || "").trim();
+    const sceneId = String(ctx.scene_id || ctx.sceneId || "home").trim();
+    if (envelope.app_id && String(envelope.app_id) !== appId) return false;
+    if (envelope.scene_id && String(envelope.scene_id) !== sceneId) return false;
+    return (
+      revisionsMatchManifest(
+        envelope.manifest_revision_digest || envelope.revision_digest,
+        stored.manifest_revision_digest,
+      ) &&
+      revisionsMatchManifest(
+        envelope.surface_revision_digest,
+        stored.surface_revision_digest,
+      )
+    );
   }
 
   function layerRefFromManifestValue(layerName, value) {
@@ -29371,6 +29776,7 @@
   function composeDefaultsFromResponse(response, ctx) {
     return (
       response?.compose_defaults ||
+      response?.assembly_plan?.compose_defaults ||
       response?.manifest?.compose_defaults ||
       globalThis.__mei?.scene_manifest_refs?.compose_defaults ||
       buildComposeRequest(ctx)
@@ -29435,12 +29841,73 @@
 
   async function storeInlineLayers(ctx, inlineLayers, manifest) {
     if (!inlineLayers || !boot.layerStore) return;
+    const entries = [];
     for (const [name, bytes] of Object.entries(inlineLayers)) {
       const ref = layerRefFromManifestValue(name, manifest?.layers?.[name]);
       if (!ref) continue;
       const document = extractLayerDocument(bytes);
-      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, document, manifest);
+      entries.push({ holding: ref, bytes: document });
     }
+    await boot.layerStore.putLayersByRef?.(
+      ctx.app_id || ctx.appId,
+      ctx.scene_id || ctx.sceneId,
+      entries,
+      manifest,
+      { awaitPersist: false },
+    );
+  }
+
+  function planFromValidatedStored(ctx, response) {
+    const stored = boot.readViewRevision?.(ctx);
+    const manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
+    if (!manifest?.layers) return null;
+    if (
+      !revisionsMatchManifest(
+        response?.manifest_revision_digest,
+        stored?.manifest_revision_digest,
+      ) ||
+      !revisionsMatchManifest(
+        response?.surface_revision_digest,
+        stored?.surface_revision_digest,
+      )
+    ) {
+      return null;
+    }
+    return {
+      manifest,
+      layer_refs: Object.fromEntries(
+        layerRefsFromManifest(manifest).map((ref) => [
+          ref.name,
+          { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+        ]),
+      ),
+      compose_defaults: composeDefaultsFromResponse(response, ctx),
+    };
+  }
+
+  function mergeManifestForRefetch(ctx, response) {
+    const stored = boot.readViewRevision?.(ctx);
+    const previous = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx) || {};
+    const changedRefs = response?.assembly_plan?.layer_refs || {};
+    const layers = { ...(previous.layers || {}) };
+    for (const [name, ref] of Object.entries(changedRefs)) {
+      layers[name] = {
+        artifact_id: ref.artifact_id,
+        content_hash: ref.content_hash,
+        ...(ref.bytes != null ? { bytes: ref.bytes } : {}),
+        ...(ref.encoding ? { encoding: ref.encoding } : {}),
+      };
+    }
+    return {
+      ...previous,
+      schema_version: previous.schema_version || "mei.scene-view-manifest.v2",
+      app_id: ctx.app_id || ctx.appId || previous.app_id || "",
+      scene_id: ctx.scene_id || ctx.sceneId || previous.scene_id || "home",
+      revision_digest: response.manifest_revision_digest,
+      surface_revision_digest: response.surface_revision_digest,
+      compose_defaults: response.assembly_plan?.compose_defaults || previous.compose_defaults,
+      layers,
+    };
   }
 
   async function applyViewRevision(ctx, response) {
@@ -29448,25 +29915,32 @@
       return { outcome: ViewRevisionOutcome.LOCAL_MISS, response };
     }
     const status = String(response.status || response._headers?.status || "").trim();
-    if (status === ViewRevisionOutcome.ASSEMBLE_LOCAL && response.assembly_plan) {
+    if (status === ViewRevisionOutcome.ASSEMBLE_LOCAL) {
+      const plan = response.assembly_plan || planFromValidatedStored(ctx, response);
+      if (!plan) {
+        return { outcome: ViewRevisionOutcome.LOCAL_MISS, response };
+      }
       return {
         outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-        plan: response.assembly_plan,
+        plan,
         response,
       };
     }
     const inlined = new Set(Object.keys(response.inline_layers || {}));
+    const manifest =
+      response.manifest ||
+      response.assembly_plan?.manifest ||
+      mergeManifestForRefetch(ctx, response);
     if (response.inline_layers && boot.layerStore) {
       await storeInlineLayers(
         ctx,
         response.inline_layers,
-        response.manifest || response.assembly_plan?.manifest || null,
+        manifest,
       );
     }
     if (response.changed_layers?.length && boot.sceneManifestLoader?.ensureLayers) {
       const toFetch = response.changed_layers.filter((name) => !inlined.has(name));
       if (toFetch.length) {
-        const manifest = response.manifest || response.assembly_plan?.manifest;
         await boot.sceneManifestLoader.ensureLayers(
           toFetch,
           ctx.app_id,
@@ -29479,6 +29953,16 @@
     return {
       outcome: ViewRevisionOutcome.REFETCH,
       changed_layers: response.changed_layers || [],
+      plan: {
+        manifest,
+        layer_refs: Object.fromEntries(
+          layerRefsFromManifest(manifest).map((ref) => [
+            ref.name,
+            { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+          ]),
+        ),
+        compose_defaults: composeDefaultsFromResponse(response, ctx),
+      },
       response,
     };
   }
@@ -29567,41 +30051,27 @@
         ]),
       );
     }
-    const missing = [];
     const layers = {};
+    const holdings = [];
     for (const [name, ref] of Object.entries(layerRefs)) {
-      const holding = {
+      holdings.push({
         name,
         artifact_id: ref.artifact_id,
         content_hash: ref.content_hash,
-      };
-      let bytes = boot.layerStore?.takeLayerByRef?.(holding);
-      if (!bytes && boot.sceneManifestLoader?.resolveLayerBytes) {
-        bytes = await boot.sceneManifestLoader.resolveLayerBytes(
-          holding,
+      });
+    }
+    boot.renderPipelineMark?.("layer_restore:begin", { count: holdings.length });
+    const restored = boot.layerStore?.restoreLayersByRefs
+      ? await boot.layerStore.restoreLayersByRefs(
           ctx.app_id || ctx.appId,
           ctx.scene_id || ctx.sceneId,
-          assemblyPlan?.manifest,
-        );
-      } else if (!bytes && boot.layerArtifactCache) {
-        const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
-        if (
-          cached &&
-          cached.content_hash === ref.content_hash &&
-          cached.bytes != null
-        ) {
-          bytes = cached.bytes;
-          if (boot.layerStore?.putLayerByRef) {
-            boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, holding, bytes, assemblyPlan.manifest);
-          }
-        }
-      }
-      if (!bytes) {
-        missing.push(name);
-        continue;
-      }
+          holdings,
+        )
+      : { resolved: new Map(), misses: holdings };
+    for (const [name, bytes] of restored.resolved) {
       layers[name] = extractLayerDocument(bytes);
     }
+    const missing = restored.misses.map((holding) => holding.name);
     if (missing.length) {
       return { ok: false, missing, layers };
     }
@@ -29698,6 +30168,9 @@
 
   async function tryClientOnlyAssemble(ctx, options = {}) {
     const stored = boot.readViewRevision?.(ctx);
+    if (!documentEnvelopeMatchesStored(ctx, stored)) {
+      return null;
+    }
     let manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
     const manifestDigest =
       stored?.manifest_revision_digest || boot.readSharedManifestDigest?.(ctx) || "";
@@ -29783,7 +30256,47 @@
       return { ...result, assemble };
     }
     const missing = assemble.missing || [];
+    if (
+      missing.length &&
+      result.outcome === ViewRevisionOutcome.ASSEMBLE_LOCAL &&
+      plan?.manifest?.layers &&
+      boot.sceneManifestLoader?.ensureLayers
+    ) {
+      await boot.sceneManifestLoader.ensureLayers(
+        missing,
+        ctx.app_id || ctx.appId,
+        ctx.scene_id || ctx.sceneId,
+        { ...ctx, local_miss: true, signal: opts.signal },
+        plan.manifest,
+      );
+      assemble = await tryAssembleLocal(ctx, plan, assembleOptions);
+      if (assemble.ok) {
+        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+        return { ...result, assemble, recoveredMissing: missing };
+      }
+    }
     if (missing.length) {
+      const detail = {
+        missingCount: missing.length,
+        missingSample: missing.slice(0, 12),
+        priorOutcome: result.outcome || "",
+        hadDigests: !(
+          opts.omit_digests === true ||
+          (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx))
+        ),
+        degraded: "missing_layers",
+        recover: true,
+      };
+      console.warn(
+        "[view-revision] missing layers after negotiate/assemble_local — contract bug; explicit recover degraded",
+        detail,
+      );
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("missing_layers", detail);
+      }
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("missing-layers", detail);
+      }
       result = await negotiateViewRevision(ctx, { recover: true, signal: opts.signal });
       assemble = await tryAssembleLocal(
         ctx,
@@ -29807,7 +30320,7 @@
           };
           boot.rememberViewRevision(ctx, rememberPayload);
         }
-        return { ...result, assemble };
+        return { ...result, assemble, degraded: "missing_layers" };
       }
     }
     boot.lastViewRevisionOutcome = ViewRevisionOutcome.LOCAL_MISS;
@@ -29950,12 +30463,16 @@
   }
 
   async function storeLayerDocuments(appId, sceneId, manifest, batchLayers) {
-    if (!batchLayers || !boot.layerStore?.putLayerByRef) return;
+    if (!batchLayers || !boot.layerStore?.putLayersByRef) return;
+    const entries = [];
     for (const [name, bytes] of Object.entries(batchLayers)) {
       const ref = layerRefFromManifest(name, manifest);
       if (!ref || bytes == null) continue;
-      await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
+      entries.push({ holding: ref, bytes });
     }
+    await boot.layerStore.putLayersByRef(appId, sceneId, entries, manifest, {
+      awaitPersist: false,
+    });
   }
 
   async function resolveLayerBytes(ref, appId, sceneId, manifest) {
@@ -29970,9 +30487,7 @@
         cached.bytes != null
       ) {
         bytes = cached.bytes;
-        if (boot.layerStore?.putLayerByRef) {
-          await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
-        }
+        boot.layerStore?.fillMemoryByRef?.(appId, sceneId, ref, bytes);
         return bytes;
       }
     }
@@ -29986,6 +30501,7 @@
       const fetched = await fetchManifest(appId, sceneId, axes, ctx?.surface);
       activeManifest = fetched.manifest;
     }
+    const refs = [];
     const missing = [];
     for (const name of layerNames) {
       const ref = layerRefFromManifest(name, activeManifest);
@@ -29993,8 +30509,17 @@
         missing.push(name);
         continue;
       }
-      const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
-      if (!cached) missing.push(name);
+      refs.push(ref);
+    }
+    boot.renderPipelineMark?.("layer_restore:begin", { count: refs.length });
+    if (boot.layerStore?.restoreLayersByRefs) {
+      const restored = await boot.layerStore.restoreLayersByRefs(appId, sceneId, refs);
+      missing.push(...restored.misses.map((holding) => holding.name));
+    } else {
+      for (const ref of refs) {
+        const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
+        if (!cached) missing.push(ref.name);
+      }
     }
     if (!missing.length) {
       return { manifest: activeManifest, layers: {}, hits: boot.lastArtifactHits };
@@ -30417,11 +30942,20 @@
       }
     }
     if (!doc) return;
+    const topbar = String(doc.topbar_html || "").trim();
+    const statusbar = String(doc.statusbar_html || "").trim();
+    const signature = String(
+      shellLayer?.content_hash ||
+        shellLayer?.artifact_id ||
+        doc.revision_digest ||
+        `${topbar.length}:${statusbar.length}:${doc.tab || ""}:${doc.chrome || ""}`,
+    );
+    if (signature && root.getAttribute("data-mei-shell-digest") === signature) return;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("apply_chrome:begin");
     if (doc.tab) root.setAttribute("data-tab", String(doc.tab));
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
-    const topbar = String(doc.topbar_html || "").trim();
-    const statusbar = String(doc.statusbar_html || "").trim();
     const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
     const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
     if (topbar && topSlot instanceof HTMLElement) {
@@ -30442,6 +30976,12 @@
       const host = global.document?.getElementById?.("mei-compose-host") || root;
       if (bar && host instanceof HTMLElement) host.append(bar);
     }
+    if (signature) root.setAttribute("data-mei-shell-digest", signature);
+    boot.renderPipelineMark?.("apply_chrome:end", {
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
   }
 
   function resolveAppId(composeAxes) {
@@ -30600,7 +31140,11 @@
     } else if (!keepSsrPreview && !preserveWorkspaceDom && !thinShellPlaceholder) {
       ensureStructureSkeleton(root, structure);
     }
-    if (typeof materializer?.applyRuntimePlans === "function" && layers["runtime.plans"]) {
+    if (
+      !shouldMaterializePreview &&
+      typeof materializer?.applyRuntimePlans === "function" &&
+      layers["runtime.plans"]
+    ) {
       materializer.applyRuntimePlans(layers["runtime.plans"]);
     }
     const projectionSlug = String(projection || "").trim().toLowerCase();
@@ -31749,9 +32293,14 @@
 
   function buildStructureTree(root, structureDoc, options) {
     if (!(root instanceof HTMLElement)) return false;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("compose_structure:begin");
     const doc = extractLayerDocument(structureDoc);
     const allNodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
-    if (!allNodes.length) return false;
+    if (!allNodes.length) {
+      boot.renderPipelineMark?.("compose_structure:end", { nodes: 0, durationMs: 0 });
+      return false;
+    }
 
     const projection = options?.review_projection || options?.reviewProjection || "";
     let nodes = allNodes;
@@ -31772,6 +32321,14 @@
 
     const nodeById = new Map();
     nodes.forEach((node) => nodeById.set(node.node_id, node));
+    const childrenByParent = new Map();
+    nodes.forEach((node) => {
+      const parentId = String(node.parent_id || "").trim();
+      if (!parentId) return;
+      const children = childrenByParent.get(parentId) || [];
+      children.push(node.node_id);
+      childrenByParent.set(parentId, children);
+    });
 
     const resolveRoots =
       boot.structureTreeMaterializer?.resolveRoots ||
@@ -31796,9 +32353,7 @@
         target.appendChild(created);
         const childIds = Array.isArray(node.children) && node.children.length
           ? node.children
-          : nodes
-              .filter((candidate) => candidate.parent_id === node.node_id)
-              .map((candidate) => candidate.node_id);
+          : childrenByParent.get(node.node_id) || [];
         childIds.forEach((childId) => {
           const child = nodeById.get(childId);
           if (child) mountSubtree(child, created);
@@ -31824,6 +32379,12 @@
 
     root.querySelectorAll(".mei-structure-tree").forEach((el) => el.remove());
     root.appendChild(container);
+    boot.renderPipelineMark?.("compose_structure:end", {
+      nodes: nodes.length,
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return container.childNodes.length > 0;
   }
 
@@ -32012,12 +32573,31 @@
     return map;
   }
 
-  function findScopeContainer(root, scopeKey) {
+  function buildComposeDomIndex(root) {
+    const byScope = new Map();
+    const byPanel = new Map();
+    if (!(root instanceof HTMLElement)) return { byScope, byPanel };
+    if (root.hasAttribute("data-preview-scope")) {
+      byScope.set(String(root.getAttribute("data-preview-scope") || ""), root);
+    }
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+      const panel = String(node.getAttribute("data-mei-panel-id") || "").trim();
+      if (scope && !byScope.has(scope)) byScope.set(scope, node);
+      if (panel && !byPanel.has(panel)) byPanel.set(panel, node);
+    });
+    return { byScope, byPanel };
+  }
+
+  function findScopeContainer(root, scopeKey, index) {
     const scope = String(scopeKey || "").trim();
     if (!scope || scope === "scene:default") {
       return root;
     }
     for (const candidate of scopeLookupCandidates(scope)) {
+      const indexed = index?.byScope?.get(candidate) || index?.byPanel?.get(candidate);
+      if (indexed instanceof HTMLElement) return indexed;
       const el =
         root.querySelector(`[data-preview-scope="${CSS.escape(candidate)}"]`) ||
         root.querySelector(`[data-mei-panel-id="${CSS.escape(candidate)}"]`);
@@ -32028,14 +32608,14 @@
     return null;
   }
 
-  function resolveEvalSlotContainer(root, scopeKey) {
-    let container = findScopeContainer(root, scopeKey);
+  function resolveEvalSlotContainer(root, scopeKey, index) {
+    let container = findScopeContainer(root, scopeKey, index);
     if (container instanceof HTMLElement) {
       return container;
     }
     const scope = String(scopeKey || "").trim();
     if (isSectionHeadMeiTextScope(scope)) {
-      return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""));
+      return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""), index);
     }
     return null;
   }
@@ -32902,7 +33482,11 @@
     const hintSlot = section.querySelector('[data-preview-scope$="/hint"]');
     if (hintSlot instanceof HTMLElement) {
       hintSlot.setAttribute("data-mei-panel-name", "stage-aperture-hint");
-      if (!hintSlot.textContent?.trim()) {
+      // mei-text 等 WC 的文案在 shadowRoot，host.textContent 常为空；勿再注入第二份 hint。
+      const hasAuthoredHint =
+        hintSlot.childElementCount > 0 ||
+        Boolean(hintSlot.querySelector("mei-text, .mei-map-viewport-hint"));
+      if (!hasAuthoredHint && !hintSlot.textContent?.trim()) {
         const hint = document.createElement("div");
         hint.className = "mei-map-viewport-hint";
         hint.textContent = "拖动平移 · 滚轮缩放 · 地图工具仅出现在中心观察窗内";
@@ -32926,7 +33510,9 @@
         return role === "section";
       });
       if (sections.length < 2) return;
-      if (!rail.style.gridTemplateRows) {
+      // 仅在作者/SSR 未声明行轨时回退均分；勿覆盖已有 Nfr（含 2.52fr 等）。
+      const authoredRows = String(rail.style.gridTemplateRows || "").trim();
+      if (!authoredRows) {
         rail.style.display = "grid";
         rail.style.gridTemplateRows = `repeat(${sections.length}, minmax(0, 1fr))`;
       }
@@ -32964,6 +33550,49 @@
     });
   }
 
+  function normalizeSectionContentZonePlacement(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const tree = root.querySelector(".mei-structure-tree") || root;
+    tree.querySelectorAll('[data-mei-ui-role="section"]').forEach((section) => {
+      if (!(section instanceof HTMLElement)) return;
+      const areas = String(
+        section.style.gridTemplateAreas || getComputedStyle(section).gridTemplateAreas || "",
+      );
+      const bodyArea = /\bbody\b/.test(areas)
+        ? "body"
+        : /\bcontent_zone\b/.test(areas)
+          ? "content_zone"
+          : "";
+      if (!bodyArea) return;
+      const titleArea = /\btitle\b/.test(areas)
+        ? "title"
+        : /\btitle_zone\b/.test(areas)
+          ? "title_zone"
+          : "";
+      [...section.children].forEach((child) => {
+        if (!(child instanceof HTMLElement)) return;
+        const scope = String(child.getAttribute("data-preview-scope") || "");
+        const isTitle =
+          scope.endsWith("/title_zone") ||
+          scope.endsWith("/title") ||
+          scope.endsWith("/head") ||
+          child.classList.contains("mei-compose-section-head");
+        if (isTitle) {
+          if (titleArea) child.style.gridArea = titleArea;
+          return;
+        }
+        // 单内容子节点若落在 auto，会挤进 54px 标题轨；强制挂到 content_zone/body。
+        child.style.gridArea = bodyArea;
+        child.style.minHeight = "0";
+        child.style.height = "100%";
+        child.style.alignSelf = "stretch";
+        child.style.width = "100%";
+      });
+      // 保留 title/content 双轨：即使标题节点暂缺，也让内容挂在 content_zone/body，
+      // 避免 auto 落入 54px 标题轨导致整栏挤压。
+    });
+  }
+
   function applyComposeThemeLayout(root) {
     if (!(root instanceof HTMLElement)) return false;
     const patches = global.__mei?.theme_layout;
@@ -32977,6 +33606,7 @@
     // layout budget 可能再次写入裸 `1fr`；预算后再 harden 一次。
     applyRailRegionSectionLayouts(root);
     normalizeMetricCompoundSections(root);
+    normalizeSectionContentZonePlacement(root);
     clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
     return true;
@@ -32996,6 +33626,7 @@
       '[data-preview-scope$="/map_viewport"], [data-preview-scope*="map_stage_overlay"], [data-preview-scope$="/map_stage"]',
     ).forEach((section) => normalizeMapOperationViewportSection(section));
     applyRailRegionSectionLayouts(root);
+    normalizeSectionContentZonePlacement(root);
     normalizeT1InteractivePointerEvents(tree);
     normalizeMapViewportPointerEvents(tree);
     hideLayoutDebugRegions(tree);
@@ -33550,15 +34181,30 @@
       });
   }
 
-  function bindEvalSlots(root, evalDocs) {
+  function bindEvalSlots(root, evalDocs, options) {
     if (!(root instanceof HTMLElement)) return false;
+    const bindDigest = String(options?.digest || "").trim();
+    if (
+      bindDigest &&
+      root.getAttribute("data-mei-eval-bind-digest") === bindDigest &&
+      root.getAttribute("data-mei-compose-materialized") === "1"
+    ) {
+      boot.renderPipelineMark?.("bind_eval_slots:skip", { digest: bindDigest });
+      return true;
+    }
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const domIndex = buildComposeDomIndex(root);
+    boot.renderPipelineMark?.("bind_eval_slots:begin", {
+      documents: Array.isArray(evalDocs) ? evalDocs.length : 0,
+      scopes: domIndex.byScope.size,
+    });
     let bound = 0;
     const sceneMountByMetric = sceneMountsByMetricId(evalDocs);
     for (const doc of evalDocs || []) {
       const slots = doc.slots || {};
       for (const [scopeKey, entry] of Object.entries(slots)) {
         if (isDuplicateMetricCardLeafScope(scopeKey)) continue;
-        const container = resolveEvalSlotContainer(root, scopeKey);
+        const container = resolveEvalSlotContainer(root, scopeKey, domIndex);
         if (!(container instanceof HTMLElement)) continue;
         const mounts = Array.isArray(entry?.mounts) ? entry.mounts : [];
         const useKeys = Array.isArray(entry?.use_keys) ? entry.use_keys : [];
@@ -33640,32 +34286,23 @@
     root.querySelectorAll('[data-mei-metric-card="true"]').forEach((card) => {
       normalizeMetricCardSection(card);
     });
-    rebindMetricCardHosts(root);
-    rebindAuthoredComponentHosts(root);
     applyWarningSupervisionComposeClasses(root);
     applyEnforcementStripComposeClasses(root);
     applyCompoundMetricComposeClasses(root);
     clearNestedCompoundSlotFrames(root);
     normalizeMetricCompoundSections(root);
     clipChartSlotsToHost(root);
-    // Charts bootstrap asynchronously; re-fit after layout + echarts init.
-    const scheduleClip = (delayMs) => {
-      global.setTimeout(() => {
+    if (root.querySelector("mei-chart-column, [data-mei-use-key^='chart.']")) {
+      const clipWhenIdle = () => {
         try {
           clipChartSlotsToHost(root);
         } catch (_) {}
-      }, delayMs);
-    };
-    if (typeof global.requestAnimationFrame === "function") {
-      global.requestAnimationFrame(() => {
-        clipChartSlotsToHost(root);
-        scheduleClip(120);
-        scheduleClip(400);
-      });
-    } else {
-      scheduleClip(0);
-      scheduleClip(120);
-      scheduleClip(400);
+      };
+      if (typeof global.requestIdleCallback === "function") {
+        global.requestIdleCallback(clipWhenIdle, { timeout: 1000 });
+      } else {
+        global.setTimeout(clipWhenIdle, 80);
+      }
     }
     normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);
@@ -33683,6 +34320,13 @@
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
+    if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
+    boot.renderPipelineMark?.("bind_eval_slots:end", {
+      bound,
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return bound > 0;
   }
 
@@ -33867,6 +34511,16 @@
     }
   }
 
+  function composeRevisionDigest(composeAxes) {
+    return String(
+      composeAxes?.surface_revision_digest ||
+        composeAxes?.surfaceRevisionDigest ||
+        global.__mei?.view_revision_envelope?.surface_revision_digest ||
+        global.__mei?.scene_manifest_refs?.surface_revision_digest ||
+        "",
+    ).trim();
+  }
+
   function finalizeClientPreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection = String(
@@ -33877,7 +34531,9 @@
     const bindEvalContent =
       !projection || projection.includes("full") || projection === "live" || projection === "static";
     if (bindEvalContent) {
-      bindEvalSlots(root, collectEvalDocs(layers));
+      bindEvalSlots(root, collectEvalDocs(layers), {
+        digest: composeRevisionDigest(composeAxes),
+      });
     }
     root.setAttribute("data-mei-compose-materialized", "1");
     root.removeAttribute("data-mei-compose-placeholder");
@@ -33959,7 +34615,9 @@
     const bindEvalContent =
       !projection || projection.includes("full") || projection === "live" || projection === "static";
     if (bindEvalContent) {
-      bindEvalSlots(root, collectEvalDocs(layers));
+      bindEvalSlots(root, collectEvalDocs(layers), {
+        digest: composeRevisionDigest(composeAxes),
+      });
     }
 
     root.setAttribute("data-mei-compose-materialized", "1");
@@ -34341,6 +34999,8 @@
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const SS_PREFIX = "mei:drilldown:v1:";
+  const memoryCache = new Map();
+  const inflight = new Map();
 
   function readDrilldownMeta(name) {
     const el = document.querySelector(`meta[name="${name}"]`);
@@ -34384,6 +35044,12 @@
     // Prefer content-sensitive revisions so same-workset rebuilds bust sessionStorage
     // (compile_epoch alone can stay stable while projection_assembly gap/padding changes).
     const mei = global.__mei || {};
+    const surfaceDigest = String(
+      mei.view_revision_envelope?.surface_revision_digest ||
+        mei.scene_manifest_refs?.surface_revision_digest ||
+        "",
+    ).trim();
+    if (surfaceDigest) return surfaceDigest;
     const clientRev = String(mei.client_revision || mei.clientRevision || "").trim();
     if (clientRev) return clientRev;
     const refs = mei.scene_manifest_refs;
@@ -34457,6 +35123,40 @@
     });
   }
 
+  async function loadSceneDrilldownContext(appId, sceneId, revision, cacheKey) {
+    const cachedMemory = memoryCache.get(cacheKey);
+    if (cachedMemory) {
+      global.__meiDrilldownSource = "memory";
+      return cachedMemory;
+    }
+    const cached = readSessionDrilldown(appId, sceneId, revision);
+    if (cached) {
+      const payload = JSON.parse(cached);
+      memoryCache.set(cacheKey, payload);
+      injectDrilldownPayload(cached);
+      global.__meiDrilldownSource = "session_storage";
+      return payload;
+    }
+    const artifactUrl =
+      readDrilldownMeta("mei-drilldown-artifact-url") ||
+      `/api/host/scene-drilldown-context?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
+    const response = await fetch(artifactUrl, {
+      credentials: "same-origin",
+      cache: "no-cache",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`scene drilldown context failed for ${appId}/${sceneId}`);
+    }
+    const payload = await response.json();
+    const payloadText = JSON.stringify(payload);
+    memoryCache.set(cacheKey, payload);
+    writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    injectDrilldownPayload(payloadText);
+    global.__meiDrilldownSource = "scene_drilldown_api";
+    return payload;
+  }
+
   async function ensureSceneDrilldownContext(ctx) {
     const inline = document.getElementById("mei-scene-drilldown-context");
     if (inline && inline.textContent && !isDrilldownRevisionOnly()) {
@@ -34466,35 +35166,13 @@
     const sceneId = resolveDrilldownSceneId(ctx);
     if (!appId) return null;
     const revision = resolveDrilldownRevision();
-    const artifactUrl =
-      readDrilldownMeta("mei-drilldown-artifact-url") ||
-      `/api/host/scene-drilldown-context?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
-    // Network-first: same-workset rebuilds can keep compile_epoch stable while
-    // projection_assembly shell gap/padding changes; sessionStorage must not win.
-    try {
-      const response = await fetch(artifactUrl, {
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (response.ok) {
-        const payload = await response.json();
-        const payloadText = JSON.stringify(payload);
-        writeSessionDrilldown(appId, sceneId, revision, payloadText);
-        injectDrilldownPayload(payloadText);
-        global.__meiDrilldownSource = "scene_drilldown_api";
-        return payload;
-      }
-    } catch (_) {
-      /* fall through to sessionStorage */
-    }
-    const cached = readSessionDrilldown(appId, sceneId, revision);
-    if (cached) {
-      injectDrilldownPayload(cached);
-      global.__meiDrilldownSource = "session_storage";
-      return JSON.parse(cached);
-    }
-    throw new Error(`scene drilldown context failed for ${appId}/${sceneId}`);
+    const cacheKey = drilldownStorageKey(appId, sceneId, revision);
+    if (inflight.has(cacheKey)) return inflight.get(cacheKey);
+    const request = loadSceneDrilldownContext(appId, sceneId, revision, cacheKey).finally(() => {
+      inflight.delete(cacheKey);
+    });
+    inflight.set(cacheKey, request);
+    return request;
   }
 
   boot.isDrilldownRevisionOnly = isDrilldownRevisionOnly;
@@ -34784,9 +35462,21 @@
   }
 
   async function ensureEvalPackSeeded(ctx, revision, options) {
+    const opts = options || {};
     const payload = await ensureEvalPackPayload(ctx, revision || {}, options);
     const count = seedEvalPackRuntimeCache();
-    void prefetchNeighborEvalPacks(ctx?.appId, payload);
+    // Neighbor scope warmup must not compete with cold-start critical path.
+    if (opts.prefetchNeighbors !== false) {
+      const appId = ctx?.appId;
+      const run = () => {
+        void prefetchNeighborEvalPacks(appId, payload);
+      };
+      if (typeof global.requestIdleCallback === "function") {
+        global.requestIdleCallback(run, { timeout: 2500 });
+      } else {
+        global.setTimeout(run, 0);
+      }
+    }
     return count;
   }
 
@@ -34803,6 +35493,7 @@
         await ensureEvalPackSeeded(
           { appId, sceneId: neighborScope },
           { client_revision: neighborRevision },
+          { prefetchNeighbors: false },
         );
       } catch (_) {
         /* neighbor warmup is best-effort */
@@ -35679,6 +36370,29 @@
       const thinShellPlaceholder =
         composeRoot instanceof HTMLElement &&
         composeRoot.getAttribute("data-mei-compose-placeholder") === "1";
+      if (opts.skipRemoteWhenValid === true) {
+        const cachedVrCtx = vrCtxFromViewCtx(ctx);
+        const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(cachedVrCtx, {
+          forceRematerialize: thinShellPlaceholder,
+        });
+        if (cachedOnly?.ok) {
+          if (!skipComplete) {
+            await completeMaterializedSurface(ctx, {
+              layers: cachedOnly.layers,
+              ssrPreview: false,
+              warmOnly: true,
+              generation: opts.generation,
+            });
+          }
+          return {
+            restored: true,
+            doc: document,
+            revision: boot.readViewRevision?.(cachedVrCtx) || null,
+            source: "client_cache",
+            viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+          };
+        }
+      }
       if (!thinShellPlaceholder && isSsrInjectedPreviewRoot(composeRoot)) {
         if (boot.hostChromeReady?.(ctx)) {
           if (typeof boot.hideThinShellFallback === "function") {
@@ -38480,6 +39194,7 @@
         } else if (
           typeof boot.rememberViewRevision === "function" &&
           ctx &&
+          outcome.source !== "coordinator" &&
           globalThis.__mei?.scene_manifest_refs
         ) {
           boot.rememberViewRevision(ctx, globalThis.__mei.scene_manifest_refs);
@@ -38514,7 +39229,12 @@
           source: outcome.source,
         });
       }
-      if (typeof boot.renderPipelineFinalize === "function") {
+      // Coordinator path finishes materialize in phaseRuntime; let surface_ready /
+      // spa_navigation_complete finalize so assembly/surface marks are not truncated.
+      if (
+        outcome.source !== "coordinator" &&
+        typeof boot.renderPipelineFinalize === "function"
+      ) {
         boot.renderPipelineFinalize({
           restored: !!outcome.restored,
           source: outcome.source,

@@ -134,7 +134,13 @@
       title: nonEmptyString(filterSchema.title) || "筛选条件",
       default_collapsed: Boolean(filterSchema.defaultCollapsed),
       preset_filter_count: presetFilterCount,
-      query_state: config?.queryStateId || undefined,
+      query_state: nonEmptyString(
+        config?.queryStateId,
+        detail?.query_state_id,
+        detail?.queryStateId,
+        config?.tableMetricId ? `drilldown::${config.tableMetricId}` : "",
+        config?.metricId ? `drilldown::${config.metricId}` : "",
+      ) || undefined,
       default_filters: tableProps?.default_filters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
       dataset: rowsetDatasetId

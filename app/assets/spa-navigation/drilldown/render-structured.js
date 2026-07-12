@@ -107,10 +107,19 @@
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
         if (analyticsLock) {
-          const scrollable = zone.id === "detail" || zone.role === "filter";
+          const scrollable = zone.id === "detail";
           lockAnalyticsShellFill(host, { scrollable });
+          if (zone.role === "filter") {
+            host.style.overflow = "visible";
+            if (host !== wrapper) {
+              wrapper.style.overflow = "visible";
+            }
+          }
           if (host !== wrapper) {
             lockAnalyticsShellFill(wrapper);
+            if (zone.role === "filter") {
+              wrapper.style.overflow = "visible";
+            }
           }
         }
         zoneHosts[zone.id] = host;

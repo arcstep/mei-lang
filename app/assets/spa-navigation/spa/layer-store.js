@@ -8,6 +8,7 @@
   const store = new Map();
   const revisionStore = new Map();
   const holdingsIndex = new Map();
+  const scheduledPrunes = new Set();
 
   function semanticLayerKey(artifactId) {
     return String(artifactId || "").trim();
@@ -66,9 +67,9 @@
     holdingsIndex.set(key, next);
   }
 
-  async function putLayerByRef(appId, sceneId, holding, bytes, manifest) {
+  function fillMemoryByRef(appId, sceneId, holding, bytes) {
     const key = semanticLayerKey(holding.artifact_id);
-    if (!key) return;
+    if (!key) return false;
     putLayer(key, bytes, holding.content_hash);
     const record = {
       name: holding.name,
@@ -76,19 +77,66 @@
       content_hash: holding.content_hash,
     };
     rememberHolding(appId, sceneId, record);
-    if (boot.layerArtifactCache?.putLayer) {
-      await boot.layerArtifactCache.putLayer({
-        artifact_id: holding.artifact_id,
-        name: holding.name,
-        content_hash: holding.content_hash,
+    return true;
+  }
+
+  function schedulePrune(manifest, appId, sceneId) {
+    if (!manifest || !boot.layerArtifactCache?.pruneStale) return;
+    const digest = String(
+      manifest.manifest_digest || manifest.surface_digest || manifest.revision || "",
+    );
+    const key = `${appId}:${sceneId}:${digest}`;
+    if (scheduledPrunes.has(key)) return;
+    scheduledPrunes.add(key);
+    const run = () => {
+      void boot.layerArtifactCache
+        .pruneStale(manifest, appId, sceneId)
+        .catch(() => {})
+        .finally(() => scheduledPrunes.delete(key));
+    };
+    if (typeof global.requestIdleCallback === "function") {
+      global.requestIdleCallback(run, { timeout: 5000 });
+    } else {
+      global.setTimeout(run, 1000);
+    }
+  }
+
+  async function putLayersByRef(appId, sceneId, entries, manifest, options) {
+    const rows = Array.isArray(entries) ? entries : [];
+    const records = [];
+    for (const entry of rows) {
+      if (!entry?.holding || !fillMemoryByRef(appId, sceneId, entry.holding, entry.bytes)) {
+        continue;
+      }
+      records.push({
+        artifact_id: entry.holding.artifact_id,
+        name: entry.holding.name,
+        content_hash: entry.holding.content_hash,
         app_id: appId,
         scene_id: sceneId,
-        bytes,
+        bytes: entry.bytes,
       });
     }
-    if (manifest && boot.layerArtifactCache?.pruneStale) {
-      await boot.layerArtifactCache.pruneStale(manifest, appId, sceneId);
-    }
+    const persist = async () => {
+      const ok = boot.layerArtifactCache?.putLayers
+        ? await boot.layerArtifactCache.putLayers(records)
+        : true;
+      schedulePrune(manifest, appId, sceneId);
+      return ok;
+    };
+    if (options?.awaitPersist === true) return persist();
+    void persist();
+    return true;
+  }
+
+  async function putLayerByRef(appId, sceneId, holding, bytes, manifest) {
+    return putLayersByRef(
+      appId,
+      sceneId,
+      [{ holding, bytes }],
+      manifest,
+      { awaitPersist: true },
+    );
   }
 
   function takeLayerByRef(holding) {
@@ -101,6 +149,48 @@
       return null;
     }
     return cached;
+  }
+
+  async function restoreLayersByRefs(appId, sceneId, holdings) {
+    const rows = Array.isArray(holdings) ? holdings : [];
+    const resolved = new Map();
+    const missing = [];
+    let l1Hits = 0;
+    for (const holding of rows) {
+      const bytes = takeLayerByRef(holding);
+      if (bytes != null) {
+        resolved.set(holding.name, bytes);
+        l1Hits += 1;
+      } else if (holding?.artifact_id) {
+        missing.push(holding);
+      }
+    }
+    const persisted = boot.layerArtifactCache?.getLayers
+      ? await boot.layerArtifactCache.getLayers(missing.map((holding) => holding.artifact_id))
+      : new Map();
+    let idbHits = 0;
+    for (const holding of missing) {
+      const row = persisted.get(String(holding.artifact_id));
+      if (!row) continue;
+      if (
+        holding.content_hash &&
+        row.content_hash &&
+        String(holding.content_hash) !== String(row.content_hash)
+      ) {
+        continue;
+      }
+      fillMemoryByRef(appId, sceneId, holding, row.bytes);
+      resolved.set(holding.name, row.bytes);
+      idbHits += 1;
+    }
+    const misses = rows.filter((holding) => !resolved.has(holding.name));
+    boot.renderPipelineMark?.("layer_restore:end", {
+      count: rows.length,
+      l1Hits,
+      idbHits,
+      misses: misses.length,
+    });
+    return { resolved, misses, l1Hits, idbHits };
   }
 
   async function listHoldings(appId, sceneId) {
@@ -139,9 +229,12 @@
     rememberRevision,
     revisionFor,
     putLayer,
+    fillMemoryByRef,
     putLayerByRef,
+    putLayersByRef,
     takeLayer,
     takeLayerByRef,
+    restoreLayersByRefs,
     hasLayer,
     listHoldings,
     syncHoldingsFromManifest,

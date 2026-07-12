@@ -1039,9 +1039,14 @@
 
   function buildStructureTree(root, structureDoc, options) {
     if (!(root instanceof HTMLElement)) return false;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("compose_structure:begin");
     const doc = extractLayerDocument(structureDoc);
     const allNodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
-    if (!allNodes.length) return false;
+    if (!allNodes.length) {
+      boot.renderPipelineMark?.("compose_structure:end", { nodes: 0, durationMs: 0 });
+      return false;
+    }
 
     const projection = options?.review_projection || options?.reviewProjection || "";
     let nodes = allNodes;
@@ -1062,6 +1067,14 @@
 
     const nodeById = new Map();
     nodes.forEach((node) => nodeById.set(node.node_id, node));
+    const childrenByParent = new Map();
+    nodes.forEach((node) => {
+      const parentId = String(node.parent_id || "").trim();
+      if (!parentId) return;
+      const children = childrenByParent.get(parentId) || [];
+      children.push(node.node_id);
+      childrenByParent.set(parentId, children);
+    });
 
     const resolveRoots =
       boot.structureTreeMaterializer?.resolveRoots ||
@@ -1086,9 +1099,7 @@
         target.appendChild(created);
         const childIds = Array.isArray(node.children) && node.children.length
           ? node.children
-          : nodes
-              .filter((candidate) => candidate.parent_id === node.node_id)
-              .map((candidate) => candidate.node_id);
+          : childrenByParent.get(node.node_id) || [];
         childIds.forEach((childId) => {
           const child = nodeById.get(childId);
           if (child) mountSubtree(child, created);
@@ -1114,6 +1125,12 @@
 
     root.querySelectorAll(".mei-structure-tree").forEach((el) => el.remove());
     root.appendChild(container);
+    boot.renderPipelineMark?.("compose_structure:end", {
+      nodes: nodes.length,
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return container.childNodes.length > 0;
   }
 
@@ -1302,12 +1319,31 @@
     return map;
   }
 
-  function findScopeContainer(root, scopeKey) {
+  function buildComposeDomIndex(root) {
+    const byScope = new Map();
+    const byPanel = new Map();
+    if (!(root instanceof HTMLElement)) return { byScope, byPanel };
+    if (root.hasAttribute("data-preview-scope")) {
+      byScope.set(String(root.getAttribute("data-preview-scope") || ""), root);
+    }
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+      const panel = String(node.getAttribute("data-mei-panel-id") || "").trim();
+      if (scope && !byScope.has(scope)) byScope.set(scope, node);
+      if (panel && !byPanel.has(panel)) byPanel.set(panel, node);
+    });
+    return { byScope, byPanel };
+  }
+
+  function findScopeContainer(root, scopeKey, index) {
     const scope = String(scopeKey || "").trim();
     if (!scope || scope === "scene:default") {
       return root;
     }
     for (const candidate of scopeLookupCandidates(scope)) {
+      const indexed = index?.byScope?.get(candidate) || index?.byPanel?.get(candidate);
+      if (indexed instanceof HTMLElement) return indexed;
       const el =
         root.querySelector(`[data-preview-scope="${CSS.escape(candidate)}"]`) ||
         root.querySelector(`[data-mei-panel-id="${CSS.escape(candidate)}"]`);
@@ -1318,14 +1354,14 @@
     return null;
   }
 
-  function resolveEvalSlotContainer(root, scopeKey) {
-    let container = findScopeContainer(root, scopeKey);
+  function resolveEvalSlotContainer(root, scopeKey, index) {
+    let container = findScopeContainer(root, scopeKey, index);
     if (container instanceof HTMLElement) {
       return container;
     }
     const scope = String(scopeKey || "").trim();
     if (isSectionHeadMeiTextScope(scope)) {
-      return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""));
+      return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""), index);
     }
     return null;
   }
@@ -2192,7 +2228,11 @@
     const hintSlot = section.querySelector('[data-preview-scope$="/hint"]');
     if (hintSlot instanceof HTMLElement) {
       hintSlot.setAttribute("data-mei-panel-name", "stage-aperture-hint");
-      if (!hintSlot.textContent?.trim()) {
+      // mei-text 等 WC 的文案在 shadowRoot，host.textContent 常为空；勿再注入第二份 hint。
+      const hasAuthoredHint =
+        hintSlot.childElementCount > 0 ||
+        Boolean(hintSlot.querySelector("mei-text, .mei-map-viewport-hint"));
+      if (!hasAuthoredHint && !hintSlot.textContent?.trim()) {
         const hint = document.createElement("div");
         hint.className = "mei-map-viewport-hint";
         hint.textContent = "拖动平移 · 滚轮缩放 · 地图工具仅出现在中心观察窗内";
@@ -2216,7 +2256,9 @@
         return role === "section";
       });
       if (sections.length < 2) return;
-      if (!rail.style.gridTemplateRows) {
+      // 仅在作者/SSR 未声明行轨时回退均分；勿覆盖已有 Nfr（含 2.52fr 等）。
+      const authoredRows = String(rail.style.gridTemplateRows || "").trim();
+      if (!authoredRows) {
         rail.style.display = "grid";
         rail.style.gridTemplateRows = `repeat(${sections.length}, minmax(0, 1fr))`;
       }
@@ -2254,6 +2296,49 @@
     });
   }
 
+  function normalizeSectionContentZonePlacement(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const tree = root.querySelector(".mei-structure-tree") || root;
+    tree.querySelectorAll('[data-mei-ui-role="section"]').forEach((section) => {
+      if (!(section instanceof HTMLElement)) return;
+      const areas = String(
+        section.style.gridTemplateAreas || getComputedStyle(section).gridTemplateAreas || "",
+      );
+      const bodyArea = /\bbody\b/.test(areas)
+        ? "body"
+        : /\bcontent_zone\b/.test(areas)
+          ? "content_zone"
+          : "";
+      if (!bodyArea) return;
+      const titleArea = /\btitle\b/.test(areas)
+        ? "title"
+        : /\btitle_zone\b/.test(areas)
+          ? "title_zone"
+          : "";
+      [...section.children].forEach((child) => {
+        if (!(child instanceof HTMLElement)) return;
+        const scope = String(child.getAttribute("data-preview-scope") || "");
+        const isTitle =
+          scope.endsWith("/title_zone") ||
+          scope.endsWith("/title") ||
+          scope.endsWith("/head") ||
+          child.classList.contains("mei-compose-section-head");
+        if (isTitle) {
+          if (titleArea) child.style.gridArea = titleArea;
+          return;
+        }
+        // 单内容子节点若落在 auto，会挤进 54px 标题轨；强制挂到 content_zone/body。
+        child.style.gridArea = bodyArea;
+        child.style.minHeight = "0";
+        child.style.height = "100%";
+        child.style.alignSelf = "stretch";
+        child.style.width = "100%";
+      });
+      // 保留 title/content 双轨：即使标题节点暂缺，也让内容挂在 content_zone/body，
+      // 避免 auto 落入 54px 标题轨导致整栏挤压。
+    });
+  }
+
   function applyComposeThemeLayout(root) {
     if (!(root instanceof HTMLElement)) return false;
     const patches = global.__mei?.theme_layout;
@@ -2267,6 +2352,7 @@
     // layout budget 可能再次写入裸 `1fr`；预算后再 harden 一次。
     applyRailRegionSectionLayouts(root);
     normalizeMetricCompoundSections(root);
+    normalizeSectionContentZonePlacement(root);
     clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
     return true;
@@ -2286,6 +2372,7 @@
       '[data-preview-scope$="/map_viewport"], [data-preview-scope*="map_stage_overlay"], [data-preview-scope$="/map_stage"]',
     ).forEach((section) => normalizeMapOperationViewportSection(section));
     applyRailRegionSectionLayouts(root);
+    normalizeSectionContentZonePlacement(root);
     normalizeT1InteractivePointerEvents(tree);
     normalizeMapViewportPointerEvents(tree);
     hideLayoutDebugRegions(tree);
@@ -2840,15 +2927,30 @@
       });
   }
 
-  function bindEvalSlots(root, evalDocs) {
+  function bindEvalSlots(root, evalDocs, options) {
     if (!(root instanceof HTMLElement)) return false;
+    const bindDigest = String(options?.digest || "").trim();
+    if (
+      bindDigest &&
+      root.getAttribute("data-mei-eval-bind-digest") === bindDigest &&
+      root.getAttribute("data-mei-compose-materialized") === "1"
+    ) {
+      boot.renderPipelineMark?.("bind_eval_slots:skip", { digest: bindDigest });
+      return true;
+    }
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const domIndex = buildComposeDomIndex(root);
+    boot.renderPipelineMark?.("bind_eval_slots:begin", {
+      documents: Array.isArray(evalDocs) ? evalDocs.length : 0,
+      scopes: domIndex.byScope.size,
+    });
     let bound = 0;
     const sceneMountByMetric = sceneMountsByMetricId(evalDocs);
     for (const doc of evalDocs || []) {
       const slots = doc.slots || {};
       for (const [scopeKey, entry] of Object.entries(slots)) {
         if (isDuplicateMetricCardLeafScope(scopeKey)) continue;
-        const container = resolveEvalSlotContainer(root, scopeKey);
+        const container = resolveEvalSlotContainer(root, scopeKey, domIndex);
         if (!(container instanceof HTMLElement)) continue;
         const mounts = Array.isArray(entry?.mounts) ? entry.mounts : [];
         const useKeys = Array.isArray(entry?.use_keys) ? entry.use_keys : [];
@@ -2930,32 +3032,23 @@
     root.querySelectorAll('[data-mei-metric-card="true"]').forEach((card) => {
       normalizeMetricCardSection(card);
     });
-    rebindMetricCardHosts(root);
-    rebindAuthoredComponentHosts(root);
     applyWarningSupervisionComposeClasses(root);
     applyEnforcementStripComposeClasses(root);
     applyCompoundMetricComposeClasses(root);
     clearNestedCompoundSlotFrames(root);
     normalizeMetricCompoundSections(root);
     clipChartSlotsToHost(root);
-    // Charts bootstrap asynchronously; re-fit after layout + echarts init.
-    const scheduleClip = (delayMs) => {
-      global.setTimeout(() => {
+    if (root.querySelector("mei-chart-column, [data-mei-use-key^='chart.']")) {
+      const clipWhenIdle = () => {
         try {
           clipChartSlotsToHost(root);
         } catch (_) {}
-      }, delayMs);
-    };
-    if (typeof global.requestAnimationFrame === "function") {
-      global.requestAnimationFrame(() => {
-        clipChartSlotsToHost(root);
-        scheduleClip(120);
-        scheduleClip(400);
-      });
-    } else {
-      scheduleClip(0);
-      scheduleClip(120);
-      scheduleClip(400);
+      };
+      if (typeof global.requestIdleCallback === "function") {
+        global.requestIdleCallback(clipWhenIdle, { timeout: 1000 });
+      } else {
+        global.setTimeout(clipWhenIdle, 80);
+      }
     }
     normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);
@@ -2973,6 +3066,13 @@
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
+    if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
+    boot.renderPipelineMark?.("bind_eval_slots:end", {
+      bound,
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return bound > 0;
   }
 
@@ -3157,6 +3257,16 @@
     }
   }
 
+  function composeRevisionDigest(composeAxes) {
+    return String(
+      composeAxes?.surface_revision_digest ||
+        composeAxes?.surfaceRevisionDigest ||
+        global.__mei?.view_revision_envelope?.surface_revision_digest ||
+        global.__mei?.scene_manifest_refs?.surface_revision_digest ||
+        "",
+    ).trim();
+  }
+
   function finalizeClientPreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection = String(
@@ -3167,7 +3277,9 @@
     const bindEvalContent =
       !projection || projection.includes("full") || projection === "live" || projection === "static";
     if (bindEvalContent) {
-      bindEvalSlots(root, collectEvalDocs(layers));
+      bindEvalSlots(root, collectEvalDocs(layers), {
+        digest: composeRevisionDigest(composeAxes),
+      });
     }
     root.setAttribute("data-mei-compose-materialized", "1");
     root.removeAttribute("data-mei-compose-placeholder");
@@ -3249,7 +3361,9 @@
     const bindEvalContent =
       !projection || projection.includes("full") || projection === "live" || projection === "static";
     if (bindEvalContent) {
-      bindEvalSlots(root, collectEvalDocs(layers));
+      bindEvalSlots(root, collectEvalDocs(layers), {
+        digest: composeRevisionDigest(composeAxes),
+      });
     }
 
     root.setAttribute("data-mei-compose-materialized", "1");

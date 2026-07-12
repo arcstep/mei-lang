@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * Route A acceptance: unified view surfaces should serve thin HTML documents (<= 500KB).
+ * Route A acceptance: unified view surfaces should serve thin HTML documents (<= 32KB).
  * Usage: node scripts/thin-document-size-audit.mjs [baseUrl]
  */
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const MAX_BYTES = 512000;
-const surfaces = ["app", "layout", "prototype"];
+const MAX_BYTES = 32 * 1024;
+const routes = [
+  { name: "pretty-panels/home", url: `${base}/apps/pretty-panels/home` },
+];
 
-async function headDocument(surface) {
-  const url = `${base}/apps/data-demo/view?surface=${encodeURIComponent(surface)}`;
+async function headDocument(route) {
+  const { name, url } = route;
   const response = await fetch(url, { method: "HEAD", redirect: "follow" });
   const lengthHeader = response.headers.get("content-length");
   const bytes = lengthHeader ? Number(lengthHeader) : null;
@@ -20,21 +22,30 @@ async function headDocument(surface) {
           return { bytes: Buffer.byteLength(text, "utf8"), status: getResponse.status };
         })()
       : { bytes, status: response.status };
-  return { surface, url, ...html };
+  return { route: name, url, ...html };
 }
 
-async function fetchMeta(surface) {
-  const url = `${base}/apps/data-demo/view?surface=${encodeURIComponent(surface)}`;
+async function fetchMeta(route) {
+  const { name, url } = route;
   const response = await fetch(url, { redirect: "follow" });
   const html = await response.text();
-  const bootstrapInlined = /meta name="mei-bootstrap-inlined" content="0"/.test(html);
+  const bootstrapPayloadInlined =
+    /meta name="mei-bootstrap-inlined" content="1"/.test(html) ||
+    /id="mei-client-bootstrap"/.test(html);
   const drilldownInlined = /meta name="mei-drilldown-inlined" content="0"/.test(html);
   const composePlaceholder = /id="mei-compose-root"[^>]*data-mei-compose-placeholder="1"/.test(html);
+  const refsStart = html.indexOf("window.__mei.scene_manifest_refs=");
+  const refsEnd =
+    refsStart >= 0 ? html.indexOf(";window.__mei.thin_shell", refsStart) : -1;
+  const manifestRefsText =
+    refsStart >= 0 && refsEnd > refsStart ? html.slice(refsStart, refsEnd) : "";
   return {
-    surface,
-    bootstrapInlined,
+    route: name,
+    bootstrapPayloadInlined,
     drilldownInlined,
     composePlaceholder,
+    revisionEnvelope: html.includes("window.__mei.view_revision_envelope="),
+    manifestRefsHasLayers: /"layers"\s*:/.test(manifestRefsText),
     htmlBytes: Buffer.byteLength(html, "utf8"),
   };
 }
@@ -42,31 +53,37 @@ async function fetchMeta(surface) {
 async function main() {
   const failures = [];
   const headResults = [];
-  for (const surface of surfaces) {
-    const result = await headDocument(surface);
+  for (const route of routes) {
+    const result = await headDocument(route);
     headResults.push(result);
     if (result.status !== 200) {
-      failures.push(`${surface}: expected HTTP 200, got ${result.status}`);
+      failures.push(`${route.name}: expected HTTP 200, got ${result.status}`);
     }
     if (result.bytes > MAX_BYTES) {
       failures.push(
-        `${surface}: content-length ${result.bytes} exceeds ${MAX_BYTES} bytes`,
+        `${route.name}: content-length ${result.bytes} exceeds ${MAX_BYTES} bytes`,
       );
     }
   }
 
   const metaResults = [];
-  for (const surface of surfaces) {
-    const meta = await fetchMeta(surface);
+  for (const route of routes) {
+    const meta = await fetchMeta(route);
     metaResults.push(meta);
-    if (!meta.bootstrapInlined) {
-      failures.push(`${surface}: expected mei-bootstrap-inlined=0`);
+    if (meta.bootstrapPayloadInlined) {
+      failures.push(`${route.name}: thin document must not inline eval bootstrap`);
     }
     if (!meta.drilldownInlined) {
-      failures.push(`${surface}: expected mei-drilldown-inlined=0`);
+      failures.push(`${route.name}: expected mei-drilldown-inlined=0`);
     }
-    if (surface === "app" && !meta.composePlaceholder) {
-      failures.push(`${surface}: expected data-mei-compose-placeholder=1 on compose root`);
+    if (!meta.revisionEnvelope) {
+      failures.push(`${route.name}: expected view_revision_envelope`);
+    }
+    if (meta.manifestRefsHasLayers) {
+      failures.push(`${route.name}: thin document must not contain full layer manifest`);
+    }
+    if (!meta.composePlaceholder) {
+      failures.push(`${route.name}: expected data-mei-compose-placeholder=1 on compose root`);
     }
   }
 

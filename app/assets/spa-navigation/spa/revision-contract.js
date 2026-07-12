@@ -101,14 +101,42 @@
   }
 
   function readViewRevisionStore() {
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("revision_store_parse:begin");
     try {
       const raw = global.sessionStorage.getItem(VIEW_REVISION_STORE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        boot.renderPipelineMark?.("revision_store_parse:end", {
+          source: "session",
+          bytes: raw.length,
+          durationMs: Math.round(
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+          ),
+        });
+        return parsed;
+      }
     } catch (_) {}
     try {
       const raw = global.localStorage.getItem(VIEW_REVISION_LS_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        boot.renderPipelineMark?.("revision_store_parse:end", {
+          source: "local",
+          bytes: raw.length,
+          durationMs: Math.round(
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+          ),
+        });
+        return parsed;
+      }
     } catch (_) {}
+    boot.renderPipelineMark?.("revision_store_parse:end", {
+      source: "empty",
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
     return {};
   }
 

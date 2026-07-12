@@ -31,6 +31,8 @@ const CALENDAR_ICON_SVG = `<svg class="date-icon-svg" viewBox="0 0 16 16" width=
 
 class MeiDatasetFilterBar extends HTMLElement {
   connectedCallback() {
+    this._filterFloatingHostId =
+      this._filterFloatingHostId || `mei-filter-float-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     this._props = parseProps(this);
     this._queryStateId = queryStateIdOf(this._props);
     this._filterMode = resolveFilterBarMode(this._props);
@@ -121,6 +123,7 @@ class MeiDatasetFilterBar extends HTMLElement {
   disconnectedCallback() {
     document.removeEventListener("click", this._outsideClickHandler);
     teardownFloatingPanelListeners(this);
+    cleanupHostFloatingPanels(this);
     if (typeof this._unsubscribeQueryState === "function") {
       this._unsubscribeQueryState();
     }
@@ -206,6 +209,27 @@ class MeiDatasetFilterBar extends HTMLElement {
         entry.values.add(value);
       } else {
         entry.values.delete(value);
+      }
+    }
+    if (typeof document !== "undefined") {
+      for (const checkbox of document.querySelectorAll(
+        '[data-mei-filter-floating="1"] .multi-option input[type="checkbox"][data-field-key]',
+      )) {
+        const key = String(checkbox.dataset.fieldKey || "").trim();
+        if (!key) continue;
+        const control = String(checkbox.dataset.fieldControl || "multi_select").trim();
+        if (!this._pendingClassicMulti.has(key)) {
+          this._pendingClassicMulti.set(key, { control, values: new Set() });
+        }
+        const entry = this._pendingClassicMulti.get(key);
+        entry.control = control;
+        const value = String(checkbox.value || "").trim();
+        if (!value) continue;
+        if (checkbox.checked) {
+          entry.values.add(value);
+        } else {
+          entry.values.delete(value);
+        }
       }
     }
   }
@@ -353,6 +377,7 @@ class MeiDatasetFilterBar extends HTMLElement {
   renderClassic() {
     const filters = this._filters || {};
     const loadingOptions = !this._optionsLoaded;
+    cleanupHostFloatingPanels(this);
     this.shadowRoot.innerHTML = `
       <style>${sharedStyles()}</style>
       <section class="wrap">
@@ -380,6 +405,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     const title = String(this._props.title || "筛选条件").trim();
     const visibleFields = (this._schemaFields || []).filter((field) => field?.visible !== false);
 
+    cleanupHostFloatingPanels(this);
     this.shadowRoot.innerHTML = `
       <style>${sharedStyles()}${schemaStyles()}</style>
       <section class="wrap schema-wrap ${collapsed ? "is-collapsed" : ""}">
@@ -436,6 +462,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     const catalogExhausted = allCatalogFieldsUsed(this._columnCatalog, rows);
     const addableFields = availableCatalogFieldsForAdd(this._columnCatalog, rows);
 
+    cleanupHostFloatingPanels(this);
     this.shadowRoot.innerHTML = `
       <style>${sharedStyles()}${additiveStyles()}</style>
       <section class="wrap additive-wrap ${collapsed ? "is-collapsed" : ""}">
@@ -1133,7 +1160,13 @@ function readSingleAdditiveRowFromDom(rowEl, previous = null) {
   const valueInput = rowEl.querySelector("[data-row-value]");
   const value = valueInput ? String(valueInput.value || "").trim() : "";
   const values = [];
-  const checkboxes = rowEl.querySelectorAll('.multi-option input[type="checkbox"]');
+  let checkboxes = rowEl.querySelectorAll('.multi-option input[type="checkbox"]');
+  if (checkboxes.length === 0 && id) {
+    const floated = findFloatingMultiPanel(id);
+    if (floated) {
+      checkboxes = floated.querySelectorAll('.multi-option input[type="checkbox"]');
+    }
+  }
   if (checkboxes.length > 0) {
     for (const checkbox of checkboxes) {
       if (!checkbox.checked) continue;
@@ -1190,6 +1223,7 @@ const FLOATING_PANEL_MAX_WIDTH = 520;
 const FLOATING_PANEL_MAX_HEIGHT = 360;
 const FLOATING_PANEL_VIEWPORT_PADDING = 10;
 const ADD_FIELD_PICKER_KEY = "__add_field__";
+const FILTER_FLOATING_STYLE_ID = "mei-filter-bar-floating-styles";
 
 function cssEscapeAttr(value) {
   const text = String(value || "");
@@ -1199,9 +1233,113 @@ function cssEscapeAttr(value) {
   return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function ensureFilterFloatingStyles() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(FILTER_FLOATING_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = FILTER_FLOATING_STYLE_ID;
+  style.textContent = `
+    [data-mei-filter-floating="1"].multi-panel,
+    [data-mei-filter-floating="1"].field-picker-panel {
+      box-sizing: border-box;
+      display: none;
+      border-radius: 8px;
+      border: 1px solid var(--mei-color-filter-panel-border, rgba(56, 160, 240, 0.28));
+      background: var(--mei-color-drilldown-panel-bottom, rgba(8, 28, 58, 0.98));
+      box-shadow: 0 20px 48px rgba(2, 6, 23, 0.58);
+      padding: 6px;
+      color: var(--mei-color-text-body, #e2e8f0);
+      font-size: ${FILTER_PANEL_FONT};
+      z-index: var(--mei-z-cockpit-text-popover, 2350);
+    }
+    [data-mei-filter-floating="1"].multi-panel.is-open,
+    [data-mei-filter-floating="1"].field-picker-panel.is-open {
+      display: block;
+    }
+    [data-mei-filter-floating="1"] .multi-search,
+    [data-mei-filter-floating="1"] .field-picker-search {
+      width: 100%;
+      margin-bottom: 6px;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      box-sizing: border-box;
+      min-height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.28));
+      background: var(--mei-color-drilldown-tab-bg, rgba(10, 36, 68, 0.92));
+      color: var(--mei-color-text-body, #e2e8f0);
+      font-size: ${FILTER_PANEL_FONT};
+      padding: 6px 9px;
+    }
+    [data-mei-filter-floating="1"] .multi-options,
+    [data-mei-filter-floating="1"] .field-picker-options {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    [data-mei-filter-floating="1"] .multi-option,
+    [data-mei-filter-floating="1"] .field-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: ${FILTER_PANEL_FONT};
+      color: var(--mei-color-text-body, #e2e8f0);
+      line-height: 1.4;
+      white-space: normal;
+      word-break: break-word;
+    }
+    [data-mei-filter-floating="1"] .multi-option[hidden],
+    [data-mei-filter-floating="1"] .field-picker-option[hidden] {
+      display: none !important;
+    }
+    [data-mei-filter-floating="1"] .multi-option:hover,
+    [data-mei-filter-floating="1"] .field-picker-option:hover {
+      background: var(--mei-color-table-row-hover, rgba(56, 160, 240, 0.12));
+    }
+    [data-mei-filter-floating="1"] .multi-option input {
+      margin: 0;
+      flex-shrink: 0;
+    }
+    [data-mei-filter-floating="1"] .multi-filter-empty,
+    [data-mei-filter-floating="1"] .field-picker-filter-empty {
+      padding: 8px;
+      color: var(--mei-color-text-muted, #94a3b8);
+      font-size: calc(${FILTER_PANEL_FONT} * 0.9);
+      text-align: center;
+    }
+    [data-mei-filter-floating="1"] .multi-filter-empty[hidden],
+    [data-mei-filter-floating="1"] .field-picker-filter-empty[hidden] {
+      display: none !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function cleanupHostFloatingPanels(host) {
+  const hostId = String(host?._filterFloatingHostId || "").trim();
+  if (!hostId || typeof document === "undefined") return;
+  for (const panel of document.querySelectorAll(`[data-mei-filter-floating-host="${cssEscapeAttr(hostId)}"]`)) {
+    panel.remove();
+  }
+}
+
+function findFloatingMultiPanel(panelKey) {
+  const key = String(panelKey || "").trim();
+  if (!key || typeof document === "undefined") return null;
+  return document.querySelector(
+    `[data-mei-filter-floating="1"][data-multi-panel="${cssEscapeAttr(key)}"]`,
+  );
+}
+
 function clearFloatingPanel(panel) {
   if (!panel) return;
   panel.classList.remove("is-floating");
+  panel.removeAttribute("data-mei-filter-floating");
+  panel.removeAttribute("data-mei-filter-floating-host");
   panel.style.removeProperty("position");
   panel.style.removeProperty("left");
   panel.style.removeProperty("right");
@@ -1263,7 +1401,12 @@ function positionFloatingPanel(trigger, panel, options = {}) {
   }
   left = Math.max(FLOATING_PANEL_VIEWPORT_PADDING, left);
 
+  ensureFilterFloatingStyles();
+  const host = trigger.getRootNode()?.host;
+  const hostId = String(host?._filterFloatingHostId || "").trim();
   panel.classList.add("is-floating");
+  panel.setAttribute("data-mei-filter-floating", "1");
+  if (hostId) panel.setAttribute("data-mei-filter-floating-host", hostId);
   panel.style.position = "fixed";
   panel.style.left = `${left}px`;
   panel.style.right = "auto";
@@ -1293,17 +1436,38 @@ function positionFloatingPanel(trigger, panel, options = {}) {
   }
 }
 
+function hostFloatingPanels(host) {
+  const hostId = String(host?._filterFloatingHostId || "").trim();
+  const fromShadow = host?.shadowRoot
+    ? Array.from(host.shadowRoot.querySelectorAll(".is-floating"))
+    : [];
+  if (!hostId || typeof document === "undefined") return fromShadow;
+  const fromBody = Array.from(
+    document.querySelectorAll(`[data-mei-filter-floating-host="${cssEscapeAttr(hostId)}"]`),
+  );
+  const seen = new Set(fromShadow);
+  for (const panel of fromBody) {
+    if (!seen.has(panel)) fromShadow.push(panel);
+  }
+  return fromShadow;
+}
+
 function syncFloatingPanels(host) {
   if (!host?.shadowRoot) return;
-  for (const panel of host.shadowRoot.querySelectorAll(".is-floating")) {
+  for (const panel of hostFloatingPanels(host)) {
     if (!panel.classList.contains("is-open")) {
       clearFloatingPanel(panel);
+      if (panel.hasAttribute("data-mei-filter-floating-host")) {
+        panel.remove();
+      }
     }
   }
   if (host._openDropdownKey) {
     const key = host._openDropdownKey;
     const trigger = host.shadowRoot.querySelector(`[data-multi-trigger="${cssEscapeAttr(key)}"]`);
-    const panel = host.shadowRoot.querySelector(`[data-multi-panel="${cssEscapeAttr(key)}"]`);
+    const panel =
+      host.shadowRoot.querySelector(`[data-multi-panel="${cssEscapeAttr(key)}"]`) ||
+      findFloatingMultiPanel(key);
     if (trigger && panel?.classList.contains("is-open")) {
       positionFloatingPanel(trigger, panel);
     }
@@ -1311,7 +1475,11 @@ function syncFloatingPanels(host) {
   if (host._openFieldPickerKey) {
     const key = host._openFieldPickerKey;
     const trigger = host.shadowRoot.querySelector(`[data-field-picker-trigger="${cssEscapeAttr(key)}"]`);
-    const panel = host.shadowRoot.querySelector(`[data-field-picker-panel="${cssEscapeAttr(key)}"]`);
+    const panel =
+      host.shadowRoot.querySelector(`[data-field-picker-panel="${cssEscapeAttr(key)}"]`) ||
+      document.querySelector(
+        `[data-mei-filter-floating="1"][data-field-picker-panel="${cssEscapeAttr(key)}"]`,
+      );
     if (trigger && panel?.classList.contains("is-open")) {
       positionFloatingPanel(trigger, panel, {
         preferDropUp: key === ADD_FIELD_PICKER_KEY,
@@ -1339,8 +1507,11 @@ function teardownFloatingPanelListeners(host) {
 function scheduleFloatingPanelSync(host) {
   if (!host?.shadowRoot) return;
   if (!host._openDropdownKey && !host._openFieldPickerKey) {
-    for (const panel of host.shadowRoot.querySelectorAll(".is-floating")) {
+    for (const panel of hostFloatingPanels(host)) {
       clearFloatingPanel(panel);
+      if (panel.parentElement === document.body || panel.hasAttribute("data-mei-filter-floating-host")) {
+        panel.remove();
+      }
     }
     return;
   }
@@ -2742,12 +2913,21 @@ function readSchemaFieldValueFromDom(shadowRoot, field) {
   }
   if (control === "multi_select" || control === "month_multi_select") {
     const values = [];
-    for (const checkbox of shadowRoot.querySelectorAll(
-      `.multi-option input[type="checkbox"][data-field-key="${CSS.escape(key)}"]`,
-    )) {
-      if (!checkbox.checked) continue;
-      const value = String(checkbox.value || "").trim();
-      if (value) values.push(value);
+    const selectors = [
+      shadowRoot,
+      findFloatingMultiPanel(key),
+    ].filter(Boolean);
+    const seen = new Set();
+    for (const root of selectors) {
+      for (const checkbox of root.querySelectorAll(
+        `.multi-option input[type="checkbox"][data-field-key="${CSS.escape(key)}"]`,
+      )) {
+        if (!checkbox.checked) continue;
+        const value = String(checkbox.value || "").trim();
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        values.push(value);
+      }
     }
     if (!values.length) return "";
     const prefix = control === "month_multi_select" ? "m:" : "in:";

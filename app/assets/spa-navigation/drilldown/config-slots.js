@@ -192,6 +192,7 @@
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
+          .map((entry) => resolveFilterFieldEntry(entry))
           .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
           .map((entry) => ({
             key: nonEmptyString(entry.key),
@@ -216,6 +217,15 @@
       allowExtra: raw.allow_extra === true || raw.allowExtra === true,
       title: nonEmptyString(raw.title),
     };
+  }
+
+  /** `filter_field(...)` 可能以 `{__call:"filter_field", __args:{...}}` IR 残留在 bindings 里。 */
+  function resolveFilterFieldEntry(entry) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    if (entry.__call === "filter_field" && entry.__args && typeof entry.__args === "object") {
+      return entry.__args;
+    }
+    return entry;
   }
 
   function resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots) {

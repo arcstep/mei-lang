@@ -852,8 +852,25 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
         window.MeiVisitHistoryStore?.list?.() ||
         [];
       const record = Array.isArray(list) && list.length > 0 ? list[0] : null;
-      if (!record || typeof record !== "object") return null;
+      const pipeline = window.__meiRenderPipeline?.last || {};
+      const layerCache =
+        window.__meiLangBoot?.layerArtifactCache?.readDiagnostics?.() || {};
+      const pipelineFields = {
+        user_visible_ready_ms: Number(pipeline.wallMs) || 0,
+        document_ms: Number(pipeline.documentMs) || 0,
+        layer_restore_ms: Number(pipeline.phases?.layer_restore?.durationMs) || 0,
+        compose_structure_ms: Number(pipeline.phases?.compose_structure?.durationMs) || 0,
+        bind_eval_slots_ms: Number(pipeline.phases?.bind_eval_slots?.durationMs) || 0,
+        idb_open_count: Number(layerCache.opens) || 0,
+        idb_readonly_transaction_count: Number(layerCache.readonlyTransactions) || 0,
+        idb_readwrite_transaction_count: Number(layerCache.readwriteTransactions) || 0,
+        idb_write_count: Number(layerCache.writes) || 0,
+        idb_prune_count: Number(layerCache.prunes) || 0,
+        layer_batch_count: Number(pipeline.fetchByKind?.layer_batch?.count) || 0,
+      };
+      if (!record || typeof record !== "object") return pipelineFields;
       return {
+        ...pipelineFields,
         kind: String(record.kind || ""),
         api_total: Number(record.apiTotal) || 0,
         api_failed: Number(record.apiFailed) || 0,
@@ -946,6 +963,21 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
       browser_html_bytes: toFinite(browserSessionSummary.html_bytes),
       browser_data_props_bytes: toFinite(browserSessionSummary.data_props_bytes),
       browser_data_props_count: toFinite(browserSessionSummary.data_props_count),
+      user_visible_ready_ms: toFinite(browserSessionSummary.user_visible_ready_ms),
+      document_navigation_ms: toFinite(browserSessionSummary.document_ms),
+      layer_restore_ms: toFinite(browserSessionSummary.layer_restore_ms),
+      compose_structure_ms: toFinite(browserSessionSummary.compose_structure_ms),
+      bind_eval_slots_ms: toFinite(browserSessionSummary.bind_eval_slots_ms),
+      idb_open_count: toFinite(browserSessionSummary.idb_open_count),
+      idb_readonly_transaction_count: toFinite(
+        browserSessionSummary.idb_readonly_transaction_count
+      ),
+      idb_readwrite_transaction_count: toFinite(
+        browserSessionSummary.idb_readwrite_transaction_count
+      ),
+      idb_write_count: toFinite(browserSessionSummary.idb_write_count),
+      idb_prune_count: toFinite(browserSessionSummary.idb_prune_count),
+      layer_batch_count: toFinite(browserSessionSummary.layer_batch_count),
     });
   }
   return {
@@ -2101,9 +2133,32 @@ function printSummary({ outputPath, append: appendMode, records }) {
       metrics_request_count: perf.metrics_request_count,
       metric_request_max_ms: perf.metric_request_max_ms,
       query_request_count: perf.query_request_count,
+      user_visible_ready_ms: perf.user_visible_ready_ms,
+      document_navigation_ms: perf.document_navigation_ms,
+      layer_restore_ms: perf.layer_restore_ms,
+      idb_readonly_transaction_count: perf.idb_readonly_transaction_count,
+      idb_readwrite_transaction_count: perf.idb_readwrite_transaction_count,
+      layer_batch_count: perf.layer_batch_count,
     };
     console.log(
       `- ${row.scenario_id} ${row.run_kind} ${JSON.stringify(preview)}`
+    );
+  }
+  const grouped = new Map();
+  for (const row of records) {
+    const rows = grouped.get(row.scenario_id) || [];
+    rows.push(row);
+    grouped.set(row.scenario_id, rows);
+  }
+  for (const [scenarioId, rows] of grouped) {
+    const values = rows
+      .map((row) => Number(row.perf?.user_visible_ready_ms))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    if (!values.length) continue;
+    const quantile = (p) => values[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)];
+    console.log(
+      `  ${scenarioId}: user_visible_ready p50=${quantile(0.5)}ms p95=${quantile(0.95)}ms`,
     );
   }
 }

@@ -179,11 +179,20 @@
       }
     }
     if (!doc) return;
+    const topbar = String(doc.topbar_html || "").trim();
+    const statusbar = String(doc.statusbar_html || "").trim();
+    const signature = String(
+      shellLayer?.content_hash ||
+        shellLayer?.artifact_id ||
+        doc.revision_digest ||
+        `${topbar.length}:${statusbar.length}:${doc.tab || ""}:${doc.chrome || ""}`,
+    );
+    if (signature && root.getAttribute("data-mei-shell-digest") === signature) return;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    boot.renderPipelineMark?.("apply_chrome:begin");
     if (doc.tab) root.setAttribute("data-tab", String(doc.tab));
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
-    const topbar = String(doc.topbar_html || "").trim();
-    const statusbar = String(doc.statusbar_html || "").trim();
     const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
     const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
     if (topbar && topSlot instanceof HTMLElement) {
@@ -204,6 +213,12 @@
       const host = global.document?.getElementById?.("mei-compose-host") || root;
       if (bar && host instanceof HTMLElement) host.append(bar);
     }
+    if (signature) root.setAttribute("data-mei-shell-digest", signature);
+    boot.renderPipelineMark?.("apply_chrome:end", {
+      durationMs: Math.round(
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt,
+      ),
+    });
   }
 
   function resolveAppId(composeAxes) {
@@ -362,7 +377,11 @@
     } else if (!keepSsrPreview && !preserveWorkspaceDom && !thinShellPlaceholder) {
       ensureStructureSkeleton(root, structure);
     }
-    if (typeof materializer?.applyRuntimePlans === "function" && layers["runtime.plans"]) {
+    if (
+      !shouldMaterializePreview &&
+      typeof materializer?.applyRuntimePlans === "function" &&
+      layers["runtime.plans"]
+    ) {
       materializer.applyRuntimePlans(layers["runtime.plans"]);
     }
     const projectionSlug = String(projection || "").trim().toLowerCase();

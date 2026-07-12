@@ -1,22 +1,17 @@
-/**
- * ViewAssemblyCoordinator: single cold_start pipeline for F5 and surface tab switches.
- */
+/** Single cold_start pipeline for F5 and surface tab switches. */
 (function initViewAssemblyCoordinator(global) {
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const DEBOUNCE_MS = 50;
-
   let assemblyGeneration = 0;
   let activeController = null;
   let debounceTimer = null;
   let pendingIntent = null;
   const layerResidentWaiters = new Map();
-
   function isEnabled() {
     return globalThis.__mei?.view_assembly_v2 !== false;
   }
-
   function parseIntent(intentLike) {
     if (intentLike?.app_id || intentLike?.appId) {
       return typeof boot.parseViewContext === "function"
@@ -60,13 +55,17 @@
   }
 
   function tracePhase(phase, generation, extra) {
+    const detail = { phase, generation, ...(extra || {}) };
+    if (typeof boot.renderPipelineMark === "function") {
+      boot.renderPipelineMark(`assembly:${phase}`, detail);
+    }
     if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("assembly-phase", { phase, generation, ...(extra || {}) });
+      boot.cacheDiagTrace("assembly-phase", detail);
     }
     try {
       global.document?.dispatchEvent(
         new CustomEvent("mei:assembly-phase", {
-          detail: { phase, generation, ...(extra || {}) },
+          detail,
         }),
       );
     } catch (_) {}
@@ -273,28 +272,33 @@
       });
       if (outcome?.restored) {
         const layers = outcome.viewRevision?.assemble?.layers || outcome.layers || null;
-        if (layers) notifyLayerResident("structure.full", layers, generation);
-        syncManifestForSurface(ctx);
-        if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        const surfaceReady =
-          typeof boot.isSurfaceMaterialized === "function"
-            ? boot.isSurfaceMaterialized(ctx)
-            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady(ctx) : true) &&
-              (typeof boot.isSsrShellPlaceholder === "function"
-                ? !boot.isSsrShellPlaceholder(ctx)
-                : true);
-        if (surfaceReady) {
-          tracePhase("preview", generation, { ok: true, source: outcome.source, cacheFirst: true });
+        if (layers) {
+          notifyLayerResident("structure.full", layers, generation);
+          syncManifestForSurface(ctx);
+          if (
+            !isStale(generation, signal) &&
+            typeof boot.applyHostChromeFromManifestRefs === "function"
+          ) {
+            boot.applyHostChromeFromManifestRefs();
+          }
+          // viaCoordinator skips materialize on purpose; do NOT omit_digests-refetch
+          // just because the surface is not painted yet — phaseRuntime/verify own that.
+          const surfaceReady =
+            typeof boot.isSurfaceMaterialized === "function"
+              ? boot.isSurfaceMaterialized(ctx)
+              : true;
+          tracePhase("preview", generation, {
+            ok: true,
+            source: outcome.source,
+            cacheFirst: true,
+            deferredMaterialize: !surfaceReady,
+          });
           return {
             outcome,
             assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
             layers,
           };
         }
-        negotiateOpts.forceRematerialize = true;
-        negotiateOpts.omit_digests = true;
       }
     }
     if (!boot.viewRevisionClient?.negotiateWithLocalMiss) {
@@ -308,7 +312,7 @@
         result.response?.manifest ||
         result.plan?.manifest ||
         result.response?.assembly_plan?.manifest;
-      syncManifestRefs(manifest || { layers: result.assemble.layers }, ctx);
+      if (manifest) syncManifestRefs(manifest, ctx);
     }
     if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
       boot.applyHostChromeFromManifestRefs();
@@ -431,13 +435,15 @@
 
     await phasePanel(ctx, generation, opts);
     await phaseStructureTree(ctx, generation, null, signal);
-    await bootstrapPromise;
+    void bootstrapPromise;
 
     let previewResult = await phasePreview(ctx, generation, opts, signal);
     let layers = previewResult?.assemble?.layers || previewResult?.layers;
 
+    // Re-negotiate only when preview produced no usable layers.
     if (
       previewResult?.assemble?.ok === true &&
+      !layers &&
       typeof boot.isSurfaceMaterialized === "function" &&
       !boot.isSurfaceMaterialized(ctx) &&
       !opts._surfaceReadyRetried
@@ -447,7 +453,7 @@
         notifyLayerResident("structure.full", retry.assemble.layers, generation);
         const manifest =
           retry.response?.manifest || retry.plan?.manifest || retry.response?.assembly_plan?.manifest;
-        syncManifestRefs(manifest || { layers: retry.assemble.layers }, ctx);
+        if (manifest) syncManifestRefs(manifest, ctx);
         previewResult = retry;
         layers = retry.assemble.layers;
       }
