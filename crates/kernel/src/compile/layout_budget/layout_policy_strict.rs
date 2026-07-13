@@ -149,6 +149,39 @@ fn layout_policy_region_px_track_forbidden_emits_error() {
     assert_has_code(&diagnostics, "layout_policy_region_px_track_forbidden");
 }
 
+#[test]
+fn layout_policy_t2_page_region_allows_analytics_page_grid_minmax() {
+    let mut region = empty_panel("t2_warnings");
+    region.layout = Some(LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: Some(vec![
+            "minmax(180px, 1fr)".to_string(),
+            "minmax(0, 5fr)".to_string(),
+        ]),
+        rows: Some(vec!["minmax(0, 1fr)".to_string()]),
+        areas: Some(vec![vec!["filter".to_string(), "main".to_string()]]),
+        gap: Some("4px".to_string()),
+        padding: None,
+        align: None,
+        justify: None,
+    });
+    region.props = json!({
+        "__mei_ui_role": "region",
+        "__mei_t2_page": true,
+    });
+    region.blocks = vec![UiTreeNode::Panel(empty_panel("s-filter"))];
+    let mut panels = vec![region];
+    let mut diagnostics = Vec::new();
+    resolve_with_strict(&mut panels, &mut diagnostics, "test.mei");
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code == "layout_policy_region_px_track_forbidden"),
+        "T2 page regions use analytics_page_grid minmax by design: {diagnostics:?}"
+    );
+}
+
 fn slot_without_stretch_bg(id: &str) -> UiNodeDecl {
     let mut panel = empty_panel(id);
     panel.props = json!({

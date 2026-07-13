@@ -236,6 +236,21 @@ fn append_section_children_for_regions(
     if scope_key == "home" {
         region_candidates.push(format!("{}/home/t2/r-drilldown", ctx.app_id));
         region_candidates.push("home/t2/r-drilldown".to_string());
+        for node in registry.nodes.iter() {
+            let key = node.id.key.as_str();
+            let is_t2_region = key.contains("/home/t2/r-")
+                && !key.contains("/s-")
+                && !key.contains("/c-")
+                && !key.ends_with("/r-drilldown");
+            if !is_t2_region {
+                continue;
+            }
+            let scope = key
+                .split_once('/')
+                .map(|(_, tail)| tail.to_string())
+                .unwrap_or_else(|| key.to_string());
+            region_candidates.push(scope);
+        }
     }
     for scene in region_candidates {
         if scene.contains("/s-") {
@@ -359,7 +374,9 @@ pub fn board_neighbor_scope_fallback(
     if scope_key == "home" {
         return home_neighbor_scope_fallback(scope_key, hops);
     }
-    if scope_key.contains("/t2/r-drilldown/s-") {
+    if scope_key.contains("/t2/r-drilldown/s-")
+        || (scope_key.contains("/t2/r-") && !scope_key.contains("/s-") && !scope_key.contains("/c-"))
+    {
         let mut siblings = Vec::new();
         for section in home_neighbor_scope_fallback("home", hops) {
             if section != scope_key {
@@ -387,6 +404,8 @@ pub fn home_neighbor_scope_fallback(scope_key: &str, hops: usize) -> Vec<String>
     vec![
         "home/t2/r-drilldown/s-inspection-dashboard".to_string(),
         "home/t2/r-drilldown/s-supervision-warning".to_string(),
+        "home/t2/r-inspection-total".to_string(),
+        "home/t2/r-warnings".to_string(),
     ]
 }
 
@@ -610,6 +629,14 @@ fn registry_scope_key_from_reference(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::registry_scope_key_from_reference;
+
+    #[test]
+    fn registry_scope_key_from_golden_case_region_ref() {
+        assert_eq!(
+            registry_scope_key_from_reference("pretty-panels/home/t2/r-warnings"),
+            Some("home/t2/r-warnings".to_string())
+        );
+    }
 
     #[test]
     fn registry_scope_key_from_section_ref() {

@@ -570,8 +570,14 @@ fn validate_panel(
     }
 
     if role == Some("region") {
-        let should_enforce_region_tracks =
-            chrome_role(panel) == Some("rail") || has_structural_children(panel);
+        let is_t2_page_region = panel
+            .props
+            .as_object()
+            .and_then(|m| m.get("__mei_t2_page"))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let should_enforce_region_tracks = !is_t2_page_region
+            && (chrome_role(panel) == Some("rail") || has_structural_children(panel));
         if should_enforce_region_tracks {
             if panel
                 .props
