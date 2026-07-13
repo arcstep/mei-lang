@@ -164,7 +164,53 @@ pub fn rewarm_after_import(workspace: &Path, app: &str, policy: &str) -> anyhow:
         return Ok(());
     }
 
-    crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "all")?;
+    crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "client")?;
+    Ok(())
+}
+
+pub fn rewarm_after_import_for_scenes(
+    workspace: &Path,
+    app: &str,
+    scenes: &[String],
+) -> anyhow::Result<()> {
+    if scenes.is_empty() {
+        return rewarm_after_import(workspace, app, "home");
+    }
+    let workspace = canonical_workspace(workspace);
+    // Invalidate once, then disk+client warmup per required hot scene (no cross-process L1).
+    mei_host_graph::clear_assemble_cache_for_app(app);
+    let force_clear = std::env::var("MEI_FORCE_EVAL_CACHE_CLEAR")
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false);
+    let invalidation =
+        mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app, force_clear)?;
+    tracing::info!(
+        app_id = %app,
+        force_cleared = invalidation.force_cleared,
+        removed_artifact_files = invalidation.removed_artifact_files,
+        retained_artifact_files = invalidation.retained_artifact_files,
+        cleared_bootstrap_scopes = invalidation.cleared_bootstrap_scopes,
+        scenes = %scenes.join(","),
+        "eval-cache incremental invalidation (multi-scene rewarm)"
+    );
+    let dev_eval = crate::dev_eval_scope::current_for_app(app);
+    if !dev_eval.allows_rewarm() {
+        tracing::info!(
+            app_id = %app,
+            profile = dev_eval.profile.slug(),
+            "skipping warmup rewarm under non-full dev eval profile"
+        );
+        return Ok(());
+    }
+    for scene in scenes {
+        crate::tool_exec::run_mei_plug_ds_warmup(
+            workspace.as_path(),
+            app,
+            scene.as_str(),
+            "client",
+        )?;
+    }
     Ok(())
 }
 
@@ -196,9 +242,10 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
     })
 }
 
-pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::Result<String> {
+pub fn prebuild_pipeline(workspace: &Path, app: &str, scenes: &[String]) -> anyhow::Result<String> {
     let workspace = canonical_workspace(workspace);
     crate::build_info::log_host_identity(Some(workspace.as_path()), "prebuild");
+    let phase = mei_host_core::ProcessPhaseTimer::start();
 
     let generation = prepare_dev_build_generation_with_hint(
         workspace.as_path(),
@@ -208,13 +255,50 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
     let build_id = generation.env_version.clone();
     let config_digest = generation.config_digest.clone();
 
+    let compile_phase = mei_host_core::ProcessPhaseTimer::start();
     crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
+    let compile_sample = compile_phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = compile_sample.wall_ms,
+        rss_before = ?compile_sample.rss_before_bytes,
+        rss_after = ?compile_sample.rss_bytes,
+        cpu_user_ms = ?compile_sample.cpu_user_ms,
+        "prebuild phase=compile"
+    );
+
+    let import_phase = mei_host_core::ProcessPhaseTimer::start();
     import_with_options(workspace.as_path(), app, None)?;
+    let import_sample = import_phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = import_sample.wall_ms,
+        rss_after = ?import_sample.rss_bytes,
+        "prebuild phase=import"
+    );
 
+    let snapshot_phase = mei_host_core::ProcessPhaseTimer::start();
     let _ = mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app)?;
+    let snapshot_sample = snapshot_phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = snapshot_sample.wall_ms,
+        "prebuild phase=snapshot"
+    );
 
-    rewarm_after_import(workspace.as_path(), app, policy)?;
+    let warmup_phase = mei_host_core::ProcessPhaseTimer::start();
+    rewarm_after_import_for_scenes(workspace.as_path(), app, scenes)?;
+    let warmup_sample = warmup_phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = warmup_sample.wall_ms,
+        scenes = %scenes.join(","),
+        rss_after = ?warmup_sample.rss_bytes,
+        cpu_user_ms = ?warmup_sample.cpu_user_ms,
+        "prebuild phase=warmup"
+    );
 
+    let finalize_phase = mei_host_core::ProcessPhaseTimer::start();
     let generation = PrebuildGeneration {
         env_version: build_id.clone(),
         build_generation: build_id.clone(),
@@ -242,10 +326,24 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
         None,
         true,
     )?;
+    let finalize_sample = finalize_phase.finish();
+    let total = phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = finalize_sample.wall_ms,
+        total_wall_ms = total.wall_ms,
+        total_rss_after = ?total.rss_bytes,
+        "prebuild phase=finalize"
+    );
 
+    let policy_label = if scenes.is_empty() {
+        "home".to_string()
+    } else {
+        scenes.join(",")
+    };
     let prebuild_lines = vec![
         format!("app={app} | envVersion={build_id}"),
-        format!("warmup policy={policy}"),
+        format!("warmup policy={policy_label}"),
         "compile/import/warmup script finished for this app".to_string(),
         "host emits green ACCESS READY only after every discovered app is ready".to_string(),
     ];

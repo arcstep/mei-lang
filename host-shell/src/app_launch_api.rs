@@ -258,9 +258,9 @@ async fn prepare_current_launch(
     }
     let workspace = workspace.to_path_buf();
     let app_id = app_id.to_string();
-    let policy = launch_warmup_policy(&launch.config, app_id.as_str());
+    let scenes = launch_warmup_scenes(&launch.config, app_id.as_str());
     tokio::task::spawn_blocking(move || {
-        crate::build_ops::prebuild_pipeline(workspace.as_path(), app_id.as_str(), policy.as_str())
+        crate::build_ops::prebuild_pipeline(workspace.as_path(), app_id.as_str(), &scenes)
     })
     .await
     .map_err(|error| StartStopError::Unavailable(format!("app prebuild task failed: {error}")))?
@@ -273,20 +273,30 @@ fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {
     generation.is_empty() || generation.eq_ignore_ascii_case("current")
 }
 
-fn launch_warmup_policy(config: &AppLaunchConfig, app_id: &str) -> String {
-    config
+/// All `hotScenes` from launch warmup config (not just the first).
+fn launch_warmup_scenes(config: &AppLaunchConfig, app_id: &str) -> Vec<String> {
+    let scenes = config
         .warmup
         .as_ref()
         .and_then(|warmup| warmup.get("apps"))
         .and_then(|apps| apps.get(app_id))
         .and_then(|app| app.get("hotScenes"))
         .and_then(serde_json::Value::as_array)
-        .and_then(|scenes| scenes.first())
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|scene| !scene.is_empty())
-        .unwrap_or("home")
-        .to_string()
+        .map(|scenes| {
+            scenes
+                .iter()
+                .filter_map(|scene| scene.as_str())
+                .map(str::trim)
+                .filter(|scene| !scene.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if scenes.is_empty() {
+        vec!["home".to_string()]
+    } else {
+        scenes
+    }
 }
 
 pub async fn stop_app_runtime(
@@ -426,7 +436,7 @@ pub async fn autostart_launch_targets(
 
 #[cfg(test)]
 mod tests {
-    use super::{launch_uses_current_generation, launch_warmup_policy};
+    use super::{launch_uses_current_generation, launch_warmup_scenes};
     use mei_host_core::AppLaunchConfig;
 
     #[test]
@@ -440,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn warmup_policy_prefers_first_hot_scene() {
+    fn warmup_scenes_include_all_hot_scenes() {
         let mut config = AppLaunchConfig::default_for_app("pretty-panels");
         config.warmup = Some(serde_json::json!({
             "enabled": true,
@@ -450,8 +460,14 @@ mod tests {
                 }
             }
         }));
-        assert_eq!(launch_warmup_policy(&config, "pretty-panels"), "home/t1");
-        assert_eq!(launch_warmup_policy(&config, "other-app"), "home");
+        assert_eq!(
+            launch_warmup_scenes(&config, "pretty-panels"),
+            vec!["home/t1".to_string(), "home".to_string()]
+        );
+        assert_eq!(
+            launch_warmup_scenes(&config, "other-app"),
+            vec!["home".to_string()]
+        );
     }
 }
 

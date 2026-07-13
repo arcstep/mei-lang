@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
@@ -421,7 +422,7 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
     let app = args.app.as_str();
 
     println!("==> build prepare + compile + import + prebuild-data + warmup + finalize");
-    prebuild_pipeline(workspace.as_path(), app, args.policy.as_str())?;
+    prebuild_pipeline(workspace.as_path(), app, &[args.policy.clone()])?;
     Ok(())
 }
 
@@ -794,6 +795,14 @@ async fn run_serve_control_plane(
     };
     if !launch_targets.is_empty() {
         crate::app_launch_api::autostart_launch_targets(&state, &launch_targets).await;
+        let app_ids = launch_targets
+            .iter()
+            .map(|target| target.app_id.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let guard = state.shell.read().expect("state lock");
+        crate::startup::prime_view_layer_artifacts(&guard, app_ids.as_slice(), "home");
     }
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

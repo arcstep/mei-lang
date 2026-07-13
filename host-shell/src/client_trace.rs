@@ -67,13 +67,15 @@ mod tests {
             "detail": {
                 "kind": "map_render_error",
                 "message": "abcdef",
-                "status": 503
+                "status": 503,
+                "occurrenceCount": 4
             }
         }))
         .expect("client error payload");
         let detail = payload.detail.as_ref().expect("detail");
         assert_eq!(client_detail_text(detail, "message", 4), "abcd");
         assert_eq!(client_detail_text(detail, "status", 16), "503");
+        assert_eq!(client_detail_text(detail, "occurrenceCount", 16), "4");
     }
 }
 
@@ -359,10 +361,29 @@ fn log_client_error(ctx: &ClientCommandContext, detail: Option<&serde_json::Valu
     let component = client_detail_text(detail, "component", 160);
     let panel_id = client_detail_text(detail, "panelId", 240);
     let phase = client_detail_text(detail, "phase", 120);
+    let target = client_detail_text(detail, "target", 1000);
     let api = client_detail_text(detail, "api", 1000);
     let status = client_detail_text(detail, "status", 16);
+    let occurrence_count = client_detail_text(detail, "occurrenceCount", 16);
+    let first_occurred_at = client_detail_text(detail, "firstOccurredAt", 80);
+    let last_occurred_at = client_detail_text(detail, "lastOccurredAt", 80);
     let page_url = client_detail_text(detail, "pageUrl", 1000);
     let stack = client_detail_text(detail, "stack", 2000);
+    let benign_runtime_restart_fetch = error_kind == "unhandled_rejection"
+        && status.parse::<u16>().unwrap_or(0) == 0
+        && message.to_ascii_lowercase().contains("failed to fetch")
+        && page_url.contains("/runtime");
+    if benign_runtime_restart_fetch {
+        tracing::debug!(
+            target: "mei_client_error",
+            client_error_id = %ctx.id,
+            client_error_kind = %error_kind,
+            page_url = %page_url,
+            occurrence_count = %occurrence_count,
+            "suppressed runtime-console fetch failure during Host restart"
+        );
+        return;
+    }
     tracing::error!(
         target: "mei_client_error",
         client_error_id = %ctx.id,
@@ -372,8 +393,12 @@ fn log_client_error(ctx: &ClientCommandContext, detail: Option<&serde_json::Valu
         component = %component,
         panel_id = %panel_id,
         phase = %phase,
+        target = %target,
         api = %api,
         status = %status,
+        occurrence_count = %occurrence_count,
+        first_occurred_at = %first_occurred_at,
+        last_occurred_at = %last_occurred_at,
         page_url = %page_url,
         stack = %stack,
         message = %message,

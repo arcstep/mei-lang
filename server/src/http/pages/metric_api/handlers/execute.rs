@@ -13,7 +13,8 @@ use mei_lang_datasets::{
     load_metric_response_result_artifact, metric_response_artifact_lookup_cache_keys,
     metric_response_cache_scope_key, plan_access_metric_eval_for_ids,
     populate_l1_from_loaded_metric_artifact, project_requested_metrics,
-    run_metric_response_artifact_load_singleflight, runtime_metric_workset,
+    run_metric_response_artifact_load_singleflight, run_whole_eval_singleflight,
+    runtime_metric_workset, snapshot_metric_eval_singleflight_stats,
     store_cached_metric_response_aliases, store_metric_response_result_artifact,
     take_cached_metric_response, RuntimeMetricEvalMode,
 };
@@ -321,36 +322,53 @@ pub(super) fn execute_metric_query_group(
         // Structural artifacts are ready; fall through to thin eval below.
     }
 
-    let eval_outcome = evaluate_runtime_metrics_from_plan(
-        ctx.compiled,
-        ctx.app_root,
-        &access_plan,
-        ctx.scene_id,
-        ctx.scene_path,
-        ctx.effective_query_state,
-        ctx.filter_intents,
-        RuntimeMetricEvalMode::WithDag,
-        request_all_metrics,
-    )
-    .map_err(|error| {
-        let error_text = error.to_string();
-        let diagnostic_code = metric_eval_diagnostic_code(&error_text);
-        tracing::warn!(
-            app_id = %ctx.app_id,
-            scene_id = %ctx.scene_id,
-            target = %ctx.scene_path.unwrap_or("-"),
-            dataset_id = %resource.id,
-            metric_ids = %requested_metric_ids,
-            diagnostic_code,
-            phase = "metric_eval",
-            error = %error,
-            "metric query evaluate runtime metric defs failed"
-        );
-        AppError::from(error)
-    })?;
+    let sf_outcome =
+        run_whole_eval_singleflight(format!("whole-eval|{response_cache_key}"), || {
+            evaluate_runtime_metrics_from_plan(
+                ctx.compiled,
+                ctx.app_root,
+                &access_plan,
+                ctx.scene_id,
+                ctx.scene_path,
+                ctx.effective_query_state,
+                ctx.filter_intents,
+                RuntimeMetricEvalMode::WithDag,
+                request_all_metrics,
+            )
+            .map_err(|error| error.to_string())
+        })
+        .map_err(|error| {
+            let diagnostic_code = metric_eval_diagnostic_code(&error);
+            tracing::warn!(
+                app_id = %ctx.app_id,
+                scene_id = %ctx.scene_id,
+                target = %ctx.scene_path.unwrap_or("-"),
+                dataset_id = %resource.id,
+                metric_ids = %requested_metric_ids,
+                diagnostic_code,
+                phase = "metric_eval",
+                error = %error,
+                "metric query evaluate runtime metric defs failed"
+            );
+            AppError::msg(error)
+        })?;
+    let is_leader = matches!(sf_outcome.role, mei_lang_datasets::SingleflightRole::Leader);
+    let eval_outcome = sf_outcome.value;
     let metrics = eval_outcome.metrics;
     let metrics_map = eval_outcome.metrics_map;
     let mut perf = eval_outcome.query_perf;
+    perf.insert("eval_singleflight_leader".to_string(), u64::from(is_leader));
+    perf.insert(
+        "eval_singleflight_waiter".to_string(),
+        u64::from(!is_leader),
+    );
+    let sf = snapshot_metric_eval_singleflight_stats();
+    perf.insert("eval_singleflight_leader_total".to_string(), sf.leader);
+    perf.insert("eval_singleflight_waiter_total".to_string(), sf.waiter);
+    perf.insert(
+        "eval_singleflight_penetration_total".to_string(),
+        sf.penetration,
+    );
     ctx.compile_observation.write_perf(&mut perf);
     perf.insert(
         "access_artifact_only_mode".to_string(),
@@ -423,7 +441,7 @@ pub(super) fn execute_metric_query_group(
         &requested_eval_metric_ids,
         request_all_metrics,
     );
-    if result_artifact_candidate {
+    if result_artifact_candidate && is_leader {
         store_metric_response_result_artifact(
             ctx.app_root,
             &response_cache_key,
@@ -432,6 +450,7 @@ pub(super) fn execute_metric_query_group(
             &requested_eval_metric_ids,
             request_all_metrics,
         )?;
+        perf.insert("eval_persist".to_string(), 1);
         let bundle_revisions =
             crate::graph::dedup::load_mcg_bundle_revisions(ctx.source_root, ctx.app_id);
         if let Some(bundle_rev) = bundle_revisions.get(&access_plan.owner.id) {

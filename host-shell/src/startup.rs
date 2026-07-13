@@ -199,7 +199,7 @@ fn all_apps_access_ready(shell: &ShellState, app_ids: &[String], scene_id: &str)
     })
 }
 
-fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: &str) {
+pub(crate) fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: &str) {
     let workspace_root = shell.ctx.workspace_root.as_path();
     let topbar_menu = mei_lang_app::load_topbar_menu_context(workspace_root);
     let discovered = crate::landing::discover_workspace_apps(workspace_root).unwrap_or_default();
@@ -237,6 +237,26 @@ fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: 
                 scene_id = %scene_id,
                 error = %err,
                 "view layer manifest index with chrome failed"
+            );
+        }
+        let assemble_started = std::time::Instant::now();
+        if let Err(err) =
+            mei_host_graph::assemble_scope_from_registry(workspace_root, app_id.as_str(), scene_id)
+        {
+            tracing::warn!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %scene_id,
+                error = %err,
+                "view layer assembly warmup failed"
+            );
+        } else {
+            tracing::info!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %scene_id,
+                elapsed_ms = assemble_started.elapsed().as_millis() as u64,
+                "view layer assembly warmup completed"
             );
         }
     }

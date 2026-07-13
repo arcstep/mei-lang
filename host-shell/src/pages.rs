@@ -440,7 +440,7 @@ pub async fn app_page(
             app_id.as_str(),
             scene_id.as_str(),
             &shell_compose,
-            Some(&chrome_host),
+            (!chrome_hidden).then_some(&chrome_host),
             shell_assemble_outcome.as_ref(),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
@@ -1881,29 +1881,28 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
         .as_deref()
         .and_then(mei_lang_kernel::DataMode::parse)
         .unwrap_or(mei_lang_kernel::DataMode::Eval);
-    let manifest = crate::scene_manifest::build_scene_view_manifest(
-        workspace_root,
-        app_id,
-        scene_id,
-        route_mode,
-        data_mode,
-        compose,
-        draft_session,
-        draft_digest,
-        &mut hits,
-        chrome_host,
-    )
-    .ok();
-    let envelope = manifest
-        .as_ref()
-        .map(|value| {
+    let envelope = if draft_session.trim().is_empty() && draft_digest.trim().is_empty() {
+        crate::scene_manifest::ensure_manifest_index(
+            workspace_root,
+            app_id,
+            scene_id,
+            data_mode,
+            &mut hits,
+            chrome_host,
+        )
+        .ok()
+        .map(|index| {
+            let surface = index
+                .surfaces
+                .iter()
+                .find(|surface| surface.route_mode == route_mode.slug());
             json!({
                 "schema_version": "mei.view-revision-envelope.v1",
-                "app_id": value.app_id.as_str(),
-                "scene_id": value.scene_id.as_str(),
-                "manifest_revision_digest": value.revision_digest.as_str(),
-                "surface_revision_digest": value.surface_revision_digest.as_deref(),
-                "compose_defaults": value.compose_defaults.as_ref(),
+                "app_id": index.app_id.as_str(),
+                "scene_id": index.scene_id.as_str(),
+                "manifest_revision_digest": index.manifest_revision_digest.as_str(),
+                "surface_revision_digest": surface.map(|value| value.surface_revision_digest.as_str()),
+                "compose_defaults": surface.map(|value| &value.compose_defaults).unwrap_or(compose),
                 "scene_bundle_url": format!(
                     "/api/host/scene-manifest?app_id={}&scene={}&surface={}",
                     app_id,
@@ -1912,13 +1911,44 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
                 ),
             })
         })
-        .unwrap_or_else(|| {
+    } else {
+        crate::scene_manifest::build_scene_view_manifest(
+            workspace_root,
+            app_id,
+            scene_id,
+            route_mode,
+            data_mode,
+            compose,
+            draft_session,
+            draft_digest,
+            &mut hits,
+            chrome_host,
+        )
+        .ok()
+        .map(|value| {
+            json!({
+                "schema_version": "mei.view-revision-envelope.v1",
+                "app_id": value.app_id,
+                "scene_id": value.scene_id,
+                "manifest_revision_digest": value.revision_digest,
+                "surface_revision_digest": value.surface_revision_digest,
+                "compose_defaults": value.compose_defaults,
+                "scene_bundle_url": format!(
+                    "/api/host/scene-manifest?app_id={}&scene={}&surface={}",
+                    app_id,
+                    scene_id,
+                    route_mode.slug()
+                ),
+            })
+        })
+    }
+    .unwrap_or_else(|| {
             json!({
                 "schema_version": "mei.view-revision-envelope.v1",
                 "app_id": app_id,
                 "scene_id": scene_id,
             })
-        });
+    });
     let envelope_json = serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string());
     let hits_json = serde_json::to_string(&hits).unwrap_or_else(|_| "{}".to_string());
     let dev_eval_json =

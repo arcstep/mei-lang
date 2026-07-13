@@ -131,7 +131,7 @@ pub async fn api_host_ops_prebuild(
             prebuild_pipeline(
                 workspace.as_path(),
                 app_id.as_str(),
-                policy_for_task.as_str(),
+                &[policy_for_task.clone()],
             )
         })
         .await
