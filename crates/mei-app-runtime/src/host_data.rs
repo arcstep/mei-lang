@@ -20,6 +20,14 @@ use std::path::Path;
 
 use crate::state::SharedRuntimeState;
 
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct SceneQuery {
     pub app: Option<String>,
@@ -622,11 +630,19 @@ pub fn inject_view_revision_envelope_with_dev_eval(
     scene_id: &str,
     surface: &str,
     dev_eval: Option<&serde_json::Value>,
+    client_revision: Option<&str>,
 ) -> String {
+    let client_revision = client_revision
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let envelope = json!({
         "schema_version": "mei.view-revision-envelope.v1",
         "app_id": app_id,
         "scene_id": scene_id,
+        "client_revision": client_revision,
+        "semantic_core": {
+            "client_revision": client_revision,
+        },
         "scene_bundle_url": format!(
             "/api/host/scene-manifest?app_id={}&scene={}&surface={}",
             app_id, scene_id, surface
@@ -640,9 +656,23 @@ pub fn inject_view_revision_envelope_with_dev_eval(
         }
         None => String::new(),
     };
+    let client_revision_assign = client_revision
+        .and_then(|revision| serde_json::to_string(revision).ok())
+        .map(|revision| format!("window.__mei.client_revision={revision};"))
+        .unwrap_or_default();
+    let client_revision_meta = client_revision
+        .map(|revision| {
+            format!(
+                r#"<meta name="mei-bootstrap-client-revision" content="{}"/>"#,
+                html_escape_attr(revision)
+            )
+        })
+        .unwrap_or_default();
     let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};{dev_eval_assign}window.__mei.thin_shell=true;window.__mei.view_revision_enabled=true;</script>"#,
+        r#"{client_revision_meta}<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};{client_revision_assign}{dev_eval_assign}window.__mei.thin_shell=true;window.__mei.view_revision_enabled=true;</script>"#,
+        client_revision_meta = client_revision_meta,
         envelope_json = envelope_json,
+        client_revision_assign = client_revision_assign,
         dev_eval_assign = dev_eval_assign,
     );
     if let Some(pos) = html.find("</head>") {

@@ -1,5 +1,8 @@
 //! Access thin-shell HTML (minimal; full SSR chrome remains host-injectable).
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
@@ -10,7 +13,12 @@ use mei_lang_kernel::resolve_default_scene_from_root;
 use serde::Deserialize;
 
 use crate::host_data::{fill_runtime_asset_version, inject_view_revision_envelope_with_dev_eval};
-use crate::state::SharedRuntimeState;
+use crate::state::{AppRuntimeServeState, SharedRuntimeState};
+
+fn access_html_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn html_escape_attr(value: &str) -> String {
     value
@@ -109,11 +117,23 @@ fn inject_runtime_capabilities(html: String, app_id: &str) -> String {
 }
 
 fn finalize_access_html(
-    state: &SharedRuntimeState,
+    state: &AppRuntimeServeState,
     app_id: &str,
     scene_id: &str,
     surface: &str,
 ) -> String {
+    let cache_key = format!(
+        "{}|{}|{}|{}",
+        state.host.workspace_root.display(),
+        app_id,
+        scene_id,
+        surface
+    );
+    if let Ok(cache) = access_html_cache().lock() {
+        if let Some(html) = cache.get(cache_key.as_str()) {
+            return html.clone();
+        }
+    }
     let html = thin_access_shell_document(app_id, scene_id);
     let html = fill_runtime_page_theme(html, state.host.workspace_root.as_path());
     let dev_eval = mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(
@@ -121,12 +141,22 @@ fn finalize_access_html(
         app_id,
     )
     .client_payload();
+    let bootstrap_status = mei_host_graph::bootstrap_embed_status(
+        state.host.workspace_root.as_path(),
+        app_id,
+        scene_id,
+    );
+    let client_revision = bootstrap_status
+        .allowed
+        .then_some(bootstrap_status.client_revision)
+        .flatten();
     let html = inject_view_revision_envelope_with_dev_eval(
         html,
         app_id,
         scene_id,
         surface,
         Some(&dev_eval),
+        client_revision.as_deref(),
     );
     let html = inject_runtime_capabilities(html, app_id);
     let html = inject_runtime_component_scripts(
@@ -135,7 +165,11 @@ fn finalize_access_html(
         app_id,
         scene_id,
     );
-    fill_runtime_asset_version(html)
+    let html = fill_runtime_asset_version(html);
+    if let Ok(mut cache) = access_html_cache().lock() {
+        cache.insert(cache_key, html.clone());
+    }
+    html
 }
 
 /// Floating FAB so Access clients can attach Copilot chrome (mirrors host-shell thin shell).
@@ -162,13 +196,18 @@ pub fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
     )
 }
 
-fn resolve_default_scene(state: &SharedRuntimeState) -> String {
+fn resolve_default_scene(state: &AppRuntimeServeState) -> String {
     let app_root = state.host.app_root();
     resolve_default_scene_from_root(app_root.as_path())
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "home".to_string())
+}
+
+pub(crate) fn prime_access_html(state: &AppRuntimeServeState) {
+    let scene_id = resolve_default_scene(state);
+    let _ = finalize_access_html(state, state.app_id(), scene_id.as_str(), "app");
 }
 
 fn html_response(html: String) -> Response {
@@ -255,10 +294,17 @@ mod tests {
         assert!(html.contains("__MEI_PAGE_BODY_THEME_STYLE__"));
         let injected = fill_runtime_asset_version(
             crate::host_data::inject_view_revision_envelope_with_dev_eval(
-                html, "demo", "home", "app", None,
+                html,
+                "demo",
+                "home",
+                "app",
+                None,
+                Some("client-rev-1"),
             ),
         );
         assert!(injected.contains("view_revision_envelope"));
+        assert!(injected.contains("mei-bootstrap-client-revision"));
+        assert!(injected.contains("client-rev-1"));
         assert!(injected.contains("thin_shell"));
         assert!(!injected.contains("__MEI_HOST_ASSET_VERSION__"));
         assert!(injected.contains("/app-bundles/access.js?v="));

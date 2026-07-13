@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use mei_host_core::{CacheLayersReady, EvalSlotDescriptor};
@@ -35,6 +36,7 @@ pub fn record_slots_from_descriptors(
         let record = build_slot_record(descriptor);
         registry.upsert_slot(record);
     }
+    prune_redundant_jit_slots(&mut registry);
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
 }
@@ -46,6 +48,7 @@ fn record_mrg_slot_from_descriptor(
 ) -> anyhow::Result<()> {
     let mut registry = MrgRegistryWriter::load(source_root, app_id);
     registry.upsert_slot(build_slot_record(descriptor));
+    prune_redundant_jit_slots(&mut registry);
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
 }
@@ -117,6 +120,47 @@ fn build_slot_record(descriptor: &EvalSlotDescriptor) -> MrgSlotRecord {
             Some(descriptor.workset_id.clone())
         },
     }
+}
+
+fn prune_redundant_jit_slots(registry: &mut crate::mrg::registry::MrgRegistry) {
+    let canonical_slots = registry
+        .slots
+        .iter()
+        .filter(|slot| {
+            slot.state == MaterialState::Ready
+                && !slot
+                    .workset_id
+                    .as_deref()
+                    .is_some_and(|workset| workset.starts_with("jit:"))
+        })
+        .filter_map(|slot| {
+            let metric_id = slot.slot_id.node.key.rsplit("::").next()?.to_string();
+            Some((
+                slot.slot_id.scope_key.clone(),
+                slot.owner_resource_id.clone(),
+                metric_id,
+                slot.slot_revision.clone(),
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    registry.slots.retain(|slot| {
+        if !slot
+            .workset_id
+            .as_deref()
+            .is_some_and(|workset| workset.starts_with("jit:"))
+        {
+            return true;
+        }
+        let Some(metric_id) = slot.slot_id.node.key.rsplit("::").next() else {
+            return true;
+        };
+        !canonical_slots.contains(&(
+            slot.slot_id.scope_key.clone(),
+            slot.owner_resource_id.clone(),
+            metric_id.to_string(),
+            slot.slot_revision.clone(),
+        ))
+    });
 }
 
 pub fn record_slot_failed(
@@ -230,5 +274,70 @@ pub fn default_metric_response_descriptor(
         resident_tier: String::new(),
         client_eligible: false,
         payload_bytes: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mrg::registry::MrgRegistry;
+
+    fn descriptor(workset: &str, slot_key: &str, content_hash: &str) -> EvalSlotDescriptor {
+        let mut descriptor = default_metric_response_descriptor(
+            slot_key,
+            "home",
+            "__world_metrics__::metrics/demo.bundle.mei",
+            "demo.bundle.mei",
+            "data-rev-1",
+            content_hash,
+            1,
+            true,
+        );
+        descriptor.workset_id = workset.to_string();
+        descriptor
+    }
+
+    #[test]
+    fn canonical_warmup_slot_prunes_equivalent_jit_slot() {
+        let mut registry = MrgRegistry::empty("demo");
+        registry.upsert_slot(build_slot_record(&descriptor(
+            "jit:home:demo",
+            "jit:home:demo::count",
+            "target-specific-key",
+        )));
+        registry.upsert_slot(build_slot_record(&descriptor(
+            "workset:home:0",
+            "workset:home:0::count",
+            "canonical-key",
+        )));
+
+        prune_redundant_jit_slots(&mut registry);
+
+        assert_eq!(registry.slots.len(), 1);
+        assert_eq!(
+            registry.slots[0].workset_id.as_deref(),
+            Some("workset:home:0")
+        );
+    }
+
+    #[test]
+    fn jit_slot_with_distinct_revision_is_retained() {
+        let mut registry = MrgRegistry::empty("demo");
+        registry.upsert_slot(build_slot_record(&descriptor(
+            "workset:home:0",
+            "workset:home:0::count",
+            "canonical-key",
+        )));
+        let mut jit = descriptor(
+            "jit:home:demo",
+            "jit:home:demo::count",
+            "target-specific-key",
+        );
+        jit.data_source_revision = "data-rev-2".to_string();
+        registry.upsert_slot(build_slot_record(&jit));
+
+        prune_redundant_jit_slots(&mut registry);
+
+        assert_eq!(registry.slots.len(), 2);
     }
 }
