@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use mei_bundle::{
-    bundle_stats, compute_workspace_digest, default_bundle_path, exchange_from_outcome,
-    read_bundle, write_bundle_from_outcome,
+    bundle_output_path, bundle_stats, compute_workspace_digest, exchange_from_outcome, read_bundle,
+    write_bundle_from_outcome,
 };
 use mei_lower::compile_app;
 use mei_lower::lower_path;
@@ -135,7 +135,7 @@ fn compile_app_cmd(
             let digest = compute_workspace_digest(workspace, app, templates_rel.as_str());
             let out_path = out
                 .map(Path::to_path_buf)
-                .unwrap_or_else(|| default_bundle_path(workspace, app));
+                .unwrap_or_else(|| bundle_output_path(workspace, app));
             let stats = write_bundle_from_outcome(
                 &outcome,
                 digest.as_str(),

@@ -69,13 +69,10 @@ fn pretty_panels_enforcement_and_issue_export_body_structure() {
             .collect::<Vec<_>>()
     );
     assert!(
-        structure
-            .nodes
-            .iter()
-            .any(|node| {
-                node.preview_scope.contains("enforcement_strip_layout")
-                    && node.preview_scope.ends_with("/top")
-            }),
+        structure.nodes.iter().any(|node| {
+            node.preview_scope.contains("enforcement_strip_layout")
+                && node.preview_scope.ends_with("/top")
+        }),
         "enforcement compound top metric should appear in structure, got scopes: {:?}",
         structure
             .nodes

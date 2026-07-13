@@ -4,8 +4,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
     load_component_assets, load_mei_config_for_app, normalize_panel_slots, resolve_app_root,
-    CompiledApp, CompiledSceneRoute, ComponentAsset, LoadedResource, SceneContract, SceneDecl,
-    UiNodeDecl, UiTreeNode,
+    CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, SceneContract,
+    SceneDecl, UiNodeDecl, UiTreeNode,
 };
 use serde_json::{json, Value};
 
@@ -234,7 +234,8 @@ fn assemble_scope_from_registry_uncached(
     let resources = expand_runtime_metric_resources(
         crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?,
     );
-    let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
+    let (projection_map, projection_diagnostics) =
+        load_projection_map(app_root.as_path(), &registry, &resources);
     let scene_examples_by_id = load_scene_examples_by_id(app_root.as_path(), &registry);
     let mut scene_local_nav_by_target =
         load_scene_local_nav_by_target(app_root.as_path(), &registry);
@@ -334,6 +335,7 @@ fn assemble_scope_from_registry_uncached(
             Vec::new(),
         )
     };
+    panel_diagnostics.extend(projection_diagnostics);
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
     let flat_panels = flatten_panel_tree(&panels);
     let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
@@ -839,8 +841,9 @@ fn load_projection_map(
     app_root: &Path,
     registry: &crate::mcg::registry::McgRegistry,
     resources: &[mei_lang_kernel::LoadedResource],
-) -> BTreeMap<String, Value> {
+) -> (BTreeMap<String, Value>, Vec<Diagnostic>) {
     let mut map = BTreeMap::new();
+    let mut diagnostics = Vec::new();
     for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
@@ -858,10 +861,12 @@ fn load_projection_map(
                 if !scene_id.is_empty() {
                     let mut normalized = normalize_page_instance_payload(payload);
                     if let Some(assembly) = normalized.as_object_mut() {
-                        let _ = mei_lang_kernel::enrich_runtime_page_instance_projection_slots(
-                            assembly,
-                            resources,
-                            scene_id.as_str(),
+                        diagnostics.extend(
+                            mei_lang_kernel::enrich_runtime_page_instance_projection_slots(
+                                assembly,
+                                resources,
+                                scene_id.as_str(),
+                            ),
                         );
                     }
                     map.insert(scene_id, normalized);
@@ -869,7 +874,7 @@ fn load_projection_map(
             }
         }
     }
-    map
+    (map, diagnostics)
 }
 
 fn load_scene_examples_by_id(

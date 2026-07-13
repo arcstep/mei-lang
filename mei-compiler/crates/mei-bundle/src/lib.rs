@@ -104,9 +104,7 @@ pub fn build_manifest(
 pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf {
     let app_root = resolve_v2_app_root(workspace, app_id);
     let bundle_name = format!("{app_id}.meibundle");
-    let primary = resolve_v2_app_build_root(app_root.as_path())
-        .join("exchange")
-        .join(&bundle_name);
+    let primary = bundle_output_path(workspace, app_id);
     if primary.is_file() {
         return primary;
     }
@@ -118,6 +116,16 @@ pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf
         return fallback;
     }
     primary
+}
+
+/// Compiler output must always target `env/current`, even before that
+/// generation has its first bundle. Read paths may fall back to an older
+/// bundle, but write paths must never cross generation boundaries.
+pub fn bundle_output_path(workspace: &Path, app_id: &str) -> std::path::PathBuf {
+    let app_root = resolve_v2_app_root(workspace, app_id);
+    resolve_v2_app_build_root(app_root.as_path())
+        .join("exchange")
+        .join(format!("{app_id}.meibundle"))
 }
 
 fn find_latest_env_bundle(app_root: &Path, bundle_name: &str) -> Option<PathBuf> {
@@ -219,5 +227,32 @@ mod tests {
 
         let path = default_bundle_path(workspace, "demo");
         assert_eq!(path, older.join("build/exchange/demo.meibundle"));
+    }
+
+    #[test]
+    fn bundle_output_path_targets_empty_current_generation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        let app_root = workspace.join("apps/demo");
+        let older = app_root.join("env/WS-20260228.0");
+        let current = app_root.join("env/WS-20260301.0");
+        fs::create_dir_all(older.join("build/exchange")).expect("older exchange");
+        fs::create_dir_all(current.join("build")).expect("current build");
+        fs::write(older.join("build/exchange/demo.meibundle"), b"bundle").expect("older bundle");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260301.0", app_root.join("env/current"))
+            .expect("symlink current");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("WS-20260301.0", app_root.join("env/current"))
+            .expect("symlink current");
+
+        assert_eq!(
+            bundle_output_path(workspace, "demo"),
+            current.join("build/exchange/demo.meibundle")
+        );
+        assert_eq!(
+            default_bundle_path(workspace, "demo"),
+            older.join("build/exchange/demo.meibundle")
+        );
     }
 }
