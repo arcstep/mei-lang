@@ -12,7 +12,7 @@ use mei_lang_kernel::{
     app_env_dir, attach_build_generation, clean_env_generations, discover_apps,
     load_workspace_config, read_build_manifest, read_links_state,
     resolve_app_build_generation_from_current, resolve_app_root, write_links_state, BuildManifest,
-    LinksState, RuntimeMode, RuntimePlan,
+    LinksState, RuntimePlan,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1010,21 +1010,7 @@ fn refresh_cache_and_warm(
 }
 
 fn app_requires_warm(plan: &RuntimePlan, app_id: &str) -> bool {
-    if plan.default_mode == RuntimeMode::Hot {
-        return true;
-    }
-    plan.apps
-        .get(app_id)
-        .or_else(|| plan.apps.get("*"))
-        .is_some_and(|app| {
-            app.targets
-                .iter()
-                .any(|target| target.mode == RuntimeMode::Hot)
-                || app
-                    .metric_overrides
-                    .values()
-                    .any(|mode| *mode == RuntimeMode::Hot)
-        })
+    mei_lang_kernel::runtime_plan_requires_warm(plan, app_id)
 }
 
 fn common_generation(generations: &BTreeMap<String, Option<String>>) -> Option<String> {

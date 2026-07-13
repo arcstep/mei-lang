@@ -84,7 +84,7 @@ pub async fn app_stage_page(
     if stage.is_empty() {
         return (StatusCode::NOT_FOUND, "stage required").into_response();
     }
-    if let Some(response) = crate::app_runtime_proxy::maybe_proxy_access_get(
+    match crate::app_runtime_proxy::access_get_gateway(
         &http,
         app_id.as_str(),
         uri.path_and_query()
@@ -92,10 +92,23 @@ pub async fn app_stage_page(
             .unwrap_or(uri.path()),
         &headers,
         principal.as_ref().map(|ext| ext.0.clone()),
+        "access",
     )
     .await
     {
-        return response;
+        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => return response,
+        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_) => {
+            tracing::info!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %stage,
+                "app-runtime not reachable yet — redirecting access request to starting page"
+            );
+            let location =
+                crate::startup::build_starting_location(&uri, app_id.as_str(), stage, "app");
+            return Redirect::temporary(location.as_str()).into_response();
+        }
+        crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {}
     }
     query.scene = Some(stage.to_string());
     query.surface = Some(UiRouteMode::App.slug().to_string());
@@ -121,7 +134,7 @@ pub async fn app_root_page(
     Path(app_id): Path<String>,
     Query(mut query): Query<AppQuery>,
 ) -> Response {
-    if let Some(response) = crate::app_runtime_proxy::maybe_proxy_access_get(
+    match crate::app_runtime_proxy::access_get_gateway(
         &http,
         app_id.as_str(),
         uri.path_and_query()
@@ -129,10 +142,23 @@ pub async fn app_root_page(
             .unwrap_or(uri.path()),
         &headers,
         principal.as_ref().map(|ext| ext.0.clone()),
+        "access",
     )
     .await
     {
-        return response;
+        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => return response,
+        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_) => {
+            tracing::info!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = "home",
+                "app-runtime not reachable yet — redirecting access request to starting page"
+            );
+            let location =
+                crate::startup::build_starting_location(&uri, app_id.as_str(), "home", "app");
+            return Redirect::temporary(location.as_str()).into_response();
+        }
+        crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {}
     }
     query.surface = Some(UiRouteMode::App.slug().to_string());
     // 不强制 scene：走 __default_access__ 解析，仍 200
@@ -712,24 +738,29 @@ pub async fn api_presentation_map(
 pub struct HostStartingQuery {
     #[serde(default, rename = "return")]
     pub return_path: String,
+    #[serde(alias = "app_id")]
     pub app: Option<String>,
+    #[serde(alias = "scene_id")]
     pub scene: Option<String>,
     pub mode: Option<String>,
 }
 
 pub async fn host_starting_page(
-    State(state): State<SharedState>,
+    State(http): State<crate::state::HostHttpState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
     Query(query): Query<HostStartingQuery>,
 ) -> Response {
-    let (workspace, default_app, phase, detail, error) = {
+    let state = &http.shell;
+    let (workspace, default_app, error, running_apps) = {
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
+        let running = crate::shell_chrome::apps_for_topbar(&guard);
         (
             guard.ctx.workspace_root.clone(),
             guard.ctx.app_id.clone(),
-            guard.startup_phase.clone(),
-            guard.startup_detail.clone(),
             guard.startup_error.clone(),
+            running,
         )
     };
     if let Some(message) = error {
@@ -760,6 +791,9 @@ pub async fn host_starting_page(
             crate::startup::parse_warm_poll_from_path(return_path.as_str(), default_app.as_str());
         (app, scene, mode)
     };
+    if poll_app.trim().is_empty() {
+        return Redirect::temporary("/runtime").into_response();
+    }
     let route_mode = if poll_mode.as_str() == "view" {
         let surface = return_path
             .split('?')
@@ -775,7 +809,7 @@ pub async fn host_starting_page(
     } else {
         UiRouteMode::from_slug(poll_mode.as_str())
     };
-    let already_ready = {
+    let (already_ready, gate_status) = {
         let data_plane_enabled = state.read().expect("state lock").data_plane_enabled;
         if data_plane_enabled {
             if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
@@ -808,7 +842,33 @@ pub async fn host_starting_page(
             ),
             Ok(Some(_))
         );
-        readiness.ready && assemble_ready
+        let supervisor = http.app_runtime.lock().ok();
+        let runtime_ready = supervisor.as_ref().is_some_and(|slot| {
+            crate::state::runtime_identity_for_app(&guard, slot, poll_app.as_str(), None).is_some()
+        });
+        let runtime_gate_ready = !matches!(
+            crate::legacy_compat::decide_data_plane_gate(runtime_ready),
+            crate::legacy_compat::DataPlaneGate::RuntimeRequired
+        );
+        let gate_reason = if !readiness.ready {
+            readiness.reason
+        } else if !assemble_ready {
+            "assembling"
+        } else if !runtime_gate_ready {
+            "runtime_starting"
+        } else {
+            readiness.reason
+        };
+        let title = crate::access_gate_status::resolve_access_gate_title(
+            &guard,
+            supervisor.as_ref().and_then(|slot| slot.as_ref()),
+            poll_app.as_str(),
+            gate_reason,
+        );
+        (
+            readiness.ready && assemble_ready && runtime_gate_ready,
+            title,
+        )
     };
     if already_ready {
         tracing::info!(
@@ -819,14 +879,36 @@ pub async fn host_starting_page(
         );
         return Redirect::temporary(return_path.as_str()).into_response();
     }
-    mei_host_auth::host_starting_html_response(
-        workspace.as_path(),
-        detail.as_deref().unwrap_or(phase.as_str()),
+    let topbar_menu = load_topbar_menu_context(workspace.as_path());
+    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
+    let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let body_html = mei_host_auth::render_startup_warming_main_html(gate_status);
+    let poll_script = mei_host_auth::startup_warming_poll_script(
         return_path.as_str(),
         poll_app.as_str(),
         poll_scene.as_str(),
         poll_mode.as_str(),
-    )
+    );
+    let html = crate::workspace_page::render_workspace_shell_page(
+        workspace.as_path(),
+        running_apps.as_slice(),
+        &topbar_menu,
+        mei_lang_app::WorkspaceShellNav::Home,
+        gate_status,
+        body_html.as_str(),
+        auth_enabled,
+        account_view.as_ref(),
+    );
+    let html = if let Some(idx) = html.rfind("</body>") {
+        let mut out = String::with_capacity(html.len() + poll_script.len());
+        out.push_str(&html[..idx]);
+        out.push_str(poll_script.as_str());
+        out.push_str(&html[idx..]);
+        out
+    } else {
+        format!("{html}{poll_script}")
+    };
+    Html(html).into_response()
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -869,6 +951,7 @@ pub async fn api_host_access_readiness(
         return Json(json!({
             "ready": true,
             "reason": "runtime_ready",
+            "title": "应用已就绪",
             "bootstrapReason": null,
             "startupPhase": "ready",
             "startupDetail": "App Runtime 已就绪",
@@ -879,7 +962,7 @@ pub async fn api_host_access_readiness(
         .into_response();
     }
     let state = &http.shell;
-    let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
+    let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason, title) = {
         let workspace_root = {
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
@@ -918,7 +1001,7 @@ pub async fn api_host_access_readiness(
                 ),
                 Ok(Some(_))
             );
-        let bootstrap_reason = if readiness.ready && route_mode.is_access_like() {
+        let bootstrap_reason = if route_mode.is_access_like() {
             Some(
                 mei_host_graph::bootstrap_embed_status(
                     guard.ctx.workspace_root.as_path(),
@@ -930,14 +1013,27 @@ pub async fn api_host_access_readiness(
         } else {
             None
         };
-        let gate_ready = readiness.ready && assemble_ready;
+        let runtime_gate_ready = !matches!(
+            crate::legacy_compat::decide_data_plane_gate(false),
+            crate::legacy_compat::DataPlaneGate::RuntimeRequired
+        );
+        let gate_ready = readiness.ready && assemble_ready && runtime_gate_ready;
         let gate_reason = if !readiness.ready {
             readiness.reason
         } else if !assemble_ready {
             "assembling"
+        } else if !runtime_gate_ready {
+            "runtime_starting"
         } else {
             readiness.reason
         };
+        let supervisor = http.app_runtime.lock().ok();
+        let title = crate::access_gate_status::resolve_access_gate_title(
+            &guard,
+            supervisor.as_ref().and_then(|slot| slot.as_ref()),
+            app_id,
+            gate_reason,
+        );
         (
             gate_ready,
             gate_reason,
@@ -945,6 +1041,7 @@ pub async fn api_host_access_readiness(
             guard.startup_detail.clone(),
             guard.startup_error.clone(),
             bootstrap_reason,
+            title,
         )
     };
     if ready {
@@ -961,6 +1058,7 @@ pub async fn api_host_access_readiness(
     Json(json!({
         "ready": ready,
         "reason": reason,
+        "title": title,
         "bootstrapReason": bootstrap_reason,
         "startupPhase": startup_phase,
         "startupDetail": startup_detail,

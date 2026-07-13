@@ -8,7 +8,8 @@ use axum::{
 };
 use mei_host_core::{
     ensure_default_launch_config, list_launch_configs, read_launch_config, write_launch_config,
-    AppLaunchConfig, DesiredInstance, DesiredState, LaunchManifest, RouteBinding,
+    AppLaunchConfig, AppLaunchDocument, DesiredInstance, DesiredState, LaunchManifest,
+    RouteBinding,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -125,9 +126,6 @@ pub async fn start_app_with_launch(
         let guard = http.shell.read().expect("state lock");
         guard.ctx.workspace_root.clone()
     };
-    // Stop existing running process for this app first (single-process rule).
-    let _ = stop_app_runtime(http, app_id).await;
-
     let config_ref = config.unwrap_or("default");
     let launch = match read_launch_config(workspace.as_path(), app_id, config_ref) {
         Ok(doc) => doc,
@@ -137,6 +135,11 @@ pub async fn start_app_with_launch(
         }
         Err(error) => return Err(StartStopError::BadRequest(error.to_string())),
     };
+    prepare_current_launch(http, workspace.as_path(), app_id, &launch).await?;
+
+    // Keep the active instance serving until prebuild succeeds, then enforce
+    // the single-process rule immediately before spawning its replacement.
+    let _ = stop_app_runtime(http, app_id).await;
     {
         let guard = http.shell.read().expect("state lock");
         let _ = guard.events.send(HostEvent::new(
@@ -177,6 +180,13 @@ pub async fn start_app_with_launch(
     let observed = result.map_err(|e| StartStopError::Unavailable(e.to_string()))?;
 
     let _ = mei_host_core::write_instance_spec(workspace.as_path(), &spec_for_state);
+    sync_host_control_runtime_plan(
+        workspace.as_path(),
+        &spec_for_state.config_snapshot.runtime_plan,
+    );
+    crate::dev_eval_scope::install_runtime_plan(
+        spec_for_state.config_snapshot.runtime_plan.clone(),
+    );
 
     {
         let mut guard = http.shell.write().expect("state lock");
@@ -206,11 +216,12 @@ pub async fn start_app_with_launch(
         guard.data_plane_enabled = true;
         let _ = guard.events.send(HostEvent::new(
             "app-started",
-            crate::shell_chrome::running_event_payload(
+            crate::shell_chrome::running_event_payload_with_plan(
                 workspace.as_path(),
                 app_id,
                 launch.id.as_str(),
                 spec_for_state.instance_id.as_str(),
+                Some(&spec_for_state.config_snapshot.runtime_plan),
             ),
         ));
     }
@@ -222,6 +233,60 @@ pub async fn start_app_with_launch(
         "launch": launch,
         "instance": observed,
     }))
+}
+
+async fn prepare_current_launch(
+    http: &HostHttpState,
+    workspace: &std::path::Path,
+    app_id: &str,
+    launch: &AppLaunchDocument,
+) -> Result<(), StartStopError> {
+    if !launch_uses_current_generation(&launch.config) {
+        return Ok(());
+    }
+    {
+        let guard = http.shell.read().expect("state lock");
+        let _ = guard.events.send(HostEvent::new(
+            "app-starting",
+            json!({
+                "appId": app_id,
+                "launchId": launch.id,
+                "phase": "prebuilding",
+                "message": "正在编译应用并准备数据快照…",
+            }),
+        ));
+    }
+    let workspace = workspace.to_path_buf();
+    let app_id = app_id.to_string();
+    let policy = launch_warmup_policy(&launch.config, app_id.as_str());
+    tokio::task::spawn_blocking(move || {
+        crate::build_ops::prebuild_pipeline(workspace.as_path(), app_id.as_str(), policy.as_str())
+    })
+    .await
+    .map_err(|error| StartStopError::Unavailable(format!("app prebuild task failed: {error}")))?
+    .map_err(|error| StartStopError::Unavailable(format!("app prebuild failed: {error}")))?;
+    Ok(())
+}
+
+fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {
+    let generation = config.generation.trim();
+    generation.is_empty() || generation.eq_ignore_ascii_case("current")
+}
+
+fn launch_warmup_policy(config: &AppLaunchConfig, app_id: &str) -> String {
+    config
+        .warmup
+        .as_ref()
+        .and_then(|warmup| warmup.get("apps"))
+        .and_then(|apps| apps.get(app_id))
+        .and_then(|app| app.get("hotScenes"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|scenes| scenes.first())
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty())
+        .unwrap_or("home")
+        .to_string()
 }
 
 pub async fn stop_app_runtime(
@@ -311,6 +376,22 @@ fn error_response(error: StartStopError) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+/// Mirror launch-bound runtimePlan into host-control so legacy readers stay consistent.
+fn sync_host_control_runtime_plan(
+    workspace: &std::path::Path,
+    runtime_plan: &mei_lang_kernel::RuntimePlan,
+) {
+    let mut control = mei_host_core::read_host_control_state(workspace)
+        .unwrap_or_else(mei_host_core::HostControlState::empty);
+    control.runtime_plan = Some(runtime_plan.clone());
+    if let Err(error) = mei_host_core::write_host_control_state(workspace, &control) {
+        tracing::warn!(
+            error = %error,
+            "failed to sync runtimePlan into host-control after app start"
+        );
+    }
+}
+
 /// Autostart targets collected at serve time.
 pub async fn autostart_launch_targets(
     http: &HostHttpState,
@@ -340,6 +421,37 @@ pub async fn autostart_launch_targets(
                 "autostart failed"
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{launch_uses_current_generation, launch_warmup_policy};
+    use mei_host_core::AppLaunchConfig;
+
+    #[test]
+    fn current_generation_launch_requires_prebuild() {
+        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        config.generation = "current".to_string();
+        assert!(launch_uses_current_generation(&config));
+
+        config.generation = "WS-20260713.0".to_string();
+        assert!(!launch_uses_current_generation(&config));
+    }
+
+    #[test]
+    fn warmup_policy_prefers_first_hot_scene() {
+        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        config.warmup = Some(serde_json::json!({
+            "enabled": true,
+            "apps": {
+                "pretty-panels": {
+                    "hotScenes": ["home/t1", "home"]
+                }
+            }
+        }));
+        assert_eq!(launch_warmup_policy(&config, "pretty-panels"), "home/t1");
+        assert_eq!(launch_warmup_policy(&config, "other-app"), "home");
     }
 }
 

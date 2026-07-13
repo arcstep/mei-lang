@@ -1,3 +1,4 @@
+mod access_gate_status;
 mod access_page_cache;
 mod api_error;
 mod api_stubs;

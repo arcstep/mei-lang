@@ -42,6 +42,11 @@ fn build_gis_proxy_target(base: &str, path: &str, query: Option<&str>) -> String
     url
 }
 
+fn expects_tilejson_response(path: &str) -> bool {
+    let normalized = path.trim_matches('/');
+    !normalized.is_empty() && !normalized.contains('/')
+}
+
 fn build_same_origin_gis_url(origin: Option<&str>, path: &str, query: Option<&str>) -> String {
     let normalized_path = path.trim_start_matches('/');
     let mut url = if normalized_path.is_empty() {
@@ -165,6 +170,24 @@ pub async fn gis_proxy(
         .and_then(|value| value.to_str().ok())
         .map(|value| value.contains("application/json"))
         .unwrap_or(false);
+    if status.is_success() && expects_tilejson_response(path.as_str()) && !is_json {
+        let content_type = headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("missing");
+        tracing::error!(
+            target = %target,
+            content_type,
+            response_bytes = upstream_body.len(),
+            "GIS TileJSON upstream returned a non-JSON success response"
+        );
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!(
+                "GIS TileJSON upstream returned {content_type}, expected application/json: {target}"
+            ),
+        ));
+    }
     let body = if is_json {
         rewrite_tilejson_body(upstream_body.as_ref(), origin.as_deref())
             .unwrap_or_else(|| upstream_body.to_vec())
@@ -185,4 +208,18 @@ pub async fn gis_proxy(
             .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expects_tilejson_response;
+
+    #[test]
+    fn only_root_collection_path_requires_tilejson() {
+        assert!(expects_tilejson_response("shapingba-z10-16"));
+        assert!(expects_tilejson_response("/shapingba-z10-16/"));
+        assert!(!expects_tilejson_response(
+            "shapingba-z10-16/10/838/412.pbf"
+        ));
+    }
 }

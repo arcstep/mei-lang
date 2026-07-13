@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use mei_lang_kernel::{RuntimeMode, RuntimePlan};
+use mei_lang_kernel::RuntimePlan;
 
 /// Resolve `mei-compiler` binary.
 ///
@@ -165,29 +165,8 @@ pub fn run_mei_plug_ds_warmup_with_plan(
         command.env("MEI_WORKSPACE_CONFIG", config_path);
     }
     if let Some(plan) = runtime_plan {
-        let app_plan = plan.apps.get(app).or_else(|| plan.apps.get("*"));
-        let hot_scopes = app_plan
-            .into_iter()
-            .flat_map(|app| app.targets.iter())
-            .filter(|target| target.mode == RuntimeMode::Hot)
-            .map(|target| target.scope.trim().trim_matches('/'))
-            .filter(|scope| !scope.is_empty())
-            .collect::<Vec<_>>()
-            .join(",");
-        let hot_metrics = app_plan
-            .into_iter()
-            .flat_map(|app| app.metric_overrides.iter())
-            .filter(|(_, mode)| **mode == RuntimeMode::Hot)
-            .map(|(metric_id, _)| metric_id.as_str())
-            .collect::<Vec<_>>()
-            .join(",");
-        if plan.default_mode == RuntimeMode::Hot {
-            command.env("MEI_DEV_EVAL_PROFILE", "full");
-        } else {
-            command
-                .env("MEI_DEV_EVAL_PROFILE", "scoped")
-                .env("MEI_WARMUP_SCOPE", hot_scopes)
-                .env("MEI_WARMUP_METRICS", hot_metrics);
+        for (key, value) in mei_lang_kernel::runtime_plan_env_vars(plan, app) {
+            command.env(key, value);
         }
     }
     let status = command

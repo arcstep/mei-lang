@@ -192,11 +192,12 @@ pub fn menu_revision_digest(workspace: &Path) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub fn running_event_payload(
+pub fn running_event_payload_with_plan(
     workspace: &Path,
     app_id: &str,
     launch_id: &str,
     instance_id: &str,
+    runtime_plan: Option<&mei_lang_kernel::RuntimePlan>,
 ) -> Value {
     let topbar_menu = load_topbar_menu_context(workspace);
     let discovered = discover_workspace_apps(workspace).unwrap_or_default();
@@ -207,14 +208,24 @@ pub fn running_event_payload(
         .map(|app| app.title.as_str());
     let display_name =
         display_name_for_running_app(workspace, app_id, Some(launch_id), enriched_title);
-    json!({
+    let mut payload = json!({
         "appId": app_id,
         "launchId": launch_id,
         "instanceId": instance_id,
         "displayName": display_name,
         "href": app_access_href(app_id),
         "phase": "ready",
-    })
+    });
+    if let Some(plan) = runtime_plan {
+        payload
+            .as_object_mut()
+            .expect("running payload object")
+            .insert(
+                "runtimePlan".to_string(),
+                serde_json::to_value(plan).unwrap_or(Value::Null),
+            );
+    }
+    payload
 }
 
 /// Apps list for topbar SSR: only currently running apps (0537).

@@ -280,3 +280,36 @@ fn pretty_panels_assemble_accepts_legacy_assembly_scene_id() {
         "legacy scene id assembly should resolve to home"
     );
 }
+
+#[test]
+fn pretty_panels_warnings_drilldown_has_runtime_projection_slots() {
+    let outcome =
+        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+            .expect("assemble")
+            .expect("home");
+    let mut assembly = outcome
+        .compiled
+        .scene_projection_assembly_by_id
+        .get("warnings_analytics_page")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .expect("warnings analytics assembly");
+    let diagnostics = mei_lang_kernel::enrich_runtime_page_instance_projection_slots(
+        &mut assembly,
+        &outcome.compiled.resources,
+        "warnings_analytics_page",
+    );
+    assert!(
+        assembly
+            .get("projection_slots")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|slots| !slots.is_empty()),
+        "warnings drilldown must expand projection slots; diagnostics={diagnostics:?}; resources={:?}",
+        outcome
+            .compiled
+            .resources
+            .iter()
+            .map(|resource| resource.id.as_str())
+            .collect::<Vec<_>>()
+    );
+}

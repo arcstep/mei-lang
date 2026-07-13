@@ -272,21 +272,6 @@ pub async fn app_request_gateway(
     }
 }
 
-/// Compatibility wrapper: `Some` only when proxied (not required-unavailable / fallback).
-pub async fn maybe_proxy_access_get(
-    http: &crate::state::HostHttpState,
-    app_id: &str,
-    path_and_query: &str,
-    headers: &HeaderMap,
-    principal: Option<AuthPrincipal>,
-) -> Option<Response> {
-    match access_get_gateway(http, app_id, path_and_query, headers, principal, "access").await {
-        GatewayProxyOutcome::Proxied(response) => Some(response),
-        GatewayProxyOutcome::RequiredUnavailable(response) => Some(response),
-        GatewayProxyOutcome::LegacyFallback => None,
-    }
-}
-
 /// When an active App Runtime route exists for `app_id`, proxy an arbitrary request.
 pub async fn maybe_proxy_app_request(
     http: &crate::state::HostHttpState,

@@ -57,6 +57,24 @@ mod tests {
             "磁器口街道"
         );
     }
+
+    #[test]
+    fn client_error_payload_keeps_structured_detail_and_truncates_log_fields() {
+        let payload: ClientTracePayload = serde_json::from_value(serde_json::json!({
+            "id": "client-error-1",
+            "kind": "CLIENT_ERROR",
+            "label": "map_render_error",
+            "detail": {
+                "kind": "map_render_error",
+                "message": "abcdef",
+                "status": 503
+            }
+        }))
+        .expect("client error payload");
+        let detail = payload.detail.as_ref().expect("detail");
+        assert_eq!(client_detail_text(detail, "message", 4), "abcd");
+        assert_eq!(client_detail_text(detail, "status", 16), "503");
+    }
 }
 
 fn decode_client_cmd_label(raw: &str) -> String {
@@ -264,6 +282,8 @@ pub struct ClientTracePayload {
     pub label: String,
     #[serde(default)]
     pub pipeline: Option<serde_json::Value>,
+    #[serde(default)]
+    pub detail: Option<serde_json::Value>,
 }
 
 fn pipeline_u64(value: &serde_json::Value) -> Option<u64> {
@@ -315,6 +335,57 @@ fn log_client_render_pipeline(ctx: &ClientCommandContext, pipeline: &serde_json:
     );
 }
 
+fn client_detail_text(detail: &serde_json::Value, key: &str, max_chars: usize) -> String {
+    let text = detail
+        .get(key)
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_i64().map(|number| number.to_string()))
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+        })
+        .unwrap_or_default();
+    text.chars().take(max_chars).collect()
+}
+
+fn log_client_error(ctx: &ClientCommandContext, detail: Option<&serde_json::Value>) {
+    let empty = serde_json::json!({});
+    let detail = detail.unwrap_or(&empty);
+    let error_kind = client_detail_text(detail, "kind", 80);
+    let message = client_detail_text(detail, "message", 2000);
+    let app_id = client_detail_text(detail, "appId", 160);
+    let scene_id = client_detail_text(detail, "sceneId", 160);
+    let component = client_detail_text(detail, "component", 160);
+    let panel_id = client_detail_text(detail, "panelId", 240);
+    let phase = client_detail_text(detail, "phase", 120);
+    let api = client_detail_text(detail, "api", 1000);
+    let status = client_detail_text(detail, "status", 16);
+    let page_url = client_detail_text(detail, "pageUrl", 1000);
+    let stack = client_detail_text(detail, "stack", 2000);
+    tracing::error!(
+        target: "mei_client_error",
+        client_error_id = %ctx.id,
+        client_error_kind = %error_kind,
+        app_id = %app_id,
+        scene_id = %scene_id,
+        component = %component,
+        panel_id = %panel_id,
+        phase = %phase,
+        api = %api,
+        status = %status,
+        page_url = %page_url,
+        stack = %stack,
+        message = %message,
+        "CLIENT ✖ {}",
+        if ctx.label.is_empty() {
+            "客户端运行失败"
+        } else {
+            ctx.label.as_str()
+        }
+    );
+}
+
 pub async fn api_host_client_trace(Json(payload): Json<ClientTracePayload>) -> impl IntoResponse {
     let id = payload.id.trim();
     if id.is_empty() {
@@ -331,6 +402,8 @@ pub async fn api_host_client_trace(Json(payload): Json<ClientTracePayload>) -> i
         } else {
             log_client_command_banner(&ctx);
         }
+    } else if payload.kind.eq_ignore_ascii_case("CLIENT_ERROR") {
+        log_client_error(&ctx, payload.detail.as_ref());
     } else {
         log_client_command_banner(&ctx);
     }
