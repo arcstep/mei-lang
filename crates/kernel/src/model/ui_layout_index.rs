@@ -10,6 +10,8 @@ use super::build_node::BuildNodeId;
 pub enum UiScopeRole {
     Scene,
     Plane,
+    /// Presentation page container under a P plane (`slide_layout`).
+    Slide,
     Region,
     Section,
     Slot,
@@ -22,6 +24,7 @@ impl UiScopeRole {
         match self {
             Self::Scene => "scene",
             Self::Plane => "plane",
+            Self::Slide => "slide",
             Self::Region => "region",
             Self::Section => "section",
             Self::Slot => "slot",
@@ -34,6 +37,7 @@ impl UiScopeRole {
         match self {
             Self::Scene => "S",
             Self::Plane => "P",
+            Self::Slide => "D",
             Self::Region => "R",
             Self::Section => "§",
             Self::Slot => "L",
@@ -46,6 +50,7 @@ impl UiScopeRole {
         match self {
             Self::Scene => "scene",
             Self::Plane => "plane",
+            Self::Slide => "slide",
             Self::Region => "region",
             Self::Section => "section",
             Self::Slot => "slot",

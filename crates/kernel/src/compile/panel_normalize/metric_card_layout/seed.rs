@@ -207,18 +207,21 @@ fn promote_desc_text_to_progress(block: &mut BlockDecl, shell: &Value) {
     if block.use_key != USE_MEI_TEXT || !block_is_desc_slot(block) {
         return;
     }
-    let Some(content) = block
-        .props
-        .as_object()
-        .and_then(|map| map.get("content"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(content) = block.props.as_object().and_then(|map| map.get("content")) else {
+        return;
+    };
+    let progress_value = if let Some(text) = content.as_str().map(str::trim).filter(|v| !v.is_empty())
+    {
+        Value::String(text.to_string())
+    } else if content.is_object() {
+        // Dynamic `desc = metric_ref(...)` — keep object so metric-progress can resolve rate.
+        content.clone()
+    } else {
         return;
     };
     let mut progress_props = serde_json::json!({
-        "value": content,
+        "value": progress_value.clone(),
+        "content": progress_value,
         "metric_role": "desc",
         "align": "center",
     });

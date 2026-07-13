@@ -110,9 +110,20 @@ pub fn build_scene_ui_structure(
         planes.entry(tier).or_default().push(panel);
     }
 
-    for (tier, region_panels) in planes {
-        let plane_label = plane_label_for_tier(tier.as_str());
+    for (tier, top_panels) in planes {
+        let authored_plane = top_panels
+            .iter()
+            .find(|panel| ui_role_from_props(&panel.props) == Some("plane"))
+            .copied();
+        let plane_label = authored_plane
+            .map(region_label)
+            .filter(|label| !label.trim().is_empty())
+            .unwrap_or_else(|| plane_label_for_tier(tier.as_str()));
         let plane_segments = vec![scene_id.to_string(), tier.clone()];
+        let plane_budget = authored_plane.and_then(budget_from_panel);
+        let plane_anchors = authored_plane
+            .map(source_anchor_for_panel)
+            .unwrap_or_default();
         let plane_node = builder.make_node(
             UiScopeRole::Plane,
             plane_label,
@@ -120,15 +131,35 @@ pub fn build_scene_ui_structure(
             String::new(),
             Some(scene_id_encoded.clone()),
             Some(tier.clone()),
-            None,
-            Vec::new(),
+            plane_budget,
+            plane_anchors,
             None,
         );
         let plane_id = builder.insert_node(plane_node);
         builder.link_child(&scene_id_encoded, &plane_id);
 
-        for region in region_panels {
-            walk_region(&mut builder, region, tier.as_str(), &plane_id);
+        let child_panels: Vec<&UiNodeDecl> = if let Some(plane) = authored_plane {
+            plane
+                .blocks
+                .iter()
+                .filter_map(|node| match node {
+                    UiTreeNode::Panel(panel) => Some(panel),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            top_panels
+                .iter()
+                .copied()
+                .filter(|panel| ui_role_from_props(&panel.props) != Some("plane"))
+                .collect()
+        };
+
+        for child in child_panels {
+            match ui_role_from_props(&child.props) {
+                Some("slide") => walk_slide(&mut builder, child, tier.as_str(), &plane_id),
+                _ => walk_region(&mut builder, child, tier.as_str(), &plane_id),
+            }
         }
     }
 
@@ -211,9 +242,76 @@ fn walk_region(builder: &mut Builder<'_>, region: &UiNodeDecl, tier: &str, plane
     }
 }
 
+fn walk_slide(builder: &mut Builder<'_>, slide: &UiNodeDecl, tier: &str, plane_id: &str) {
+    let slide_id = slide.id.clone();
+    let slide_label = slide
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| slide_id.clone());
+    let slide_segments = vec![
+        builder.scene_id.to_string(),
+        tier.to_string(),
+        slide_id.clone(),
+    ];
+    let preview_scope = tier_scoped_preview_scope(tier, slide_id.as_str());
+    let slide_budget = budget_from_panel(slide);
+    let slide_node = builder.make_node(
+        UiScopeRole::Slide,
+        slide_label,
+        &slide_segments,
+        preview_scope.clone(),
+        Some(plane_id.to_string()),
+        Some(tier.to_string()),
+        slide_budget,
+        source_anchor_for_panel(slide),
+        None,
+    );
+    let slide_node_id = builder.insert_node(slide_node);
+    builder.link_child(plane_id, &slide_node_id);
+
+    let regions: Vec<UiNodeDecl> = slide
+        .blocks
+        .iter()
+        .filter_map(|node| match node {
+            UiTreeNode::Panel(panel)
+                if ui_role_from_props(&panel.props) == Some("region")
+                    || panel_is_nested_region(panel) =>
+            {
+                Some(panel.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    if regions.is_empty() {
+        walk_default_section(
+            builder,
+            slide,
+            tier,
+            &slide_node_id,
+            &slide_segments,
+            preview_scope.as_str(),
+        );
+        return;
+    }
+    for region_panel in regions {
+        walk_nested_region_under_region(
+            builder,
+            &region_panel,
+            tier,
+            &slide_node_id,
+            &slide_segments,
+            preview_scope.as_str(),
+        );
+    }
+}
+
 fn panel_is_nested_region(panel: &UiNodeDecl) -> bool {
     // `chrome_role = "header"` rewrites `__mei_ui_role` to "header" for z-index, but the
     // panel remains a region container (sections + screen_header brand live underneath).
+    // Presentation slides are walked via `walk_slide`, not as nested regions.
     matches!(
         ui_role_from_props(&panel.props),
         Some("region") | Some("header") | Some("float_dock")
@@ -249,6 +347,32 @@ fn walk_nested_region_under_region(
     builder.link_child(parent_region_node_id, &nested_node_id);
 
     let subsections = sections_in_region(nested_region);
+    let nested_regions: Vec<UiNodeDecl> = nested_region
+        .blocks
+        .iter()
+        .filter_map(|node| match node {
+            UiTreeNode::Panel(panel)
+                if ui_role_from_props(&panel.props) == Some("region")
+                    && !panel_is_section(panel) =>
+            {
+                Some(panel.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    if !nested_regions.is_empty() {
+        for region_panel in nested_regions {
+            walk_nested_region_under_region(
+                builder,
+                &region_panel,
+                tier,
+                &nested_node_id,
+                &nested_segments,
+                nested_preview_scope.as_str(),
+            );
+        }
+        return;
+    }
     if subsections.is_empty() {
         walk_default_section(
             builder,
@@ -1121,8 +1245,8 @@ fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
         }
     }
 
-    // Prefer explicit section children. When several sections share one grid area
-    // (presentation deck pages), key by panel.id so later pages are not dropped.
+    // Prefer explicit section/slide children. When several pages share one grid area
+    // (presentation deck slides), key by panel.id so later pages are not dropped.
     if !section_panels.is_empty() {
         let mut area_counts: BTreeMap<String, usize> = BTreeMap::new();
         for panel in &section_panels {
@@ -1175,8 +1299,12 @@ fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
 }
 
 fn panel_is_section(panel: &UiNodeDecl) -> bool {
-    if ui_role_from_props(&panel.props) == Some("section") {
+    if matches!(ui_role_from_props(&panel.props), Some("section")) {
         return true;
+    }
+    // slides are page containers, never section keys inside a region.
+    if ui_role_from_props(&panel.props) == Some("slide") {
+        return false;
     }
     if panel
         .props

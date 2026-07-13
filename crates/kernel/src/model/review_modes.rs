@@ -179,6 +179,8 @@ impl ReviewProjection {
 pub fn ui_role_depth_rank(role: &str) -> Option<u8> {
     match role.trim().to_ascii_lowercase().as_str() {
         "plane" => Some(0),
+        // slide sits between plane and region in the presentation tree.
+        "slide" => Some(1),
         "region" => Some(1),
         "section" => Some(2),
         "slot" => Some(3),
