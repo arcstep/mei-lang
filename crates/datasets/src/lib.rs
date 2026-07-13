@@ -5,6 +5,7 @@ mod dataset_rows_cache;
 mod db_dataset;
 mod eval_artifact;
 mod eval_cache_invalidation;
+mod eval_cache_io_stats;
 mod eval_execute;
 mod file_cache;
 mod geojson_dataset;
@@ -44,6 +45,10 @@ pub use eval_cache_invalidation::{
     invalidate_stale_eval_artifacts, metric_eval_artifact_reusable, EvalCacheInvalidationPlan,
     EvalCacheInvalidationReport,
 };
+pub use eval_cache_io_stats::{
+    record_content_hash_dedupe_skips, reset_eval_cache_io_stats_for_tests, snapshot_eval_cache_io,
+    take_eval_cache_io_delta, EvalCacheIoSnapshot,
+};
 pub use idempotency_key::{
     canonical_metric_idempotency_key, canonical_metric_shared_cache_key,
     metric_shared_cache_key_with_data_generation, resolve_metric_data_generation,
@@ -56,7 +61,10 @@ pub use metric_access::{
 };
 pub use metric_dataframe::metric_dataframe_result_cache_key;
 pub use metric_eval_inflight::{
-    run_metric_eval_singleflight, run_metric_response_artifact_load_singleflight,
+    reset_metric_eval_singleflight_stats_for_tests, run_metric_eval_singleflight,
+    run_metric_response_artifact_load_singleflight, run_whole_eval_singleflight,
+    snapshot_metric_eval_singleflight_stats, MetricEvalSingleflightStats, SingleflightOutcome,
+    SingleflightRole,
 };
 pub use metric_locate::{
     locate_runtime_metric_resource, metric_ids_visible_for_dataset,

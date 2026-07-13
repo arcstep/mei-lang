@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -12,12 +13,17 @@ use mei_lang_kernel::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::eval_cache_io_stats::{
+    record_artifact_write, record_node_pack_load, record_node_pack_store,
+    record_node_pack_store_skipped_full_hit,
+};
 use crate::util::read_json_artifact_lenient;
 use crate::{eval_node_cache_key, metric_scope_cache_key, RuntimeMetricWorkset};
 
 const EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-workset-artifact-v2";
 const EVAL_PLAN_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-plan-artifact-v2";
-const EVAL_METRIC_NODE_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-metric-node-artifact-v1";
+const EVAL_METRIC_NODE_PACK_SCHEMA_VERSION: &str = "mei-eval-metric-node-pack-v1";
+static ARTIFACT_TMP_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedWorksetArtifact {
@@ -47,15 +53,20 @@ struct PersistedEvalPlanArtifact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedEvalMetricNodeArtifact {
+struct PersistedEvalMetricNodeEntry {
+    metric_id: String,
+    metric: MetricContract,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedEvalMetricNodePack {
     schema_version: String,
     owner_resource_id: String,
-    node_id: String,
-    metric_id: String,
     semantic_revision_key: String,
     scope_key: String,
     dependency_revision_key: String,
-    metric: MetricContract,
+    /// node_id → metric entry
+    nodes: BTreeMap<String, PersistedEvalMetricNodeEntry>,
     generated_at_ms: u64,
 }
 
@@ -100,20 +111,18 @@ pub(crate) fn eval_plan_semantic_revision_key(
     hash_key(&serde_json::to_string(&payload).unwrap_or_default())
 }
 
-fn eval_metric_node_artifact_path(
+fn eval_metric_node_pack_path(
     app_root: &Path,
     owner_resource_id: &str,
-    node_id: &str,
     scope: &RuntimeMetricEvalScope,
 ) -> PathBuf {
     let key = format!(
-        "metric_node|owner={}|node={}|scope={}",
+        "metric_node_pack|owner={}|scope={}",
         owner_resource_id.trim(),
-        node_id.trim(),
         eval_node_cache_key("metric_node", scope)
     );
     eval_artifact_root(app_root)
-        .join("node-metric")
+        .join("node-pack")
         .join(format!("{}.json", hash_key(&key)))
 }
 
@@ -174,8 +183,23 @@ fn write_json_artifact<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("create eval artifact dir {}", parent.display()))?;
     }
-    fs::write(path, serde_json::to_string_pretty(artifact)?)
-        .with_context(|| format!("write eval artifact {}", path.display()))?;
+    let payload = serde_json::to_string_pretty(artifact)?;
+    let tmp = path.with_extension(format!(
+        "tmp-{}-{}-{}",
+        std::process::id(),
+        now_epoch_ms(),
+        ARTIFACT_TMP_NONCE.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::write(&tmp, &payload)
+        .with_context(|| format!("write eval artifact tmp {}", tmp.display()))?;
+    fs::rename(&tmp, path).with_context(|| {
+        format!(
+            "rename eval artifact {} -> {}",
+            tmp.display(),
+            path.display()
+        )
+    })?;
+    record_artifact_write(payload.len() as u64);
     Ok(())
 }
 
@@ -277,37 +301,111 @@ pub(crate) fn load_or_build_eval_plan_artifact(
     Ok((eval_plan, started.elapsed().as_millis() as u64, false))
 }
 
-pub(crate) fn load_eval_metric_node_artifact(
+pub(crate) fn load_eval_metric_node_pack(
     app_root: &Path,
     owner_resource_id: &str,
-    node_id: &str,
-    metric_id: &str,
     semantic_revision_key: &str,
     scope: &RuntimeMetricEvalScope,
-) -> Result<Option<(MetricContract, u64)>> {
+) -> Result<(BTreeMap<String, MetricContract>, u64, usize)> {
     let started = Instant::now();
-    let path = eval_metric_node_artifact_path(app_root, owner_resource_id, node_id, scope);
+    let path = eval_metric_node_pack_path(app_root, owner_resource_id, scope);
     let Some(artifact) =
-        read_json_artifact_lenient::<PersistedEvalMetricNodeArtifact>(&path, "metric-node")?
+        read_json_artifact_lenient::<PersistedEvalMetricNodePack>(&path, "metric-node-pack")?
     else {
-        return Ok(None);
+        return Ok((BTreeMap::new(), 0, 0));
     };
-    if artifact.schema_version != EVAL_METRIC_NODE_ARTIFACT_SCHEMA_VERSION
+    if artifact.schema_version != EVAL_METRIC_NODE_PACK_SCHEMA_VERSION
         || artifact.owner_resource_id != owner_resource_id
-        || artifact.node_id != node_id
-        || artifact.metric_id != metric_id
         || artifact.semantic_revision_key != semantic_revision_key
         || artifact.scope_key != eval_node_cache_key("metric_node", scope)
         || artifact.dependency_revision_key != scope.dependency_revision_key
     {
-        return Ok(None);
+        return Ok((BTreeMap::new(), 0, 0));
     }
-    Ok(Some((
-        artifact.metric,
+    record_node_pack_load();
+    let mut cached = BTreeMap::new();
+    for entry in artifact.nodes.values() {
+        cached.insert(entry.metric_id.clone(), entry.metric.clone());
+    }
+    Ok((
+        cached,
         started.elapsed().as_millis() as u64,
-    )))
+        artifact.nodes.len(),
+    ))
 }
 
+pub(crate) fn store_eval_metric_node_pack(
+    app_root: &Path,
+    owner_resource_id: &str,
+    semantic_revision_key: &str,
+    scope: &RuntimeMetricEvalScope,
+    node_metrics: &BTreeMap<String, (String, MetricContract)>,
+    full_hit: bool,
+) -> Result<u64> {
+    if node_metrics.is_empty() {
+        if full_hit {
+            record_node_pack_store_skipped_full_hit();
+        }
+        return Ok(0);
+    }
+    if full_hit {
+        record_node_pack_store_skipped_full_hit();
+        return Ok(0);
+    }
+    let path = eval_metric_node_pack_path(app_root, owner_resource_id, scope);
+    let mut nodes = BTreeMap::new();
+    if let Some(existing) =
+        read_json_artifact_lenient::<PersistedEvalMetricNodePack>(&path, "metric-node-pack")?
+    {
+        if existing.schema_version == EVAL_METRIC_NODE_PACK_SCHEMA_VERSION
+            && existing.owner_resource_id == owner_resource_id
+            && existing.semantic_revision_key == semantic_revision_key
+            && existing.scope_key == eval_node_cache_key("metric_node", scope)
+            && existing.dependency_revision_key == scope.dependency_revision_key
+        {
+            nodes = existing.nodes;
+        }
+    }
+    for (node_id, (metric_id, metric)) in node_metrics {
+        nodes.insert(
+            node_id.clone(),
+            PersistedEvalMetricNodeEntry {
+                metric_id: metric_id.clone(),
+                metric: metric.clone(),
+            },
+        );
+    }
+    write_json_artifact(
+        &path,
+        &PersistedEvalMetricNodePack {
+            schema_version: EVAL_METRIC_NODE_PACK_SCHEMA_VERSION.to_string(),
+            owner_resource_id: owner_resource_id.to_string(),
+            semantic_revision_key: semantic_revision_key.to_string(),
+            scope_key: eval_node_cache_key("metric_node", scope),
+            dependency_revision_key: scope.dependency_revision_key.clone(),
+            nodes,
+            generated_at_ms: now_epoch_ms(),
+        },
+    )?;
+    record_node_pack_store();
+    Ok(1)
+}
+
+#[allow(dead_code)]
+pub(crate) fn load_eval_metric_node_artifact(
+    app_root: &Path,
+    owner_resource_id: &str,
+    _node_id: &str,
+    metric_id: &str,
+    semantic_revision_key: &str,
+    scope: &RuntimeMetricEvalScope,
+) -> Result<Option<(MetricContract, u64)>> {
+    let (pack, load_ms, _) =
+        load_eval_metric_node_pack(app_root, owner_resource_id, semantic_revision_key, scope)?;
+    Ok(pack.get(metric_id).cloned().map(|metric| (metric, load_ms)))
+}
+
+#[allow(dead_code)]
 pub(crate) fn store_eval_metric_node_artifact(
     app_root: &Path,
     owner_resource_id: &str,
@@ -317,21 +415,17 @@ pub(crate) fn store_eval_metric_node_artifact(
     scope: &RuntimeMetricEvalScope,
     metric: &MetricContract,
 ) -> Result<()> {
-    let path = eval_metric_node_artifact_path(app_root, owner_resource_id, node_id, scope);
-    write_json_artifact(
-        &path,
-        &PersistedEvalMetricNodeArtifact {
-            schema_version: EVAL_METRIC_NODE_ARTIFACT_SCHEMA_VERSION.to_string(),
-            owner_resource_id: owner_resource_id.to_string(),
-            node_id: node_id.to_string(),
-            metric_id: metric_id.to_string(),
-            semantic_revision_key: semantic_revision_key.to_string(),
-            scope_key: eval_node_cache_key("metric_node", scope),
-            dependency_revision_key: scope.dependency_revision_key.clone(),
-            metric: metric.clone(),
-            generated_at_ms: now_epoch_ms(),
-        },
-    )
+    let mut nodes = BTreeMap::new();
+    nodes.insert(node_id.to_string(), (metric_id.to_string(), metric.clone()));
+    let _ = store_eval_metric_node_pack(
+        app_root,
+        owner_resource_id,
+        semantic_revision_key,
+        scope,
+        &nodes,
+        false,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn clear_eval_artifact_store(app_root: &Path) -> usize {

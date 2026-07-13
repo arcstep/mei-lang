@@ -6,6 +6,8 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::eval_cache_io_stats::record_artifact_read;
+
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis() as u64
 }
@@ -30,6 +32,7 @@ pub(crate) fn read_json_artifact_lenient<T: DeserializeOwned>(
             return Ok(None);
         }
     };
+    record_artifact_read(raw.len() as u64);
     match serde_json::from_str::<T>(&raw) {
         Ok(artifact) => Ok(Some(artifact)),
         Err(error) => {

@@ -8,6 +8,9 @@ use anyhow::{Context, Result};
 use mei_lang_kernel::{FilterIntent, MetricContract, QueryState};
 use serde::{Deserialize, Serialize};
 
+use crate::eval_cache_io_stats::{
+    record_artifact_write, record_response_store_atomic, record_response_store_skipped,
+};
 use crate::util::read_json_artifact_lenient;
 use crate::DatasetQueryResult;
 

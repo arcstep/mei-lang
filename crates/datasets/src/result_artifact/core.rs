@@ -1,3 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static ARTIFACT_TMP_NONCE: AtomicU64 = AtomicU64::new(0);
+
 pub fn take_metric_response_index_stats() -> MetricResponseIndexStats {
     MetricResponseIndexStats::default()
 }
@@ -66,8 +70,23 @@ fn write_json_artifact<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("create result artifact dir {}", parent.display()))?;
     }
-    fs::write(path, serde_json::to_string_pretty(artifact)?)
-        .with_context(|| format!("write result artifact {}", path.display()))?;
+    let payload = serde_json::to_string_pretty(artifact)?;
+    let tmp = path.with_extension(format!(
+        "tmp-{}-{}-{}",
+        std::process::id(),
+        now_epoch_ms(),
+        ARTIFACT_TMP_NONCE.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::write(&tmp, &payload)
+        .with_context(|| format!("write result artifact tmp {}", tmp.display()))?;
+    fs::rename(&tmp, path).with_context(|| {
+        format!(
+            "rename result artifact {} -> {}",
+            tmp.display(),
+            path.display()
+        )
+    })?;
+    record_artifact_write(payload.len() as u64);
     Ok(())
 }
 
@@ -132,10 +151,6 @@ pub fn store_metric_response_result_artifact(
     complete: bool,
 ) -> Result<()> {
     let path = metric_response_result_artifact_path(app_root, response_cache_key);
-    let mut merged_total_rows = total_rows;
-    let mut merged_metrics_map = metrics_map.clone();
-    let mut merged_covered_metric_ids = covered_metric_ids.clone();
-    let mut merged_complete = complete;
     if let Some(existing) = read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(
         &path,
         "metric-response",
@@ -143,25 +158,40 @@ pub fn store_metric_response_result_artifact(
         if existing.schema_version == METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION
             && existing.response_cache_key == response_cache_key
         {
-            merged_total_rows = existing.total_rows.max(total_rows);
-            let mut existing_metrics_map = existing.metrics_map;
-            existing_metrics_map.extend(merged_metrics_map);
-            merged_metrics_map = existing_metrics_map;
-            merged_covered_metric_ids.extend(existing.covered_metric_ids);
-            merged_complete |= existing.complete;
+            let already_covers = if complete {
+                existing.complete
+                    && covered_metric_ids
+                        .iter()
+                        .all(|id| existing.covered_metric_ids.contains(id))
+            } else {
+                covered_metric_ids
+                    .iter()
+                    .all(|id| existing.covered_metric_ids.contains(id))
+            };
+            if already_covers && (!complete || existing.complete) {
+                record_response_store_skipped();
+                return Ok(());
+            }
+            // Immutable complete artifact: never merge-rewrite; only replace when incomplete.
+            if existing.complete && complete {
+                record_response_store_skipped();
+                return Ok(());
+            }
         }
     }
+
     let persisted = PersistedMetricResponseResultArtifact {
         schema_version: METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION.to_string(),
         response_cache_key: response_cache_key.to_string(),
-        total_rows: merged_total_rows,
-        metrics_map: merged_metrics_map,
-        covered_metric_ids: merged_covered_metric_ids,
-        complete: merged_complete,
+        total_rows,
+        metrics_map: metrics_map.clone(),
+        covered_metric_ids: covered_metric_ids.clone(),
+        complete,
         generated_at_ms: now_epoch_ms(),
         slot_revision: None,
     };
     write_json_artifact(&path, &persisted)?;
+    record_response_store_atomic();
     Ok(())
 }
 

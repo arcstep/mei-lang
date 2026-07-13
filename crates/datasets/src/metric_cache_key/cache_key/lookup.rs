@@ -25,6 +25,11 @@ fn expand_scene_path_lookup_variants(
     }
     if scene_paths.is_empty() {
         scene_paths.push(String::new());
+    } else if seen.insert(String::new()) {
+        // Warmup policies commonly materialize the scene-level canonical artifact
+        // with an empty target. Runtime requests carry `src/scene/<id>.mei`;
+        // retain the canonical no-target variant so both resolve the same pack.
+        scene_paths.push(String::new());
     }
     scene_paths
 }
@@ -90,6 +95,17 @@ fn append_metric_response_lookup_keys(
                 filter_intents,
                 Some(resolved_slot_revision.as_str()),
             );
+            let canonical_warmup_key = metric_response_cache_scope_key(
+                app_id,
+                scene_id,
+                scoped_scene_path,
+                dataset_id.as_str(),
+                query,
+                compile_revision,
+                &dependency_revision_key,
+                filter_intents,
+                None,
+            );
             let shared_key = metric_response_prebuild_shared_key(
                 app_id,
                 dataset_id.as_str(),
@@ -113,9 +129,21 @@ fn append_metric_response_lookup_keys(
                 dependency_revision_key.as_str(),
             );
             let ordered_keys = if prefer_prebuild_keys {
-                vec![idempotent_key, dataset_key, shared_key, scoped_key]
+                vec![
+                    idempotent_key,
+                    dataset_key,
+                    shared_key,
+                    canonical_warmup_key,
+                    scoped_key,
+                ]
             } else {
-                vec![scoped_key, idempotent_key, shared_key, dataset_key]
+                vec![
+                    scoped_key,
+                    canonical_warmup_key,
+                    idempotent_key,
+                    shared_key,
+                    dataset_key,
+                ]
             };
             for key in ordered_keys {
                 if seen.insert(key.clone()) {

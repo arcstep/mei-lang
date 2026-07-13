@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use mei_lang_kernel::{FilterIntent, MetricContract};
@@ -27,7 +27,7 @@ fn metric_response_cache_ttl() -> Duration {
 #[derive(Debug, Clone)]
 pub struct CachedMetricResponse {
     pub total_rows: usize,
-    pub metrics_map: BTreeMap<String, MetricContract>,
+    pub metrics_map: Arc<BTreeMap<String, MetricContract>>,
     pub covered_metric_ids: BTreeSet<String>,
     pub complete: bool,
     expires_at: Instant,
@@ -325,16 +325,18 @@ pub fn store_cached_metric_response_aliases(
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
 ) {
+    let shared_metrics = Arc::new(metrics_map.clone());
+    let shared_covered = covered_metric_ids.clone();
     for key in keys {
         let trimmed = key.trim();
         if trimmed.is_empty() {
             continue;
         }
-        store_cached_metric_response(
+        store_cached_metric_response_shared(
             trimmed.to_string(),
             total_rows,
-            metrics_map,
-            covered_metric_ids,
+            Arc::clone(&shared_metrics),
+            shared_covered.clone(),
             complete,
         );
     }
@@ -360,6 +362,22 @@ pub fn store_cached_metric_response(
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
 ) {
+    store_cached_metric_response_shared(
+        key,
+        total_rows,
+        Arc::new(metrics_map.clone()),
+        covered_metric_ids.clone(),
+        complete,
+    );
+}
+
+fn store_cached_metric_response_shared(
+    key: String,
+    total_rows: usize,
+    metrics_map: Arc<BTreeMap<String, MetricContract>>,
+    covered_metric_ids: BTreeSet<String>,
+    complete: bool,
+) {
     let Ok(mut cache) = metric_response_cache().lock() else {
         return;
     };
@@ -369,7 +387,17 @@ pub fn store_cached_metric_response(
     if let Some(existing) = cache.entries.get_mut(&key) {
         existing.expires_at = expires_at;
         existing.total_rows = total_rows;
-        existing.metrics_map.extend(metrics_map.clone());
+        if Arc::ptr_eq(&existing.metrics_map, &metrics_map) {
+            // Same Arc payload — extend coverage only.
+            existing
+                .covered_metric_ids
+                .extend(covered_metric_ids.iter().cloned());
+            existing.complete |= complete;
+            return;
+        }
+        let mut merged = (*existing.metrics_map).clone();
+        merged.extend((*metrics_map).clone());
+        existing.metrics_map = Arc::new(merged);
         existing
             .covered_metric_ids
             .extend(covered_metric_ids.iter().cloned());
@@ -381,8 +409,8 @@ pub fn store_cached_metric_response(
         CachedMetricResponse {
             expires_at,
             total_rows,
-            metrics_map: metrics_map.clone(),
-            covered_metric_ids: covered_metric_ids.clone(),
+            metrics_map,
+            covered_metric_ids,
             complete,
         },
     );
@@ -430,7 +458,7 @@ mod tests {
     fn cached_metric_response_only_covers_all_metrics_when_complete() {
         let entry = CachedMetricResponse {
             total_rows: 0,
-            metrics_map: BTreeMap::new(),
+            metrics_map: Arc::new(BTreeMap::new()),
             covered_metric_ids: BTreeSet::from(["a".to_string(), "b".to_string()]),
             complete: false,
             expires_at: Instant::now(),

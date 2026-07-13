@@ -9,8 +9,8 @@ use mei_lang_kernel::{
 use serde_json::Value;
 
 use super::eval_artifact::{
-    eval_plan_semantic_revision_key, load_eval_metric_node_artifact,
-    load_or_build_eval_plan_artifact, store_eval_metric_node_artifact,
+    eval_plan_semantic_revision_key, load_eval_metric_node_pack, load_or_build_eval_plan_artifact,
+    store_eval_metric_node_pack,
 };
 
 pub(crate) struct EvalPlanExecutionOutcome {
@@ -47,27 +47,22 @@ pub(crate) fn execute_runtime_eval_plan_artifacts(
     let mut cached_metrics = BTreeMap::new();
     let mut eval_node_artifact_load_ms = 0u64;
     let mut eval_node_artifact_hits = 0u64;
+    let mut expected_metric_nodes = 0usize;
     if enable_node_artifact_cache {
         for node in persisted_eval_plan.nodes.values() {
-            if node.kind != EvalPlanNodeKind::MetricEval {
-                continue;
-            }
-            let Some(metric_id) = node.metric_id.as_deref() else {
-                continue;
-            };
-            if let Some((metric, load_ms)) = load_eval_metric_node_artifact(
-                app_root,
-                owner_resource_id,
-                node.id.as_str(),
-                metric_id,
-                semantic_revision_key.as_str(),
-                scope,
-            )? {
-                eval_node_artifact_load_ms += load_ms;
-                eval_node_artifact_hits += 1;
-                cached_metrics.insert(metric_id.to_string(), metric);
+            if node.kind == EvalPlanNodeKind::MetricEval && node.metric_id.is_some() {
+                expected_metric_nodes += 1;
             }
         }
+        let (pack_metrics, load_ms, hit_count) = load_eval_metric_node_pack(
+            app_root,
+            owner_resource_id,
+            semantic_revision_key.as_str(),
+            scope,
+        )?;
+        eval_node_artifact_load_ms = load_ms;
+        eval_node_artifact_hits = hit_count as u64;
+        cached_metrics = pack_metrics;
     }
     let (metrics_map, mut eval_report) = evaluate_runtime_metric_defs_with_plan_and_dag(
         metric_defs,
@@ -80,27 +75,40 @@ pub(crate) fn execute_runtime_eval_plan_artifacts(
     eval_report.eval_plan = persisted_eval_plan.clone();
     let mut eval_node_artifact_stores = 0u64;
     if enable_node_artifact_cache {
-        for node in persisted_eval_plan.nodes.values() {
-            if node.kind != EvalPlanNodeKind::MetricEval {
-                continue;
+        let full_hit = expected_metric_nodes > 0
+            && cached_metrics.len() >= expected_metric_nodes
+            && persisted_eval_plan
+                .nodes
+                .values()
+                .filter(|node| node.kind == EvalPlanNodeKind::MetricEval)
+                .filter_map(|node| node.metric_id.as_deref())
+                .all(|metric_id| cached_metrics.contains_key(metric_id));
+        let mut to_store = BTreeMap::new();
+        if !full_hit {
+            for node in persisted_eval_plan.nodes.values() {
+                if node.kind != EvalPlanNodeKind::MetricEval {
+                    continue;
+                }
+                let Some(metric_id) = node.metric_id.as_deref() else {
+                    continue;
+                };
+                if cached_metrics.contains_key(metric_id) {
+                    continue;
+                }
+                let Some(metric) = metrics_map.get(metric_id) else {
+                    continue;
+                };
+                to_store.insert(node.id.clone(), (metric_id.to_string(), metric.clone()));
             }
-            let Some(metric_id) = node.metric_id.as_deref() else {
-                continue;
-            };
-            let Some(metric) = metrics_map.get(metric_id) else {
-                continue;
-            };
-            store_eval_metric_node_artifact(
-                app_root,
-                owner_resource_id,
-                node.id.as_str(),
-                metric_id,
-                semantic_revision_key.as_str(),
-                scope,
-                metric,
-            )?;
-            eval_node_artifact_stores += 1;
         }
+        eval_node_artifact_stores = store_eval_metric_node_pack(
+            app_root,
+            owner_resource_id,
+            semantic_revision_key.as_str(),
+            scope,
+            &to_store,
+            full_hit,
+        )?;
     }
     Ok(EvalPlanExecutionOutcome {
         metrics_map,
@@ -130,11 +138,24 @@ mod tests {
             .ok()
             .map(|dur| dur.as_millis() as u64)
             .unwrap_or(0);
-        std::env::temp_dir().join(format!(
+        let app_root = std::env::temp_dir().join(format!(
             "mei-eval-execute-{name}-{}-{}",
             std::process::id(),
             now_epoch_ms
-        ))
+        ));
+        let env_dir = app_root.join("env").join("WS-20260713.0");
+        let build_dir = env_dir.join("build");
+        let _ = fs::create_dir_all(&build_dir);
+        let _ = fs::create_dir_all(env_dir.join("var"));
+        let current = app_root.join("env").join("current");
+        let _ = fs::remove_file(&current);
+        let _ = fs::remove_dir_all(&current);
+        #[cfg(unix)]
+        {
+            let _ = std::os::unix::fs::symlink("WS-20260713.0", &current);
+        }
+        mei_lang_kernel::set_prebuild_build_root_override(&app_root, Some(&build_dir));
+        app_root
     }
 
     fn owner_dataset(metric_defs: &BTreeMap<String, Value>) -> DatasetView {
@@ -221,8 +242,13 @@ mod tests {
         )
         .expect("warm execution");
         assert!(warm.eval_node_artifact_hits > 0);
+        assert_eq!(
+            warm.eval_node_artifact_stores, 0,
+            "full node pack hit must skip rewrite"
+        );
         assert!(warm.metrics_map.contains_key("metric-a"));
 
+        mei_lang_kernel::clear_prebuild_build_root_override();
         let _ = fs::remove_dir_all(&app_root);
     }
 }
