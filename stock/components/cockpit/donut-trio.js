@@ -376,7 +376,7 @@ class MeiCockpitDonutTrio extends HTMLElement {
         .swatch {
           width: 8px;
           height: 8px;
-          border-radius: 2px;
+          border-radius: 0;
           flex-shrink: 0;
         }
         .status {

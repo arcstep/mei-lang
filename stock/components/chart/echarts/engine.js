@@ -567,7 +567,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         ${fillHeight ? "flex-direction: column; height: 100%; min-height: 0;" : ""}
         gap: ${compact ? (showHead ? "2px" : "0") : "8px"};
         padding: ${compact ? "0" : "14px"};
-        border-radius: ${compact ? "0" : "14px"};
+        border-radius: 0;
         border: ${compact ? "none" : "1px solid rgba(148,163,184,.2)"};
         background: ${compact ? "transparent" : "rgba(15,23,42,.64)"};
         box-sizing: border-box;
@@ -650,7 +650,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         position: relative;
         width: 100%;
         height: 5px;
-        border-radius: 4px;
+        border-radius: 0;
         overflow: hidden;
         background: rgba(148, 163, 184, 0.14);
         border: 1px solid rgba(100, 116, 139, 0.35);
@@ -662,7 +662,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         top: 0;
         height: 100%;
         min-width: 3px;
-        border-radius: 3px;
+        border-radius: 0;
         background: #38bdf8;
         box-shadow: 0 1px 5px rgba(56, 189, 248, 0.35);
         z-index: 1;
@@ -817,6 +817,7 @@ function buildChartModel(kind, props, diagnostics) {
   }
   if (normalized === "ranking") {
     const layout = resolveRankingLayout(props);
+    const compact = props.compact === true || props.compact === "true";
     if (layout === "above") {
       const { items, valueName } = buildRankingItems(chartRows, mapping, diagnostics);
       const configuredMaxChars = resolveRankingLabelMaxChars(props, "above");
@@ -830,7 +831,7 @@ function buildChartModel(kind, props, diagnostics) {
         valueName,
         theme: resolveRankingTheme(props),
         maxChars,
-        meta: `排名 ${items.length} 项 · 标签置顶（点击查看全文）`,
+        meta: compact ? "" : `排名 ${items.length} 项 · 标签置顶（点击查看全文）`,
         fullLabels: items.map((item) => item.label),
         rowCount: items.length,
       };
@@ -842,7 +843,7 @@ function buildChartModel(kind, props, diagnostics) {
       rows: chartRows,
       mapping,
       option: ranking.option,
-      meta: ranking.meta,
+      meta: compact ? "" : ranking.meta,
       fullLabels: ranking.fullLabels,
       rowCount: ranking.rowCount,
     };
@@ -1008,6 +1009,7 @@ function resolveMapping(props, columns) {
 
 function metricSparkBarItemStyle() {
   return {
+    borderRadius: [0, 0, 0, 0],
     color: {
       type: "linear",
       x: 0,
@@ -1022,7 +1024,7 @@ function metricSparkBarItemStyle() {
   };
 }
 
-/** 驾驶舱年度对比分组柱：深蓝 + 荧光浅蓝竖向渐变 */
+/** 驾驶舱年度对比分组柱：深蓝 + 荧光浅蓝竖向渐变（默认无圆角） */
 function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
   const presets = [
     {
@@ -1038,7 +1040,7 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
           { offset: 1, color: emphasis ? "#0C3A78" : "#082E5E" },
         ],
       },
-      borderRadius: [4, 4, 0, 0],
+      borderRadius: [0, 0, 0, 0],
       shadowBlur: emphasis ? 14 : 9,
       shadowColor: "rgba(30, 120, 232, 0.58)",
       shadowOffsetY: 1,
@@ -1056,7 +1058,7 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
           { offset: 1, color: emphasis ? "#22C8F5" : "#12B8F5" },
         ],
       },
-      borderRadius: [4, 4, 0, 0],
+      borderRadius: [0, 0, 0, 0],
       shadowBlur: emphasis ? 16 : 11,
       shadowColor: "rgba(111, 228, 255, 0.55)",
       shadowOffsetY: 1,
@@ -1155,7 +1157,7 @@ function echartsTooltip(typography, trigger, extra = {}, host) {
     appendTo: resolveEchartsTooltipAppendTo(host),
     confine: false,
     extraCssText:
-      "box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;",
+      "box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:0;",
     textStyle: echartsTooltipTextStyle(typography, textRole, host),
     ...rest,
   };
@@ -1184,6 +1186,15 @@ function resolveLegacyBehavior(props) {
       props.show_legend !== "false",
     chartProps: props,
   };
+}
+
+function readLegendRight(props, fallback = 0) {
+  const raw = props?.legendRight ?? props?.legend_right;
+  if (raw === undefined || raw === null || raw === "") {
+    return fallback;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function readGridInset(props, side, fallback) {
@@ -1417,7 +1428,11 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           areaStyle: kind === "area" ? {} : undefined,
           stack: legacy.stack ? "total" : undefined,
           barWidth: sparkBar && compact ? 8 : undefined,
-          itemStyle: sparkBar ? metricSparkBarItemStyle() : undefined,
+          itemStyle: sparkBar
+            ? metricSparkBarItemStyle()
+            : isBar
+              ? { borderRadius: [0, 0, 0, 0] }
+              : undefined,
           data: coloredData,
         });
       }
@@ -1443,6 +1458,8 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
             focus: "series",
             itemStyle: cockpitYearDuoBarItemStyle(groupSeriesIndex, { emphasis: true }),
           };
+        } else if (isBar) {
+          seriesItem.itemStyle = { borderRadius: [0, 0, 0, 0] };
         }
         series.push(seriesItem);
         groupSeriesIndex += 1;
@@ -1467,7 +1484,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
       ? {
           show: true,
           top: 0,
-          right: 0,
+          right: readLegendRight(chartProps, 0),
           left: "auto",
           orient: "horizontal",
           itemWidth: 10,
@@ -1913,7 +1930,7 @@ function formatRankingNameLabel(text, maxChars) {
   return { display, full, isTruncated: display !== full };
 }
 
-function rankingBarBackgroundStyle(theme, borderRadius = [0, 4, 4, 0]) {
+function rankingBarBackgroundStyle(theme, borderRadius = [0, 0, 0, 0]) {
   return {
     color: theme.barBackground,
     borderColor: theme.barBackgroundBorder,
@@ -1922,7 +1939,7 @@ function rankingBarBackgroundStyle(theme, borderRadius = [0, 4, 4, 0]) {
   };
 }
 
-function rankingBarItemStyle(theme, borderRadius = [0, 4, 4, 0]) {
+function rankingBarItemStyle(theme, borderRadius = [0, 0, 0, 0]) {
   return {
     borderRadius,
     color: theme.barColor,
@@ -1938,7 +1955,7 @@ function buildRankingBarSeries({
   barMaxWidth,
   barCategoryGap,
   theme,
-  borderRadius = [0, 4, 4, 0],
+  borderRadius = [0, 0, 0, 0],
   valueLabel,
 }) {
   return {
@@ -2015,7 +2032,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
     configuredMaxChars,
     estimateRankingMaxChars(labelWidthPx, typography.axisLabelFontSize),
   );
-  const borderRadius = [0, 4, 4, 0];
+  const borderRadius = [0, 0, 0, 0];
   const host = props.__host;
   const option = {
     tooltip: echartsTooltip(themeTypography, "axis", {
@@ -2111,7 +2128,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
     configuredMaxChars,
     estimateRankingMaxChars(labelWidth, typography.labelFontSize),
   );
-  const borderRadius = [0, 3, 3, 0];
+  const borderRadius = [0, 0, 0, 0];
   const host = props.__host;
   const option = {
     tooltip: echartsTooltip(themeTypography, "axis", {

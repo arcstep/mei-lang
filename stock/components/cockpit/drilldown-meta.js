@@ -157,7 +157,8 @@ function normalizeProjectionSlots(raw) {
 }
 
 export function popupConfigOf(props) {
-  const raw = props?.popup ?? props?.analysis;
+  // T1 真源用 `popup`；部分作者误写 `row_drilldown_popup`，一并兼容。
+  const raw = props?.popup ?? props?.analysis ?? props?.row_drilldown_popup ?? props?.rowDrilldownPopup;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
@@ -436,6 +437,62 @@ export function sceneOpenMeta(props) {
   };
 }
 
+function synthesizeMetricRuntimeRef(raw, props = null) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const popup = popupConfigOf(props || {});
+  const popupParams =
+    popup?.params && typeof popup.params === "object" && !Array.isArray(popup.params)
+      ? popup.params
+      : null;
+  const preferredRowset = nonEmptyString(
+    popupParams?.rowset_dataset_id,
+    popupParams?.rowsetDatasetId,
+  );
+  const existing = raw.__mei_runtime_ref;
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    if (String(existing.kind || "").trim() === "metric") {
+      const existingDataset = String(existing.dataset_id || "").trim();
+      // Remap bundle-qualified dataset paths onto the popup rowset when available.
+      if (preferredRowset && (!existingDataset || existingDataset.includes("::"))) {
+        return {
+          ...existing,
+          dataset_id: preferredRowset,
+          scene_id: nonEmptyString(existing.scene_id, popup?.scene_id, popup?.sceneId),
+          scene_path: nonEmptyString(existing.scene_path, popup?.scene_file, popup?.sceneFile),
+        };
+      }
+      return existing;
+    }
+  }
+  const metricId = nonEmptyString(
+    raw.id,
+    raw.metric_id,
+    raw.metricId,
+    metricRefId(raw),
+  );
+  // Prefer explicit rowset id from popup (warning_list / typical_cases) over
+  // bundle-qualified from_dataset paths used by golden-case metric_ref(bundle=...).
+  const datasetId = nonEmptyString(
+    preferredRowset,
+    raw.dataset_id,
+    raw.datasetId,
+    raw.from_dataset,
+    raw.fromDataset,
+  );
+  if (!metricId || !datasetId) {
+    return null;
+  }
+  return {
+    kind: "metric",
+    metric_id: metricId,
+    dataset_id: datasetId,
+    scene_id: nonEmptyString(popup?.scene_id, popup?.sceneId),
+    scene_path: nonEmptyString(popup?.scene_file, popup?.sceneFile),
+  };
+}
+
 function drilldownMetricRuntimeRef(props) {
   const raw =
     props?.drilldownMetric ??
@@ -447,17 +504,7 @@ function drilldownMetricRuntimeRef(props) {
     props?.actionContent ??
     props?.content ??
     props?.dataset;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  const ref = raw.__mei_runtime_ref;
-  if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
-    return null;
-  }
-  if (ref.kind !== "metric") {
-    return null;
-  }
-  return ref;
+  return synthesizeMetricRuntimeRef(raw, props);
 }
 
 export function tableDrilldownMeta(props) {
@@ -573,7 +620,11 @@ export function tableDrilldownMeta(props) {
 }
 
 function rowDrilldownBinding(props) {
-  const raw = props?.row_drilldown ?? props?.rowDrilldown;
+  const caps =
+    props?.capabilities && typeof props.capabilities === "object" && !Array.isArray(props.capabilities)
+      ? props.capabilities
+      : null;
+  const raw = props?.row_drilldown ?? props?.rowDrilldown ?? caps?.row_drilldown ?? caps?.rowDrilldown;
   return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
 }
 

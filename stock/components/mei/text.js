@@ -876,7 +876,7 @@ class MeiText extends HTMLElement {
     }
 
     const drilldownBodyStyle = drilldownClickable
-      ? "cursor: pointer; width: fit-content; max-width: 100%; margin-inline: auto; text-decoration: underline; text-underline-offset: 0.15em;"
+      ? "cursor: pointer; width: fit-content; max-width: 100%; margin-inline: auto;"
       : "";
 
     const plainColor = String(props.color || "").trim();
@@ -884,6 +884,7 @@ class MeiText extends HTMLElement {
     const plainBackground = String(props.background || "").trim();
     const plainBorder = String(props.border || "").trim();
     const plainRadius = String(props.radius || props.borderRadius || "").trim();
+    const plainWhiteSpace = String(props.white_space || props.whiteSpace || "").trim();
     const overflowMode = String(props.overflow || props.text_overflow || "").trim().toLowerCase();
     const lineClampRaw = props.line_clamp ?? props.lineClamp ?? props.max_lines ?? props.maxLines;
     const lineClamp =
@@ -956,6 +957,7 @@ class MeiText extends HTMLElement {
           font-size: ${fontSize};
           color: ${plainColor || "var(--mei-color-text-primary, #e2e8f0)"};
           ${textAlign ? `text-align: ${textAlign};` : ""}
+          ${plainWhiteSpace ? `white-space: ${plainWhiteSpace};` : ""}
           ${plainPadding && !fillChip ? `padding: ${plainPadding};` : ""}
           ${plainBackground && !fillChip ? `background: ${plainBackground};` : ""}
           ${plainBorder && !fillChip ? `border: ${plainBorder};` : ""}

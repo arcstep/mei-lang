@@ -1,5 +1,12 @@
 import { parseProps } from "./shared.js";
 import { color } from "../mei/theme-style.js";
+import {
+  fetchPanelRuntimeMetrics,
+  fetchRuntimeMetrics,
+  findRuntimeMetricInResults,
+  resolveRuntimeMetricRef,
+  subscribeQueryState,
+} from "../dataset/runtime-query.js";
 
 function parsePercent(raw) {
   const text = String(raw ?? "").trim();
@@ -17,64 +24,138 @@ function progressShell(props) {
     insetX: String(shell.inset_x ?? shell.insetX ?? "14px"),
     extendX: String(shell.extend_x ?? shell.extendX ?? "0px"),
     height: String(shell.height ?? "14px"),
-    radius: String(shell.border_radius ?? shell.borderRadius ?? "2px"),
+    radius: String(shell.border_radius ?? shell.borderRadius ?? "0"),
     fill: String(shell.fill ?? shell.background ?? color("text_unit")),
   };
 }
 
+function metricRefOf(props) {
+  const content = props?.content ?? props?.value;
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return null;
+  }
+  if (content.__mei_runtime_ref || content.__ref === "metric" || content.shape) {
+    return content;
+  }
+  return null;
+}
+
+function scalarPercentFromMetric(metric) {
+  if (!metric || metric.shape !== "scalar") return null;
+  const values = metric.value && typeof metric.value === "object" ? metric.value : null;
+  if (!values) return null;
+  if (values.value != null) return values.value;
+  if (values.desc != null) return values.desc;
+  const first = Object.values(values)[0];
+  return first ?? null;
+}
+
+function renderProgress(host, percent, shell) {
+  if (!host.shadowRoot) {
+    host.attachShadow({ mode: "open" });
+  }
+  const pct = Math.round(percent * 10000) / 100;
+  host.shadowRoot.innerHTML = `
+    <style>
+      :host {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+      }
+      .wrap {
+        width: calc(100% + ${shell.extendX} + ${shell.extendX});
+        max-width: none;
+        height: 100%;
+        margin: 0 -${shell.extendX};
+        padding: 0 ${shell.insetX};
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: stretch;
+      }
+      .track {
+        width: 100%;
+        height: ${shell.height};
+        background: rgba(201, 233, 248, 0.18);
+        border-radius: ${shell.radius};
+        overflow: hidden;
+      }
+      .fill {
+        width: ${pct}%;
+        height: 100%;
+        background: ${shell.fill};
+        border-radius: ${shell.radius};
+      }
+    </style>
+    <div class="wrap">
+      <div class="track">
+        <div class="fill"></div>
+      </div>
+    </div>
+  `;
+}
+
 class MeiCockpitMetricProgress extends HTMLElement {
   connectedCallback() {
-    const props = parseProps(this);
-    const percent = parsePercent(props.value ?? props.percent);
-    const shell = progressShell(props);
+    this._unsub = null;
+    this._renderFromProps();
+  }
 
-    if (!this.shadowRoot) {
-      this.attachShadow({ mode: "open" });
+  disconnectedCallback() {
+    if (typeof this._unsub === "function") {
+      this._unsub();
+      this._unsub = null;
+    }
+  }
+
+  _renderFromProps() {
+    const props = parseProps(this);
+    const shell = progressShell(props);
+    const metricContent = metricRefOf(props);
+    if (!metricContent) {
+      const percent = parsePercent(props.value ?? props.percent);
+      renderProgress(this, percent, shell);
+      return;
     }
 
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          display: flex;
-          width: 100%;
-          height: 100%;
-          min-width: 0;
-          min-height: 0;
-          align-items: center;
-          justify-content: center;
-          box-sizing: border-box;
-        }
-        .wrap {
-          width: calc(100% + ${shell.extendX} + ${shell.extendX});
-          max-width: none;
-          height: 100%;
-          margin: 0 -${shell.extendX};
-          padding: 0 ${shell.insetX};
-          box-sizing: border-box;
-          display: flex;
-          align-items: center;
-          justify-content: stretch;
-        }
-        .track {
-          width: 100%;
-          height: ${shell.height};
-          background: rgba(201, 233, 248, 0.18);
-          border-radius: ${shell.radius};
-          overflow: hidden;
-        }
-        .fill {
-          width: ${Math.round(percent * 10000) / 100}%;
-          height: 100%;
-          background: ${shell.fill};
-          border-radius: ${shell.radius};
-        }
-      </style>
-      <div class="wrap">
-        <div class="track">
-          <div class="fill"></div>
-        </div>
-      </div>
-    `;
+    const paint = (metric) => {
+      const raw = scalarPercentFromMetric(metric);
+      renderProgress(this, parsePercent(raw), shell);
+    };
+
+    const runtimeRef = resolveRuntimeMetricRef(props) || resolveRuntimeMetricRef(metricContent);
+    renderProgress(this, 0, shell);
+    const run = async () => {
+      try {
+        const results =
+          (await fetchPanelRuntimeMetrics?.(this, props)) ||
+          (await fetchRuntimeMetrics?.(props)) ||
+          (await fetchPanelRuntimeMetrics?.(this, [metricContent])) ||
+          (await fetchRuntimeMetrics?.([metricContent])) ||
+          [];
+        const list = Array.isArray(results)
+          ? results
+          : Array.isArray(results?.metrics)
+            ? results.metrics
+            : [];
+        const metric =
+          (runtimeRef && findRuntimeMetricInResults?.(list, runtimeRef)) || list[0] || null;
+        if (metric) paint(metric);
+      } catch {
+        /* keep zero fill */
+      }
+    };
+    run();
+    if (typeof subscribeQueryState === "function") {
+      this._unsub = subscribeQueryState(() => {
+        run();
+      });
+    }
   }
 }
 

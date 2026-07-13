@@ -406,7 +406,8 @@ discovered_app_ids() {
     echo "error: jq is required to parse discovered app ids" >&2
     return 1
   fi
-  jq -r '.[]' <<<"${raw}"
+  # apps list --json 返回对象数组：[{ "appId": "...", ... }, ...]
+  jq -r '.[].appId // empty' <<<"${raw}"
 }
 
 ensure_build_generation_aligned() {

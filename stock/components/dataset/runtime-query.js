@@ -127,6 +127,53 @@ function devEvalAllowsRuntimeQuery(props, element = null) {
   return typeof allows !== "function" || allows(props, element);
 }
 
+function staticDatasetRowsForBlockedQuery(props) {
+  if (typeof window === "undefined") return null;
+  const metricRef = resolveRuntimeMetricRef(props);
+  const rows = window.__meiLangBoot?.devEvalStaticDatasetRows?.(metricRef?.metric_id);
+  if (!Array.isArray(rows) || !rows.length) {
+    return null;
+  }
+  return {
+    rows,
+    total_rows: rows.length,
+    perf: { static_placeholder: 1 },
+  };
+}
+
+function staticMetricResultForBlockedQuery(props, metricIds = []) {
+  if (typeof window === "undefined") return null;
+  const scalar = window.__meiLangBoot?.devEvalScalarFromFixture;
+  if (typeof scalar !== "function") return null;
+  const requested = [...new Set(
+    (Array.isArray(metricIds) ? metricIds : [])
+      .map((value) => safeTrim(value))
+      .filter(Boolean),
+  )];
+  const refMetricId = safeTrim(resolveRuntimeMetricRef(props)?.metric_id);
+  const ids = requested.length ? requested : refMetricId ? [refMetricId] : [];
+  if (!ids.length) return null;
+  const metrics = ids
+    .map((metricId) => {
+      const entry = scalar(metricId);
+      if (!entry) return null;
+      return {
+        id: metricId,
+        value: entry.value,
+        label: entry.label,
+        unit: entry.unit,
+        rows: [],
+      };
+    })
+    .filter(Boolean);
+  if (!metrics.length) return null;
+  return {
+    metrics,
+    total_rows: metrics.length,
+    perf: { static_placeholder: 1 },
+  };
+}
+
 function activePageSceneId() {
   if (typeof document === "undefined") return "";
   return safeTrim(
@@ -4471,7 +4518,7 @@ function scheduleSceneRuntimeMetricRequest(
   } = {}
 ) {
   if (!devEvalAllowsRuntimeQuery(props)) {
-    return null;
+    return staticMetricResultForBlockedQuery(props, metricIds);
   }
   if (shouldPauseHomeRuntimeMetricFetch(props)) {
     return null;
@@ -4758,7 +4805,7 @@ export async function fetchDatasetRows(
   } = {}
 ) {
   if (!devEvalAllowsRuntimeQuery(props)) {
-    return null;
+    return staticDatasetRowsForBlockedQuery(props);
   }
   const capability = resolveDatasetQueryCapability(props);
   const api = capability.api;
