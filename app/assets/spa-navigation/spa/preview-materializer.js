@@ -163,10 +163,22 @@
     const hints = new Set([id]);
     if (id.endsWith("_count")) {
       const base = id.slice(0, -"_count".length);
-      hints.add(base);
-      hints.add(`${base}_card`);
+      // Avoid ultra-short bases like `case` matching unrelated scopes (`cases`).
+      if (base && base.length >= 4) {
+        hints.add(base);
+        hints.add(`${base}_card`);
+      }
     }
     return [...hints];
+  }
+
+  function findMetricCardHostInScope(scopeEl) {
+    if (!(scopeEl instanceof HTMLElement)) return null;
+    return (
+      scopeEl.querySelector(".component-host.metric-card") ||
+      scopeEl.querySelector('[data-mei-metric-card="true"] .component-host') ||
+      null
+    );
   }
 
   function scopeLookupCandidates(scopeKey) {
@@ -254,12 +266,17 @@
       for (const hint of metricMountScopeHints(metricId)) {
         const token = String(hint || "").trim().toLowerCase();
         if (!token || token.length < 4) continue;
-        if (scope.includes(token)) {
-          const score = token.length;
-          if (score > bestScore) {
-            best = mount;
-            bestScore = score;
-          }
+        const segmentHit =
+          scope === token ||
+          scope.endsWith(`/${token}`) ||
+          scope.includes(`/${token}/`) ||
+          scope.endsWith(`/${token}_card`) ||
+          scope.includes(`/${token}_card/`);
+        if (!segmentHit) continue;
+        const score = token.length;
+        if (score > bestScore) {
+          best = mount;
+          bestScore = score;
         }
       }
     }
@@ -371,15 +388,23 @@
     if (metricId) {
       const searchRoot = container instanceof HTMLElement ? container : root;
       for (const hint of metricMountScopeHints(metricId)) {
-        const scopeSelector = `[data-preview-scope$="${CSS.escape(hint)}"], [data-preview-scope*="${CSS.escape(hint)}"], [data-mei-panel-id$="${CSS.escape(hint)}"]`;
+        const token = String(hint || "").trim();
+        if (!token || token.length < 4) continue;
+        // Prefer path-segment matches; substring `case` must not hit `cases`.
+        const scopeSelector = [
+          `[data-preview-scope$="/${CSS.escape(token)}"]`,
+          `[data-preview-scope$="/${CSS.escape(token)}_card"]`,
+          `[data-preview-scope*="/${CSS.escape(token)}/"]`,
+          `[data-mei-panel-id$="/${CSS.escape(token)}"]`,
+          `[data-mei-panel-id$="${CSS.escape(token)}"]`,
+        ].join(", ");
         const scopeEl = searchRoot.querySelector(scopeSelector);
         if (!(scopeEl instanceof HTMLElement)) {
           continue;
         }
-        const host =
-          scopeEl.querySelector(".component-host.metric-card") ||
-          scopeEl.querySelector('[data-mei-metric-card="true"] .component-host') ||
-          scopeEl.querySelector(".component-host");
+        // Only bind scene metric mounts onto metric-card hosts — never clobber
+        // data-table / chart component-hosts in a loosely matched section.
+        const host = findMetricCardHostInScope(scopeEl);
         if (host instanceof HTMLElement) {
           return host;
         }
@@ -902,7 +927,14 @@
       key === "cockpit.header-brand" ||
       key.startsWith("chart.") ||
       key === "mei.chart" ||
-      key.startsWith("mei-chart");
+      key.startsWith("mei-chart") ||
+      // semantic_scene compose 会给每个 component 包一层 .preview-card（默认 14px 圆角）；
+      // 驾驶舱内嵌可视化与 chart.* 一样走 bare，避免园区圆环/罚金等出现圆角底。
+      key === "cockpit.donut-trio" ||
+      key === "cockpit.park-amount-list" ||
+      key === "cockpit.scroll-list" ||
+      key === "cockpit.data-table" ||
+      key === "cockpit.metric-progress";
     section.className = bareChrome
       ? "preview-card preview-card-bare mei-compose-block"
       : "preview-card mei-compose-block";
@@ -1012,18 +1044,32 @@
     }
 
     const tag =
-      role === "slot" || role === "section" || role === "region" ? "section" : "div";
+      role === "slot" || role === "section" || role === "region" || role === "slide"
+        ? "section"
+        : "div";
     const el = document.createElement(tag);
     el.className = `mei-compose-node mei-compose-${role || "node"}`;
     if (scope) el.setAttribute("data-preview-scope", scope);
     if (node.panel_id) {
       el.setAttribute("data-mei-panel-id", String(node.panel_id));
-    } else if ((role === "slot" || role === "section" || role === "region") && scope) {
+    } else if (
+      (role === "slot" || role === "section" || role === "region" || role === "slide") &&
+      scope
+    ) {
       el.setAttribute("data-mei-panel-id", scope);
     }
     el.setAttribute("data-mei-ui-role", String(node.ui_role || ""));
     if (node.label) {
       el.setAttribute("data-mei-structure-label", String(node.label));
+    }
+    // Deck controller resolves slides by panel name / leaf id.
+    if (role === "slide") {
+      const leaf =
+        String(node.panel_name || node.panel_id || scope || "")
+          .split("/")
+          .filter(Boolean)
+          .pop() || "";
+      if (leaf) el.setAttribute("data-mei-panel-name", leaf);
     }
     const planeCode = String(node.plane || "").trim();
     if (planeCode) {
@@ -1186,6 +1232,153 @@
       },
       scopeKey,
     );
+  }
+
+  function isScalarMetricLeafMount(mount) {
+    const useKey = String(mount?.use_key || "").trim();
+    if (useKey === "mei.text") return true;
+    if (useKey === "metric-card") {
+      const role = String(mount?.props?.metric_role || mount?.props?.metricRole || "").trim();
+      return Boolean(role);
+    }
+    return false;
+  }
+
+  function enrichComponentMetricRefs(value, scopeKey, parentHint = null) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      return value.map((entry) => enrichComponentMetricRefs(entry, scopeKey, parentHint));
+    }
+    const refKind = String(value.__ref || "").trim().toLowerCase();
+    if (refKind === "metric" || refKind === "metric_ref") {
+      const metricId = String(
+        value.id ||
+          value.metric_id ||
+          value.__args?.arg0 ||
+          value.__args?.[0] ||
+          "",
+      ).trim();
+      // For table row drilldown, prefer popup.params.rowset_dataset_id when present
+      // on the parent props object (passed as parentHint).
+      const preferredRowset = String(
+        parentHint?.popup?.params?.rowset_dataset_id ||
+          parentHint?.popup?.params?.rowsetDatasetId ||
+          parentHint?.row_drilldown_popup?.params?.rowset_dataset_id ||
+          "",
+      ).trim();
+      const datasetId = String(
+        preferredRowset ||
+          value.from_dataset ||
+          value.dataset_id ||
+          value.__args?.from_dataset ||
+          "",
+      ).trim();
+      if (metricId && datasetId) {
+        const runtimeRef = {
+          kind: "metric",
+          metric_id: metricId,
+          dataset_id: datasetId,
+          scene_id: String(
+            parentHint?.popup?.scene_id ||
+              global.__mei?.bootstrap_seed?.scope ||
+              global.__mei?.bootstrap_scope ||
+              "home",
+          ),
+          scene_path: String(parentHint?.popup?.scene_file || "").trim() || undefined,
+        };
+        return { ...value, __mei_runtime_ref: runtimeRef };
+      }
+    }
+    const next = {};
+    for (const [key, entry] of Object.entries(value)) {
+      // Pass the object itself as parentHint so nested drilldownMetric can see popup.
+      next[key] = enrichComponentMetricRefs(entry, scopeKey, value);
+    }
+    return next;
+  }
+
+  function frozenMountProps(mount, scopeKey) {
+    const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+    const enriched = propsWithPreviewScope(
+      enrichComponentMetricRefs(enrichComposeComponentProps(rawProps), scopeKey),
+      scopeKey,
+    );
+    const viewport = document.querySelector("[data-mei-frame-viewport]");
+    const shell = document.querySelector(
+      ".shell[data-app-path], .shell[data-compile-epoch], .shell[data-compile-target]",
+    );
+    const shellAppId = String(
+      shell?.getAttribute("data-app-path") ||
+        shell?.getAttribute("data-app") ||
+        global.__mei?.bootstrap_app_id ||
+        global.__mei?.app_id ||
+        global.__meiRuntimeAppId ||
+        "",
+    ).trim();
+    enriched._mei = {
+      ...(typeof enriched._mei === "object" && !Array.isArray(enriched._mei) ? enriched._mei : {}),
+      ...(shellAppId ? { app_id: shellAppId } : {}),
+      runtime_capabilities: readHostRuntimeCapabilitiesForCompose(),
+      active_scene_id: String(
+        global.__mei?.bootstrap_seed?.scope || global.__mei?.bootstrap_scope || "home",
+      ),
+      active_target_file:
+        viewport?.getAttribute("data-target-file") ||
+        shell?.getAttribute("data-compile-target") ||
+        "src/scene/home.mei",
+      entry_target:
+        viewport?.getAttribute("data-target-file") ||
+        shell?.getAttribute("data-compile-target") ||
+        "src/scene/home.mei",
+      compile_epoch: shell?.getAttribute("data-compile-epoch") || undefined,
+    };
+    enriched["data-mei-dev-eval-placeholder"] = "1";
+    return enriched;
+  }
+
+  function mountPropsForEval(mount, scopeKey, sceneMount, allowMetric) {
+    const rawProps =
+      mount?.props && typeof mount.props === "object" && Object.keys(mount.props).length
+        ? mount.props
+        : enrichComposeComponentProps(propsFromMount(mount));
+    const propsMount = { ...(mount || {}), props: rawProps };
+    if (allowMetric) {
+      return propsWithPreviewScope(
+        enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount || mount),
+        scopeKey,
+      );
+    }
+    // Authored plain-text leaves already carry string `content`; do not replace with `--`.
+    const authoredText =
+      typeof rawProps.content === "string" && rawProps.content.trim().length > 0
+        ? rawProps.content
+        : typeof rawProps.text === "string" && rawProps.text.trim().length > 0
+          ? rawProps.text
+          : "";
+    if (authoredText && String(mount?.use_key || "").trim() === "mei.text") {
+      const normalized = {
+        ...rawProps,
+        content:
+          typeof rawProps.content === "string"
+            ? rawProps.content
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\r/g, "\r")
+            : rawProps.content,
+        text:
+          typeof rawProps.text === "string"
+            ? rawProps.text
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\r/g, "\r")
+            : rawProps.text,
+      };
+      return frozenMountProps({ ...(mount || {}), props: normalized }, scopeKey);
+    }
+    if (isScalarMetricLeafMount(propsMount)) {
+      return placeholderMountProps(propsMount, scopeKey);
+    }
+    return frozenMountProps(propsMount, scopeKey);
   }
 
 
@@ -1526,7 +1719,9 @@
     const color = String(background.color || "").trim();
     if (images.length > 0) {
       // Keep fill color under icon / slot-fill layers (status-flow shells).
-      if (color) style.backgroundColor = color;
+      // Without an explicit color, clear `.preview-card` default wash so SVG
+      // skins (e.g. metric-bg-clean) remain visible.
+      style.backgroundColor = color || "transparent";
       style.backgroundImage = images.join(", ");
       const sizes = normalizeBackgroundLayerList(background.size);
       if (sizes.length) style.backgroundSize = sizes.join(", ");
@@ -1571,6 +1766,8 @@
       ["max_width", "max-width"],
       ["min_width", "min-width"],
       ["box_sizing", "box-sizing"],
+      ["justify_self", "justify-self"],
+      ["align_self", "align-self"],
     ];
     for (const [propKey, cssName] of stringKeys) {
       const raw = props[propKey];
@@ -1604,7 +1801,11 @@
       // semantic marker as fill even for legacy macros that predate
       // `__mei_layout_fill`.
       el.setAttribute("data-mei-layout-fill", "true");
-      if (slotFrameBackgroundNeedsStretch(props.background)) {
+      const forceStretch =
+        props.__mei_slot_bg_stretch === true ||
+        String(props.__mei_slot_bg_stretch || "").trim() === "true" ||
+        String(props.__mei_slot_bg_stretch || "").trim() === "1";
+      if (forceStretch || slotFrameBackgroundNeedsStretch(props.background)) {
         el.setAttribute("data-mei-slot-bg-stretch", "true");
       } else {
         el.removeAttribute("data-mei-slot-bg-stretch");
@@ -1799,12 +2000,7 @@
         (!metricId ||
           typeof boot.devEvalAllowsMetric !== "function" ||
           boot.devEvalAllowsMetric(metricId, scopeKey));
-      const props = allowMetric
-        ? propsWithPreviewScope(
-            enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount),
-            scopeKey,
-          )
-        : placeholderMountProps(mount, scopeKey);
+      const props = mountPropsForEval(mount, scopeKey, sceneMount, allowMetric);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
@@ -2779,7 +2975,7 @@
     // fixed chartHeight cannot spill into the next grid row.
     root
       .querySelectorAll(
-        '[data-preview-scope$="/chart"][data-mei-ui-role="slot"], [data-preview-scope$="/chart.column"][data-mei-ui-role="content"]',
+        '[data-preview-scope$="/chart"][data-mei-ui-role="slot"], [data-preview-scope$="/chart.column"][data-mei-ui-role="content"], [data-preview-scope$="/chart.ranking"][data-mei-ui-role="content"], [data-preview-scope$="/rank"][data-mei-ui-role="slot"], [data-preview-scope$="/matter_rank"]',
       )
       .forEach((el) => {
         if (!(el instanceof HTMLElement)) return;
@@ -2949,6 +3145,22 @@
         el.style.minHeight = "0";
         el.style.overflow = "hidden";
       });
+    // cockpit 内嵌可视化：运行时兜底去掉 compose 默认 14px 圆角底
+    root
+      .querySelectorAll(
+        "mei-cockpit-donut-trio, mei-cockpit-park-amount-list, mei-cockpit-scroll-list, mei-cockpit-data-table, mei-cockpit-metric-progress",
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const card = el.closest(".preview-card");
+        if (!(card instanceof HTMLElement)) return;
+        card.classList.add("preview-card-bare");
+        card.style.padding = "0";
+        card.style.gap = "0";
+        card.style.boxShadow = "none";
+        card.style.background = "transparent";
+        card.style.borderRadius = "0";
+      });
   }
 
   function rebindMetricCardHosts(root) {
@@ -3114,15 +3326,7 @@
             (!mountMetricId ||
               typeof boot.devEvalAllowsMetric !== "function" ||
               boot.devEvalAllowsMetric(mountMetricId, scopeKey));
-          const props = allowMetric
-            ? propsWithPreviewScope(
-                enrichRuntimeMetricRef(
-                  enrichComposeComponentProps(propsFromMount(mount)),
-                  mount,
-                ),
-                scopeKey,
-              )
-            : placeholderMountProps(mount, scopeKey);
+          const props = mountPropsForEval(mount, scopeKey, mount, allowMetric);
           const host = findHostForMount(root, mount, scopeKey, useKeys, index, container);
           if (host instanceof HTMLElement) {
             applyPropsToHost(host, props);
@@ -3181,6 +3385,8 @@
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
     applyDevEvalPlaceholders(root);
+    // mei.text connects before authored data-props settle; rebind after placeholders.
+    rebindAuthoredComponentHosts(root);
     if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
     boot.renderPipelineMark?.("bind_eval_slots:end", {
       bound,
@@ -3208,6 +3414,14 @@
         if (!(host instanceof HTMLElement)) return;
         const ownerScope = host.closest("[data-preview-scope], [data-mei-preview-scope]");
         if (ownerScope !== el) return;
+        const hostProps = parseHostProps(host);
+        const authored =
+          (typeof hostProps.content === "string" && hostProps.content.trim().length > 0) ||
+          (typeof hostProps.text === "string" && hostProps.text.trim().length > 0) ||
+          (typeof hostProps.html === "string" && hostProps.html.trim().length > 0);
+        // Authored deck/static mei.text already carries content — mark scope only,
+        // never clobber light-DOM text or overwrite data-props with `--`.
+        if (authored) return;
         host.setAttribute("data-mei-dev-eval-placeholder", "1");
         if (!host.getAttribute("data-props")) {
           host.setAttribute(

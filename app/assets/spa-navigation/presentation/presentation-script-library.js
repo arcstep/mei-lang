@@ -1,5 +1,6 @@
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const DECK_DEFAULT_SCRIPT_ID = "deck-default";
 
   const state = {
     appId: "",
@@ -45,6 +46,40 @@
 
   function resolveAppId(appId) {
     return String(appId || state.appId || parseAppIdFromPath() || "").trim();
+  }
+
+  function readAotDefaultManifest() {
+    const map = window.__mei?.presentation_map;
+    const manifest = map?.defaultScript || map?.default_script || null;
+    return manifest && Array.isArray(manifest.steps) && manifest.steps.length ? manifest : null;
+  }
+
+  function currentStageTargetKey() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.resolveStageTargetKey === "function") {
+      return String(ctx.resolveStageTargetKey() || "").trim();
+    }
+    const sceneId = parseSceneIdFromPath();
+    const map = window.__mei?.presentation_map;
+    const kind = map?.deck ? "presentation" : "scene";
+    return `${kind}/${sceneId}`;
+  }
+
+  function aotScriptEntry() {
+    const manifest = readAotDefaultManifest();
+    if (!manifest) return null;
+    return {
+      id: DECK_DEFAULT_SCRIPT_ID,
+      title: String(manifest.title || "Deck 默认讲稿").trim() || "Deck 默认讲稿",
+      path: "",
+      modifiedMs: null,
+      isDefault: true,
+      target: currentStageTargetKey(),
+      sourceKind: "aot",
+      aot: true,
+      readOnly: true,
+      manifest,
+    };
   }
 
   function resolveDefaultScriptId() {
@@ -93,19 +128,40 @@
     state.loading = resolvedAppId;
     try {
       const payload = await fetchJson(scriptsApi(resolvedAppId));
+      const scripts = Array.isArray(payload?.scripts) ? payload.scripts.slice() : [];
+      const aotEntry = aotScriptEntry();
+      if (aotEntry && !scripts.some((entry) => entry?.id === aotEntry.id)) {
+        scripts.push(aotEntry);
+      }
+      const normalizedPayload = { ...payload, scripts };
+      if (aotEntry && !String(normalizedPayload.defaultScriptId || "").trim()) {
+        normalizedPayload.defaultScriptId = aotEntry.id;
+      }
+      if (aotEntry) {
+        const defaultByStage = {
+          ...(normalizedPayload.defaultByStage &&
+          typeof normalizedPayload.defaultByStage === "object"
+            ? normalizedPayload.defaultByStage
+            : {}),
+        };
+        if (!Object.prototype.hasOwnProperty.call(defaultByStage, aotEntry.target)) {
+          defaultByStage[aotEntry.target] = aotEntry.id;
+        }
+        normalizedPayload.defaultByStage = defaultByStage;
+      }
       state.appId = resolvedAppId;
-      state.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
-      state.defaultScriptId = String(payload?.defaultScriptId || "").trim();
+      state.scripts = scripts;
+      state.defaultScriptId = String(normalizedPayload.defaultScriptId || "").trim();
       state.loaded = true;
       const embedRuntime = boot.presentationSlideEmbedRuntime;
-      if (payload.imageAssets && typeof payload.imageAssets === "object") {
+      if (normalizedPayload.imageAssets && typeof normalizedPayload.imageAssets === "object") {
         if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
-          embedRuntime.applyPresentationImageAssets(payload.imageAssets);
+          embedRuntime.applyPresentationImageAssets(normalizedPayload.imageAssets);
         } else {
-          boot.presentationImageAssets = payload.imageAssets;
+          boot.presentationImageAssets = normalizedPayload.imageAssets;
         }
       }
-      return payload;
+      return normalizedPayload;
     } finally {
       state.loading = null;
     }
@@ -117,6 +173,11 @@
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("getScript requires appId and scriptId");
     }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      const entry = aotScriptEntry();
+      if (!entry) throw new Error("当前舞台没有 AOT 默认讲稿");
+      return { ...entry, appId: resolvedAppId, source: "" };
+    }
     return fetchJson(scriptApi(resolvedAppId, resolvedScriptId));
   }
 
@@ -125,6 +186,9 @@
     const resolvedScriptId = String(scriptId || options.scriptId || state.activeScriptId || "").trim();
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("saveScript requires appId and scriptId");
+    }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      throw new Error("Deck 默认讲稿由编译产物提供，不能保存");
     }
     const payload = await fetchJson(scriptApi(resolvedAppId, resolvedScriptId), {
       method: "PUT",
@@ -143,6 +207,9 @@
     const resolvedScriptId = String(scriptId || "").trim();
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("setDefaultScript requires appId and scriptId");
+    }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      throw new Error("Deck 默认讲稿是只读 AOT 讲稿");
     }
     const payload = await fetchJson(`${scriptApi(resolvedAppId, resolvedScriptId)}/default`, {
       method: "POST",
@@ -172,6 +239,17 @@
     const resolvedScriptId = String(scriptId || resolveDefaultScriptId()).trim();
     const script = await getScript(resolvedScriptId, options.appId);
     state.activeScriptId = resolvedScriptId;
+    if (script.aot && script.manifest) {
+      return {
+        script,
+        result: {
+          manifest: script.manifest,
+          diagnostics: [],
+          warnings: [],
+          sourceKind: "aot",
+        },
+      };
+    }
     const result = await compileScriptSource(script.source, {
       ...options,
       scriptId: resolvedScriptId,

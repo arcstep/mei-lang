@@ -10,6 +10,7 @@
   const UI_ROLE_RANK = {
     scene: -1,
     plane: 0,
+    slide: 1,
     region: 1,
     section: 2,
     slot: 2,
@@ -139,7 +140,7 @@
 
   function branchDefaultOpen(node) {
     const role = String(node?.ui_role || "").trim().toLowerCase();
-    return role === "scene" || role === "plane" || role === "region" || role === "section";
+    return role === "scene" || role === "plane" || role === "slide" || role === "region" || role === "section";
   }
 
   function appendCountBadge(labelEl, childCount) {

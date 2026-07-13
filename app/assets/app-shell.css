@@ -5031,6 +5031,22 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   box-sizing: border-box;
   pointer-events: none;
 }
+/* Presentation P plane: stacked slides share the page area; FAB/MDX toggles [hidden]. */
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="p"] > .mei-compose-slide,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="P"] > .mei-compose-slide {
+  grid-area: page;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  pointer-events: auto;
+  overflow: hidden;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="p"] > .mei-compose-slide[hidden],
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="P"] > .mei-compose-slide[hidden] {
+  display: none !important;
+}
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"],
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] {
   z-index: 1;
@@ -5206,10 +5222,20 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 }
 .mei-compose-section-head > .panel-head-cell {
   min-height: 36px;
+  border-radius: 0;
 }
 .mei-compose-section-head > .panel-head-cell h3 {
   margin: 0;
   line-height: 1.2;
+}
+.mei-compose-scene-root .mei-compose-section-head.preview-card,
+.mei-compose-scene-root .mei-compose-section-head.preview-card-bare {
+  border-radius: 0;
+}
+.mei-compose-scene-root .mei-compose-section > [data-preview-scope$="/title"] .panel-head-cell,
+.mei-compose-scene-root .mei-compose-section > [data-preview-scope$="/title_zone"] .panel-head-cell,
+.mei-compose-scene-root .mei-compose-section > [data-preview-scope$="/head"] .panel-head-cell {
+  border-radius: 0;
 }
 .mei-compose-warning-panel,
 .mei-compose-compound-section {
@@ -5934,14 +5960,31 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   padding: 0;
   box-shadow: none;
   background: transparent;
+  border-radius: 0;
   /* 边框/圆角由 panel props（如 panel_shell）内联样式提供，每组独立外框 */
+}
+/* 驾驶舱内嵌可视化：即使漏掉 bare 类，也不要默认 14px 圆角底 */
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.donut-trio"],
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.park-amount-list"],
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.scroll-list"],
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.data-table"],
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.metric-progress"] {
+  gap: 0;
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+  border: none;
 }
 .preview-card.preview-card-bare[data-mei-slot-frame-bg="true"] {
   gap: 0;
   padding: 0;
   box-shadow: none;
+  border-radius: 0;
   /* Do not force background-size here: corner L-decor / status icon stacks
      embed per-layer sizes. SVG skins opt in via data-mei-slot-bg-stretch. */
+  /* Clear default `.preview-card` wash so metric SVG skins stay visible. */
+  background-color: transparent;
   background-repeat: no-repeat !important;
   background-origin: border-box;
   background-clip: border-box;

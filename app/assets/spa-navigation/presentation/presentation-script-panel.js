@@ -10,6 +10,7 @@
     busy: false,
     source: "",
     activeScriptId: "",
+    activeReadOnly: false,
     scripts: [],
     defaultScriptId: "",
     lastDiagnostics: [],
@@ -131,6 +132,7 @@
           const title = escapeHtml(script.title || script.id);
           const badges = [
             script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+            script.aot || script.sourceKind === "aot" ? "AOT · 只读" : "",
             uiState.activeScriptId === script.id ? "当前" : "",
           ]
             .filter(Boolean)
@@ -260,6 +262,9 @@
     if (editor instanceof HTMLTextAreaElement && editor.value !== uiState.source) {
       editor.value = uiState.source;
     }
+    if (editor instanceof HTMLTextAreaElement) {
+      editor.readOnly = uiState.activeReadOnly;
+    }
     if (label) {
       label.textContent = uiState.activeScriptId
         ? `当前：${uiState.activeScriptId}`
@@ -270,7 +275,10 @@
     panel.querySelectorAll("button").forEach((button) => {
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.dataset.presentationScriptClose === "true") return;
-      button.disabled = uiState.busy;
+      const mutatesSource =
+        button.dataset.presentationScriptSave === "true" ||
+        button.dataset.presentationScriptDefault === "true";
+      button.disabled = uiState.busy || (uiState.activeReadOnly && mutatesSource);
     });
     renderScriptList();
     if (uiState.open) {
@@ -308,6 +316,7 @@
     const script = await lib.getScript(scriptId, options.appId);
     uiState.activeScriptId = String(script.id || scriptId || "").trim();
     uiState.source = String(script.source || "");
+    uiState.activeReadOnly = Boolean(script.readOnly || script.aot);
     renderPanel();
     return script;
   }
@@ -376,6 +385,7 @@
       eng.stop();
     }
     uiState.activeScriptId = "";
+    uiState.activeReadOnly = false;
     setCompileResult(null);
     renderPanel();
     const tb = toolbar();
@@ -533,6 +543,7 @@
     if (!script || typeof script !== "object") return;
     uiState.activeScriptId = String(script.id || "").trim();
     uiState.source = String(script.source || "");
+    uiState.activeReadOnly = Boolean(script.readOnly || script.aot);
     renderPanel();
   }
 

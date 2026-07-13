@@ -11,6 +11,7 @@
   const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
   const EPHEMERAL_SOURCE = "ephemeral";
   const LIBRARY_SOURCE = "library";
+  const AOT_SOURCE = "aot";
 
   const state = {
     manifest: null,
@@ -19,6 +20,7 @@
     stepIndex: 0,
     sessionActive: false,
     everStarted: false,
+    aotSuppressed: false,
   };
 
   function readManifestFromDom() {
@@ -59,6 +61,35 @@
       } catch (_) {
         /* try next */
       }
+    }
+    return null;
+  }
+
+  function readAotDefaultManifest() {
+    if (state.aotSuppressed) return null;
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    const map = mei?.presentation_map;
+    const manifest = map?.defaultScript || map?.default_script || null;
+    return normalizeSteps(manifest).length ? manifest : null;
+  }
+
+  function resolveManifestCandidate() {
+    const stored = readStoredManifest();
+    const storedSource = String(stored?.source || "").trim();
+    if (
+      stored?.manifest &&
+      (storedSource === EPHEMERAL_SOURCE || storedSource === LIBRARY_SOURCE)
+    ) {
+      return { manifest: stored.manifest, source: storedSource };
+    }
+    const dom = readManifestFromDom();
+    if (dom) return { manifest: dom, source: "dom" };
+    if (stored?.manifest) {
+      return { manifest: stored.manifest, source: storedSource || "session" };
+    }
+    const aot = readAotDefaultManifest();
+    if (aot) {
+      return { manifest: aot, source: AOT_SOURCE, inject: false, persist: false };
     }
     return null;
   }
@@ -110,9 +141,8 @@
 
   function ensureLoadedAsync() {
     if (state.steps.length) return Promise.resolve(true);
-    const stored = readStoredManifest();
-    const manifest = readManifestFromDom() || stored?.manifest || null;
-    if (loadManifest(manifest, { source: stored?.source || "dom" })) return Promise.resolve(true);
+    const candidate = resolveManifestCandidate();
+    if (candidate && loadManifest(candidate.manifest, candidate)) return Promise.resolve(true);
     if (!manifestFetchPromise) {
       manifestFetchPromise = fetchManifestFromAssets()
         .then((fetched) => {
@@ -149,20 +179,22 @@
     state.manifest = manifest;
     state.manifestSource = source;
     state.steps = steps;
-    injectManifestScript(manifest);
-    persistManifest(manifest, { source: state.manifestSource });
+    state.aotSuppressed = false;
+    if (options.inject !== false) injectManifestScript(manifest);
+    if (options.persist !== false) {
+      persistManifest(manifest, { source: state.manifestSource });
+    }
     return true;
   }
 
   function ensureLoaded() {
     if (state.steps.length) return true;
-    const stored = readStoredManifest();
-    const manifest = readManifestFromDom() || stored?.manifest || null;
-    return loadManifest(manifest, { source: stored?.source || "dom" });
+    const candidate = resolveManifestCandidate();
+    return Boolean(candidate && loadManifest(candidate.manifest, candidate));
   }
 
   function hasManifest() {
-    return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest()?.manifest);
+    return Boolean(state.steps.length || resolveManifestCandidate()?.manifest);
   }
 
   function prefetchManifest() {
@@ -531,6 +563,7 @@
     state.stepIndex = 0;
     state.sessionActive = false;
     state.everStarted = false;
+    state.aotSuppressed = false;
   }
 
   function clearSessionManifest() {
@@ -538,6 +571,7 @@
     const manifestNode = document.getElementById("mei-presentation-manifest");
     if (manifestNode) manifestNode.remove();
     resetManifestState();
+    state.aotSuppressed = true;
     return true;
   }
 

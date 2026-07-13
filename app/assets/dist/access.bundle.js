@@ -24877,14 +24877,44 @@
     return true;
   }
 
+  function readPresentationDeck() {
+    const map =
+      (globalThis.__mei && globalThis.__mei.presentation_map) ||
+      (typeof window !== "undefined" && window.__mei && window.__mei.presentation_map) ||
+      null;
+    const deck = map && typeof map === "object" ? map.deck || map.presentation_deck : null;
+    if (!deck || typeof deck !== "object") return null;
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    return {
+      stageKind: String(deck.stageKind || deck.stage_kind || "presentation"),
+      activeSlideId: String(deck.activeSlideId || deck.active_slide_id || "").trim(),
+      slides: slides
+        .map((slide, index) => ({
+          id: String(slide?.id || "").trim(),
+          title: slide?.title || null,
+          chapter: slide?.chapter || null,
+          pattern: slide?.pattern || null,
+          order: Number.isFinite(slide?.order) ? Number(slide.order) : index,
+        }))
+        .filter((slide) => slide.id)
+        .sort((a, b) => a.order - b.order),
+    };
+  }
+
   function deckPageIds() {
-    return ["s-mission", "s-chain", "s-path", "s-handoff"];
+    const deck = readPresentationDeck();
+    if (deck && deck.slides.length) {
+      return deck.slides.map((slide) => slide.id);
+    }
+    return [];
   }
 
   function resolveDeckPageNode(pageId) {
     const normalized = String(pageId || "").trim();
     if (!normalized) return null;
     const selectors = [
+      `[data-mei-ui-role="slide"][data-mei-panel-name="${CSS.escape(normalized)}"]`,
+      `[data-mei-ui-role="slide"][data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
       `[data-mei-panel-name="${CSS.escape(normalized)}"]`,
       `[data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
       `[data-preview-scope$="/${CSS.escape(normalized)}"]`,
@@ -24909,35 +24939,11 @@
       nodes.push(node);
     }
     if (nodes.length) return nodes;
-    const deck =
-      document.querySelector('[data-preview-scope$="/r-deck"], [data-preview-scope$="/deck"]') ||
-      document.querySelector(
-        '[data-mei-panel-name="r-deck"], [data-mei-panel-name="deck"], [data-mei-structure-label="r-deck"]',
-      );
-    if (!(deck instanceof HTMLElement)) return [];
-    const directSections = Array.from(deck.children).filter(
-      (node) =>
-        node instanceof HTMLElement &&
-        String(node.getAttribute("data-mei-ui-role") || "") === "section",
-    );
-    const candidates = directSections.length
-      ? directSections
-      : Array.from(
-          deck.querySelectorAll(
-            '[data-preview-scope], [data-mei-panel-name], [data-mei-structure-label]',
-          ),
-        );
-    return candidates.filter((node) => {
-      if (!(node instanceof HTMLElement) || node === deck) return false;
-      const name = String(
-        node.getAttribute("data-mei-panel-name") ||
-          node.getAttribute("data-mei-structure-label") ||
-          node.getAttribute("data-preview-scope") ||
-          "",
-      );
-      const leaf = name.split("/").pop() || name;
-      return /^s-/.test(leaf);
-    });
+    const slideNodes = Array.from(
+      document.querySelectorAll('[data-mei-ui-role="slide"]'),
+    ).filter((node) => node instanceof HTMLElement);
+    if (slideNodes.length) return slideNodes;
+    return [];
   }
 
   function currentDeckPageIndex() {
@@ -24956,7 +24962,8 @@
       const wanted = String(pageIdOrIndex || "").trim();
       targetIndex = pages.findIndex((node) => {
         const name = String(node.getAttribute("data-mei-panel-name") || "");
-        return name === wanted || name.endsWith(`/${wanted}`);
+        const leaf = name.split("/").pop() || name;
+        return name === wanted || name.endsWith(`/${wanted}`) || leaf === wanted;
       });
       if (targetIndex < 0) {
         const byId = resolveDeckPageNode(wanted);
@@ -24982,6 +24989,10 @@
     if (!pages.length) return false;
     const visible = pages.filter((node) => !node.hasAttribute("hidden"));
     if (visible.length === 1) return true;
+    const deck = readPresentationDeck();
+    if (deck?.activeSlideId) {
+      if (showDeckPage(deck.activeSlideId)) return true;
+    }
     return showDeckPage(0);
   }
 
@@ -25597,6 +25608,7 @@
   const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
   const EPHEMERAL_SOURCE = "ephemeral";
   const LIBRARY_SOURCE = "library";
+  const AOT_SOURCE = "aot";
 
   const state = {
     manifest: null,
@@ -25605,6 +25617,7 @@
     stepIndex: 0,
     sessionActive: false,
     everStarted: false,
+    aotSuppressed: false,
   };
 
   function readManifestFromDom() {
@@ -25645,6 +25658,35 @@
       } catch (_) {
         /* try next */
       }
+    }
+    return null;
+  }
+
+  function readAotDefaultManifest() {
+    if (state.aotSuppressed) return null;
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    const map = mei?.presentation_map;
+    const manifest = map?.defaultScript || map?.default_script || null;
+    return normalizeSteps(manifest).length ? manifest : null;
+  }
+
+  function resolveManifestCandidate() {
+    const stored = readStoredManifest();
+    const storedSource = String(stored?.source || "").trim();
+    if (
+      stored?.manifest &&
+      (storedSource === EPHEMERAL_SOURCE || storedSource === LIBRARY_SOURCE)
+    ) {
+      return { manifest: stored.manifest, source: storedSource };
+    }
+    const dom = readManifestFromDom();
+    if (dom) return { manifest: dom, source: "dom" };
+    if (stored?.manifest) {
+      return { manifest: stored.manifest, source: storedSource || "session" };
+    }
+    const aot = readAotDefaultManifest();
+    if (aot) {
+      return { manifest: aot, source: AOT_SOURCE, inject: false, persist: false };
     }
     return null;
   }
@@ -25696,9 +25738,8 @@
 
   function ensureLoadedAsync() {
     if (state.steps.length) return Promise.resolve(true);
-    const stored = readStoredManifest();
-    const manifest = readManifestFromDom() || stored?.manifest || null;
-    if (loadManifest(manifest, { source: stored?.source || "dom" })) return Promise.resolve(true);
+    const candidate = resolveManifestCandidate();
+    if (candidate && loadManifest(candidate.manifest, candidate)) return Promise.resolve(true);
     if (!manifestFetchPromise) {
       manifestFetchPromise = fetchManifestFromAssets()
         .then((fetched) => {
@@ -25735,20 +25776,22 @@
     state.manifest = manifest;
     state.manifestSource = source;
     state.steps = steps;
-    injectManifestScript(manifest);
-    persistManifest(manifest, { source: state.manifestSource });
+    state.aotSuppressed = false;
+    if (options.inject !== false) injectManifestScript(manifest);
+    if (options.persist !== false) {
+      persistManifest(manifest, { source: state.manifestSource });
+    }
     return true;
   }
 
   function ensureLoaded() {
     if (state.steps.length) return true;
-    const stored = readStoredManifest();
-    const manifest = readManifestFromDom() || stored?.manifest || null;
-    return loadManifest(manifest, { source: stored?.source || "dom" });
+    const candidate = resolveManifestCandidate();
+    return Boolean(candidate && loadManifest(candidate.manifest, candidate));
   }
 
   function hasManifest() {
-    return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest()?.manifest);
+    return Boolean(state.steps.length || resolveManifestCandidate()?.manifest);
   }
 
   function prefetchManifest() {
@@ -26117,6 +26160,7 @@
     state.stepIndex = 0;
     state.sessionActive = false;
     state.everStarted = false;
+    state.aotSuppressed = false;
   }
 
   function clearSessionManifest() {
@@ -26124,6 +26168,7 @@
     const manifestNode = document.getElementById("mei-presentation-manifest");
     if (manifestNode) manifestNode.remove();
     resetManifestState();
+    state.aotSuppressed = true;
     return true;
   }
 
@@ -26407,6 +26452,7 @@
 /* ===== spa-navigation/presentation/presentation-script-library.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const DECK_DEFAULT_SCRIPT_ID = "deck-default";
 
   const state = {
     appId: "",
@@ -26452,6 +26498,40 @@
 
   function resolveAppId(appId) {
     return String(appId || state.appId || parseAppIdFromPath() || "").trim();
+  }
+
+  function readAotDefaultManifest() {
+    const map = window.__mei?.presentation_map;
+    const manifest = map?.defaultScript || map?.default_script || null;
+    return manifest && Array.isArray(manifest.steps) && manifest.steps.length ? manifest : null;
+  }
+
+  function currentStageTargetKey() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.resolveStageTargetKey === "function") {
+      return String(ctx.resolveStageTargetKey() || "").trim();
+    }
+    const sceneId = parseSceneIdFromPath();
+    const map = window.__mei?.presentation_map;
+    const kind = map?.deck ? "presentation" : "scene";
+    return `${kind}/${sceneId}`;
+  }
+
+  function aotScriptEntry() {
+    const manifest = readAotDefaultManifest();
+    if (!manifest) return null;
+    return {
+      id: DECK_DEFAULT_SCRIPT_ID,
+      title: String(manifest.title || "Deck 默认讲稿").trim() || "Deck 默认讲稿",
+      path: "",
+      modifiedMs: null,
+      isDefault: true,
+      target: currentStageTargetKey(),
+      sourceKind: "aot",
+      aot: true,
+      readOnly: true,
+      manifest,
+    };
   }
 
   function resolveDefaultScriptId() {
@@ -26500,19 +26580,40 @@
     state.loading = resolvedAppId;
     try {
       const payload = await fetchJson(scriptsApi(resolvedAppId));
+      const scripts = Array.isArray(payload?.scripts) ? payload.scripts.slice() : [];
+      const aotEntry = aotScriptEntry();
+      if (aotEntry && !scripts.some((entry) => entry?.id === aotEntry.id)) {
+        scripts.push(aotEntry);
+      }
+      const normalizedPayload = { ...payload, scripts };
+      if (aotEntry && !String(normalizedPayload.defaultScriptId || "").trim()) {
+        normalizedPayload.defaultScriptId = aotEntry.id;
+      }
+      if (aotEntry) {
+        const defaultByStage = {
+          ...(normalizedPayload.defaultByStage &&
+          typeof normalizedPayload.defaultByStage === "object"
+            ? normalizedPayload.defaultByStage
+            : {}),
+        };
+        if (!Object.prototype.hasOwnProperty.call(defaultByStage, aotEntry.target)) {
+          defaultByStage[aotEntry.target] = aotEntry.id;
+        }
+        normalizedPayload.defaultByStage = defaultByStage;
+      }
       state.appId = resolvedAppId;
-      state.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
-      state.defaultScriptId = String(payload?.defaultScriptId || "").trim();
+      state.scripts = scripts;
+      state.defaultScriptId = String(normalizedPayload.defaultScriptId || "").trim();
       state.loaded = true;
       const embedRuntime = boot.presentationSlideEmbedRuntime;
-      if (payload.imageAssets && typeof payload.imageAssets === "object") {
+      if (normalizedPayload.imageAssets && typeof normalizedPayload.imageAssets === "object") {
         if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
-          embedRuntime.applyPresentationImageAssets(payload.imageAssets);
+          embedRuntime.applyPresentationImageAssets(normalizedPayload.imageAssets);
         } else {
-          boot.presentationImageAssets = payload.imageAssets;
+          boot.presentationImageAssets = normalizedPayload.imageAssets;
         }
       }
-      return payload;
+      return normalizedPayload;
     } finally {
       state.loading = null;
     }
@@ -26524,6 +26625,11 @@
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("getScript requires appId and scriptId");
     }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      const entry = aotScriptEntry();
+      if (!entry) throw new Error("当前舞台没有 AOT 默认讲稿");
+      return { ...entry, appId: resolvedAppId, source: "" };
+    }
     return fetchJson(scriptApi(resolvedAppId, resolvedScriptId));
   }
 
@@ -26532,6 +26638,9 @@
     const resolvedScriptId = String(scriptId || options.scriptId || state.activeScriptId || "").trim();
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("saveScript requires appId and scriptId");
+    }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      throw new Error("Deck 默认讲稿由编译产物提供，不能保存");
     }
     const payload = await fetchJson(scriptApi(resolvedAppId, resolvedScriptId), {
       method: "PUT",
@@ -26550,6 +26659,9 @@
     const resolvedScriptId = String(scriptId || "").trim();
     if (!resolvedAppId || !resolvedScriptId) {
       throw new Error("setDefaultScript requires appId and scriptId");
+    }
+    if (resolvedScriptId === DECK_DEFAULT_SCRIPT_ID) {
+      throw new Error("Deck 默认讲稿是只读 AOT 讲稿");
     }
     const payload = await fetchJson(`${scriptApi(resolvedAppId, resolvedScriptId)}/default`, {
       method: "POST",
@@ -26579,6 +26691,17 @@
     const resolvedScriptId = String(scriptId || resolveDefaultScriptId()).trim();
     const script = await getScript(resolvedScriptId, options.appId);
     state.activeScriptId = resolvedScriptId;
+    if (script.aot && script.manifest) {
+      return {
+        script,
+        result: {
+          manifest: script.manifest,
+          diagnostics: [],
+          warnings: [],
+          sourceKind: "aot",
+        },
+      };
+    }
     const result = await compileScriptSource(script.source, {
       ...options,
       scriptId: resolvedScriptId,
@@ -26687,6 +26810,7 @@
     busy: false,
     source: "",
     activeScriptId: "",
+    activeReadOnly: false,
     scripts: [],
     defaultScriptId: "",
     lastDiagnostics: [],
@@ -26808,6 +26932,7 @@
           const title = escapeHtml(script.title || script.id);
           const badges = [
             script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+            script.aot || script.sourceKind === "aot" ? "AOT · 只读" : "",
             uiState.activeScriptId === script.id ? "当前" : "",
           ]
             .filter(Boolean)
@@ -26937,6 +27062,9 @@
     if (editor instanceof HTMLTextAreaElement && editor.value !== uiState.source) {
       editor.value = uiState.source;
     }
+    if (editor instanceof HTMLTextAreaElement) {
+      editor.readOnly = uiState.activeReadOnly;
+    }
     if (label) {
       label.textContent = uiState.activeScriptId
         ? `当前：${uiState.activeScriptId}`
@@ -26947,7 +27075,10 @@
     panel.querySelectorAll("button").forEach((button) => {
       if (!(button instanceof HTMLButtonElement)) return;
       if (button.dataset.presentationScriptClose === "true") return;
-      button.disabled = uiState.busy;
+      const mutatesSource =
+        button.dataset.presentationScriptSave === "true" ||
+        button.dataset.presentationScriptDefault === "true";
+      button.disabled = uiState.busy || (uiState.activeReadOnly && mutatesSource);
     });
     renderScriptList();
     if (uiState.open) {
@@ -26985,6 +27116,7 @@
     const script = await lib.getScript(scriptId, options.appId);
     uiState.activeScriptId = String(script.id || scriptId || "").trim();
     uiState.source = String(script.source || "");
+    uiState.activeReadOnly = Boolean(script.readOnly || script.aot);
     renderPanel();
     return script;
   }
@@ -27053,6 +27185,7 @@
       eng.stop();
     }
     uiState.activeScriptId = "";
+    uiState.activeReadOnly = false;
     setCompileResult(null);
     renderPanel();
     const tb = toolbar();
@@ -27210,6 +27343,7 @@
     if (!script || typeof script !== "object") return;
     uiState.activeScriptId = String(script.id || "").trim();
     uiState.source = String(script.source || "");
+    uiState.activeReadOnly = Boolean(script.readOnly || script.aot);
     renderPanel();
   }
 
@@ -31749,6 +31883,7 @@
   const UI_ROLE_RANK = {
     scene: -1,
     plane: 0,
+    slide: 1,
     region: 1,
     section: 2,
     slot: 2,
@@ -31878,7 +32013,7 @@
 
   function branchDefaultOpen(node) {
     const role = String(node?.ui_role || "").trim().toLowerCase();
-    return role === "scene" || role === "plane" || role === "region" || role === "section";
+    return role === "scene" || role === "plane" || role === "slide" || role === "region" || role === "section";
   }
 
   function appendCountBadge(labelEl, childCount) {
@@ -33350,7 +33485,125 @@
     return allowsEvalScope(scopeKey || "");
   }
 
+  // pretty-panels `prototype/static-layout.fixture.json` — frozen 布局调试默认真源；
+  // 应用可在 SSR 注入 `window.__mei.static_layout_fixture` 覆盖。
+  const DEFAULT_STATIC_LAYOUT_FIXTURE = [
+    { metric_id: "inspection_frequency_reduction_rate", label: "检查频次降低率", value: 53.8, unit: "%" },
+    { metric_id: "penalty_revenue_growth_rate", label: "罚没收入增长率", value: -52.4, unit: "%" },
+    { metric_id: "warnings_verification_rate", label: "预警查实率", value: 81.8, unit: "%" },
+    { metric_id: "effectiveness_verified_rectification_rate", label: "查实预警整改率", value: 0.0, unit: "%" },
+    { metric_id: "enforcement_units_count", label: "执法单位", value: 42, unit: "个" },
+    { metric_id: "enforcement_personnel_count", label: "执法人员", value: 1000, unit: "人" },
+    { metric_id: "enforcement_items_count", label: "执法事项", value: 1000, unit: "项" },
+    { metric_id: "enforcement_objects_count", label: "执法对象", value: 16.4, unit: "万" },
+    { metric_id: "key_enterprises_count", label: "重点企业", value: 1000, unit: "家" },
+    { metric_id: "enforcement_parks_count", label: "园区", value: 3, unit: "个" },
+    { metric_id: "whitelist_enterprises_count", label: "白名单", value: 18, unit: "家" },
+    { metric_id: "supervision_items_count", label: "监督事项", value: 23, unit: "项" },
+    { metric_id: "supervision_models_count", label: "预警模型", value: 20, unit: "个" },
+    { metric_id: "warnings_count", label: "预警总数", value: 14, unit: "件" },
+    { metric_id: "warnings_pending_count", label: "待办", value: 4, unit: "件" },
+    { metric_id: "effectiveness_in_progress_count", label: "在办", value: 10, unit: "件" },
+    { metric_id: "effectiveness_completed_count", label: "已办", value: 86, unit: "件" },
+    { metric_id: "effectiveness_issue_verification_rate", label: "查实率", value: 81.8, unit: "%" },
+    { metric_id: "inspection_total_count", label: "总数", value: 42053, unit: "次" },
+    { metric_id: "inspection_no_violation_count", label: "无违规", value: 33994, unit: "次" },
+    { metric_id: "penalty_total_count", label: "总数", value: 8718, unit: "件" },
+    { metric_id: "ai_enforcement_recognition_count", label: "AI执法识别", value: 916, unit: "次" },
+  ];
+
+  const STATIC_DEMO_ROWS = {
+    park_inspection_total_by_park: [
+      { 园区名称: "西部科学城", value: 18620 },
+      { 园区名称: "联东U谷", value: 12480 },
+      { 园区名称: "凤凰山工业园", value: 9953 },
+    ],
+    inspections_no_violation_by_park: [
+      { 园区名称: "西部科学城", value: 16204 },
+      { 园区名称: "联东U谷", value: 11026 },
+      { 园区名称: "凤凰山工业园", value: 8801 },
+    ],
+    park_penalty_amount_by_park: [
+      { 园区名称: "西部科学城", value: 2860000 },
+      { 园区名称: "联东U谷", value: 1945000 },
+      { 园区名称: "凤凰山工业园", value: 1320000 },
+    ],
+    penalties_top_party_year_amount_bars: [
+      { 当事人: "甲公司", year: "2024", value: 128 },
+      { 当事人: "乙公司", year: "2024", value: 96 },
+      { 当事人: "丙公司", year: "2025", value: 84 },
+    ],
+    penalties_top_matter_year_ranking: [
+      { 处罚事项: "未按规定公示信息", 处罚次数_2025: 42 },
+      { 处罚事项: "安全生产违法", 处罚次数_2025: 31 },
+      { 处罚事项: "占道经营", 处罚次数_2025: 18 },
+    ],
+  };
+
+  function readStaticLayoutFixture() {
+    const injected = global.__mei?.static_layout_fixture;
+    if (Array.isArray(injected) && injected.length) {
+      return injected;
+    }
+    return DEFAULT_STATIC_LAYOUT_FIXTURE;
+  }
+
+  function scalarFromStaticFixture(metricId) {
+    const id = String(metricId || "").trim();
+    if (!id) return null;
+    const entry = readStaticLayoutFixture().find(
+      (item) => String(item?.metric_id || "").trim() === id,
+    );
+    if (!entry) return null;
+    const unit = String(entry.unit || "").trim();
+    const value = entry.value;
+    const text = unit ? `${value}${unit}` : String(value ?? "--");
+    return {
+      content: text,
+      text,
+      value: entry.value,
+      label: entry.label || text,
+      unit,
+    };
+  }
+
+  function staticDatasetRowsForMetric(metricId) {
+    const id = String(metricId || "").trim();
+    if (!id) return null;
+    const rows = STATIC_DEMO_ROWS[id];
+    return Array.isArray(rows) ? rows.map((row) => ({ ...row })) : null;
+  }
+
+  function metricIdFromMount(mount) {
+    const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+    const content =
+      rawProps.content && typeof rawProps.content === "object" && !Array.isArray(rawProps.content)
+        ? rawProps.content
+        : null;
+    return String(
+      mount?.metric_id ||
+        rawProps.metric_id ||
+        rawProps.metricId ||
+        content?.id ||
+        content?.metric_id ||
+        "",
+    ).trim();
+  }
+
   function placeholderPropsForMount(mount) {
+    const metricId = metricIdFromMount(mount);
+    if (metricId) {
+      const scalar = scalarFromStaticFixture(metricId);
+      if (scalar) {
+        const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+        const role = String(rawProps.metric_role || rawProps.metricRole || "").trim();
+        return {
+          ...(role ? { metric_role: role } : {}),
+          ...scalar,
+          "data-mei-dev-eval-placeholder": "1",
+        };
+      }
+    }
     const kind = String(mount?.kind || mount?.component || mount?.use_key || "").toLowerCase();
     if (kind.includes("chart") || kind.includes("echarts")) {
       return {
@@ -33428,6 +33681,8 @@
   boot.devEvalAllowsWarmupScope = allowsWarmupScope;
   boot.devEvalShouldFetchEvalPack = shouldFetchEvalPack;
   boot.devEvalPlaceholderProps = placeholderPropsForMount;
+  boot.devEvalScalarFromFixture = scalarFromStaticFixture;
+  boot.devEvalStaticDatasetRows = staticDatasetRowsForMetric;
   boot.devEvalScopeFromProps = scopeFromProps;
   boot.devEvalScopeFromElement = scopeFromElement;
   boot.devEvalAllowsRuntimeQuery = allowsRuntimeQuery;
@@ -35212,10 +35467,22 @@
     const hints = new Set([id]);
     if (id.endsWith("_count")) {
       const base = id.slice(0, -"_count".length);
-      hints.add(base);
-      hints.add(`${base}_card`);
+      // Avoid ultra-short bases like `case` matching unrelated scopes (`cases`).
+      if (base && base.length >= 4) {
+        hints.add(base);
+        hints.add(`${base}_card`);
+      }
     }
     return [...hints];
+  }
+
+  function findMetricCardHostInScope(scopeEl) {
+    if (!(scopeEl instanceof HTMLElement)) return null;
+    return (
+      scopeEl.querySelector(".component-host.metric-card") ||
+      scopeEl.querySelector('[data-mei-metric-card="true"] .component-host') ||
+      null
+    );
   }
 
   function scopeLookupCandidates(scopeKey) {
@@ -35303,12 +35570,17 @@
       for (const hint of metricMountScopeHints(metricId)) {
         const token = String(hint || "").trim().toLowerCase();
         if (!token || token.length < 4) continue;
-        if (scope.includes(token)) {
-          const score = token.length;
-          if (score > bestScore) {
-            best = mount;
-            bestScore = score;
-          }
+        const segmentHit =
+          scope === token ||
+          scope.endsWith(`/${token}`) ||
+          scope.includes(`/${token}/`) ||
+          scope.endsWith(`/${token}_card`) ||
+          scope.includes(`/${token}_card/`);
+        if (!segmentHit) continue;
+        const score = token.length;
+        if (score > bestScore) {
+          best = mount;
+          bestScore = score;
         }
       }
     }
@@ -35420,15 +35692,23 @@
     if (metricId) {
       const searchRoot = container instanceof HTMLElement ? container : root;
       for (const hint of metricMountScopeHints(metricId)) {
-        const scopeSelector = `[data-preview-scope$="${CSS.escape(hint)}"], [data-preview-scope*="${CSS.escape(hint)}"], [data-mei-panel-id$="${CSS.escape(hint)}"]`;
+        const token = String(hint || "").trim();
+        if (!token || token.length < 4) continue;
+        // Prefer path-segment matches; substring `case` must not hit `cases`.
+        const scopeSelector = [
+          `[data-preview-scope$="/${CSS.escape(token)}"]`,
+          `[data-preview-scope$="/${CSS.escape(token)}_card"]`,
+          `[data-preview-scope*="/${CSS.escape(token)}/"]`,
+          `[data-mei-panel-id$="/${CSS.escape(token)}"]`,
+          `[data-mei-panel-id$="${CSS.escape(token)}"]`,
+        ].join(", ");
         const scopeEl = searchRoot.querySelector(scopeSelector);
         if (!(scopeEl instanceof HTMLElement)) {
           continue;
         }
-        const host =
-          scopeEl.querySelector(".component-host.metric-card") ||
-          scopeEl.querySelector('[data-mei-metric-card="true"] .component-host') ||
-          scopeEl.querySelector(".component-host");
+        // Only bind scene metric mounts onto metric-card hosts — never clobber
+        // data-table / chart component-hosts in a loosely matched section.
+        const host = findMetricCardHostInScope(scopeEl);
         if (host instanceof HTMLElement) {
           return host;
         }
@@ -35951,7 +36231,14 @@
       key === "cockpit.header-brand" ||
       key.startsWith("chart.") ||
       key === "mei.chart" ||
-      key.startsWith("mei-chart");
+      key.startsWith("mei-chart") ||
+      // semantic_scene compose 会给每个 component 包一层 .preview-card（默认 14px 圆角）；
+      // 驾驶舱内嵌可视化与 chart.* 一样走 bare，避免园区圆环/罚金等出现圆角底。
+      key === "cockpit.donut-trio" ||
+      key === "cockpit.park-amount-list" ||
+      key === "cockpit.scroll-list" ||
+      key === "cockpit.data-table" ||
+      key === "cockpit.metric-progress";
     section.className = bareChrome
       ? "preview-card preview-card-bare mei-compose-block"
       : "preview-card mei-compose-block";
@@ -36061,18 +36348,32 @@
     }
 
     const tag =
-      role === "slot" || role === "section" || role === "region" ? "section" : "div";
+      role === "slot" || role === "section" || role === "region" || role === "slide"
+        ? "section"
+        : "div";
     const el = document.createElement(tag);
     el.className = `mei-compose-node mei-compose-${role || "node"}`;
     if (scope) el.setAttribute("data-preview-scope", scope);
     if (node.panel_id) {
       el.setAttribute("data-mei-panel-id", String(node.panel_id));
-    } else if ((role === "slot" || role === "section" || role === "region") && scope) {
+    } else if (
+      (role === "slot" || role === "section" || role === "region" || role === "slide") &&
+      scope
+    ) {
       el.setAttribute("data-mei-panel-id", scope);
     }
     el.setAttribute("data-mei-ui-role", String(node.ui_role || ""));
     if (node.label) {
       el.setAttribute("data-mei-structure-label", String(node.label));
+    }
+    // Deck controller resolves slides by panel name / leaf id.
+    if (role === "slide") {
+      const leaf =
+        String(node.panel_name || node.panel_id || scope || "")
+          .split("/")
+          .filter(Boolean)
+          .pop() || "";
+      if (leaf) el.setAttribute("data-mei-panel-name", leaf);
     }
     const planeCode = String(node.plane || "").trim();
     if (planeCode) {
@@ -36235,6 +36536,153 @@
       },
       scopeKey,
     );
+  }
+
+  function isScalarMetricLeafMount(mount) {
+    const useKey = String(mount?.use_key || "").trim();
+    if (useKey === "mei.text") return true;
+    if (useKey === "metric-card") {
+      const role = String(mount?.props?.metric_role || mount?.props?.metricRole || "").trim();
+      return Boolean(role);
+    }
+    return false;
+  }
+
+  function enrichComponentMetricRefs(value, scopeKey, parentHint = null) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      return value.map((entry) => enrichComponentMetricRefs(entry, scopeKey, parentHint));
+    }
+    const refKind = String(value.__ref || "").trim().toLowerCase();
+    if (refKind === "metric" || refKind === "metric_ref") {
+      const metricId = String(
+        value.id ||
+          value.metric_id ||
+          value.__args?.arg0 ||
+          value.__args?.[0] ||
+          "",
+      ).trim();
+      // For table row drilldown, prefer popup.params.rowset_dataset_id when present
+      // on the parent props object (passed as parentHint).
+      const preferredRowset = String(
+        parentHint?.popup?.params?.rowset_dataset_id ||
+          parentHint?.popup?.params?.rowsetDatasetId ||
+          parentHint?.row_drilldown_popup?.params?.rowset_dataset_id ||
+          "",
+      ).trim();
+      const datasetId = String(
+        preferredRowset ||
+          value.from_dataset ||
+          value.dataset_id ||
+          value.__args?.from_dataset ||
+          "",
+      ).trim();
+      if (metricId && datasetId) {
+        const runtimeRef = {
+          kind: "metric",
+          metric_id: metricId,
+          dataset_id: datasetId,
+          scene_id: String(
+            parentHint?.popup?.scene_id ||
+              global.__mei?.bootstrap_seed?.scope ||
+              global.__mei?.bootstrap_scope ||
+              "home",
+          ),
+          scene_path: String(parentHint?.popup?.scene_file || "").trim() || undefined,
+        };
+        return { ...value, __mei_runtime_ref: runtimeRef };
+      }
+    }
+    const next = {};
+    for (const [key, entry] of Object.entries(value)) {
+      // Pass the object itself as parentHint so nested drilldownMetric can see popup.
+      next[key] = enrichComponentMetricRefs(entry, scopeKey, value);
+    }
+    return next;
+  }
+
+  function frozenMountProps(mount, scopeKey) {
+    const rawProps = mount?.props && typeof mount.props === "object" ? mount.props : {};
+    const enriched = propsWithPreviewScope(
+      enrichComponentMetricRefs(enrichComposeComponentProps(rawProps), scopeKey),
+      scopeKey,
+    );
+    const viewport = document.querySelector("[data-mei-frame-viewport]");
+    const shell = document.querySelector(
+      ".shell[data-app-path], .shell[data-compile-epoch], .shell[data-compile-target]",
+    );
+    const shellAppId = String(
+      shell?.getAttribute("data-app-path") ||
+        shell?.getAttribute("data-app") ||
+        global.__mei?.bootstrap_app_id ||
+        global.__mei?.app_id ||
+        global.__meiRuntimeAppId ||
+        "",
+    ).trim();
+    enriched._mei = {
+      ...(typeof enriched._mei === "object" && !Array.isArray(enriched._mei) ? enriched._mei : {}),
+      ...(shellAppId ? { app_id: shellAppId } : {}),
+      runtime_capabilities: readHostRuntimeCapabilitiesForCompose(),
+      active_scene_id: String(
+        global.__mei?.bootstrap_seed?.scope || global.__mei?.bootstrap_scope || "home",
+      ),
+      active_target_file:
+        viewport?.getAttribute("data-target-file") ||
+        shell?.getAttribute("data-compile-target") ||
+        "src/scene/home.mei",
+      entry_target:
+        viewport?.getAttribute("data-target-file") ||
+        shell?.getAttribute("data-compile-target") ||
+        "src/scene/home.mei",
+      compile_epoch: shell?.getAttribute("data-compile-epoch") || undefined,
+    };
+    enriched["data-mei-dev-eval-placeholder"] = "1";
+    return enriched;
+  }
+
+  function mountPropsForEval(mount, scopeKey, sceneMount, allowMetric) {
+    const rawProps =
+      mount?.props && typeof mount.props === "object" && Object.keys(mount.props).length
+        ? mount.props
+        : enrichComposeComponentProps(propsFromMount(mount));
+    const propsMount = { ...(mount || {}), props: rawProps };
+    if (allowMetric) {
+      return propsWithPreviewScope(
+        enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount || mount),
+        scopeKey,
+      );
+    }
+    // Authored plain-text leaves already carry string `content`; do not replace with `--`.
+    const authoredText =
+      typeof rawProps.content === "string" && rawProps.content.trim().length > 0
+        ? rawProps.content
+        : typeof rawProps.text === "string" && rawProps.text.trim().length > 0
+          ? rawProps.text
+          : "";
+    if (authoredText && String(mount?.use_key || "").trim() === "mei.text") {
+      const normalized = {
+        ...rawProps,
+        content:
+          typeof rawProps.content === "string"
+            ? rawProps.content
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\r/g, "\r")
+            : rawProps.content,
+        text:
+          typeof rawProps.text === "string"
+            ? rawProps.text
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\r/g, "\r")
+            : rawProps.text,
+      };
+      return frozenMountProps({ ...(mount || {}), props: normalized }, scopeKey);
+    }
+    if (isScalarMetricLeafMount(propsMount)) {
+      return placeholderMountProps(propsMount, scopeKey);
+    }
+    return frozenMountProps(propsMount, scopeKey);
   }
 
 
@@ -36575,7 +37023,9 @@
     const color = String(background.color || "").trim();
     if (images.length > 0) {
       // Keep fill color under icon / slot-fill layers (status-flow shells).
-      if (color) style.backgroundColor = color;
+      // Without an explicit color, clear `.preview-card` default wash so SVG
+      // skins (e.g. metric-bg-clean) remain visible.
+      style.backgroundColor = color || "transparent";
       style.backgroundImage = images.join(", ");
       const sizes = normalizeBackgroundLayerList(background.size);
       if (sizes.length) style.backgroundSize = sizes.join(", ");
@@ -36620,6 +37070,8 @@
       ["max_width", "max-width"],
       ["min_width", "min-width"],
       ["box_sizing", "box-sizing"],
+      ["justify_self", "justify-self"],
+      ["align_self", "align-self"],
     ];
     for (const [propKey, cssName] of stringKeys) {
       const raw = props[propKey];
@@ -36653,7 +37105,11 @@
       // semantic marker as fill even for legacy macros that predate
       // `__mei_layout_fill`.
       el.setAttribute("data-mei-layout-fill", "true");
-      if (slotFrameBackgroundNeedsStretch(props.background)) {
+      const forceStretch =
+        props.__mei_slot_bg_stretch === true ||
+        String(props.__mei_slot_bg_stretch || "").trim() === "true" ||
+        String(props.__mei_slot_bg_stretch || "").trim() === "1";
+      if (forceStretch || slotFrameBackgroundNeedsStretch(props.background)) {
         el.setAttribute("data-mei-slot-bg-stretch", "true");
       } else {
         el.removeAttribute("data-mei-slot-bg-stretch");
@@ -36848,12 +37304,7 @@
         (!metricId ||
           typeof boot.devEvalAllowsMetric !== "function" ||
           boot.devEvalAllowsMetric(metricId, scopeKey));
-      const props = allowMetric
-        ? propsWithPreviewScope(
-            enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount),
-            scopeKey,
-          )
-        : placeholderMountProps(mount, scopeKey);
+      const props = mountPropsForEval(mount, scopeKey, sceneMount, allowMetric);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
@@ -37828,7 +38279,7 @@
     // fixed chartHeight cannot spill into the next grid row.
     root
       .querySelectorAll(
-        '[data-preview-scope$="/chart"][data-mei-ui-role="slot"], [data-preview-scope$="/chart.column"][data-mei-ui-role="content"]',
+        '[data-preview-scope$="/chart"][data-mei-ui-role="slot"], [data-preview-scope$="/chart.column"][data-mei-ui-role="content"], [data-preview-scope$="/chart.ranking"][data-mei-ui-role="content"], [data-preview-scope$="/rank"][data-mei-ui-role="slot"], [data-preview-scope$="/matter_rank"]',
       )
       .forEach((el) => {
         if (!(el instanceof HTMLElement)) return;
@@ -37998,6 +38449,22 @@
         el.style.minHeight = "0";
         el.style.overflow = "hidden";
       });
+    // cockpit 内嵌可视化：运行时兜底去掉 compose 默认 14px 圆角底
+    root
+      .querySelectorAll(
+        "mei-cockpit-donut-trio, mei-cockpit-park-amount-list, mei-cockpit-scroll-list, mei-cockpit-data-table, mei-cockpit-metric-progress",
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const card = el.closest(".preview-card");
+        if (!(card instanceof HTMLElement)) return;
+        card.classList.add("preview-card-bare");
+        card.style.padding = "0";
+        card.style.gap = "0";
+        card.style.boxShadow = "none";
+        card.style.background = "transparent";
+        card.style.borderRadius = "0";
+      });
   }
 
   function rebindMetricCardHosts(root) {
@@ -38163,15 +38630,7 @@
             (!mountMetricId ||
               typeof boot.devEvalAllowsMetric !== "function" ||
               boot.devEvalAllowsMetric(mountMetricId, scopeKey));
-          const props = allowMetric
-            ? propsWithPreviewScope(
-                enrichRuntimeMetricRef(
-                  enrichComposeComponentProps(propsFromMount(mount)),
-                  mount,
-                ),
-                scopeKey,
-              )
-            : placeholderMountProps(mount, scopeKey);
+          const props = mountPropsForEval(mount, scopeKey, mount, allowMetric);
           const host = findHostForMount(root, mount, scopeKey, useKeys, index, container);
           if (host instanceof HTMLElement) {
             applyPropsToHost(host, props);
@@ -38230,6 +38689,8 @@
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
     applyDevEvalPlaceholders(root);
+    // mei.text connects before authored data-props settle; rebind after placeholders.
+    rebindAuthoredComponentHosts(root);
     if (bindDigest) root.setAttribute("data-mei-eval-bind-digest", bindDigest);
     boot.renderPipelineMark?.("bind_eval_slots:end", {
       bound,
@@ -38257,6 +38718,14 @@
         if (!(host instanceof HTMLElement)) return;
         const ownerScope = host.closest("[data-preview-scope], [data-mei-preview-scope]");
         if (ownerScope !== el) return;
+        const hostProps = parseHostProps(host);
+        const authored =
+          (typeof hostProps.content === "string" && hostProps.content.trim().length > 0) ||
+          (typeof hostProps.text === "string" && hostProps.text.trim().length > 0) ||
+          (typeof hostProps.html === "string" && hostProps.html.trim().length > 0);
+        // Authored deck/static mei.text already carries content — mark scope only,
+        // never clobber light-DOM text or overwrite data-props with `--`.
+        if (authored) return;
         host.setAttribute("data-mei-dev-eval-placeholder", "1");
         if (!host.getAttribute("data-props")) {
           host.setAttribute(

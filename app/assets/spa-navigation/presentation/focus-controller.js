@@ -389,14 +389,44 @@
     return true;
   }
 
+  function readPresentationDeck() {
+    const map =
+      (globalThis.__mei && globalThis.__mei.presentation_map) ||
+      (typeof window !== "undefined" && window.__mei && window.__mei.presentation_map) ||
+      null;
+    const deck = map && typeof map === "object" ? map.deck || map.presentation_deck : null;
+    if (!deck || typeof deck !== "object") return null;
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    return {
+      stageKind: String(deck.stageKind || deck.stage_kind || "presentation"),
+      activeSlideId: String(deck.activeSlideId || deck.active_slide_id || "").trim(),
+      slides: slides
+        .map((slide, index) => ({
+          id: String(slide?.id || "").trim(),
+          title: slide?.title || null,
+          chapter: slide?.chapter || null,
+          pattern: slide?.pattern || null,
+          order: Number.isFinite(slide?.order) ? Number(slide.order) : index,
+        }))
+        .filter((slide) => slide.id)
+        .sort((a, b) => a.order - b.order),
+    };
+  }
+
   function deckPageIds() {
-    return ["s-mission", "s-chain", "s-path", "s-handoff"];
+    const deck = readPresentationDeck();
+    if (deck && deck.slides.length) {
+      return deck.slides.map((slide) => slide.id);
+    }
+    return [];
   }
 
   function resolveDeckPageNode(pageId) {
     const normalized = String(pageId || "").trim();
     if (!normalized) return null;
     const selectors = [
+      `[data-mei-ui-role="slide"][data-mei-panel-name="${CSS.escape(normalized)}"]`,
+      `[data-mei-ui-role="slide"][data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
       `[data-mei-panel-name="${CSS.escape(normalized)}"]`,
       `[data-mei-panel-name$="/${CSS.escape(normalized)}"]`,
       `[data-preview-scope$="/${CSS.escape(normalized)}"]`,
@@ -421,35 +451,11 @@
       nodes.push(node);
     }
     if (nodes.length) return nodes;
-    const deck =
-      document.querySelector('[data-preview-scope$="/r-deck"], [data-preview-scope$="/deck"]') ||
-      document.querySelector(
-        '[data-mei-panel-name="r-deck"], [data-mei-panel-name="deck"], [data-mei-structure-label="r-deck"]',
-      );
-    if (!(deck instanceof HTMLElement)) return [];
-    const directSections = Array.from(deck.children).filter(
-      (node) =>
-        node instanceof HTMLElement &&
-        String(node.getAttribute("data-mei-ui-role") || "") === "section",
-    );
-    const candidates = directSections.length
-      ? directSections
-      : Array.from(
-          deck.querySelectorAll(
-            '[data-preview-scope], [data-mei-panel-name], [data-mei-structure-label]',
-          ),
-        );
-    return candidates.filter((node) => {
-      if (!(node instanceof HTMLElement) || node === deck) return false;
-      const name = String(
-        node.getAttribute("data-mei-panel-name") ||
-          node.getAttribute("data-mei-structure-label") ||
-          node.getAttribute("data-preview-scope") ||
-          "",
-      );
-      const leaf = name.split("/").pop() || name;
-      return /^s-/.test(leaf);
-    });
+    const slideNodes = Array.from(
+      document.querySelectorAll('[data-mei-ui-role="slide"]'),
+    ).filter((node) => node instanceof HTMLElement);
+    if (slideNodes.length) return slideNodes;
+    return [];
   }
 
   function currentDeckPageIndex() {
@@ -468,7 +474,8 @@
       const wanted = String(pageIdOrIndex || "").trim();
       targetIndex = pages.findIndex((node) => {
         const name = String(node.getAttribute("data-mei-panel-name") || "");
-        return name === wanted || name.endsWith(`/${wanted}`);
+        const leaf = name.split("/").pop() || name;
+        return name === wanted || name.endsWith(`/${wanted}`) || leaf === wanted;
       });
       if (targetIndex < 0) {
         const byId = resolveDeckPageNode(wanted);
@@ -494,6 +501,10 @@
     if (!pages.length) return false;
     const visible = pages.filter((node) => !node.hasAttribute("hidden"));
     if (visible.length === 1) return true;
+    const deck = readPresentationDeck();
+    if (deck?.activeSlideId) {
+      if (showDeckPage(deck.activeSlideId)) return true;
+    }
     return showDeckPage(0);
   }
 

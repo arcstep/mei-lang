@@ -48,6 +48,7 @@
 
   const UI_ROLE_RANK = {
     plane: 0,
+    slide: 1,
     region: 1,
     section: 2,
     slot: 3,
