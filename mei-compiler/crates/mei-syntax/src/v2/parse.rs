@@ -133,10 +133,18 @@ fn path_parser() -> impl Parser<char, Vec<String>, Error = Simple<char>> + Clone
 fn string_parser() -> impl Parser<char, String, Error = Simple<char>> + Clone {
     just('"')
         .ignore_then(
-            none_of('"')
-                .or(just('\\').ignore_then(any()))
-                .repeated()
-                .collect::<String>(),
+            choice((
+                just('\\').ignore_then(any()).map(|ch| match ch {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '0' => '\0',
+                    other => other,
+                }),
+                none_of('"'),
+            ))
+            .repeated()
+            .collect::<String>(),
         )
         .then_ignore(just('"'))
 }
@@ -612,5 +620,90 @@ page_instance(
         assert!(file.items.iter().any(|item| {
             matches!(item, V2Item::TopLevel { name, .. } if name == "page_instance")
         }));
+    }
+
+    #[test]
+    fn parses_presentation_and_slide_layout() {
+        let source = r#"
+presentation(
+    id = "intro",
+    summary = "MeiLang tutorial",
+    theme = "presentation",
+    planes = [plane_ref(id = "p")],
+)
+
+plane_layout(
+    id = "p",
+    tier = "p",
+    slides = [
+        slide_ref(id = "slide-01-cover"),
+        slide_ref(id = "slide-02-why"),
+    ],
+)
+
+slide_layout(
+    id = "slide-01-cover",
+    title = "Cover",
+    chapter = "开场",
+    pattern = "full_bleed",
+    regions = [region_ref(id = "r-main")],
+)
+"#;
+        let file = parse_v2_source(source).expect("presentation constructors should parse");
+        let names: Vec<&str> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                V2Item::TopLevel { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(names.contains(&"presentation"));
+        assert!(names.contains(&"plane_layout"));
+        assert!(names.contains(&"slide_layout"));
+    }
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::*;
+    use crate::v2::ast::{V2Expr, V2Item};
+
+    #[test]
+    fn string_parser_interprets_common_escapes() {
+        let file = parse_v2_source(
+            r#"
+content_panel(
+    id = "x",
+    props = {"content": "a\nb"},
+)
+"#,
+        )
+        .expect("parse");
+        let args = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                V2Item::TopLevel { name, args } if name == "content_panel" => Some(args),
+                _ => None,
+            })
+            .expect("content_panel");
+        let props = args
+            .keywords
+            .iter()
+            .find(|(key, _)| key == "props")
+            .map(|(_, expr)| expr)
+            .expect("props");
+        let V2Expr::Dict(entries) = props else {
+            panic!("expected dict props, got {props:?}");
+        };
+        let content = entries
+            .iter()
+            .find_map(|(key, value)| match (key.as_str(), value) {
+                ("content", V2Expr::String(text)) => Some(text.as_str()),
+                _ => None,
+            })
+            .expect("content string");
+        assert_eq!(content, "a\nb");
     }
 }

@@ -112,10 +112,18 @@ fn path_parser() -> impl Parser<char, Vec<String>, Error = Simple<char>> + Clone
 fn string_parser() -> impl Parser<char, String, Error = Simple<char>> + Clone {
     just('"')
         .ignore_then(
-            none_of('"')
-                .or(just('\\').ignore_then(any()))
-                .repeated()
-                .collect::<String>(),
+            choice((
+                just('\\').ignore_then(any()).map(|ch| match ch {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    '0' => '\0',
+                    other => other,
+                }),
+                none_of('"'),
+            ))
+            .repeated()
+            .collect::<String>(),
         )
         .then_ignore(just('"'))
 }

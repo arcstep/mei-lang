@@ -95,9 +95,11 @@ pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
     "app_skeleton",
     "navigation",
     "scene",
+    "presentation",
     "plane_layout",
     "region_layout",
     "section_layout",
+    "slide_layout",
     "content_panel",
     "map_spec",
     "view_spec",
@@ -112,6 +114,7 @@ pub const V2_REF_KEYWORDS: &[&str] = &[
     "plane_ref",
     "region_ref",
     "section_ref",
+    "slide_ref",
     "panel_ref",
     "metric_ref",
     "assembly_ref",
@@ -133,3 +136,25 @@ pub const V2_REF_KEYWORDS: &[&str] = &[
     "source_feature_ref",
     "feature_ref",
 ];
+
+/// Controlled slide_pattern enum (0406).
+pub const SLIDE_PATTERNS: &[&str] = &[
+    "full_bleed",
+    "claim_explain_evidence_action",
+    "claim_evidence",
+    "three_columns",
+    "process",
+    "matrix",
+];
+
+pub fn slide_pattern_areas(pattern: &str) -> Option<&'static [&'static str]> {
+    match pattern {
+        "full_bleed" => Some(&["hero"]),
+        "claim_explain_evidence_action" => Some(&["claim", "explain", "evidence", "action"]),
+        "claim_evidence" => Some(&["claim", "evidence"]),
+        "three_columns" => Some(&["col_a", "col_b", "col_c"]),
+        "process" => Some(&["title", "steps", "visual"]),
+        "matrix" => Some(&["title", "q1", "q2", "q3", "q4"]),
+        _ => None,
+    }
+}

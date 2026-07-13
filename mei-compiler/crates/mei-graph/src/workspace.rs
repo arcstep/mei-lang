@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use mei_syntax::parse_deck_source_file;
 use mei_syntax::v2::parse_v2_source_file;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
 
+use crate::deck::{deck_to_v2, DeckBuildError};
 use crate::expand::expand_v2_file;
 use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
 use crate::registry::{MacroRegistry, TemplateRoots};
@@ -18,6 +20,14 @@ pub enum CompileAppError {
     Parse {
         path: PathBuf,
         error: mei_syntax::V2ParseError,
+    },
+    #[error("{error}")]
+    DeckParse { error: mei_syntax::DeckParseError },
+    #[error("deck compile error in {path}:{line}: {message}")]
+    DeckBuild {
+        path: PathBuf,
+        line: usize,
+        message: String,
     },
     #[error("expand error in {path}: {error}")]
     Expand {
@@ -36,6 +46,14 @@ pub enum CompileAppError {
     },
     #[error("{0}")]
     Config(String),
+    #[error(
+        "presentation_dual_source_forbidden: presentation stage has two authoring sources: deck `{deck}` conflicts with `{existing}`"
+    )]
+    DeckSourceConflict { deck: PathBuf, existing: PathBuf },
+    #[error(
+        "presentation_dual_source_forbidden: legacy presentation authoring is forbidden at `{path}`; use `src/presentation/{{stage}}/{{stage}}.deck.mdx`"
+    )]
+    LegacyPresentationForbidden { path: PathBuf },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,12 +95,37 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
     let mut files = Vec::new();
     let mut blocks = Vec::new();
 
-    for entry in WalkDir::new(&src_root)
+    let mut mei_paths: Vec<PathBuf> = WalkDir::new(&src_root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "mei"))
-    {
-        let path = entry.path();
+        .map(|entry| entry.into_path())
+        .collect();
+    mei_paths.sort();
+    let mut deck_paths: Vec<PathBuf> = WalkDir::new(&src_root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".deck.mdx"))
+        })
+        .map(|entry| entry.into_path())
+        .collect();
+    deck_paths.sort();
+
+    reject_legacy_presentation_authoring(&src_root)?;
+
+    for path in &deck_paths {
+        validate_deck_location(&src_root, path)?;
+        reject_dual_presentation_source(path)?;
+    }
+
+    // Old presentation deep trees are forbidden; never lower them as author input.
+    mei_paths.retain(|path| !is_legacy_presentation_mei_path(&src_root, path));
+
+    for path in &mei_paths {
         let rel = path
             .strip_prefix(&src_root)
             .unwrap_or(path)
@@ -90,12 +133,12 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
             .replace('\\', "/");
 
         let parsed = parse_v2_source_file(path).map_err(|error| CompileAppError::Parse {
-            path: path.to_path_buf(),
+            path: path.clone(),
             error,
         })?;
         let expanded = expand_v2_file(&parsed, &registry, &roots).map_err(|error| {
             CompileAppError::Expand {
-                path: path.to_path_buf(),
+                path: path.clone(),
                 error,
             }
         })?;
@@ -103,7 +146,7 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
             let catalog = WorldContextCatalog::load_from_app(&app_root);
             expand_world_v2_file(&expanded, &catalog).map_err(|error| {
                 CompileAppError::WorldExpand {
-                    path: path.to_path_buf(),
+                    path: path.clone(),
                     error,
                 }
             })?
@@ -111,7 +154,33 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
             expanded
         };
         let outcome = lower_v2_file(&rel, &expanded).map_err(|error| CompileAppError::Lower {
-            path: path.to_path_buf(),
+            path: path.clone(),
+            error,
+        })?;
+        blocks.extend(outcome.blocks.clone());
+        files.push(outcome);
+    }
+
+    for path in &deck_paths {
+        let rel = source_relative_path(&src_root, path);
+        let deck =
+            parse_deck_source_file(path).map_err(|error| CompileAppError::DeckParse { error })?;
+        let parsed =
+            deck_to_v2(app_id, &rel, &deck).map_err(|DeckBuildError { line, message }| {
+                CompileAppError::DeckBuild {
+                    path: path.clone(),
+                    line,
+                    message,
+                }
+            })?;
+        let expanded = expand_v2_file(&parsed, &registry, &roots).map_err(|error| {
+            CompileAppError::Expand {
+                path: path.clone(),
+                error,
+            }
+        })?;
+        let outcome = lower_v2_file(&rel, &expanded).map_err(|error| CompileAppError::Lower {
+            path: path.clone(),
             error,
         })?;
         blocks.extend(outcome.blocks.clone());
@@ -127,6 +196,207 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         files,
         blocks,
     })
+}
+
+fn source_relative_path(src_root: &Path, path: &Path) -> String {
+    path.strip_prefix(src_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn validate_deck_location(src_root: &Path, path: &Path) -> Result<(), CompileAppError> {
+    let rel = path.strip_prefix(src_root).unwrap_or(path);
+    let components: Vec<_> = rel.components().collect();
+    let valid = components.len() == 3
+        && components[0].as_os_str() == "presentation"
+        && components[1].as_os_str().to_str().is_some_and(|stage| {
+            components[2].as_os_str().to_str() == Some(&format!("{stage}.deck.mdx"))
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(CompileAppError::Config(format!(
+            "{}:1:1: deck path must be `src/presentation/{{stage}}/{{stage}}.deck.mdx`",
+            path.display()
+        )))
+    }
+}
+
+fn reject_legacy_presentation_authoring(src_root: &Path) -> Result<(), CompileAppError> {
+    let presentation_root = src_root.join("presentation");
+    if !presentation_root.is_dir() {
+        return Ok(());
+    }
+
+    let mut stage_dirs: Vec<PathBuf> = fs_read_dir_dirs(&presentation_root)?;
+    stage_dirs.sort();
+
+    for stage_dir in stage_dirs {
+        let Some(stage_id) = stage_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        if stage_id.starts_with('.') {
+            continue;
+        }
+
+        let expected_deck = stage_dir.join(format!("{stage_id}.deck.mdx"));
+        let stage_decks: Vec<PathBuf> = WalkDir::new(&stage_dir)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.ends_with(".deck.mdx"))
+            })
+            .map(|entry| entry.into_path())
+            .collect();
+
+        if stage_decks.len() > 1 {
+            let mut sorted = stage_decks;
+            sorted.sort();
+            return Err(CompileAppError::DeckSourceConflict {
+                deck: sorted[0].clone(),
+                existing: sorted[1].clone(),
+            });
+        }
+
+        if let Some(deck) = stage_decks.first() {
+            if deck != &expected_deck {
+                return Err(CompileAppError::Config(format!(
+                    "{}:1:1: deck path must be `src/presentation/{{stage}}/{{stage}}.deck.mdx`",
+                    deck.display()
+                )));
+            }
+            continue;
+        }
+
+        // No deck: legacy authoring alone is forbidden.
+        if let Some(legacy) = find_legacy_presentation_artifact(&stage_dir) {
+            return Err(CompileAppError::LegacyPresentationForbidden { path: legacy });
+        }
+    }
+    Ok(())
+}
+
+fn reject_dual_presentation_source(deck_path: &Path) -> Result<(), CompileAppError> {
+    let Some(stage_dir) = deck_path.parent() else {
+        return Ok(());
+    };
+    for name in ["presentation.mei", "p.mei"] {
+        let candidate = stage_dir.join(name);
+        if candidate.is_file() {
+            return Err(CompileAppError::DeckSourceConflict {
+                deck: deck_path.to_path_buf(),
+                existing: candidate,
+            });
+        }
+    }
+    if let Some(existing) = find_legacy_slide_tree(&stage_dir.join("p")) {
+        return Err(CompileAppError::DeckSourceConflict {
+            deck: deck_path.to_path_buf(),
+            existing,
+        });
+    }
+    if let Some(existing) = find_stage_presentation_mdx(stage_dir) {
+        return Err(CompileAppError::DeckSourceConflict {
+            deck: deck_path.to_path_buf(),
+            existing,
+        });
+    }
+    Ok(())
+}
+
+fn find_legacy_presentation_artifact(stage_dir: &Path) -> Option<PathBuf> {
+    for name in ["presentation.mei", "p.mei"] {
+        let candidate = stage_dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if let Some(slide) = find_legacy_slide_tree(&stage_dir.join("p")) {
+        return Some(slide);
+    }
+    find_stage_presentation_mdx(stage_dir)
+}
+
+fn find_legacy_slide_tree(p_root: &Path) -> Option<PathBuf> {
+    if !p_root.is_dir() {
+        return None;
+    }
+    WalkDir::new(p_root)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry
+                .path()
+                .strip_prefix(p_root)
+                .ok()
+                .and_then(|path| path.components().next())
+                .and_then(|component| component.as_os_str().to_str())
+                .is_some_and(|name| name.starts_with("slide"))
+        })
+        .map(|entry| entry.into_path())
+}
+
+fn find_stage_presentation_mdx(stage_dir: &Path) -> Option<PathBuf> {
+    WalkDir::new(stage_dir)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".presentation.mdx"))
+        })
+        .map(|entry| entry.into_path())
+}
+
+fn is_legacy_presentation_mei_path(src_root: &Path, path: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(src_root) else {
+        return false;
+    };
+    let components: Vec<_> = rel.components().collect();
+    if components.len() < 2 || components[0].as_os_str() != "presentation" {
+        return false;
+    }
+    // Allow optional custom/*.mei under a presentation stage.
+    if components
+        .get(2)
+        .and_then(|component| component.as_os_str().to_str())
+        == Some("custom")
+    {
+        return false;
+    }
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if file_name == "presentation.mei" || file_name == "p.mei" {
+        return true;
+    }
+    components
+        .get(2)
+        .and_then(|component| component.as_os_str().to_str())
+        .is_some_and(|name| name == "p")
+}
+
+fn fs_read_dir_dirs(root: &Path) -> Result<Vec<PathBuf>, CompileAppError> {
+    let mut dirs = Vec::new();
+    let read_dir = std::fs::read_dir(root)?;
+    for entry in read_dir {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    Ok(dirs)
 }
 
 pub fn resolve_workspace_config_path(workspace: &Path) -> PathBuf {

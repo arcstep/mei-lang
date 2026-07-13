@@ -52,9 +52,11 @@ fn lower_top_level(
     if matches!(
         name,
         "scene"
+            | "presentation"
             | "plane_layout"
             | "region_layout"
             | "section_layout"
+            | "slide_layout"
             | "map_spec"
             | "view_spec"
             | "page_instance"
@@ -80,6 +82,9 @@ fn lower_top_level(
             }
         }
     }
+    if name == "slide_layout" {
+        validate_slide_layout_payload(&payload)?;
+    }
     let block_id = derive_block_id(name, source_file, &payload)?;
     let schema = schema_for_constructor(name);
     Ok(GraphBlock {
@@ -90,11 +95,28 @@ fn lower_top_level(
     })
 }
 
+fn validate_slide_layout_payload(payload: &JsonValue) -> Result<(), LowerGraphError> {
+    let obj = payload
+        .as_object()
+        .ok_or_else(|| LowerGraphError::Lower("slide_layout payload must be object".into()))?;
+    if let Some(pattern) = obj.get("pattern").and_then(|v| v.as_str()) {
+        if mei_syntax::v2::slide_pattern_areas(pattern).is_none() {
+            return Err(LowerGraphError::Lower(format!(
+                "slide_layout unknown pattern `{pattern}`; expected one of: {}",
+                mei_syntax::v2::SLIDE_PATTERNS.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn schema_for_constructor(name: &str) -> &'static str {
     match name {
         "app_skeleton" => "mei-app-skeleton-artifact-v1",
         "scene" => "mei-scene-semantic-v1",
+        "presentation" => "mei-presentation-semantic-v1",
         "plane_layout" | "region_layout" | "section_layout" => "mei-scene-layout-fragment-v1",
+        "slide_layout" => "mei-presentation-slide-fragment-v1",
         "map_spec" => "mei-map-spec-v1",
         "view_spec" => "mei-view-spec-v1",
         "page_instance" => "mei-projection-assembly-v1",
@@ -116,16 +138,17 @@ fn derive_block_id(
         .ok_or_else(|| LowerGraphError::Lower("payload must be object".into()))?;
     match name {
         "app_skeleton" => kw_string(obj, "id").map(|id| format!("app_skeleton:{id}")),
-        "scene" => {
-            let scene_id = kw_string(obj, "id")?;
+        "scene" | "presentation" => {
+            let stage_id = kw_string(obj, "id")?;
             let key = obj
                 .get("key")
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
-                .unwrap_or_else(|| format!("{scene_id}@{source_file}"));
-            Ok(format!("scene:{key}"))
+                .unwrap_or_else(|| format!("{stage_id}@{source_file}"));
+            Ok(format!("{name}:{key}"))
         }
-        "plane_layout" | "region_layout" | "section_layout" | "map_spec" | "view_spec" => {
+        "plane_layout" | "region_layout" | "section_layout" | "slide_layout" | "map_spec"
+        | "view_spec" => {
             let id = kw_string(obj, "id")?;
             let key = obj
                 .get("key")
@@ -137,6 +160,9 @@ fn derive_block_id(
         "navigation" | "link_decl" => kw_string(obj, "key").map(|key| format!("{name}:{key}")),
         "page_instance" => kw_string(obj, "key").map(|key| format!("page_instance:{key}")),
         "content_panel" => {
+            if let Some(key) = obj.get("key").and_then(|value| value.as_str()) {
+                return Ok(format!("content_panel:{key}"));
+            }
             let id = kw_string(obj, "id")?;
             if let Some(scope) = obj.get("scope").and_then(|v| v.as_str()) {
                 Ok(format!("content_panel:{scope}:{id}"))
@@ -178,4 +204,61 @@ fn call_args_to_json(args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
         );
     }
     Ok(JsonValue::Object(map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_syntax::v2::parse_v2_source;
+
+    #[test]
+    fn lowers_presentation_and_slide_schemas() {
+        let source = r#"
+presentation(
+    id = "intro",
+    planes = [plane_ref(id = "p")],
+)
+
+slide_layout(
+    id = "slide-01-cover",
+    title = "Cover",
+    pattern = "full_bleed",
+    regions = [region_ref(id = "r-main")],
+)
+"#;
+        let file = parse_v2_source(source).expect("parse");
+        let outcome = lower_v2_file("presentation/intro/presentation.mei", &file).expect("lower");
+        let presentation = outcome
+            .blocks
+            .iter()
+            .find(|b| b.kind == "presentation")
+            .expect("presentation block");
+        assert_eq!(presentation.schema, "mei-presentation-semantic-v1");
+        assert!(presentation.block_id.starts_with("presentation:"));
+        let slide = outcome
+            .blocks
+            .iter()
+            .find(|b| b.kind == "slide_layout")
+            .expect("slide_layout block");
+        assert_eq!(slide.schema, "mei-presentation-slide-fragment-v1");
+        assert!(slide.block_id.starts_with("slide_layout:"));
+    }
+
+    #[test]
+    fn rejects_unknown_slide_pattern() {
+        let source = r#"
+slide_layout(
+    id = "slide-bad",
+    pattern = "two_columns",
+    regions = [region_ref(id = "r-main")],
+)
+"#;
+        let file = parse_v2_source(source).expect("parse");
+        let err = lower_v2_file("p/slide-bad.mei", &file).expect_err("unknown pattern");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown pattern") && msg.contains("two_columns"),
+            "unexpected error: {msg}"
+        );
+    }
 }
