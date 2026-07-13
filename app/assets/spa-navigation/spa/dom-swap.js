@@ -431,7 +431,7 @@
             ? boot.parseViewContext(doc.baseURI || window.location.href)
             : null;
         void boot.ensureSceneDrilldownContext(ctx || {}).catch((error) => {
-          console.warn("[spa-navigation] drilldown context sync skipped", error);
+          boot.reportDrilldownContextError?.(error, ctx || {}, "spa_drilldown_context_sync");
         });
       }
     }

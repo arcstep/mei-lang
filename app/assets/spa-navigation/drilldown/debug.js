@@ -18,20 +18,59 @@
     config = {},
     datasetId = "",
     metricId = "",
+    root = null,
+    stack = "",
   } = {}) {
     const payload = {
       phase: String(phase || "").trim(),
       message: String(message || "").trim(),
-      sceneId: nonEmptyString(config?.sceneId, detail?.scene_id),
-      target: nonEmptyString(config?.runtimeRef?.scenePath, detail?.scene_path),
+      sceneId: nonEmptyString(
+        config?.runtimeSceneId,
+        config?.boardSceneId,
+        config?.hostSceneId,
+        config?.sceneId,
+        detail?.board_scene_id,
+        detail?.scene_id,
+      ),
+      target: nonEmptyString(
+        config?.runtimeSceneFile,
+        config?.boardSceneFile,
+        config?.hostSceneFile,
+        config?.runtimeRef?.scenePath,
+        detail?.board_scene_file,
+        detail?.scene_path,
+      ),
+      panelId: nonEmptyString(
+        config?.panelId,
+        detail?.page_panel_id,
+        detail?.panel_id,
+        detail?.popup?.panel_id,
+      ),
       datasetId: String(datasetId || "").trim(),
       metricId: String(metricId || "").trim(),
       template: nonEmptyString(config?.panelTemplate, config?.popup?.template),
     };
+    const traceId =
+      level !== "warn" && typeof boot.reportClientError === "function"
+        ? boot.reportClientError({
+            kind: "drilldown_error",
+            message: payload.message || "二级看板运行失败",
+            sceneId: payload.sceneId,
+            component: "mei-drilldown",
+            panelId: payload.panelId,
+            phase: payload.phase,
+            target: payload.target,
+            stack,
+          })
+        : "";
+    payload.traceId = String(traceId || "").trim();
+    if (root instanceof HTMLElement && payload.traceId) {
+      root.dataset.meiClientErrorTraceId = payload.traceId;
+    }
     const logger = level === "warn" ? console.warn : console.error;
     logger("[mei][popup-panel]", payload);
     const host = resolvePopupDebugHost();
-    if (!(host instanceof HTMLElement)) return;
+    if (!(host instanceof HTMLElement)) return payload.traceId;
     const tone =
       level === "warn"
         ? "rgba(250, 204, 21, .24);border:1px solid rgba(250, 204, 21, .45);color:#fde68a;"
@@ -43,6 +82,7 @@
       payload.datasetId ? `dataset=${payload.datasetId}` : "",
       payload.metricId ? `metric=${payload.metricId}` : "",
       payload.template ? `template=${payload.template}` : "",
+      payload.traceId ? `trace=${payload.traceId}` : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -57,5 +97,6 @@
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")}</code></div>`
     );
+    return payload.traceId;
   }
 

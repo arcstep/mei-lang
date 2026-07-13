@@ -117,7 +117,12 @@
     const listHost = root.querySelector('[data-drilldown-list-host="true"]');
     const previewHost = root.querySelector('[data-drilldown-preview-host="true"]');
     if (!(listHost instanceof HTMLElement) || !(previewHost instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "清单预览看板缺少列表或预览挂载节点",
+        phase: "list_preview_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     listHost.replaceChildren();
@@ -140,7 +145,12 @@
       await mountAnalyticsFilterBar(root, detail, config, filterHost);
       const tableOk = await mountDrilldownTable(root, detail, listConfig, listHost);
       if (!tableOk) {
-        setDrilldownOverlayStatus(root, "error");
+        setDrilldownOverlayStatus(root, "error", {
+          message: "清单预览明细表挂载失败",
+          phase: "list_preview_table_mount_failed",
+          detail,
+          config: listConfig,
+        });
         return false;
       }
       const onRowSelect = (event) => {
@@ -171,6 +181,8 @@
                 phase: "list_preview_refresh_error",
                 detail,
                 config,
+                root,
+                stack: error?.stack || "",
               });
             });
         };
@@ -189,6 +201,8 @@
         phase: "list_preview_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;

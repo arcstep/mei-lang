@@ -218,7 +218,7 @@
       try {
         await boot.ensureSceneDrilldownContext(ctx || {});
       } catch (error) {
-        console.warn("[view-assembly] drilldown context load skipped", error);
+        boot.reportDrilldownContextError?.(error, ctx, "view_assembly_drilldown_context_load");
       }
     }
     if (typeof boot.ensureViewShellLayout === "function") {

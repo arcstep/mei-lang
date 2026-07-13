@@ -1810,6 +1810,7 @@ function normalizeDatasetQueryCachePayload(payload = {}) {
     delete normalized.sort;
   }
   delete normalized.column_state;
+  delete normalized.preview_scope;
   if (!safeTrim(normalized.target)) {
     delete normalized.target;
   }
@@ -2266,7 +2267,13 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
   const cacheConfig = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
   const expiresAt = Date.now() + METRIC_QUERY_CACHE_TTL_MS;
   scopeBootstraps.forEach((scopeBootstrap) => {
-    const metrics = Array.isArray(scopeBootstrap?.metrics) ? scopeBootstrap.metrics : [];
+    const metrics = Array.isArray(scopeBootstrap?.metrics)
+      ? scopeBootstrap.metrics
+      : Array.isArray(scopeBootstrap?.bootstrap_metrics)
+        ? scopeBootstrap.bootstrap_metrics
+        : Array.isArray(scopeBootstrap?.bootstrapMetrics)
+          ? scopeBootstrap.bootstrapMetrics
+          : [];
     if (!metrics.length) {
       return;
     }
@@ -3538,6 +3545,10 @@ function metricQueryScopeCacheKey(api, payload, fingerprint = "") {
     payload && typeof payload === "object" ? { ...payload } : {},
   );
   delete scopePayload.metric_ids;
+  // preview_scope identifies the component mount, not the metric result.
+  // Excluding it lets one warmed bundle result cover all mounts requesting
+  // subsets of the same dataset/query state.
+  delete scopePayload.preview_scope;
   const epoch = String(fingerprint || "").trim();
   return `scope|${String(api || "").trim()}|${epoch}|${stableSerialize(scopePayload)}`;
 }

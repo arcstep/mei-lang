@@ -232,10 +232,14 @@
     }
     const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
     const currentAppId = String(global.__mei?.bootstrap_app_id || "").trim();
+    const currentClientRevision = String(global.__mei?.client_revision || "").trim();
+    const revisionMatches =
+      !clientRevision || currentClientRevision === clientRevision;
     if (
       global.__meiBootstrapPayloadReady &&
       currentScope === sceneId &&
       (!currentAppId || currentAppId === appId) &&
+      revisionMatches &&
       !opts.force
     ) {
       return global.__mei;

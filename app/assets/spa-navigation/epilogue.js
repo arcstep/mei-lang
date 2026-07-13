@@ -17,7 +17,7 @@
             : null;
         await boot.ensureSceneDrilldownContext(ctx || {});
       } catch (error) {
-        console.warn("[spa-navigation] drilldown context load skipped", error);
+        boot.reportDrilldownContextError?.(error, {}, "initial_drilldown_context_load");
       }
     }
     applyDrilldownContextFromQuery();

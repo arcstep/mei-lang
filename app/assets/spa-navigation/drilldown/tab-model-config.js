@@ -444,6 +444,10 @@
 
   function applyDrilldownOverlayMeta(root, config) {
     syncDrilldownOverlayThemeVars(root);
+    if (root instanceof HTMLElement) {
+      root.__meiDrilldownErrorConfig =
+        config && typeof config === "object" ? config : {};
+    }
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
     const noteEl = root.querySelector('[data-drilldown-note="true"]');
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");

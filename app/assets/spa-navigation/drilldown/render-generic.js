@@ -84,6 +84,7 @@
             config: activeConfig,
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
+            root,
           });
           setDrilldownOverlayStatus(root, "error");
         })
@@ -96,6 +97,8 @@
             config: activeConfig,
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
+            root,
+            stack: error?.stack || "",
           });
           if (await mountDrilldownTable(root, detail, activeConfig, host)) {
             setDrilldownOverlayStatus(root, "ready");
@@ -122,6 +125,7 @@
           config: activeConfig,
           datasetId: activeConfig?.datasetId,
           metricId: activeConfig?.tableMetricId,
+          root,
         });
         setDrilldownOverlayStatus(root, "error");
       })
@@ -134,6 +138,8 @@
           config: activeConfig,
           datasetId: activeConfig?.datasetId,
           metricId: activeConfig?.tableMetricId,
+          root,
+          stack: error?.stack || "",
         });
         setDrilldownOverlayStatus(root, "error");
       });

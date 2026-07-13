@@ -31,6 +31,7 @@
         config,
         datasetId: resolveDrilldownDatasetId(detail, config),
         metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        root,
       });
       return false;
     }
@@ -44,6 +45,7 @@
         config,
         datasetId: resolveDrilldownDatasetId(detail, config),
         metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        root,
       });
       return false;
     }
@@ -263,6 +265,8 @@
             phase: "analytics_chart_refresh_error",
             detail,
             config,
+            root,
+            stack: error?.stack || "",
           });
         });
     };

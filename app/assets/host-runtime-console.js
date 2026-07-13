@@ -973,20 +973,26 @@
   async function refreshConsole() {
     const appId = appIdFromShell();
     if (!appId) return false;
-    const ops = await fetchOps();
-    if (!ops) return false;
-    opsCache = ops;
-    const snapshot = await fetchSnapshot(appId);
-    if (!snapshot) return false;
-    snapshotCache = snapshot;
-    paintConsole(appId, ops, snapshot);
-    if (ops.job && ops.job.status === "running") {
-      schedulePoll(document.getElementById("host-runtime-detail-mount"));
-    } else if (pollTimer) {
-      clearTimeout(pollTimer);
-      pollTimer = null;
+    try {
+      const ops = await fetchOps();
+      if (!ops) return false;
+      opsCache = ops;
+      const snapshot = await fetchSnapshot(appId);
+      if (!snapshot) return false;
+      snapshotCache = snapshot;
+      paintConsole(appId, ops, snapshot);
+      if (ops.job && ops.job.status === "running") {
+        schedulePoll(document.getElementById("host-runtime-detail-mount"));
+      } else if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      return true;
+    } catch (error) {
+      // Host restart / ACCESS not ready: keep polling quietly.
+      console.debug?.("[host-runtime-console] refresh skipped", error);
+      return false;
     }
-    return true;
   }
 
   function schedulePoll(detailRoot) {

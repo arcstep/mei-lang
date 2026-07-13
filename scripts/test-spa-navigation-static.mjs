@@ -8,6 +8,25 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, "app", "assets");
+const runtimeQuerySrc = await readFile(
+  path.join(root, "stock/components/dataset/runtime-query.js"),
+  "utf8",
+);
+assert.match(
+  runtimeQuerySrc,
+  /scopeBootstrap\?\.bootstrap_metrics/,
+  "bootstrap seeding must accept top-level bootstrap_metrics",
+);
+assert.match(
+  runtimeQuerySrc,
+  /delete scopePayload\.preview_scope/,
+  "metric scope cache must share warmed results across component mounts",
+);
+assert.match(
+  runtimeQuerySrc,
+  /delete normalized\.preview_scope/,
+  "dataset cache must share warmed page-one results across component mounts",
+);
 
 // View Assembly Runtime bundle checks (independent of spa-navigation module concat)
 const bundleManifestPath = path.join(root, "scripts", "bundle-manifest.json");
@@ -79,6 +98,11 @@ assert.match(
   drilldownContextLoaderSrc,
   /const cacheable = isCacheableDrilldownRevision\(revision\);[\s\S]*if \(cacheable\) \{[\s\S]*readSessionDrilldown/,
   "drilldown context must bypass stale session cache without a content revision",
+);
+assert.match(
+  drilldownContextLoaderSrc,
+  /boot\.reportDrilldownContextError\s*=\s*reportDrilldownContextError/,
+  "drilldown context failures must expose the Host reporting bridge",
 );
 
 const thinShellHostSrc = await readFile(

@@ -36,7 +36,12 @@
     const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
     const host = root.querySelector('[data-drilldown-table-host="true"]');
     if (!appId || !sceneId || !(host instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "frame 看板缺少 app、scene 或挂载节点",
+        phase: "frame_board_setup",
+        detail,
+        config,
+      });
       return false;
     }
     const url = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(sceneId)}`;
@@ -68,6 +73,8 @@
         phase: "frame_board_scene_mount",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;

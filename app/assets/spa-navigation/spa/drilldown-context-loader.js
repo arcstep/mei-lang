@@ -52,6 +52,19 @@
     return String(host.dataset.sceneId || host.dataset.scene || "home").trim() || "home";
   }
 
+  function reportDrilldownContextError(error, ctx = {}, phase = "drilldown_context_load") {
+    const message = String(error?.message || error || "drilldown context load failed");
+    boot.reportClientError?.({
+      kind: "drilldown_context_error",
+      message,
+      sceneId: resolveDrilldownSceneId(ctx),
+      phase,
+      target: String(ctx?.target || ctx?.scenePath || ctx?.scene_path || ""),
+      stack: error?.stack || "",
+    });
+    console.warn("[spa-navigation] drilldown context load failed", error);
+  }
+
   function resolveDrilldownRevision() {
     // Prefer content-sensitive revisions so same-workset rebuilds bust sessionStorage
     // (compile_epoch alone can stay stable while projection_assembly gap/padding changes).
@@ -194,6 +207,7 @@
 
   boot.isDrilldownRevisionOnly = isDrilldownRevisionOnly;
   boot.ensureSceneDrilldownContext = ensureSceneDrilldownContext;
+  boot.reportDrilldownContextError = reportDrilldownContextError;
   boot.copyDrilldownMetaFromDoc = copyDrilldownMetaFromDoc;
   boot.injectDrilldownPayload = injectDrilldownPayload;
 })(typeof window !== "undefined" ? window : globalThis);

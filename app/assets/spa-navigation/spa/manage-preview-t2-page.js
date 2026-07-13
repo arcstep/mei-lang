@@ -273,17 +273,24 @@
       surface.prepend(banner);
     }
     banner.hidden = false;
-    banner.textContent = String(message || "看板预览加载失败，请稍后重试。");
+    const userMessage = String(message || "看板预览加载失败，请稍后重试。");
+    let traceId = "";
     if (typeof recordPopupDebugIssue === "function") {
-      recordPopupDebugIssue({
-        level: "error",
-        phase: "manage_preview_board_mount",
-        message: String(message || "manage preview board mount failed"),
-        detail: detail || {},
-        config: detail?.popup || {},
-        metricId: nonEmptyString(detail?.metric_id),
-      });
+      traceId = String(
+        recordPopupDebugIssue({
+          level: "error",
+          phase: "manage_preview_board_mount",
+          message: userMessage,
+          detail: detail || {},
+          config: detail?.popup || {},
+          metricId: nonEmptyString(detail?.metric_id),
+          root: surface,
+        }) || "",
+      ).trim();
     }
+    banner.textContent = traceId
+      ? `${userMessage}（追踪编号：${traceId}）`
+      : userMessage;
   }
 
   async function mountManagePreviewBoard(doc = document) {

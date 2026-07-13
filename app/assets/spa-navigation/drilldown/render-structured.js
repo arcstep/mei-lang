@@ -267,17 +267,21 @@
       );
       return true;
     } catch (error) {
-      recordPopupDebugIssue({
+      const traceId = recordPopupDebugIssue({
         level: "error",
         message: String(error?.message || error || "典型案例详情卡加载失败"),
         phase: "case_detail_card_fetch_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       renderSheetDetailCardPanel(previewHost, null, config, detail);
       const empty = previewHost.querySelector(".access-drilldown-list-preview-empty");
       if (empty instanceof HTMLElement) {
-        empty.textContent = "案例详情加载失败";
+        empty.textContent = traceId
+          ? `案例详情加载失败（追踪编号：${traceId}）`
+          : "案例详情加载失败";
       }
       return false;
     }
@@ -319,7 +323,12 @@
     cleanupStructuredDrilldownWatcher(root);
     const zoneHosts = ensureStructuredDrilldownZoneHosts(root, config?.sceneShell);
     if (!zoneHosts) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "结构化看板缺少布局挂载节点",
+        phase: "structured_shell_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     root.__meiStructuredZoneHosts = zoneHosts;
@@ -328,7 +337,12 @@
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
         const ok = renderStructuredTabZones(root, detail, config, zoneHosts);
         if (!ok) {
-          setDrilldownOverlayStatus(root, "error");
+          setDrilldownOverlayStatus(root, "error", {
+            message: "结构化看板标签区域挂载失败",
+            phase: "structured_tab_mount_failed",
+            detail,
+            config,
+          });
           return false;
         }
         return true;
@@ -341,7 +355,12 @@
       for (const zone of slotZones) {
         const ok = await mountStructuredSlotZone(root, detail, config, zone, zoneHosts[zone.id]);
         if (!ok) {
-          setDrilldownOverlayStatus(root, "error");
+          setDrilldownOverlayStatus(root, "error", {
+            message: `结构化看板区域挂载失败：${String(zone?.id || "unknown")}`,
+            phase: "structured_slot_mount_failed",
+            detail,
+            config,
+          });
           return false;
         }
       }
@@ -363,6 +382,8 @@
         phase: "structured_shell_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;

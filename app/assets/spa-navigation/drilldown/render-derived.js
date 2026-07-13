@@ -14,6 +14,7 @@
         phase: "derived_dataset_missing",
         detail,
         config,
+        root,
       });
       return false;
     }
@@ -75,6 +76,7 @@
           detail,
           config,
           datasetId,
+          root,
         });
         return false;
       }
@@ -118,6 +120,7 @@
           detail,
           config,
           datasetId,
+          root,
         });
         return false;
       }

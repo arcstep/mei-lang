@@ -87,6 +87,7 @@
         config: mergedConfig,
         datasetId: mergedConfig.datasetId,
         metricId: mergedConfig.tableMetricId,
+        root,
       });
       return false;
     });
@@ -101,7 +102,12 @@
     const chartsHost = root.querySelector('[data-drilldown-charts-host="true"]');
     const tableHost = root.querySelector('[data-drilldown-analytics-table-host="true"]');
     if (!(chartsHost instanceof HTMLElement) || !(tableHost instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "分析型看板缺少图表或明细挂载节点",
+        phase: "analytics_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     chartsHost.replaceChildren();
@@ -190,7 +196,12 @@
         mountDrilldownTable(root, detail, detailConfig, tableHost),
       ]);
       if (!tableOk || !chartsOk) {
-        setDrilldownOverlayStatus(root, "error");
+        setDrilldownOverlayStatus(root, "error", {
+          message: `分析型看板挂载失败：charts=${chartsOk} table=${tableOk}`,
+          phase: "analytics_mount_failed",
+          detail,
+          config,
+        });
         return false;
       }
       const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
@@ -212,6 +223,8 @@
                 phase: "analytics_chart_refresh_error",
                 detail,
                 config,
+                root,
+                stack: error?.stack || "",
               });
             });
         };
@@ -230,6 +243,8 @@
         phase: "analytics_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;

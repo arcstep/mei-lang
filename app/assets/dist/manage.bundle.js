@@ -2720,20 +2720,26 @@
   async function refreshConsole() {
     const appId = appIdFromShell();
     if (!appId) return false;
-    const ops = await fetchOps();
-    if (!ops) return false;
-    opsCache = ops;
-    const snapshot = await fetchSnapshot(appId);
-    if (!snapshot) return false;
-    snapshotCache = snapshot;
-    paintConsole(appId, ops, snapshot);
-    if (ops.job && ops.job.status === "running") {
-      schedulePoll(document.getElementById("host-runtime-detail-mount"));
-    } else if (pollTimer) {
-      clearTimeout(pollTimer);
-      pollTimer = null;
+    try {
+      const ops = await fetchOps();
+      if (!ops) return false;
+      opsCache = ops;
+      const snapshot = await fetchSnapshot(appId);
+      if (!snapshot) return false;
+      snapshotCache = snapshot;
+      paintConsole(appId, ops, snapshot);
+      if (ops.job && ops.job.status === "running") {
+        schedulePoll(document.getElementById("host-runtime-detail-mount"));
+      } else if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      return true;
+    } catch (error) {
+      // Host restart / ACCESS not ready: keep polling quietly.
+      console.debug?.("[host-runtime-console] refresh skipped", error);
+      return false;
     }
-    return true;
   }
 
   function schedulePoll(detailRoot) {
@@ -11470,47 +11476,11 @@
     }
   }
 
-  function reportClientError(input = {}) {
-    const detail = {
-      kind: String(input.kind || "client_error").trim(),
-      message: String(input.message || "客户端运行失败").trim().slice(0, 4000),
-      appId: String(input.appId || clientErrorAppId()).trim(),
-      sceneId: String(input.sceneId || "").trim(),
-      component: String(input.component || "").trim(),
-      panelId: String(input.panelId || "").trim(),
-      phase: String(input.phase || "").trim(),
-      api: String(input.api || "").trim().slice(0, 1000),
-      status: Number(input.status) || 0,
-      pageUrl: String(global.location?.href || "").slice(0, 2000),
-      stack: String(input.stack || "").slice(0, 8000),
-    };
-    const dedupeKey = [
-      detail.kind,
-      detail.message,
-      detail.component,
-      detail.panelId,
-      detail.phase,
-      detail.api,
-      detail.status,
-    ].join("|");
-    const now = Date.now();
-    const previousAt = state.clientErrorDedupe.get(dedupeKey) || 0;
-    if (now - previousAt < 3000) return;
-    state.clientErrorDedupe.set(dedupeKey, now);
-    if (state.clientErrorDedupe.size > 100) {
-      for (const [key, at] of state.clientErrorDedupe) {
-        if (now - at > 30_000) state.clientErrorDedupe.delete(key);
-      }
-    }
-    state.clientErrors.unshift({ ...detail, at: new Date(now).toISOString() });
-    state.clientErrors = state.clientErrors.slice(0, 50);
-    boot.lastClientError = { message: detail.message, at: now };
-    global.__meiClientErrorHistory = state.clientErrors;
-
+  function postClientError(traceId, detail, label = "") {
     const body = JSON.stringify({
-      id: `client-error-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      id: traceId,
       kind: "CLIENT_ERROR",
-      label: `${detail.kind}: ${detail.message}`.slice(0, 300),
+      label: String(label || `${detail.kind}: ${detail.message}`).slice(0, 300),
       detail,
     });
     try {
@@ -11522,6 +11492,105 @@
         keepalive: true,
       });
     } catch (_) {}
+  }
+
+  function scheduleClientErrorRepeatSummary(entry) {
+    if (typeof global.setTimeout !== "function") return;
+    if (entry.repeatTimer) global.clearTimeout?.(entry.repeatTimer);
+    entry.repeatTimer = global.setTimeout(() => {
+      entry.repeatTimer = 0;
+      if (entry.count <= entry.reportedCount) return;
+      entry.reportedCount = entry.count;
+      postClientError(
+        entry.traceId,
+        {
+          ...entry.detail,
+          occurrenceCount: entry.count,
+          firstOccurredAt: new Date(entry.firstAt).toISOString(),
+          lastOccurredAt: new Date(entry.lastAt).toISOString(),
+        },
+        `${entry.detail.kind}: ${entry.detail.message}（重复 ${entry.count} 次）`,
+      );
+    }, 3_100);
+  }
+
+  function reportClientError(input = {}) {
+    const now = Date.now();
+    const detail = {
+      kind: String(input.kind || "client_error").trim(),
+      message: String(input.message || "客户端运行失败").trim().slice(0, 4000),
+      appId: String(input.appId || clientErrorAppId()).trim(),
+      sceneId: String(input.sceneId || "").trim(),
+      component: String(input.component || "").trim(),
+      panelId: String(input.panelId || "").trim(),
+      phase: String(input.phase || "").trim(),
+      target: String(input.target || "").trim().slice(0, 1000),
+      api: String(input.api || "").trim().slice(0, 1000),
+      status: Number(input.status) || 0,
+      pageUrl: String(global.location?.href || "").slice(0, 2000),
+      stack: String(input.stack || "").slice(0, 8000),
+      occurrenceCount: 1,
+      firstOccurredAt: new Date(now).toISOString(),
+      lastOccurredAt: new Date(now).toISOString(),
+    };
+    const dedupeKey = [
+      detail.kind,
+      detail.message,
+      detail.component,
+      detail.panelId,
+      detail.phase,
+      detail.sceneId,
+      detail.target,
+      detail.api,
+      detail.status,
+    ].join("|");
+    const previous = state.clientErrorDedupe.get(dedupeKey);
+    if (previous && now - previous.lastAt < 3_000) {
+      detail.traceId = previous.traceId;
+      previous.count += 1;
+      previous.lastAt = now;
+      previous.detail = detail;
+      scheduleClientErrorRepeatSummary(previous);
+      const historyEntry = state.clientErrors.find((entry) => entry.traceId === previous.traceId);
+      if (historyEntry) {
+        historyEntry.occurrenceCount = previous.count;
+        historyEntry.lastOccurredAt = detail.lastOccurredAt;
+      }
+      boot.lastClientError = {
+        message: detail.message,
+        traceId: previous.traceId,
+        at: now,
+      };
+      return previous.traceId;
+    }
+    const traceId =
+      String(input.traceId || "").trim() ||
+      `client-error-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    detail.traceId = traceId;
+    state.clientErrorDedupe.set(dedupeKey, {
+      traceId,
+      detail,
+      firstAt: now,
+      lastAt: now,
+      count: 1,
+      reportedCount: 1,
+      repeatTimer: 0,
+    });
+    if (state.clientErrorDedupe.size > 100) {
+      for (const [key, entry] of state.clientErrorDedupe) {
+        if (now - entry.lastAt > 30_000) {
+          if (entry.repeatTimer) global.clearTimeout?.(entry.repeatTimer);
+          state.clientErrorDedupe.delete(key);
+        }
+      }
+    }
+    state.clientErrors.unshift({ ...detail, at: detail.firstOccurredAt });
+    state.clientErrors = state.clientErrors.slice(0, 50);
+    boot.lastClientError = { message: detail.message, traceId, at: now };
+    global.__meiClientErrorHistory = state.clientErrors;
+
+    postClientError(traceId, detail);
+    return traceId;
   }
 
   function installClientErrorHooks() {
@@ -11581,12 +11650,38 @@
       true,
     );
     global.addEventListener("unhandledrejection", (event) => {
+      const message = clientErrorText(event.reason || "Promise rejection");
+      if (isBenignBootFetchFailure(message, event.reason)) {
+        return;
+      }
       reportClientError({
         kind: "unhandled_rejection",
-        message: clientErrorText(event.reason || "Promise rejection"),
+        message,
         stack: event.reason?.stack || "",
       });
     });
+  }
+
+  function isBenignBootFetchFailure(message, reason) {
+    const text = String(message || "").toLowerCase();
+    const stack = String(reason?.stack || "").toLowerCase();
+    const pageUrl = String(global.location?.href || "").toLowerCase();
+    const looksLikeNetwork =
+      text.includes("failed to fetch") ||
+      text.includes("networkerror") ||
+      text.includes("load failed") ||
+      text.includes("network request failed");
+    if (!looksLikeNetwork) return false;
+    // /runtime manage console polls host APIs while Host restarts.
+    if (pageUrl.includes("/runtime")) return true;
+    if (stack.includes("host-runtime-console") || stack.includes("fetchops") || stack.includes("fetchsnapshot")) {
+      return true;
+    }
+    const phase = String(global.__mei?.startupPhase || global.document?.body?.dataset?.meiPhase || "")
+      .trim()
+      .toLowerCase();
+    if (phase && phase !== "ready" && phase !== "access-ready") return true;
+    return false;
   }
 
   function pipelineEnabled() {
@@ -13786,6 +13881,10 @@
 
   function applyDrilldownOverlayMeta(root, config) {
     syncDrilldownOverlayThemeVars(root);
+    if (root instanceof HTMLElement) {
+      root.__meiDrilldownErrorConfig =
+        config && typeof config === "object" ? config : {};
+    }
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
     const noteEl = root.querySelector('[data-drilldown-note="true"]');
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");
@@ -14952,20 +15051,59 @@
     config = {},
     datasetId = "",
     metricId = "",
+    root = null,
+    stack = "",
   } = {}) {
     const payload = {
       phase: String(phase || "").trim(),
       message: String(message || "").trim(),
-      sceneId: nonEmptyString(config?.sceneId, detail?.scene_id),
-      target: nonEmptyString(config?.runtimeRef?.scenePath, detail?.scene_path),
+      sceneId: nonEmptyString(
+        config?.runtimeSceneId,
+        config?.boardSceneId,
+        config?.hostSceneId,
+        config?.sceneId,
+        detail?.board_scene_id,
+        detail?.scene_id,
+      ),
+      target: nonEmptyString(
+        config?.runtimeSceneFile,
+        config?.boardSceneFile,
+        config?.hostSceneFile,
+        config?.runtimeRef?.scenePath,
+        detail?.board_scene_file,
+        detail?.scene_path,
+      ),
+      panelId: nonEmptyString(
+        config?.panelId,
+        detail?.page_panel_id,
+        detail?.panel_id,
+        detail?.popup?.panel_id,
+      ),
       datasetId: String(datasetId || "").trim(),
       metricId: String(metricId || "").trim(),
       template: nonEmptyString(config?.panelTemplate, config?.popup?.template),
     };
+    const traceId =
+      level !== "warn" && typeof boot.reportClientError === "function"
+        ? boot.reportClientError({
+            kind: "drilldown_error",
+            message: payload.message || "二级看板运行失败",
+            sceneId: payload.sceneId,
+            component: "mei-drilldown",
+            panelId: payload.panelId,
+            phase: payload.phase,
+            target: payload.target,
+            stack,
+          })
+        : "";
+    payload.traceId = String(traceId || "").trim();
+    if (root instanceof HTMLElement && payload.traceId) {
+      root.dataset.meiClientErrorTraceId = payload.traceId;
+    }
     const logger = level === "warn" ? console.warn : console.error;
     logger("[mei][popup-panel]", payload);
     const host = resolvePopupDebugHost();
-    if (!(host instanceof HTMLElement)) return;
+    if (!(host instanceof HTMLElement)) return payload.traceId;
     const tone =
       level === "warn"
         ? "rgba(250, 204, 21, .24);border:1px solid rgba(250, 204, 21, .45);color:#fde68a;"
@@ -14977,6 +15115,7 @@
       payload.datasetId ? `dataset=${payload.datasetId}` : "",
       payload.metricId ? `metric=${payload.metricId}` : "",
       payload.template ? `template=${payload.template}` : "",
+      payload.traceId ? `trace=${payload.traceId}` : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -14991,6 +15130,7 @@
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")}</code></div>`
     );
+    return payload.traceId;
   }
 
 
@@ -16463,6 +16603,7 @@
         config,
         datasetId: resolveDrilldownDatasetId(detail, config),
         metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        root,
       });
       return false;
     }
@@ -16476,6 +16617,7 @@
         config,
         datasetId: resolveDrilldownDatasetId(detail, config),
         metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        root,
       });
       return false;
     }
@@ -16695,6 +16837,8 @@
             phase: "analytics_chart_refresh_error",
             detail,
             config,
+            root,
+            stack: error?.stack || "",
           });
         });
     };
@@ -16796,6 +16940,7 @@
         config: mergedConfig,
         datasetId: mergedConfig.datasetId,
         metricId: mergedConfig.tableMetricId,
+        root,
       });
       return false;
     });
@@ -16810,7 +16955,12 @@
     const chartsHost = root.querySelector('[data-drilldown-charts-host="true"]');
     const tableHost = root.querySelector('[data-drilldown-analytics-table-host="true"]');
     if (!(chartsHost instanceof HTMLElement) || !(tableHost instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "分析型看板缺少图表或明细挂载节点",
+        phase: "analytics_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     chartsHost.replaceChildren();
@@ -16899,7 +17049,12 @@
         mountDrilldownTable(root, detail, detailConfig, tableHost),
       ]);
       if (!tableOk || !chartsOk) {
-        setDrilldownOverlayStatus(root, "error");
+        setDrilldownOverlayStatus(root, "error", {
+          message: `分析型看板挂载失败：charts=${chartsOk} table=${tableOk}`,
+          phase: "analytics_mount_failed",
+          detail,
+          config,
+        });
         return false;
       }
       const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
@@ -16921,6 +17076,8 @@
                 phase: "analytics_chart_refresh_error",
                 detail,
                 config,
+                root,
+                stack: error?.stack || "",
               });
             });
         };
@@ -16939,6 +17096,8 @@
         phase: "analytics_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;
@@ -18256,7 +18415,12 @@
     const listHost = root.querySelector('[data-drilldown-list-host="true"]');
     const previewHost = root.querySelector('[data-drilldown-preview-host="true"]');
     if (!(listHost instanceof HTMLElement) || !(previewHost instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "清单预览看板缺少列表或预览挂载节点",
+        phase: "list_preview_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     listHost.replaceChildren();
@@ -18279,7 +18443,12 @@
       await mountAnalyticsFilterBar(root, detail, config, filterHost);
       const tableOk = await mountDrilldownTable(root, detail, listConfig, listHost);
       if (!tableOk) {
-        setDrilldownOverlayStatus(root, "error");
+        setDrilldownOverlayStatus(root, "error", {
+          message: "清单预览明细表挂载失败",
+          phase: "list_preview_table_mount_failed",
+          detail,
+          config: listConfig,
+        });
         return false;
       }
       const onRowSelect = (event) => {
@@ -18310,6 +18479,8 @@
                 phase: "list_preview_refresh_error",
                 detail,
                 config,
+                root,
+                stack: error?.stack || "",
               });
             });
         };
@@ -18328,6 +18499,8 @@
         phase: "list_preview_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;
@@ -18606,17 +18779,21 @@
       );
       return true;
     } catch (error) {
-      recordPopupDebugIssue({
+      const traceId = recordPopupDebugIssue({
         level: "error",
         message: String(error?.message || error || "典型案例详情卡加载失败"),
         phase: "case_detail_card_fetch_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       renderSheetDetailCardPanel(previewHost, null, config, detail);
       const empty = previewHost.querySelector(".access-drilldown-list-preview-empty");
       if (empty instanceof HTMLElement) {
-        empty.textContent = "案例详情加载失败";
+        empty.textContent = traceId
+          ? `案例详情加载失败（追踪编号：${traceId}）`
+          : "案例详情加载失败";
       }
       return false;
     }
@@ -18658,7 +18835,12 @@
     cleanupStructuredDrilldownWatcher(root);
     const zoneHosts = ensureStructuredDrilldownZoneHosts(root, config?.sceneShell);
     if (!zoneHosts) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "结构化看板缺少布局挂载节点",
+        phase: "structured_shell_host_missing",
+        detail,
+        config,
+      });
       return false;
     }
     root.__meiStructuredZoneHosts = zoneHosts;
@@ -18667,7 +18849,12 @@
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
         const ok = renderStructuredTabZones(root, detail, config, zoneHosts);
         if (!ok) {
-          setDrilldownOverlayStatus(root, "error");
+          setDrilldownOverlayStatus(root, "error", {
+            message: "结构化看板标签区域挂载失败",
+            phase: "structured_tab_mount_failed",
+            detail,
+            config,
+          });
           return false;
         }
         return true;
@@ -18680,7 +18867,12 @@
       for (const zone of slotZones) {
         const ok = await mountStructuredSlotZone(root, detail, config, zone, zoneHosts[zone.id]);
         if (!ok) {
-          setDrilldownOverlayStatus(root, "error");
+          setDrilldownOverlayStatus(root, "error", {
+            message: `结构化看板区域挂载失败：${String(zone?.id || "unknown")}`,
+            phase: "structured_slot_mount_failed",
+            detail,
+            config,
+          });
           return false;
         }
       }
@@ -18702,6 +18894,8 @@
         phase: "structured_shell_render_error",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;
@@ -18727,6 +18921,7 @@
         phase: "derived_dataset_missing",
         detail,
         config,
+        root,
       });
       return false;
     }
@@ -18788,6 +18983,7 @@
           detail,
           config,
           datasetId,
+          root,
         });
         return false;
       }
@@ -18831,6 +19027,7 @@
           detail,
           config,
           datasetId,
+          root,
         });
         return false;
       }
@@ -18948,6 +19145,7 @@
             config: activeConfig,
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
+            root,
           });
           setDrilldownOverlayStatus(root, "error");
         })
@@ -18960,6 +19158,8 @@
             config: activeConfig,
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
+            root,
+            stack: error?.stack || "",
           });
           if (await mountDrilldownTable(root, detail, activeConfig, host)) {
             setDrilldownOverlayStatus(root, "ready");
@@ -18986,6 +19186,7 @@
           config: activeConfig,
           datasetId: activeConfig?.datasetId,
           metricId: activeConfig?.tableMetricId,
+          root,
         });
         setDrilldownOverlayStatus(root, "error");
       })
@@ -18998,6 +19199,8 @@
           config: activeConfig,
           datasetId: activeConfig?.datasetId,
           metricId: activeConfig?.tableMetricId,
+          root,
+          stack: error?.stack || "",
         });
         setDrilldownOverlayStatus(root, "error");
       });
@@ -19116,7 +19319,12 @@
     const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
     const host = root.querySelector('[data-drilldown-table-host="true"]');
     if (!appId || !sceneId || !(host instanceof HTMLElement)) {
-      setDrilldownOverlayStatus(root, "error");
+      setDrilldownOverlayStatus(root, "error", {
+        message: "frame 看板缺少 app、scene 或挂载节点",
+        phase: "frame_board_setup",
+        detail,
+        config,
+      });
       return false;
     }
     const url = `/apps/${encodeURIComponent(appId)}/${encodeURIComponent(sceneId)}`;
@@ -19148,6 +19356,8 @@
         phase: "frame_board_scene_mount",
         detail,
         config,
+        root,
+        stack: error?.stack || "",
       });
       setDrilldownOverlayStatus(root, "error");
       return false;
@@ -19259,7 +19469,52 @@
     return root;
   }
 
-  function setDrilldownOverlayStatus(root, status) {
+  function setDrilldownOverlayStatus(root, status, failure = {}) {
+    if (!(root instanceof HTMLElement)) return "";
+    if (status === "loading") {
+      delete root.dataset.meiClientErrorTraceId;
+      root.querySelectorAll('[data-drilldown-status="error"]').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const base = String(node.dataset.meiErrorBaseText || node.textContent || "").trim();
+        node.dataset.meiErrorBaseText = base;
+        node.textContent = base;
+      });
+    }
+    let traceId = String(
+      failure?.traceId || root.dataset.meiClientErrorTraceId || "",
+    ).trim();
+    if (status === "error" && !traceId) {
+      const config =
+        failure?.config && typeof failure.config === "object"
+          ? failure.config
+          : root.__meiDrilldownErrorConfig || {};
+      traceId = String(
+        recordPopupDebugIssue({
+          level: "error",
+          message: String(failure?.message || "二级看板进入加载失败状态"),
+          phase: String(failure?.phase || "drilldown_visible_error"),
+          detail: failure?.detail || {},
+          config,
+          datasetId: failure?.datasetId || "",
+          metricId: failure?.metricId || "",
+          root,
+          stack: failure?.stack || "",
+        }) || "",
+      ).trim();
+    }
+    if (status === "error") {
+      root.querySelectorAll('[data-drilldown-status="error"]').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const base = String(
+          failure?.userMessage ||
+            node.dataset.meiErrorBaseText ||
+            node.textContent ||
+            "看板加载失败，请稍后重试。",
+        ).trim();
+        node.dataset.meiErrorBaseText = base;
+        node.textContent = traceId ? `${base}（追踪编号：${traceId}）` : base;
+      });
+    }
     root
       .querySelectorAll("[data-drilldown-status]")
       .forEach((node) => node.toggleAttribute("hidden", node.dataset.drilldownStatus !== status));
@@ -19275,6 +19530,7 @@
         root,
       });
     }
+    return traceId;
   }
 
   function abortDrilldownLoadIfNeeded(root) {
@@ -28395,17 +28651,24 @@
       surface.prepend(banner);
     }
     banner.hidden = false;
-    banner.textContent = String(message || "看板预览加载失败，请稍后重试。");
+    const userMessage = String(message || "看板预览加载失败，请稍后重试。");
+    let traceId = "";
     if (typeof recordPopupDebugIssue === "function") {
-      recordPopupDebugIssue({
-        level: "error",
-        phase: "manage_preview_board_mount",
-        message: String(message || "manage preview board mount failed"),
-        detail: detail || {},
-        config: detail?.popup || {},
-        metricId: nonEmptyString(detail?.metric_id),
-      });
+      traceId = String(
+        recordPopupDebugIssue({
+          level: "error",
+          phase: "manage_preview_board_mount",
+          message: userMessage,
+          detail: detail || {},
+          config: detail?.popup || {},
+          metricId: nonEmptyString(detail?.metric_id),
+          root: surface,
+        }) || "",
+      ).trim();
     }
+    banner.textContent = traceId
+      ? `${userMessage}（追踪编号：${traceId}）`
+      : userMessage;
   }
 
   async function mountManagePreviewBoard(doc = document) {
@@ -30034,7 +30297,7 @@
       try {
         await boot.ensureSceneDrilldownContext(ctx || {});
       } catch (error) {
-        console.warn("[view-assembly] drilldown context load skipped", error);
+        boot.reportDrilldownContextError?.(error, ctx, "view_assembly_drilldown_context_load");
       }
     }
     if (typeof boot.ensureViewShellLayout === "function") {
@@ -36684,6 +36947,19 @@
     return String(host.dataset.sceneId || host.dataset.scene || "home").trim() || "home";
   }
 
+  function reportDrilldownContextError(error, ctx = {}, phase = "drilldown_context_load") {
+    const message = String(error?.message || error || "drilldown context load failed");
+    boot.reportClientError?.({
+      kind: "drilldown_context_error",
+      message,
+      sceneId: resolveDrilldownSceneId(ctx),
+      phase,
+      target: String(ctx?.target || ctx?.scenePath || ctx?.scene_path || ""),
+      stack: error?.stack || "",
+    });
+    console.warn("[spa-navigation] drilldown context load failed", error);
+  }
+
   function resolveDrilldownRevision() {
     // Prefer content-sensitive revisions so same-workset rebuilds bust sessionStorage
     // (compile_epoch alone can stay stable while projection_assembly gap/padding changes).
@@ -36826,6 +37102,7 @@
 
   boot.isDrilldownRevisionOnly = isDrilldownRevisionOnly;
   boot.ensureSceneDrilldownContext = ensureSceneDrilldownContext;
+  boot.reportDrilldownContextError = reportDrilldownContextError;
   boot.copyDrilldownMetaFromDoc = copyDrilldownMetaFromDoc;
   boot.injectDrilldownPayload = injectDrilldownPayload;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -37066,10 +37343,14 @@
     }
     const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
     const currentAppId = String(global.__mei?.bootstrap_app_id || "").trim();
+    const currentClientRevision = String(global.__mei?.client_revision || "").trim();
+    const revisionMatches =
+      !clientRevision || currentClientRevision === clientRevision;
     if (
       global.__meiBootstrapPayloadReady &&
       currentScope === sceneId &&
       (!currentAppId || currentAppId === appId) &&
+      revisionMatches &&
       !opts.force
     ) {
       return global.__mei;
@@ -39834,7 +40115,7 @@
             ? boot.parseViewContext(doc.baseURI || window.location.href)
             : null;
         void boot.ensureSceneDrilldownContext(ctx || {}).catch((error) => {
-          console.warn("[spa-navigation] drilldown context sync skipped", error);
+          boot.reportDrilldownContextError?.(error, ctx || {}, "spa_drilldown_context_sync");
         });
       }
     }
@@ -40801,7 +41082,7 @@
             : null;
         await boot.ensureSceneDrilldownContext(ctx || {});
       } catch (error) {
-        console.warn("[spa-navigation] drilldown context load skipped", error);
+        boot.reportDrilldownContextError?.(error, {}, "initial_drilldown_context_load");
       }
     }
     applyDrilldownContextFromQuery();

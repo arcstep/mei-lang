@@ -101,7 +101,52 @@
     return root;
   }
 
-  function setDrilldownOverlayStatus(root, status) {
+  function setDrilldownOverlayStatus(root, status, failure = {}) {
+    if (!(root instanceof HTMLElement)) return "";
+    if (status === "loading") {
+      delete root.dataset.meiClientErrorTraceId;
+      root.querySelectorAll('[data-drilldown-status="error"]').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const base = String(node.dataset.meiErrorBaseText || node.textContent || "").trim();
+        node.dataset.meiErrorBaseText = base;
+        node.textContent = base;
+      });
+    }
+    let traceId = String(
+      failure?.traceId || root.dataset.meiClientErrorTraceId || "",
+    ).trim();
+    if (status === "error" && !traceId) {
+      const config =
+        failure?.config && typeof failure.config === "object"
+          ? failure.config
+          : root.__meiDrilldownErrorConfig || {};
+      traceId = String(
+        recordPopupDebugIssue({
+          level: "error",
+          message: String(failure?.message || "二级看板进入加载失败状态"),
+          phase: String(failure?.phase || "drilldown_visible_error"),
+          detail: failure?.detail || {},
+          config,
+          datasetId: failure?.datasetId || "",
+          metricId: failure?.metricId || "",
+          root,
+          stack: failure?.stack || "",
+        }) || "",
+      ).trim();
+    }
+    if (status === "error") {
+      root.querySelectorAll('[data-drilldown-status="error"]').forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const base = String(
+          failure?.userMessage ||
+            node.dataset.meiErrorBaseText ||
+            node.textContent ||
+            "看板加载失败，请稍后重试。",
+        ).trim();
+        node.dataset.meiErrorBaseText = base;
+        node.textContent = traceId ? `${base}（追踪编号：${traceId}）` : base;
+      });
+    }
     root
       .querySelectorAll("[data-drilldown-status]")
       .forEach((node) => node.toggleAttribute("hidden", node.dataset.drilldownStatus !== status));
@@ -117,6 +162,7 @@
         root,
       });
     }
+    return traceId;
   }
 
   function abortDrilldownLoadIfNeeded(root) {
