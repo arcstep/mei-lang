@@ -11437,6 +11437,8 @@
     reported: false,
     visibleReadyScheduled: false,
     lastSummary: null,
+    clientErrors: [],
+    clientErrorDedupe: new Map(),
   };
 
   function nowMs() {
@@ -11444,6 +11446,147 @@
       return performance.now();
     }
     return Date.now();
+  }
+
+  function clientErrorText(value) {
+    if (value instanceof Error) {
+      return value.stack || value.message || String(value);
+    }
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  function clientErrorAppId() {
+    const match = String(global.location?.pathname || "").match(/^\/apps\/([^/]+)/);
+    if (!match) return "";
+    try {
+      return decodeURIComponent(match[1]);
+    } catch (_) {
+      return match[1];
+    }
+  }
+
+  function reportClientError(input = {}) {
+    const detail = {
+      kind: String(input.kind || "client_error").trim(),
+      message: String(input.message || "客户端运行失败").trim().slice(0, 4000),
+      appId: String(input.appId || clientErrorAppId()).trim(),
+      sceneId: String(input.sceneId || "").trim(),
+      component: String(input.component || "").trim(),
+      panelId: String(input.panelId || "").trim(),
+      phase: String(input.phase || "").trim(),
+      api: String(input.api || "").trim().slice(0, 1000),
+      status: Number(input.status) || 0,
+      pageUrl: String(global.location?.href || "").slice(0, 2000),
+      stack: String(input.stack || "").slice(0, 8000),
+    };
+    const dedupeKey = [
+      detail.kind,
+      detail.message,
+      detail.component,
+      detail.panelId,
+      detail.phase,
+      detail.api,
+      detail.status,
+    ].join("|");
+    const now = Date.now();
+    const previousAt = state.clientErrorDedupe.get(dedupeKey) || 0;
+    if (now - previousAt < 3000) return;
+    state.clientErrorDedupe.set(dedupeKey, now);
+    if (state.clientErrorDedupe.size > 100) {
+      for (const [key, at] of state.clientErrorDedupe) {
+        if (now - at > 30_000) state.clientErrorDedupe.delete(key);
+      }
+    }
+    state.clientErrors.unshift({ ...detail, at: new Date(now).toISOString() });
+    state.clientErrors = state.clientErrors.slice(0, 50);
+    boot.lastClientError = { message: detail.message, at: now };
+    global.__meiClientErrorHistory = state.clientErrors;
+
+    const body = JSON.stringify({
+      id: `client-error-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: "CLIENT_ERROR",
+      label: `${detail.kind}: ${detail.message}`.slice(0, 300),
+      detail,
+    });
+    try {
+      void global.fetch(PIPELINE_REPORT_API, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body,
+        keepalive: true,
+      });
+    } catch (_) {}
+  }
+
+  function installClientErrorHooks() {
+    if (global.__meiClientErrorHooksInstalled) return;
+    global.__meiClientErrorHooksInstalled = true;
+    const originalError = global.console?.error?.bind(global.console);
+    const originalWarn = global.console?.warn?.bind(global.console);
+    const reportConsole = (level, args) => {
+      const message = args.map(clientErrorText).filter(Boolean).join(" ").slice(0, 4000);
+      const structured = boot.lastClientError;
+      if (
+        structured &&
+        Date.now() - Number(structured.at || 0) < 250 &&
+        (message.includes(String(structured.message).slice(0, 160)) ||
+          String(structured.message).includes(message.slice(0, 160)))
+      ) {
+        return;
+      }
+      reportClientError({ kind: `console_${level}`, message });
+    };
+    if (originalError) {
+      global.console.error = (...args) => {
+        originalError(...args);
+        reportConsole("error", args);
+      };
+    }
+    if (originalWarn) {
+      global.console.warn = (...args) => {
+        originalWarn(...args);
+        const message = args.map(clientErrorText).join(" ");
+        if (/error|fail|invalid|unexpected|could not|失败|错误|无效/i.test(message)) {
+          reportConsole("warn", args);
+        }
+      };
+    }
+    global.addEventListener(
+      "error",
+      (event) => {
+        const target = event.target;
+        if (target && target !== global) {
+          const api = String(target.currentSrc || target.src || target.href || "");
+          reportClientError({
+            kind: "resource_error",
+            message: `${target.tagName || "resource"} 加载失败`,
+            component: String(target.tagName || "").toLowerCase(),
+            api,
+          });
+          return;
+        }
+        reportClientError({
+          kind: "window_error",
+          message: event.message || "未捕获的客户端异常",
+          api: event.filename || "",
+          stack: event.error?.stack || "",
+        });
+      },
+      true,
+    );
+    global.addEventListener("unhandledrejection", (event) => {
+      reportClientError({
+        kind: "unhandled_rejection",
+        message: clientErrorText(event.reason || "Promise rejection"),
+        stack: event.reason?.stack || "",
+      });
+    });
   }
 
   function pipelineEnabled() {
@@ -11759,6 +11902,15 @@
             });
             mark(`fetch_done:${kind}`, { ms, status: response.status, url: url.slice(-96) });
           }
+          if (!response.ok && !url.includes(PIPELINE_REPORT_API)) {
+            reportClientError({
+              kind: "http_error",
+              message: `HTTP ${response.status} ${response.statusText || "请求失败"}`,
+              api: url,
+              status: response.status,
+              phase: "fetch",
+            });
+          }
           return response;
         },
         (error) => {
@@ -11766,6 +11918,18 @@
             mark(`fetch_fail:${kind}`, {
               ms: Math.round(nowMs() - started),
               message: String(error?.message || error),
+            });
+          }
+          const aborted =
+            error?.name === "AbortError" ||
+            /\babort(?:ed|error)?\b/i.test(String(error?.message || error || ""));
+          if (!aborted && !url.includes(PIPELINE_REPORT_API)) {
+            reportClientError({
+              kind: "network_error",
+              message: clientErrorText(error),
+              api: url,
+              phase: "fetch",
+              stack: error?.stack || "",
             });
           }
           throw error;
@@ -11858,6 +12022,7 @@
     });
     mark("bundle_boot");
     installFetchTap();
+    installClientErrorHooks();
     hookCacheDiag();
     hookAssemblyCoordinator();
 
@@ -11900,6 +12065,7 @@
   boot.renderPipelineMark = mark;
   boot.renderPipelineFinalize = finalizeRun;
   boot.renderPipelineEnabled = pipelineEnabled;
+  boot.reportClientError = reportClientError;
   global.__meiRenderPipeline = {
     mark,
     finalize: finalizeRun,
@@ -11910,6 +12076,9 @@
     },
     get last() {
       return state.lastSummary;
+    },
+    get errors() {
+      return state.clientErrors.slice();
     },
   };
 
@@ -36485,6 +36654,11 @@
     return `${SS_PREFIX}${appId}:${sceneId}:${revision || "default"}`;
   }
 
+  function isCacheableDrilldownRevision(revision) {
+    const value = String(revision || "").trim();
+    return Boolean(value && value !== "__no_client_bootstrap__");
+  }
+
   function resolveDrilldownAppId(ctx) {
     const fromCtx = String(ctx?.appId || ctx?.app_id || "").trim();
     if (fromCtx) return fromCtx;
@@ -36594,18 +36768,21 @@
   }
 
   async function loadSceneDrilldownContext(appId, sceneId, revision, cacheKey) {
-    const cachedMemory = memoryCache.get(cacheKey);
-    if (cachedMemory) {
-      global.__meiDrilldownSource = "memory";
-      return cachedMemory;
-    }
-    const cached = readSessionDrilldown(appId, sceneId, revision);
-    if (cached) {
-      const payload = JSON.parse(cached);
-      memoryCache.set(cacheKey, payload);
-      injectDrilldownPayload(cached);
-      global.__meiDrilldownSource = "session_storage";
-      return payload;
+    const cacheable = isCacheableDrilldownRevision(revision);
+    if (cacheable) {
+      const cachedMemory = memoryCache.get(cacheKey);
+      if (cachedMemory) {
+        global.__meiDrilldownSource = "memory";
+        return cachedMemory;
+      }
+      const cached = readSessionDrilldown(appId, sceneId, revision);
+      if (cached) {
+        const payload = JSON.parse(cached);
+        memoryCache.set(cacheKey, payload);
+        injectDrilldownPayload(cached);
+        global.__meiDrilldownSource = "session_storage";
+        return payload;
+      }
     }
     const artifactUrl =
       readDrilldownMeta("mei-drilldown-artifact-url") ||
@@ -36620,8 +36797,10 @@
     }
     const payload = await response.json();
     const payloadText = JSON.stringify(payload);
-    memoryCache.set(cacheKey, payload);
-    writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    if (cacheable) {
+      memoryCache.set(cacheKey, payload);
+      writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    }
     injectDrilldownPayload(payloadText);
     global.__meiDrilldownSource = "scene_drilldown_api";
     return payload;

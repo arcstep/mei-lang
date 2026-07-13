@@ -3,6 +3,7 @@ import {
   fetchDatasetRows,
   isAbortError,
   parseProps,
+  recordRuntimeDatasetQueryError,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
   subscribeHomeRuntimeResume,
@@ -197,6 +198,25 @@ function legendRailWidth(props) {
 }
 
 class MeiCockpitDonutTrio extends HTMLElement {
+  static get observedAttributes() {
+    return ["data-props"];
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (
+      name !== "data-props" ||
+      oldValue === newValue ||
+      !this.isConnected ||
+      !this._bootstrapped
+    ) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (!this.isConnected || !this._bootstrapped) return;
+      this.applyUpdatedProps();
+    });
+  }
+
   connectedCallback() {
     if (typeof this._deferUntilVisibleCleanup === "function") {
       this._deferUntilVisibleCleanup();
@@ -232,6 +252,25 @@ class MeiCockpitDonutTrio extends HTMLElement {
       this._charts.forEach((chart) => chart?.resize?.());
     });
     this.resizeObserver.observe(this);
+    this._bootstrapped = true;
+  }
+
+  applyUpdatedProps() {
+    this._charts.forEach((chart) => chart?.dispose?.());
+    this._charts = [];
+    if (typeof this._unsubscribeQueryState === "function") {
+      this._unsubscribeQueryState();
+    }
+    this._props = parseProps(this);
+    this._queryStateId = String(this._props?.query_state ?? this._props?.queryState ?? "").trim();
+    this._groupField = groupFieldFromProps(this._props);
+    this._sharedFilters = {};
+    this._unsubscribeQueryState = subscribeQueryState(this._queryStateId, (state) => {
+      this._sharedFilters = state?.filters || {};
+      this.refreshData();
+    });
+    this.renderShell();
+    this.refreshData();
   }
 
   disconnectedCallback() {
@@ -250,6 +289,7 @@ class MeiCockpitDonutTrio extends HTMLElement {
     }
     this._charts.forEach((chart) => chart?.dispose?.());
     this._charts = [];
+    this._bootstrapped = false;
   }
 
   renderShell() {
@@ -386,6 +426,19 @@ class MeiCockpitDonutTrio extends HTMLElement {
     const totalRef = resolveRuntimeMetricRef(propsWithMetricValue(this._props, totalValue));
     if (!totalRef?.dataset_id) {
       this.statusEl.textContent = "缺少 totalMetric";
+      if (this.hasAttribute("data-props")) {
+        const meta = runtimeCallerMeta(this, "mei-cockpit-donut-trio");
+        recordRuntimeDatasetQueryError({
+          kind: "component_metric_binding",
+          datasetId: "__cockpit_donut_trio__",
+          message: "缺少 totalMetric",
+          sceneId: meta.scene_id,
+          target: meta.target,
+          component: meta.component,
+          panelId: meta.panel_id,
+          phase: "metric_binding",
+        });
+      }
       return;
     }
     this.statusEl.textContent = "";
@@ -440,6 +493,18 @@ class MeiCockpitDonutTrio extends HTMLElement {
       }
       this.statusEl.textContent = String(error?.message || error || "加载失败");
       this.statusEl.className = "status error";
+      const meta = runtimeCallerMeta(this, "mei-cockpit-donut-trio");
+      recordRuntimeDatasetQueryError({
+        kind: "component_metric_query",
+        datasetId: totalRef.dataset_id,
+        message: String(error?.message || error || "加载失败"),
+        sceneId: meta.scene_id,
+        target: meta.target,
+        component: meta.component,
+        panelId: meta.panel_id,
+        metricId: totalRef.metric_id,
+        phase: "metric_fetch",
+      });
       this._renderTrace?.mark("render_error", {
         message: String(error?.message || error || "加载失败"),
       });

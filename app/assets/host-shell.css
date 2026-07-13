@@ -81,6 +81,15 @@
   margin: 0;
 }
 
+.mei-host-shell__warming-panel {
+  display: grid;
+  place-items: center;
+  min-height: min(60vh, 480px);
+  width: 100%;
+  padding: 24px 8px;
+  box-sizing: border-box;
+}
+
 .mei-host-shell__brand {
   display: inline-flex;
   align-items: center;

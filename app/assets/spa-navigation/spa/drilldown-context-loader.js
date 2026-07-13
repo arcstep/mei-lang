@@ -22,6 +22,11 @@
     return `${SS_PREFIX}${appId}:${sceneId}:${revision || "default"}`;
   }
 
+  function isCacheableDrilldownRevision(revision) {
+    const value = String(revision || "").trim();
+    return Boolean(value && value !== "__no_client_bootstrap__");
+  }
+
   function resolveDrilldownAppId(ctx) {
     const fromCtx = String(ctx?.appId || ctx?.app_id || "").trim();
     if (fromCtx) return fromCtx;
@@ -131,18 +136,21 @@
   }
 
   async function loadSceneDrilldownContext(appId, sceneId, revision, cacheKey) {
-    const cachedMemory = memoryCache.get(cacheKey);
-    if (cachedMemory) {
-      global.__meiDrilldownSource = "memory";
-      return cachedMemory;
-    }
-    const cached = readSessionDrilldown(appId, sceneId, revision);
-    if (cached) {
-      const payload = JSON.parse(cached);
-      memoryCache.set(cacheKey, payload);
-      injectDrilldownPayload(cached);
-      global.__meiDrilldownSource = "session_storage";
-      return payload;
+    const cacheable = isCacheableDrilldownRevision(revision);
+    if (cacheable) {
+      const cachedMemory = memoryCache.get(cacheKey);
+      if (cachedMemory) {
+        global.__meiDrilldownSource = "memory";
+        return cachedMemory;
+      }
+      const cached = readSessionDrilldown(appId, sceneId, revision);
+      if (cached) {
+        const payload = JSON.parse(cached);
+        memoryCache.set(cacheKey, payload);
+        injectDrilldownPayload(cached);
+        global.__meiDrilldownSource = "session_storage";
+        return payload;
+      }
     }
     const artifactUrl =
       readDrilldownMeta("mei-drilldown-artifact-url") ||
@@ -157,8 +165,10 @@
     }
     const payload = await response.json();
     const payloadText = JSON.stringify(payload);
-    memoryCache.set(cacheKey, payload);
-    writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    if (cacheable) {
+      memoryCache.set(cacheKey, payload);
+      writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    }
     injectDrilldownPayload(payloadText);
     global.__meiDrilldownSource = "scene_drilldown_api";
     return payload;

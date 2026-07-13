@@ -3,6 +3,7 @@ import {
   fetchDatasetRows,
   isAbortError,
   parseProps,
+  recordRuntimeDatasetQueryError,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
   subscribeHomeRuntimeResume,
@@ -39,6 +40,25 @@ function propsWithMetricValue(props, resolvedValue) {
 }
 
 class MeiCockpitParkAmountList extends HTMLElement {
+  static get observedAttributes() {
+    return ["data-props"];
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (
+      name !== "data-props" ||
+      oldValue === newValue ||
+      !this.isConnected ||
+      !this._bootstrapped
+    ) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (!this.isConnected || !this._bootstrapped) return;
+      this.applyUpdatedProps();
+    });
+  }
+
   connectedCallback() {
     if (typeof this._deferUntilVisibleCleanup === "function") {
       this._deferUntilVisibleCleanup();
@@ -64,6 +84,22 @@ class MeiCockpitParkAmountList extends HTMLElement {
     });
     this.renderShell();
     this.refreshData();
+    this._bootstrapped = true;
+  }
+
+  applyUpdatedProps() {
+    if (typeof this._unsubscribeQueryState === "function") {
+      this._unsubscribeQueryState();
+    }
+    this._props = parseProps(this);
+    this._queryStateId = String(this._props?.query_state ?? this._props?.queryState ?? "").trim();
+    this._sharedFilters = {};
+    this._unsubscribeQueryState = subscribeQueryState(this._queryStateId, (state) => {
+      this._sharedFilters = state?.filters || {};
+      this.refreshData();
+    });
+    this.renderShell();
+    this.refreshData();
   }
 
   disconnectedCallback() {
@@ -77,6 +113,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
     if (typeof this._unsubscribeHomeRuntimeResume === "function") {
       this._unsubscribeHomeRuntimeResume();
     }
+    this._bootstrapped = false;
   }
 
   renderShell() {
@@ -209,6 +246,19 @@ class MeiCockpitParkAmountList extends HTMLElement {
       this.listEl.innerHTML = "";
       this.statusEl.textContent = "未绑定园区罚没指标";
       this.statusEl.className = "status error";
+      if (this.hasAttribute("data-props")) {
+        const meta = runtimeCallerMeta(this, "mei-cockpit-park-amount-list");
+        recordRuntimeDatasetQueryError({
+          kind: "component_metric_binding",
+          datasetId: "__cockpit_park_amount_list__",
+          message: "未绑定园区罚没指标",
+          sceneId: meta.scene_id,
+          target: meta.target,
+          component: meta.component,
+          panelId: meta.panel_id,
+          phase: "metric_binding",
+        });
+      }
       return;
     }
 
@@ -250,6 +300,18 @@ class MeiCockpitParkAmountList extends HTMLElement {
       this.listEl.innerHTML = "";
       this.statusEl.textContent = String(error?.message || error);
       this.statusEl.className = "status error";
+      const meta = runtimeCallerMeta(this, "mei-cockpit-park-amount-list");
+      recordRuntimeDatasetQueryError({
+        kind: "component_metric_query",
+        datasetId: metricRef.dataset_id,
+        message: String(error?.message || error || "加载失败"),
+        sceneId: meta.scene_id,
+        target: meta.target,
+        component: meta.component,
+        panelId: meta.panel_id,
+        metricId: metricRef.metric_id,
+        phase: "metric_fetch",
+      });
     }
   }
 }

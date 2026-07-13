@@ -1564,7 +1564,10 @@ if (!customElements.get(TAG)) {
             properties: {
               ...enriched.properties,
               __fill: color,
-              __line: props.line || props.lineColor || props.line_color || "",
+              // MapLibre `coalesce` only falls back for null, not an empty
+              // string. Passing "" reaches the color parser and emits
+              // "Could not parse color from value ''".
+              __line: props.line || props.lineColor || props.line_color || null,
             },
           };
         }),

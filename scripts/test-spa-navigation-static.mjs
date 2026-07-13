@@ -66,6 +66,21 @@ assert.match(revisionContractSrc, /mergeSemanticManifestLayers/, "semantic manif
 assert.match(revisionContractSrc, /replaceSurfaceManifestSlice/, "surface manifest slice replace required");
 assert.match(revisionContractSrc, /applySceneManifestRefs/, "applySceneManifestRefs required");
 
+const drilldownContextLoaderSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/drilldown-context-loader.js"),
+  "utf8",
+);
+assert.match(
+  drilldownContextLoaderSrc,
+  /function isCacheableDrilldownRevision[\s\S]*__no_client_bootstrap__/,
+  "drilldown context must reject placeholder revisions",
+);
+assert.match(
+  drilldownContextLoaderSrc,
+  /const cacheable = isCacheableDrilldownRevision\(revision\);[\s\S]*if \(cacheable\) \{[\s\S]*readSessionDrilldown/,
+  "drilldown context must bypass stale session cache without a content revision",
+);
+
 const thinShellHostSrc = await readFile(
   path.join(assetsRoot, "spa-navigation/spa/thin-shell-host.js"),
   "utf8",

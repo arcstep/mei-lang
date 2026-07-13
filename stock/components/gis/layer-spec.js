@@ -84,11 +84,26 @@ export async function fetchGeoJson(url) {
     GEOJSON_CACHE.set(
       target,
       fetch(target, { credentials: "same-origin" })
-        .then((response) => {
+        .then(async (response) => {
           if (!response.ok) {
             throw new Error(`GeoJSON 加载失败 (${response.status}): ${target}`);
           }
-          return response.json();
+          const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+          const text = await response.text();
+          if (contentType.includes("text/html") || contentType.includes("application/xhtml")) {
+            throw new Error(
+              `GeoJSON 响应类型错误 (${response.status} ${contentType}): ${target}`,
+            );
+          }
+          try {
+            return JSON.parse(text);
+          } catch (error) {
+            throw new Error(
+              `GeoJSON 响应不是有效 JSON (${response.status}): ${target}; ${String(
+                error?.message || error,
+              )}`,
+            );
+          }
         })
         .then((data) => {
           if (!data || data.type !== "FeatureCollection" || !Array.isArray(data.features)) {

@@ -127,6 +127,24 @@ function devEvalAllowsRuntimeQuery(props, element = null) {
   return typeof allows !== "function" || allows(props, element);
 }
 
+function activePageSceneId() {
+  if (typeof document === "undefined") return "";
+  return safeTrim(
+    document.body?.getAttribute?.("data-scene-id") ||
+      document.body?.dataset?.sceneId ||
+      "",
+  );
+}
+
+function activePageTarget() {
+  if (typeof window === "undefined") return "";
+  return safeTrim(
+    window.__mei?.bootstrap_target_file ||
+      document.body?.getAttribute?.("data-target") ||
+      "",
+  );
+}
+
 export function runtimeCallerMeta(element, fallbackComponent = "") {
   const props = parseProps(element);
   const queryStateId = queryStateIdOf(props);
@@ -140,9 +158,10 @@ export function runtimeCallerMeta(element, fallbackComponent = "") {
   return {
     component,
     panel_id: safeTrim(panelId) || undefined,
-    scene_id: safeTrim(props?._mei?.active_scene_id) || undefined,
+    scene_id: safeTrim(props?._mei?.active_scene_id) || activePageSceneId() || undefined,
     target:
       safeTrim(props?._mei?.active_target_file || props?._mei?.entry_target) ||
+      activePageTarget() ||
       undefined,
     query_state_id: safeTrim(queryStateId) || undefined,
   };
@@ -176,10 +195,10 @@ function importedWorldMetricsCompileTarget(datasetId) {
 /** scene-first 寻址：优先 runtime ref，其次 SSR 注入的 active_scene_id */
 function sceneQueryCoords(props, runtimeRef) {
   const sceneId = String(
-    runtimeRef?.scene_id ?? props?._mei?.active_scene_id ?? ""
+    runtimeRef?.scene_id ?? props?._mei?.active_scene_id ?? activePageSceneId()
   ).trim();
   const importedTarget = importedWorldMetricsCompileTarget(runtimeRef?.dataset_id);
-  const pageTarget = datasetCompileTarget(props);
+  const pageTarget = datasetCompileTarget(props) || activePageTarget();
   const metricScenePath = String(runtimeRef?.scene_path ?? "").trim();
   const coords = {};
   if (sceneId) coords.scene_id = sceneId;
@@ -900,6 +919,18 @@ export function resolveRuntimeDataRef(props) {
     if (ref && ref.kind === "data" && ref.dataset_id) {
       return ref;
     }
+    const kind = String(candidate?.__ref || "").trim().toLowerCase();
+    const datasetId = String(
+      candidate?.dataset_id || candidate?.from_dataset || candidate?.id || "",
+    ).trim();
+    if ((kind === "data" || kind === "dataset") && datasetId) {
+      return {
+        kind: "data",
+        dataset_id: datasetId,
+        scene_id: candidate?.scene_id,
+        target: candidate?.target,
+      };
+    }
   }
   return null;
 }
@@ -909,6 +940,20 @@ export function resolveRuntimeMetricRef(props) {
     const ref = candidate?.__mei_runtime_ref;
     if (ref && ref.kind === "metric" && ref.dataset_id && ref.metric_id) {
       return ref;
+    }
+    const kind = String(candidate?.__ref || "").trim().toLowerCase();
+    const datasetId = String(
+      candidate?.dataset_id || candidate?.from_dataset || "",
+    ).trim();
+    const metricId = String(candidate?.metric_id || candidate?.id || "").trim();
+    if (kind === "metric" && datasetId && metricId) {
+      return {
+        kind: "metric",
+        dataset_id: datasetId,
+        metric_id: metricId,
+        scene_id: candidate?.scene_id,
+        target: candidate?.target,
+      };
     }
   }
   return null;
@@ -2882,7 +2927,6 @@ export function recordRuntimeDatasetQueryError({
   phase = "",
 } = {}) {
   const host = resolveRuntimeQueryErrorHost();
-  if (!host) return;
   const now = new Date();
   const time = now.toLocaleTimeString("zh-CN", { hour12: false });
   const line = {
@@ -2905,6 +2949,15 @@ export function recordRuntimeDatasetQueryError({
     : [];
   history.unshift(line);
   window.__meiRuntimeQueryErrorHistory = history.slice(0, 25);
+  const reportClientError = window.__meiLangBoot?.reportClientError;
+  if (typeof reportClientError === "function") {
+    reportClientError({
+      ...line,
+      appId: currentRuntimeAppId(),
+      pageUrl: window.location?.href || "",
+    });
+  }
+  if (!host) return;
   host.innerHTML = window.__meiRuntimeQueryErrorHistory
     .map((e) => {
       const st = e.status ? `HTTP ${e.status} · ` : "";
