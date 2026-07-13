@@ -174,7 +174,11 @@ pub fn rewarm_after_import_for_scenes(
     scenes: &[String],
 ) -> anyhow::Result<()> {
     if scenes.is_empty() {
-        return rewarm_after_import(workspace, app, "home");
+        tracing::info!(
+            app_id = %app,
+            "skipping warmup rewarm: no hot scenes configured"
+        );
+        return Ok(());
     }
     let workspace = canonical_workspace(workspace);
     // Invalidate once, then disk+client warmup per required hot scene (no cross-process L1).

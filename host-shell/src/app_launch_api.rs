@@ -135,6 +135,7 @@ pub async fn start_app_with_launch(
         }
         Err(error) => return Err(StartStopError::BadRequest(error.to_string())),
     };
+    apply_launch_runtime_profile(http, workspace.as_path(), &launch.config);
     prepare_current_launch(http, workspace.as_path(), app_id, &launch).await?;
 
     // Keep the active instance serving until prebuild succeeds, then enforce
@@ -273,8 +274,76 @@ fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {
     generation.is_empty() || generation.eq_ignore_ascii_case("current")
 }
 
+fn launch_runtime_plan(
+    workspace: &std::path::Path,
+    config: &AppLaunchConfig,
+) -> mei_lang_kernel::RuntimePlan {
+    use mei_lang_kernel::{RuntimeMode, RuntimePlan};
+    if let Some(value) = config.runtime_plan.as_ref() {
+        return serde_json::from_value(value.clone()).unwrap_or(RuntimePlan {
+            default_mode: RuntimeMode::Lazy,
+            apps: Default::default(),
+        });
+    }
+    let path = workspace.join("deploy/applied/runtime-plan.json");
+    if path.is_file() {
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            if let Ok(plan) = serde_json::from_str::<RuntimePlan>(&raw) {
+                return plan;
+            }
+        }
+    }
+    RuntimePlan {
+        default_mode: RuntimeMode::Lazy,
+        apps: Default::default(),
+    }
+}
+
+fn apply_launch_data_mode_ceiling(http: &HostHttpState, config: &AppLaunchConfig) {
+    let Some(raw) = config
+        .data_mode_ceiling
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Some(ceiling) = mei_lang_kernel::DataModeCeiling::parse(raw) else {
+        tracing::warn!(
+            ceiling = %raw,
+            "launch config dataModeCeiling ignored: unknown value"
+        );
+        return;
+    };
+    let mut guard = http.shell.write().expect("state lock");
+    guard.data_mode_ceiling = ceiling;
+}
+
+fn apply_launch_runtime_profile(
+    http: &HostHttpState,
+    workspace: &std::path::Path,
+    config: &AppLaunchConfig,
+) {
+    let runtime_plan = launch_runtime_plan(workspace, config);
+    sync_host_control_runtime_plan(workspace, &runtime_plan);
+    crate::dev_eval_scope::install_runtime_plan(runtime_plan);
+    apply_launch_data_mode_ceiling(http, config);
+}
+
+fn launch_warmup_enabled(config: &AppLaunchConfig) -> bool {
+    config
+        .warmup
+        .as_ref()
+        .and_then(|warmup| warmup.get("enabled"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+}
+
 /// All `hotScenes` from launch warmup config (not just the first).
 fn launch_warmup_scenes(config: &AppLaunchConfig, app_id: &str) -> Vec<String> {
+    if !launch_warmup_enabled(config) {
+        return Vec::new();
+    }
     let scenes = config
         .warmup
         .as_ref()
@@ -468,6 +537,20 @@ mod tests {
             launch_warmup_scenes(&config, "other-app"),
             vec!["home".to_string()]
         );
+    }
+
+    #[test]
+    fn warmup_disabled_skips_all_scenes() {
+        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        config.warmup = Some(serde_json::json!({
+            "enabled": false,
+            "apps": {
+                "pretty-panels": {
+                    "hotScenes": ["home"]
+                }
+            }
+        }));
+        assert!(launch_warmup_scenes(&config, "pretty-panels").is_empty());
     }
 }
 

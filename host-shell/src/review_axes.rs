@@ -335,11 +335,14 @@ mod tests {
     #[test]
     fn stage_kind_from_presentation_target() {
         assert_eq!(
-            StageKind::from_route_meta("scene", "src/presentation/supervision/presentation.mei"),
+            StageKind::from_route_meta(
+                "scene",
+                "src/presentation/supervision/supervision.deck.mdx"
+            ),
             StageKind::Presentation
         );
         assert_eq!(
-            StageKind::from_route_meta("presentation", "src/presentation/x/presentation.mei"),
+            StageKind::from_route_meta("presentation", "src/presentation/x/x.deck.mdx"),
             StageKind::Presentation
         );
         assert_eq!(

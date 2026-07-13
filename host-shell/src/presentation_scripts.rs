@@ -187,7 +187,7 @@ fn discover_stage_roots(workspace_root: &Path, app_id: &str) -> Vec<StageRoot> {
                 if stage_id.starts_with('.') {
                     continue;
                 }
-                let entry = dir.join("presentation.mei");
+                let entry = dir.join(format!("{stage_id}.deck.mdx"));
                 if !entry.is_file() {
                     continue;
                 }
