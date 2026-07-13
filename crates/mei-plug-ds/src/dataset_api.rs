@@ -464,10 +464,22 @@ pub(crate) fn enforce_dev_eval_scope(
     request_kind: &str,
     metric_ids: &[String],
 ) -> Result<()> {
-    let gate = mei_lang_kernel::RuntimeDevEvalGate::resolve_for_app(
+    let gate = mei_host_core::read_instance_spec_for_app(
         ctx.workspace_root.as_path(),
         ctx.app_id.as_str(),
-    );
+    )
+    .map(|spec| {
+        mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(
+            spec.config_snapshot.runtime_plan,
+            ctx.app_id.as_str(),
+        )
+    })
+    .unwrap_or_else(|| {
+        mei_lang_kernel::RuntimeDevEvalGate::resolve_for_app(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+        )
+    });
     let decisions = if metric_ids.is_empty() {
         vec![gate.decide_scope(preview_scope)]
     } else {

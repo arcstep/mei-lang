@@ -616,11 +616,12 @@ pub async fn api_scene_bootstrap(
     response
 }
 
-pub fn inject_view_revision_envelope(
+pub fn inject_view_revision_envelope_with_dev_eval(
     html: String,
     app_id: &str,
     scene_id: &str,
     surface: &str,
+    dev_eval: Option<&serde_json::Value>,
 ) -> String {
     let envelope = json!({
         "schema_version": "mei.view-revision-envelope.v1",
@@ -632,9 +633,17 @@ pub fn inject_view_revision_envelope(
         ),
     });
     let envelope_json = serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string());
+    let dev_eval_assign = match dev_eval {
+        Some(payload) => {
+            let json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
+            format!("window.__mei.dev_eval={json};")
+        }
+        None => String::new(),
+    };
     let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};window.__mei.thin_shell=true;window.__mei.view_revision_enabled=true;</script>"#,
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.view_revision_envelope={envelope_json};window.__mei.scene_manifest_refs={envelope_json};{dev_eval_assign}window.__mei.thin_shell=true;window.__mei.view_revision_enabled=true;</script>"#,
         envelope_json = envelope_json,
+        dev_eval_assign = dev_eval_assign,
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + script.len());

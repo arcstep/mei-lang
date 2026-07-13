@@ -5,7 +5,10 @@
 //! workspace config. This keeps frozen metric enforcement out of process-local
 //! `OnceLock` state.
 
+use std::collections::BTreeMap;
 use std::path::Path;
+
+use serde_json::{json, Value};
 
 use crate::{RuntimeMode, RuntimePlan, RuntimePlanApp};
 
@@ -65,6 +68,14 @@ impl RuntimeDevEvalGate {
     }
 
     pub fn resolve_for_app(workspace_root: &Path, app_id: &str) -> Self {
+        // Launch-bound InstanceSpec is the App Runtime SSOT (0537). Prefer it over
+        // process env / legacy host-control so start-with-launch switches take effect.
+        if app_id != "*" {
+            if let Some(plan) = load_instance_runtime_plan(workspace_root, app_id) {
+                return Self::from_runtime_plan(plan, app_id);
+            }
+        }
+
         let profile_env = std::env::var("MEI_DEV_EVAL_PROFILE").ok();
         let scopes_env = std::env::var("MEI_EVAL_SCOPE").ok();
         let env_configured = profile_env
@@ -206,7 +217,7 @@ impl RuntimeDevEvalGate {
         self.decide_scope(preview_scope)
     }
 
-    fn from_runtime_plan(plan: RuntimePlan, app_id: &str) -> Self {
+    pub fn from_runtime_plan(plan: RuntimePlan, app_id: &str) -> Self {
         let profile = match plan.default_mode {
             RuntimeMode::Hot => RuntimeDevEvalProfile::Full,
             RuntimeMode::Lazy => RuntimeDevEvalProfile::Scoped,
@@ -225,11 +236,109 @@ impl RuntimeDevEvalGate {
             app_id: app_id.to_string(),
         }
     }
+
+    /// Client payload for `window.__mei.dev_eval` (mirrors host-shell DevEvalConfig).
+    pub fn client_payload(&self) -> Value {
+        let warmup_scopes = self
+            .runtime_plan
+            .as_ref()
+            .map(|plan| {
+                effective_app_plan(plan, self.app_id.as_str())
+                    .into_iter()
+                    .flat_map(|app| app.targets.iter())
+                    .filter(|target| target.mode == RuntimeMode::Hot)
+                    .map(|target| normalize_scope(target.scope.as_str()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        json!({
+            "profile": self.profile.slug(),
+            "warmupScopes": warmup_scopes,
+            "evalScopes": self.eval_scopes,
+            "fill": "placeholder",
+            "runtimePlan": self.runtime_plan,
+            "appId": self.app_id,
+        })
+    }
+}
+
+/// Whether App Runtime / plug-ds should run hot warmup for this plan + app.
+pub fn runtime_plan_requires_warm(plan: &RuntimePlan, app_id: &str) -> bool {
+    if plan.default_mode == RuntimeMode::Hot {
+        return true;
+    }
+    effective_app_plan(plan, app_id).is_some_and(|app| {
+        app.targets
+            .iter()
+            .any(|target| target.mode == RuntimeMode::Hot)
+            || app
+                .metric_overrides
+                .values()
+                .any(|mode| *mode == RuntimeMode::Hot)
+    })
+}
+
+/// Env vars for WarmupScopeFilter / legacy gate when spawning App Runtime or mei-plug-ds.
+pub fn runtime_plan_env_vars(plan: &RuntimePlan, app_id: &str) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    let app_plan = effective_app_plan(plan, app_id);
+    let hot_scopes = app_plan
+        .into_iter()
+        .flat_map(|app| app.targets.iter())
+        .filter(|target| target.mode == RuntimeMode::Hot)
+        .map(|target| normalize_scope(target.scope.as_str()))
+        .filter(|scope| !scope.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    let eval_scopes = app_plan
+        .into_iter()
+        .flat_map(|app| app.targets.iter())
+        .filter(|target| target.mode != RuntimeMode::Frozen)
+        .map(|target| normalize_scope(target.scope.as_str()))
+        .filter(|scope| !scope.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+    let hot_metrics = app_plan
+        .into_iter()
+        .flat_map(|app| app.metric_overrides.iter())
+        .filter(|(_, mode)| **mode == RuntimeMode::Hot)
+        .map(|(metric_id, _)| metric_id.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    if plan.default_mode == RuntimeMode::Hot {
+        env.insert("MEI_DEV_EVAL_PROFILE".to_string(), "full".to_string());
+    } else if plan.default_mode == RuntimeMode::Frozen
+        && !runtime_plan_requires_warm(plan, app_id)
+        && eval_scopes.is_empty()
+    {
+        env.insert("MEI_DEV_EVAL_PROFILE".to_string(), "static".to_string());
+    } else {
+        env.insert("MEI_DEV_EVAL_PROFILE".to_string(), "scoped".to_string());
+        if !hot_scopes.is_empty() {
+            env.insert("MEI_WARMUP_SCOPE".to_string(), hot_scopes);
+        }
+        if !eval_scopes.is_empty() {
+            env.insert("MEI_EVAL_SCOPE".to_string(), eval_scopes);
+        }
+        if !hot_metrics.is_empty() {
+            env.insert("MEI_WARMUP_METRICS".to_string(), hot_metrics);
+        }
+    }
+    env
+}
+
+fn load_instance_runtime_plan(workspace_root: &Path, app_id: &str) -> Option<RuntimePlan> {
+    let path = workspace_root
+        .join("deploy/runtime/apps")
+        .join(app_id)
+        .join("spec.json");
+    let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    serde_json::from_value(value.get("configSnapshot")?.get("runtimePlan")?.clone()).ok()
 }
 
 fn load_applied_runtime_plan(workspace_root: &Path) -> Option<RuntimePlan> {
     let path = workspace_root.join("deploy/state/host-control.json");
-    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     serde_json::from_value(value.get("runtimePlan")?.clone()).ok()
 }
 
@@ -379,5 +488,66 @@ mod tests {
                 .decide_metric(Some("items_count"), Some("warning_analytics"))
                 .accepted
         );
+    }
+
+    #[test]
+    fn instance_spec_plan_is_preferred_over_env() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_id = "pretty-panels";
+        let spec_dir = tmp.path().join("deploy/runtime/apps").join(app_id);
+        std::fs::create_dir_all(&spec_dir).expect("mkdir");
+        let plan = RuntimePlan {
+            default_mode: RuntimeMode::Frozen,
+            apps: [(
+                app_id.to_string(),
+                RuntimePlanApp {
+                    targets: vec![crate::RuntimePlanTarget {
+                        scope: "home/t1/r-right-rail/s-warning".to_string(),
+                        mode: RuntimeMode::Hot,
+                    }],
+                    metric_overrides: Default::default(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let spec = json!({
+            "schemaVersion": "mei-instance-spec-v1",
+            "instanceId": "inst-1",
+            "appId": app_id,
+            "bundle": { "generation": "g1", "bundlePath": "path" },
+            "configSnapshot": {
+                "profileId": "data-scoped",
+                "profileRevision": "r1",
+                "profileFile": "apps/pretty-panels/launch/data-scoped.json",
+                "runtimePlan": plan,
+            },
+            "runtimeAbi": "test",
+        });
+        std::fs::write(
+            spec_dir.join("spec.json"),
+            serde_json::to_vec_pretty(&spec).expect("ser"),
+        )
+        .expect("write");
+
+        std::env::set_var("MEI_DEV_EVAL_PROFILE", "full");
+        let gate = RuntimeDevEvalGate::resolve_for_app(tmp.path(), app_id);
+        std::env::remove_var("MEI_DEV_EVAL_PROFILE");
+
+        assert!(
+            gate.decide_scope(Some("home/t1/r-right-rail/s-warning"))
+                .accepted
+        );
+        assert!(
+            !gate
+                .decide_scope(Some("home/t1/r-left-rail/s-enforcement"))
+                .accepted
+        );
+        let env = runtime_plan_env_vars(&plan, app_id);
+        assert_eq!(
+            env.get("MEI_DEV_EVAL_PROFILE").map(String::as_str),
+            Some("scoped")
+        );
+        assert!(runtime_plan_requires_warm(&plan, app_id));
     }
 }

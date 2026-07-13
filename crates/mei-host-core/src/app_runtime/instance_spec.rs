@@ -50,6 +50,9 @@ pub struct ConfigSnapshot {
     pub launch_config_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_config_file: Option<String>,
+    /// Optional copy of launch `warmup` block for App Runtime consumers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warmup: Option<serde_json::Value>,
 }
 
 impl Default for ConfigSnapshot {
@@ -66,6 +69,7 @@ impl Default for ConfigSnapshot {
             launch_config_id: None,
             launch_config_revision: None,
             launch_config_file: None,
+            warmup: None,
         }
     }
 }

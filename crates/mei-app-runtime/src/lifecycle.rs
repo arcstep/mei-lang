@@ -1,7 +1,7 @@
 use mei_host_core::{HostContext, InstancePhase, InstanceRevisions};
 use mei_host_graph::WarmupTier;
 use mei_lang_datasets::configure_metric_response_cache_ttl_ms;
-use mei_lang_kernel::{load_mei_config_for_app, RuntimeMode};
+use mei_lang_kernel::{load_mei_config_for_app, runtime_plan_requires_warm};
 use mei_plug_ds::{collect_warmup_targets, run_warmup_targets_with_tier};
 
 use crate::state::AppRuntimeServeState;
@@ -19,7 +19,8 @@ pub fn bootstrap_runtime(state: &AppRuntimeServeState) -> anyhow::Result<()> {
     let revisions = collect_revisions(&state.host);
     state.set_revisions(revisions);
 
-    if should_warm(&state.spec.config_snapshot.runtime_plan.default_mode) {
+    let plan = &state.spec.config_snapshot.runtime_plan;
+    if runtime_plan_requires_warm(plan, state.app_id()) {
         state.set_phase(InstancePhase::Warming);
         if let Err(error) = run_hot_warmup(&state.host) {
             tracing::warn!(
@@ -32,10 +33,6 @@ pub fn bootstrap_runtime(state: &AppRuntimeServeState) -> anyhow::Result<()> {
 
     state.set_phase(InstancePhase::Ready);
     Ok(())
-}
-
-fn should_warm(mode: &RuntimeMode) -> bool {
-    matches!(mode, RuntimeMode::Hot)
 }
 
 fn run_hot_warmup(ctx: &HostContext) -> anyhow::Result<()> {

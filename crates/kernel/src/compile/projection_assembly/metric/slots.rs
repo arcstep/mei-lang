@@ -210,19 +210,39 @@ fn world_metrics_resource_candidates(
         if path.is_empty() {
             return;
         }
-        let id = imported_world_metrics_resource_id(path);
-        if resources.iter().any(|resource| resource.id == id) && !out.iter().any(|item| item == &id)
-        {
-            out.push(id);
+        let candidates = [
+            path.to_string(),
+            format!("__world_metrics__::{path}"),
+            imported_world_metrics_resource_id(path),
+        ];
+        for id in candidates {
+            if resources.iter().any(|resource| resource.id == id)
+                && !out.iter().any(|item| item == &id)
+            {
+                out.push(id);
+            }
         }
     };
     if let Some(hint) = world_hint {
-        if let Some(path) = hint
-            .as_object()
-            .and_then(|obj| obj.get("scene_file").or_else(|| obj.get("scene_path")))
-            .and_then(Value::as_str)
-        {
-            push_path(path);
+        if let Some(obj) = hint.as_object() {
+            for field in [
+                "scene_file",
+                "scene_path",
+                "bundle",
+                "dataset_id",
+                "from_dataset",
+            ] {
+                if let Some(path) = obj.get(field).and_then(Value::as_str) {
+                    push_path(path);
+                }
+            }
+            if let Some(args) = obj.get("__args").and_then(Value::as_object) {
+                for field in ["bundle", "dataset_id", "from_dataset"] {
+                    if let Some(path) = args.get(field).and_then(Value::as_str) {
+                        push_path(path);
+                    }
+                }
+            }
         }
     }
     out

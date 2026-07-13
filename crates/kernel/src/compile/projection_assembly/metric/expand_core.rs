@@ -29,8 +29,13 @@ pub(crate) fn expand_page_instance(
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
         });
-    let (dataset_id, contract) =
-        lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
+    let (dataset_id, contract) = lookup_metric_contract(
+        metric_id,
+        resources,
+        world_hint.or(Some(context_ref)),
+        diagnostics,
+        target_file,
+    )?;
 
     let Some(shell) = resolve_scene_shell_contract(payload) else {
         diagnostics.push(Diagnostic {

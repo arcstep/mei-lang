@@ -33,7 +33,7 @@ pub fn collect_warmup_targets(
         .client_bootstrap
         .map(|cfg| cfg.scopes.into_iter().collect())
         .unwrap_or_default();
-    let warmup_filter = WarmupScopeFilter::from_env();
+    let warmup_filter = WarmupScopeFilter::resolve_for_app(ctx);
     let mut targets = Vec::new();
 
     for node in registry
@@ -128,6 +128,52 @@ impl WarmupScopeFilter {
             profile,
             warmup_scopes,
             warmup_metrics,
+        }
+    }
+
+    /// Prefer launch-bound InstanceSpec runtimePlan; fall back to process env.
+    pub fn resolve_for_app(ctx: &HostContext) -> Self {
+        if let Some(spec) = mei_host_core::read_instance_spec_for_app(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+        ) {
+            return Self::from_runtime_plan(
+                &spec.config_snapshot.runtime_plan,
+                ctx.app_id.as_str(),
+            );
+        }
+        Self::from_env()
+    }
+
+    pub fn from_runtime_plan(plan: &mei_lang_kernel::RuntimePlan, app_id: &str) -> Self {
+        let env = mei_lang_kernel::runtime_plan_env_vars(plan, app_id);
+        Self {
+            profile: env
+                .get("MEI_DEV_EVAL_PROFILE")
+                .cloned()
+                .unwrap_or_else(|| "full".to_string()),
+            warmup_scopes: env
+                .get("MEI_WARMUP_SCOPE")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(|part| part.trim_matches('/').to_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            warmup_metrics: env
+                .get("MEI_WARMUP_METRICS")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 

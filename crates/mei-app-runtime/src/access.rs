@@ -9,7 +9,7 @@ use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::resolve_default_scene_from_root;
 use serde::Deserialize;
 
-use crate::host_data::{fill_runtime_asset_version, inject_view_revision_envelope};
+use crate::host_data::{fill_runtime_asset_version, inject_view_revision_envelope_with_dev_eval};
 use crate::state::SharedRuntimeState;
 
 fn html_escape_attr(value: &str) -> String {
@@ -116,7 +116,18 @@ fn finalize_access_html(
 ) -> String {
     let html = thin_access_shell_document(app_id, scene_id);
     let html = fill_runtime_page_theme(html, state.host.workspace_root.as_path());
-    let html = inject_view_revision_envelope(html, app_id, scene_id, surface);
+    let dev_eval = mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(
+        state.spec.config_snapshot.runtime_plan.clone(),
+        app_id,
+    )
+    .client_payload();
+    let html = inject_view_revision_envelope_with_dev_eval(
+        html,
+        app_id,
+        scene_id,
+        surface,
+        Some(&dev_eval),
+    );
     let html = inject_runtime_capabilities(html, app_id);
     let html = inject_runtime_component_scripts(
         html,
@@ -242,8 +253,11 @@ mod tests {
         assert!(html.contains("/app-bundles/shoelace.js?v=__MEI_HOST_ASSET_VERSION__"));
         assert!(html.contains("/app-assets/host-shell.css"));
         assert!(html.contains("__MEI_PAGE_BODY_THEME_STYLE__"));
-        let injected =
-            fill_runtime_asset_version(inject_view_revision_envelope(html, "demo", "home", "app"));
+        let injected = fill_runtime_asset_version(
+            crate::host_data::inject_view_revision_envelope_with_dev_eval(
+                html, "demo", "home", "app", None,
+            ),
+        );
         assert!(injected.contains("view_revision_envelope"));
         assert!(injected.contains("thin_shell"));
         assert!(!injected.contains("__MEI_HOST_ASSET_VERSION__"));

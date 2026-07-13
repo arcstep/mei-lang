@@ -209,8 +209,43 @@ pub fn render_auth_card_page(
     )
 }
 
-const STARTUP_WARMING_SCRIPT_TEMPLATE: &str = r#"<script>(function(){var delay=2000;var returnTo=__RETURN_TO__;var poll={app:"__APP__",scene:"__SCENE__",mode:"__MODE__"};function readinessUrl(){return"/api/host/access-readiness?app="+encodeURIComponent(poll.app)+"&scene="+encodeURIComponent(poll.scene)+"&mode="+encodeURIComponent(poll.mode);}function tick(){fetch(readinessUrl(),{cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"}}).then(function(res){if(!res.ok){throw new Error("readiness "+res.status);}return res.json();}).then(function(body){body=body||{};if(body.ready){location.replace(returnTo);return;}setTimeout(tick,body.startupError?delay*2:delay);}).catch(function(){setTimeout(tick,delay);});}setTimeout(tick,delay);})();</script>"#;
+const STARTUP_WARMING_SCRIPT_TEMPLATE: &str = r#"<script>(function(){var delay=2000;var returnTo=__RETURN_TO__;var poll={app:"__APP__",scene:"__SCENE__",mode:"__MODE__"};function readinessUrl(){return"/api/host/access-readiness?app="+encodeURIComponent(poll.app)+"&scene="+encodeURIComponent(poll.scene)+"&mode="+encodeURIComponent(poll.mode);}function tick(){fetch(readinessUrl(),{cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"}}).then(function(res){if(!res.ok){throw new Error("readiness "+res.status);}return res.json();}).then(function(body){body=body||{};if(body.ready){location.replace(returnTo);return;}if(typeof body.title==="string"&&body.title){var el=document.getElementById("mei-access-gate-title");if(el){el.textContent=body.title;}}setTimeout(tick,body.startupError?delay*2:delay);}).catch(function(){setTimeout(tick,delay);});}setTimeout(tick,delay);})();</script>"#;
 
+/// Poll script that redirects to `return_path` once access readiness is true.
+pub fn startup_warming_poll_script(
+    return_path: &str,
+    poll_app_id: &str,
+    poll_scene_id: &str,
+    poll_mode: &str,
+) -> String {
+    let return_to_js =
+        serde_json::to_string(return_path.trim()).unwrap_or_else(|_| "\"/\"".to_string());
+    let app_js = serde_json::to_string(poll_app_id.trim()).unwrap_or_else(|_| "\"\"".to_string());
+    let scene_js =
+        serde_json::to_string(poll_scene_id.trim()).unwrap_or_else(|_| "\"\"".to_string());
+    let mode_js = serde_json::to_string(poll_mode.trim()).unwrap_or_else(|_| "\"\"".to_string());
+    STARTUP_WARMING_SCRIPT_TEMPLATE
+        .replace("__RETURN_TO__", return_to_js.as_str())
+        .replace("\"__APP__\"", app_js.as_str())
+        .replace("\"__SCENE__\"", scene_js.as_str())
+        .replace("\"__MODE__\"", mode_js.as_str())
+}
+
+/// Main-panel HTML for gated Access (host chrome stays elsewhere).
+/// Poll script is separate — inject before `</body>` so SSR `inner_html` slots do not own it.
+pub fn render_startup_warming_main_html(title: &str) -> String {
+    format!(
+        r#"<section class="mei-host-shell__warming-panel" role="status" aria-live="polite" aria-busy="true">
+  <div class="mei-host-shell__card mei-host-shell__card--starting">
+    <h1 id="mei-access-gate-title" class="mei-host-shell__title">{title}</h1>
+    <div class="mei-host-shell__progress" aria-hidden="true"><span></span><span></span><span></span></div>
+  </div>
+</section>"#,
+        title = html_escape(title),
+    )
+}
+
+/// Bare warming document (no host chrome). Prefer host-shell workspace wrapping in product paths.
 pub fn render_startup_warming_page(
     source_root: &Path,
     _status_line: &str,
@@ -220,34 +255,25 @@ pub fn render_startup_warming_page(
     poll_mode: &str,
 ) -> String {
     let body_theme = host_shell_body_theme_style(source_root);
-    let return_to_js =
-        serde_json::to_string(return_path.trim()).unwrap_or_else(|_| "\"/\"".to_string());
-    let script = STARTUP_WARMING_SCRIPT_TEMPLATE
-        .replace("__RETURN_TO__", return_to_js.as_str())
-        .replace("__APP__", poll_app_id.trim())
-        .replace("__SCENE__", poll_scene_id.trim())
-        .replace("__MODE__", poll_mode.trim());
+    let main = render_startup_warming_main_html("应用暂不可用");
+    let script = startup_warming_poll_script(return_path, poll_app_id, poll_scene_id, poll_mode);
     format!(
         r#"<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>服务准备中 - MeiLang</title>
+    <title>应用未就绪 - MeiLang</title>
     <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/app-assets/host-shell.css" />
   </head>
   <body class="mei-host-shell mei-host-shell--warming" style="{body_style}">
-    <div class="mei-host-shell__stage">
-      <main class="mei-host-shell__card mei-host-shell__card--starting" role="status" aria-live="polite" aria-busy="true">
-        <h1 class="mei-host-shell__title">服务正在准备中</h1>
-        <div class="mei-host-shell__progress" aria-hidden="true"><span></span><span></span><span></span></div>
-      </main>
-    </div>
+    <div class="mei-host-shell__stage">{main}</div>
     {script}
   </body>
 </html>"#,
         body_style = html_escape(body_theme.as_str()),
+        main = main,
         script = script,
     )
 }
@@ -340,20 +366,17 @@ mod tests {
 
     #[test]
     fn warming_page_keeps_only_the_actionable_status_copy() {
-        let html = render_startup_warming_page(
-            Path::new("."),
-            "internal startup detail",
-            "/apps/pretty-panels/home",
-            "pretty-panels",
-            "home",
-            "app",
-        );
+        let html = render_startup_warming_main_html("工作区尚未配置");
+        let script =
+            startup_warming_poll_script("/apps/pretty-panels/home", "pretty-panels", "home", "app");
 
-        assert!(html.contains("服务正在准备中"));
-        assert!(html.contains("/api/host/access-readiness"));
+        assert!(html.contains("工作区尚未配置"));
+        assert!(html.contains("mei-host-shell__progress"));
+        assert!(!html.contains("/runtime"));
+        assert!(!html.contains("返回首页"));
+        assert!(script.contains("/api/host/access-readiness"));
         assert!(!html.contains("服务正在准备启动中，请耐心等候"));
         assert!(!html.contains("梅花铜钱"));
         assert!(!html.contains("目标页面就绪后"));
-        assert!(!html.contains("internal startup detail"));
     }
 }

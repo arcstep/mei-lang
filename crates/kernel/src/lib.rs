@@ -202,7 +202,10 @@ pub use runtime::{
     initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step, RuntimeIntent,
     RuntimeSceneView, RuntimeState, RuntimeSubjectTimerState, RuntimeTraceItem,
 };
-pub use runtime_dev_eval::{RuntimeDevEvalDecision, RuntimeDevEvalGate, RuntimeDevEvalProfile};
+pub use runtime_dev_eval::{
+    runtime_plan_env_vars, runtime_plan_requires_warm, RuntimeDevEvalDecision, RuntimeDevEvalGate,
+    RuntimeDevEvalProfile,
+};
 pub use runtime_resource_index::{
     build_runtime_resource_index, build_runtime_resource_map, is_forbidden_legacy_resource_id,
     locate_dataset_resource, resolve_dataset_resource_id, resolve_dataset_selector_value,
