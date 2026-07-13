@@ -25,14 +25,34 @@ pub fn collect_warmup_targets(
     ctx: &HostContext,
     policy: Option<&str>,
 ) -> anyhow::Result<Vec<WarmupTarget>> {
+    let scopes = match policy {
+        Some("all") => None,
+        Some(policy) => Some(vec![policy.to_string()]),
+        None => Some(vec!["home".to_string()]),
+    };
+    collect_warmup_targets_for_scopes(ctx, scopes.as_deref())
+}
+
+/// Collect warmup targets whose `scope_key` is in `scopes`.
+/// When `scopes` is `None`, all WarmupPolicy scopes are accepted (same as policy=`all`).
+pub fn collect_warmup_targets_for_scopes(
+    ctx: &HostContext,
+    scopes: Option<&[String]>,
+) -> anyhow::Result<Vec<WarmupTarget>> {
     let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let app_root = ctx.app_root();
-    let policy_filter = policy.unwrap_or("home");
     let configured_scopes: BTreeSet<String> = load_mei_config_for_app(app_root.as_path(), None)
         .runtime
         .client_bootstrap
         .map(|cfg| cfg.scopes.into_iter().collect())
         .unwrap_or_default();
+    let scope_filter: Option<BTreeSet<String>> = scopes.map(|items| {
+        items
+            .iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect()
+    });
     let warmup_filter = WarmupScopeFilter::resolve_for_app(ctx);
     let mut targets = Vec::new();
 
@@ -49,11 +69,13 @@ pub fn collect_warmup_targets(
         };
         let payload: Value = artifact.get("payload").cloned().unwrap_or(Value::Null);
         let scope_key = extract_scope_key(&payload).unwrap_or_else(|| "home".to_string());
-        if policy_filter != "all" && scope_key != policy_filter {
-            let allowed_by_config =
-                policy_filter == "home" && configured_scopes.contains(&scope_key);
-            if !allowed_by_config {
-                continue;
+        if let Some(filter) = scope_filter.as_ref() {
+            if !filter.contains(&scope_key) {
+                let allowed_by_config =
+                    filter.contains("home") && configured_scopes.contains(&scope_key);
+                if !allowed_by_config {
+                    continue;
+                }
             }
         }
         if let Some(slots) = payload.get("slots").and_then(Value::as_array) {

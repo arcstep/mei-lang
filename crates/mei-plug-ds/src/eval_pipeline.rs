@@ -7,8 +7,8 @@ use mei_lang_datasets::{
     collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics,
     load_metric_response_result_artifact, metric_request_revision_fingerprint_for_compiled,
     metric_response_cache_scope_key, populate_l1_from_loaded_metric_artifact,
-    project_requested_metrics, store_cached_metric_response, store_metric_response_result_artifact,
-    take_cached_metric_response, RuntimeMetricEvalMode,
+    project_requested_metrics, store_cached_metric_response, store_cached_metric_response_aliases,
+    store_metric_response_result_artifact, take_cached_metric_response, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
 
@@ -71,31 +71,62 @@ pub fn eval_metrics_with_slots(
         &request.filter_intents,
         None,
     );
+    let mut lookup_cache_keys = vec![cache_key.clone()];
+    if request.target.is_some() {
+        let warmup_cache_key = metric_response_cache_scope_key(
+            ctx.app_id.as_str(),
+            request.scope_key.as_str(),
+            None,
+            request.owner_resource_id.as_str(),
+            &query_options,
+            compile_revision,
+            dependency_revision_key.as_str(),
+            &request.filter_intents,
+            None,
+        );
+        if warmup_cache_key != cache_key {
+            lookup_cache_keys.push(warmup_cache_key);
+        }
+    }
     let requested: BTreeSet<String> = request.metric_ids.iter().cloned().collect();
     let request_all_metrics = request.metric_ids.is_empty();
     let result_artifact_candidate =
         default_result_artifact_scope(&request.query_state, &request.filter_intents);
 
-    if let Some(cached) =
-        take_cached_metric_response(cache_key.as_str(), &requested, request_all_metrics)
-    {
-        return Ok(build_outcome_from_cached(
-            request,
-            dependency_revision_key.as_str(),
-            cache_key.as_str(),
-            started,
-            cached.total_rows,
-            &cached.metrics_map,
-            "memory",
-            true,
-            false,
-        ));
+    for lookup_cache_key in &lookup_cache_keys {
+        if let Some(cached) =
+            take_cached_metric_response(lookup_cache_key.as_str(), &requested, request_all_metrics)
+        {
+            store_cached_metric_response_aliases(
+                &lookup_cache_keys,
+                cached.total_rows,
+                &cached.metrics_map,
+                &cached.covered_metric_ids,
+                cached.complete,
+            );
+            return Ok(build_outcome_from_cached(
+                request,
+                dependency_revision_key.as_str(),
+                lookup_cache_key.as_str(),
+                started,
+                cached.total_rows,
+                &cached.metrics_map,
+                "memory",
+                true,
+                false,
+            ));
+        }
     }
 
     if result_artifact_candidate {
-        if let Some((artifact, artifact_load_ms)) =
-            load_metric_response_result_artifact(app_root.as_path(), cache_key.as_str())?
-        {
+        for lookup_cache_key in &lookup_cache_keys {
+            let Some((artifact, artifact_load_ms)) = load_metric_response_result_artifact(
+                app_root.as_path(),
+                lookup_cache_key.as_str(),
+            )?
+            else {
+                continue;
+            };
             let artifact_covers_request = if request_all_metrics {
                 artifact.complete
             } else {
@@ -104,10 +135,7 @@ pub fn eval_metrics_with_slots(
                     .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
             };
             if artifact_covers_request {
-                populate_l1_from_loaded_metric_artifact(
-                    std::slice::from_ref(&cache_key),
-                    &artifact,
-                );
+                populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
                 let query_perf =
                     BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
                 let metrics = project_requested_metrics(
@@ -119,7 +147,7 @@ pub fn eval_metrics_with_slots(
                 let descriptors = build_descriptors_for_metrics(
                     request,
                     dependency_revision_key.as_str(),
-                    cache_key.as_str(),
+                    lookup_cache_key.as_str(),
                     artifact_load_ms,
                     true,
                     "disk",
@@ -131,7 +159,7 @@ pub fn eval_metrics_with_slots(
                 );
                 return Ok(EvalPipelineOutcome {
                     descriptors,
-                    cache_key: cache_key.clone(),
+                    cache_key: lookup_cache_key.clone(),
                     artifact_hit: true,
                     cache_layer: "disk".to_string(),
                     result_artifact_hit: true,

@@ -56,6 +56,26 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
             l1_hit: report.l1_cache_hit_count,
             slot_count: report.slot_count,
             elapsed_ms: report.elapsed_ms,
+            disk_tier_ms: report.disk_tier_ms,
+            memory_tier_ms: report.memory_tier_ms,
+            client_tier_ms: report.client_tier_ms,
+            disk_bytes: report.disk_bytes,
+            target_count: report.target_count,
+            unique_content_hash_count: report.unique_content_hash_count,
+            rss_before_bytes: report.rss_before_bytes,
+            rss_after_bytes: report.rss_after_bytes,
+            cpu_user_ms: report.cpu_user_ms,
+            cpu_system_ms: report.cpu_system_ms,
+            io_read_ops: report.io_read_ops,
+            io_read_bytes: report.io_read_bytes,
+            io_write_ops: report.io_write_ops,
+            io_write_bytes: report.io_write_bytes,
+            content_hash_dedupe_skips: report.content_hash_dedupe_skips,
+            node_pack_loads: report.node_pack_loads,
+            node_pack_stores: report.node_pack_stores,
+            node_pack_store_skipped_full_hit: report.node_pack_store_skipped_full_hit,
+            tier: args.tier.clone(),
+            memory_hydrated: report.memory_hydrated,
         },
     );
     if args.hops > 0 {
@@ -73,12 +93,14 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         }
     }
     println!(
-        "[{}] warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={} disk_hit={} l1_hit={}",
+        "[{}] warmup ok: policy={} tier={} worksets={} targets={} slots={} unique_hash={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={} disk_hit={} l1_hit={} io_read_ops={} io_write_ops={} dedupe_skips={} node_pack_loads={} node_pack_stores={} node_pack_skip_full_hit={} rss_before={:?} rss_after={:?} cpu_user_ms={:?} cpu_system_ms={:?}",
         log_timestamp_rfc3339(),
         args.policy,
         args.tier,
         targets.len(),
+        report.target_count,
         report.slot_count,
+        report.unique_content_hash_count,
         report.memory_hydrated,
         report.client_manifest_written,
         report.failed_count,
@@ -91,7 +113,17 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         report.eval_compute_count,
         report.eval_cache_hit_count,
         report.disk_artifact_hit_count,
-        report.l1_cache_hit_count
+        report.l1_cache_hit_count,
+        report.io_read_ops,
+        report.io_write_ops,
+        report.content_hash_dedupe_skips,
+        report.node_pack_loads,
+        report.node_pack_stores,
+        report.node_pack_store_skipped_full_hit,
+        report.rss_before_bytes,
+        report.rss_after_bytes,
+        report.cpu_user_ms,
+        report.cpu_system_ms,
     );
     Ok(())
 }

@@ -2,12 +2,15 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
+use mei_host_core::{
+    dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext, ProcessPhaseTimer,
+};
 use mei_host_graph::{
     client_bootstrap_scope_allowed, collect_eval_frontier, linked_t2_page_pack_scopes,
     record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
     WarmupTier,
 };
+use mei_lang_datasets::{snapshot_eval_cache_io, take_eval_cache_io_delta};
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
     ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
@@ -35,6 +38,20 @@ pub struct WarmupOrchestratorReport {
     pub eval_cache_hit_count: usize,
     pub disk_artifact_hit_count: usize,
     pub l1_cache_hit_count: usize,
+    pub target_count: usize,
+    pub unique_content_hash_count: usize,
+    pub rss_before_bytes: Option<u64>,
+    pub rss_after_bytes: Option<u64>,
+    pub cpu_user_ms: Option<u64>,
+    pub cpu_system_ms: Option<u64>,
+    pub io_read_ops: u64,
+    pub io_read_bytes: u64,
+    pub io_write_ops: u64,
+    pub io_write_bytes: u64,
+    pub content_hash_dedupe_skips: u64,
+    pub node_pack_loads: u64,
+    pub node_pack_stores: u64,
+    pub node_pack_store_skipped_full_hit: u64,
 }
 
 pub fn run_warmup_targets_with_tier(
@@ -42,6 +59,8 @@ pub fn run_warmup_targets_with_tier(
     targets: &[WarmupTarget],
     tier: WarmupTier,
 ) -> anyhow::Result<WarmupOrchestratorReport> {
+    let phase = ProcessPhaseTimer::start();
+    let _ = snapshot_eval_cache_io();
     let started = Instant::now();
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     let memory_cfg = memory_warmup_config(&config.runtime.memory_warmup);
@@ -240,6 +259,13 @@ pub fn run_warmup_targets_with_tier(
     }
 
     let disk_bytes = warmup_disk_bytes(ctx);
+    let process = phase.finish();
+    let io = take_eval_cache_io_delta();
+    let unique_content_hash_count = all_slots
+        .iter()
+        .map(|slot| slot.content_hash.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
 
     Ok(WarmupOrchestratorReport {
         slot_count: all_slots.len(),
@@ -256,6 +282,20 @@ pub fn run_warmup_targets_with_tier(
         eval_cache_hit_count,
         disk_artifact_hit_count,
         l1_cache_hit_count,
+        target_count: targets.len(),
+        unique_content_hash_count,
+        rss_before_bytes: process.rss_before_bytes,
+        rss_after_bytes: process.rss_bytes,
+        cpu_user_ms: process.cpu_user_ms,
+        cpu_system_ms: process.cpu_system_ms,
+        io_read_ops: io.read_ops,
+        io_read_bytes: io.read_bytes,
+        io_write_ops: io.write_ops,
+        io_write_bytes: io.write_bytes,
+        content_hash_dedupe_skips: io.content_hash_dedupe_skips,
+        node_pack_loads: io.node_pack_loads,
+        node_pack_stores: io.node_pack_stores,
+        node_pack_store_skipped_full_hit: io.node_pack_store_skipped_full_hit,
     })
 }
 
