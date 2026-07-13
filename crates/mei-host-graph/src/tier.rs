@@ -3,6 +3,8 @@
 pub const TIER_T0: &str = "t0";
 pub const TIER_T1: &str = "t1";
 pub const TIER_T2: &str = "t2";
+/// Presentation stage content plane (not a scene T* tier).
+pub const TIER_P: &str = "p";
 
 pub const DEFAULT_PANEL_TIER: &str = TIER_T1;
 
@@ -48,12 +50,14 @@ pub const Z_T2_FILTER_FLOAT: i64 = 2250;
 pub const Z_T2_TOOLTIP: i64 = 2300;
 pub const Z_T2_TEXT_POPOVER: i64 = 2350;
 
-/// Normalize author `tier` to `t0` | `t1` | `t2`. Rejects legacy basemap/chrome/overlay names.
+/// Normalize author `tier` to `t0` | `t1` | `t2` | `p`.
+/// `p` is the presentation-stage content plane (0334 / 0406).
 pub fn canonical_tier(raw: &str) -> Result<&'static str, String> {
     match raw.trim() {
         TIER_T0 => Ok(TIER_T0),
         TIER_T1 => Ok(TIER_T1),
         TIER_T2 => Ok(TIER_T2),
+        TIER_P => Ok(TIER_P),
         "basemap" => Err(
             "tier \"basemap\" is deprecated; use tier \"t0\" (Tier-0 basemap stage)".to_string(),
         ),
@@ -63,9 +67,9 @@ pub fn canonical_tier(raw: &str) -> Result<&'static str, String> {
         "overlay" => Err(
             "tier \"overlay\" is deprecated; use tier \"t2\" (Tier-2 board workspace)".to_string(),
         ),
-        other if other.is_empty() => Err("tier must be t0, t1, or t2".to_string()),
+        other if other.is_empty() => Err("tier must be t0, t1, t2, or p".to_string()),
         other => Err(format!(
-            "unknown tier \"{other}\"; expected t0, t1, or t2 (Tier-0/1/2)"
+            "unknown tier \"{other}\"; expected t0, t1, t2, or p"
         )),
     }
 }
@@ -75,6 +79,7 @@ pub fn default_z_index_for_tier(tier: &str) -> i64 {
         TIER_T0 => Z_T0_DEFAULT,
         TIER_T1 => Z_T1_DEFAULT,
         TIER_T2 => Z_T2_DEFAULT,
+        TIER_P => Z_PRESENTATION_MIN,
         _ => Z_T1_DEFAULT,
     }
 }
@@ -141,6 +146,7 @@ pub fn z_index_in_tier_band(tier: &str, z: i64) -> bool {
         TIER_T0 => (Z_T0_MIN..=Z_T0_MAX).contains(&z),
         TIER_T1 => (Z_T1_MIN..=Z_T1_MAX).contains(&z),
         TIER_T2 => (Z_T2_MIN..=Z_T2_MAX).contains(&z),
+        TIER_P => (Z_PRESENTATION_MIN..=Z_PRESENTATION_MAX).contains(&z),
         _ => false,
     }
 }
@@ -177,10 +183,11 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn canonical_tier_accepts_t0_t1_t2() {
+    fn canonical_tier_accepts_t0_t1_t2_and_p() {
         assert_eq!(canonical_tier("t0").unwrap(), TIER_T0);
         assert_eq!(canonical_tier("t1").unwrap(), TIER_T1);
         assert_eq!(canonical_tier("t2").unwrap(), TIER_T2);
+        assert_eq!(canonical_tier("p").unwrap(), TIER_P);
     }
 
     #[test]

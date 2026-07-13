@@ -137,9 +137,11 @@ fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
     match block.kind.as_str() {
         "app_skeleton" => (APP_SKELETON, "mei-app-skeleton-artifact-v1"),
         "scene" => (SEMANTIC_SCENE, "mei-scene-semantic-v1"),
+        "presentation" => (SEMANTIC_SCENE, "mei-presentation-semantic-v1"),
         "plane_layout" | "region_layout" | "section_layout" => {
             (SEMANTIC_SCENE, "mei-scene-layout-fragment-v1")
         }
+        "slide_layout" => (SEMANTIC_SCENE, "mei-presentation-slide-fragment-v1"),
         "map_spec" => (SEMANTIC_SCENE, "mei-map-spec-v1"),
         "view_spec" => (SEMANTIC_SCENE, "mei-view-spec-v1"),
         "content_panel" => (CONTENT_PANEL, "mei-panel-contract-artifact-v1"),

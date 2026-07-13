@@ -146,6 +146,15 @@ fn apply_theme_layout_patch(panel: &mut UiNodeDecl, patch: &Value) {
             layout.gap = Some(gap.to_string());
         }
     }
+    if let Some(first_width) = patch.get("firstWidth").and_then(Value::as_str) {
+        if let Some(layout) = panel.layout.as_mut() {
+            if let Some(columns) = layout.columns.as_mut() {
+                if let Some(first) = columns.first_mut() {
+                    *first = first_width.to_string();
+                }
+            }
+        }
+    }
     if let Some(compound_width) = patch.get("compoundWidth").and_then(Value::as_str) {
         if let Some(map) = panel.props.as_object_mut() {
             map.insert(
@@ -155,9 +164,9 @@ fn apply_theme_layout_patch(panel: &mut UiNodeDecl, patch: &Value) {
         }
         if let Some(layout) = panel.layout.as_mut() {
             if let Some(columns) = layout.columns.as_mut() {
-                for col in columns.iter_mut() {
-                    if col.ends_with("px") && col.parse::<f64>().is_ok() {
-                        *col = compound_width.to_string();
+                if let Some(last) = columns.last_mut() {
+                    if last.ends_with("px") && last.parse::<f64>().is_ok() {
+                        *last = compound_width.to_string();
                     }
                 }
             }

@@ -112,11 +112,12 @@ fn chrome_like(profile: &str) -> Value {
             "overflow": "hidden",
             "__mei_layout_fill": true
         }),
+        // 纯色/SVG 指标卡默认无圆角；作者 props.radius 仍可覆盖。
         "narrow_metric" | "solid_stack" | "stack_desc" | "icon_left" => json!({
             "padding": "0 2px",
             "background": slot_stretch_background("metric-bg-normal@3x.svg"),
             "border": "none",
-            "radius": "4px",
+            "radius": "0",
             "width": "100%",
             "height": "100%",
             "min_height": "0",
@@ -126,14 +127,16 @@ fn chrome_like(profile: &str) -> Value {
         }),
         "stack_progress" => json!({
             "padding": "0 2px",
-            "background": "transparent",
+            "background": slot_stretch_background("metric-bg-clean@3x.svg"),
             "border": "none",
-            "radius": "4px",
+            "radius": "0",
             "width": "100%",
             "height": "100%",
             "min_height": "0",
             "box_sizing": "border-box",
             "overflow": "hidden",
+            "__mei_slot_frame_bg": true,
+            "__mei_slot_bg_stretch": true,
             "__mei_metric_template": "stack_desc",
             "__mei_metric_density": "compact",
             "__mei_metric_inline_align": "compact",
@@ -143,7 +146,7 @@ fn chrome_like(profile: &str) -> Value {
                 "inset_x": "0px",
                 "extend_x": "10px",
                 "height": "10px",
-                "border_radius": "1px",
+                "border_radius": "0",
                 "fill": "#C9E9F8"
             },
             "__mei_metric_label_v_align": "center",

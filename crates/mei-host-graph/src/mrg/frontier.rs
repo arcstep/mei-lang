@@ -375,7 +375,9 @@ pub fn board_neighbor_scope_fallback(
         return home_neighbor_scope_fallback(scope_key, hops);
     }
     if scope_key.contains("/t2/r-drilldown/s-")
-        || (scope_key.contains("/t2/r-") && !scope_key.contains("/s-") && !scope_key.contains("/c-"))
+        || (scope_key.contains("/t2/r-")
+            && !scope_key.contains("/s-")
+            && !scope_key.contains("/c-"))
     {
         let mut siblings = Vec::new();
         for section in home_neighbor_scope_fallback("home", hops) {

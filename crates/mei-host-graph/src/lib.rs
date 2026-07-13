@@ -117,8 +117,8 @@ pub use mrg::tier::{compute_client_revision, WarmupTier};
 pub use mrg::warmup::{record_navigation_edge, warm_frontier_slots, WarmupFrontierOutcome};
 pub use paths::{bridge_path, mcg_registry_path, mrg_registry_path, resolve_graph_root};
 pub use presentation_map::{
-    build_presentation_map, presentation_map_to_value, resolve_viewpoint_id,
-    PresentationMapDocument,
+    build_presentation_map, presentation_map_to_value, resolve_viewpoint_id, PresentationDeck,
+    PresentationDeckSlide, PresentationMapDocument,
 };
 pub use runtime_plans::{
     build_runtime_plans_document, empty_runtime_plans_document, ensure_runtime_plans_cached,

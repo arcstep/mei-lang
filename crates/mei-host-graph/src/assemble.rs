@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, flatten_panel_tree, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
-use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
+use crate::presentation_map::{
+    build_presentation_map_with_default_script, presentation_map_to_value,
+};
 use crate::projection_normalize::normalize_page_instance_payload;
 use crate::semantic_scene::{
     assemble_semantic_scene, has_semantic_scene, load_semantic_scene_payload,
@@ -246,6 +248,7 @@ fn assemble_scope_from_registry_uncached(
         scene_summary,
         scene_profile,
         scene_theme,
+        presentation_default_script,
         scene_shared,
         scene_local_nav,
         scene_params,
@@ -277,6 +280,7 @@ fn assemble_scope_from_registry_uncached(
             semantic.summary,
             semantic.profile,
             semantic.theme,
+            semantic.default_script,
             semantic.shared,
             semantic.local_nav,
             semantic.params,
@@ -311,6 +315,7 @@ fn assemble_scope_from_registry_uncached(
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
             assembly_payload.get("theme").cloned(),
+            assembly_payload.get("default_script").cloned(),
             assembly_payload.get("shared").cloned().unwrap_or(json!({})),
             assembly_payload
                 .get("local_nav")
@@ -339,10 +344,11 @@ fn assemble_scope_from_registry_uncached(
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
     let flat_panels = flatten_panel_tree(&panels);
     let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
-    let presentation_map = presentation_map_to_value(&build_presentation_map(
+    let presentation_map = presentation_map_to_value(&build_presentation_map_with_default_script(
         &scene_id,
         &flat_panels,
         &panel_payloads,
+        presentation_default_script,
     ));
     let world_exchange =
         build_world_exchange(app_root.as_path(), &registry, app_id).unwrap_or_default();

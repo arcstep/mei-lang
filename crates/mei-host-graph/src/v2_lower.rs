@@ -2106,15 +2106,69 @@ fn metric_runtime_blocks(
         let explicit = args.get(role).or_else(|| source.get(role));
         let dynamic_source = v2_ref_name(source).is_some()
             || source.get("__ref").and_then(Value::as_str) == Some("metric");
-        let exists = explicit.is_some() || dynamic_source || (role == "desc" && desc.is_some());
+        let desc_metric_ref = role == "desc"
+            && args.get("desc").is_some_and(|value| {
+                v2_ref_name(value).is_some()
+                    || value.get("__ref").and_then(Value::as_str) == Some("metric")
+            });
+        let exists =
+            explicit.is_some() || dynamic_source || (role == "desc" && desc.is_some()) || desc_metric_ref;
         if !exists {
             anyhow::bail!(
                 "metric_card layout area `{role}` has no corresponding field in metric data"
             );
         }
         if role == "desc" {
-            if let Some(desc) = desc {
+            if let Some(desc) = desc.filter(|value| !value.is_empty()) {
                 blocks.push(UiTreeNode::Block(metric_desc_slot_block(desc)));
+                continue;
+            }
+            // Allow `desc = metric_ref(...)` to bind a separate rate metric to the progress slot.
+            if let Some(desc_source) = args.get("desc").filter(|value| {
+                v2_ref_name(value).is_some()
+                    || value.get("__ref").and_then(Value::as_str) == Some("metric")
+            }) {
+                let progress_mode = matches!(template, "stack_progress" | "stack_desc")
+                    || args
+                        .get("props")
+                        .and_then(|props| props.get("metric_desc_mode"))
+                        .and_then(Value::as_str)
+                        == Some("progress")
+                    || args
+                        .get("props")
+                        .and_then(|props| props.get("__mei_metric_desc_mode"))
+                        .and_then(Value::as_str)
+                        == Some("progress");
+                blocks.push(UiTreeNode::Block(if progress_mode {
+                    metric_progress_slot_block(desc_source, args, &constants)
+                } else {
+                    metric_runtime_slot_block(
+                        desc_source,
+                        role,
+                        role,
+                        template,
+                        map,
+                        patch,
+                        popup,
+                        args,
+                        &constants,
+                    )
+                }));
+                continue;
+            }
+            // stack_progress：禁止把主 metric 的 value 回填到 desc（否则次数会进进度槽）。
+            if matches!(template, "stack_progress" | "stack_desc")
+                || args
+                    .get("props")
+                    .and_then(|props| props.get("metric_desc_mode"))
+                    .and_then(Value::as_str)
+                    == Some("progress")
+                || args
+                    .get("props")
+                    .and_then(|props| props.get("__mei_metric_desc_mode"))
+                    .and_then(Value::as_str)
+                    == Some("progress")
+            {
                 continue;
             }
         }
@@ -2123,6 +2177,55 @@ fn metric_runtime_blocks(
         )));
     }
     Ok(blocks)
+}
+
+fn metric_progress_slot_block(
+    source: &Value,
+    args: &Value,
+    constants: &BTreeMap<String, Value>,
+) -> BlockDecl {
+    let content = if v2_ref_name(source) == Some("metric") {
+        source.clone()
+    } else {
+        lower_v2_metric_ref(source, constants).unwrap_or_else(|| source.clone())
+    };
+    let mut props = Map::new();
+    props.insert("content".to_string(), content.clone());
+    props.insert("value".to_string(), content);
+    props.insert("metric_role".to_string(), json!("desc"));
+    props.insert("align".to_string(), json!("center"));
+    if let Some(shell) = args
+        .get("props")
+        .and_then(|props| {
+            props
+                .get("metric_desc_shell")
+                .or_else(|| props.get("__mei_metric_desc_shell"))
+        })
+        .filter(|value| value.is_object())
+    {
+        props.insert("progress_shell".to_string(), shell.clone());
+    }
+    BlockDecl {
+        kind: "block".to_string(),
+        use_key: "cockpit.metric-progress".to_string(),
+        id: Some("desc".to_string()),
+        title: None,
+        area: Some("desc".to_string()),
+        props: Value::Object(props.clone()),
+        base: None,
+        layout: None,
+        blocks: Vec::new(),
+        component: Some(json!({
+            "use": "cockpit.metric-progress",
+            "pack": "cockpit-default",
+            "props": Value::Object(props),
+        })),
+        placement: None,
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    }
 }
 
 fn metric_runtime_slot_block(
@@ -3084,7 +3187,7 @@ fn titled_shell_template_props(args: &Value) -> Value {
         "overflow": "hidden"
     });
     if let Some(map) = props.as_object_mut() {
-        for key in ["width", "height", "min_height", "max_height"] {
+        for key in ["width", "height", "min_height", "max_height", "margin", "justify_self"] {
             if let Some(value) = args.get(key) {
                 map.insert(key.to_string(), value.clone());
             }

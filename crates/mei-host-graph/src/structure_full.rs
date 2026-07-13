@@ -127,7 +127,7 @@ fn enrich_structure_bindings(document: &mut StructureFullDocument) {
                 node.use_keys = vec![content_kind_to_use_key(kind)];
             }
         }
-        if matches!(node.ui_role.as_str(), "slot" | "section")
+        if matches!(node.ui_role.as_str(), "slot" | "section" | "slide" | "region")
             && !node.preview_scope.trim().is_empty()
         {
             node.panel_id = Some(node.preview_scope.clone());

@@ -25,6 +25,7 @@ pub struct SemanticSceneAssembly {
     pub summary: Option<String>,
     pub profile: Option<String>,
     pub theme: Option<Value>,
+    pub default_script: Option<Value>,
     pub frame: FrameDecl,
     pub panels: Vec<UiNodeDecl>,
     pub panel_payloads: BTreeMap<String, Value>,
@@ -98,6 +99,52 @@ pub fn assemble_semantic_scene(
             .map(str::to_string)
             .unwrap_or_else(|| plane_id.clone());
         let plane_grid = plane_args.and_then(|map| map.get("layout"));
+        let slides = child_nodes(&plane, &["slides"], "slide_ref", ctx)?;
+        if !slides.is_empty() {
+            if plane_args
+                .and_then(|map| map.get("regions"))
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty())
+            {
+                anyhow::bail!(
+                    "presentation plane `{plane_id}` must use slides = [slide_ref(...)]; regions are not allowed"
+                );
+            }
+            let mut plane_children = Vec::new();
+            for slide in slides {
+                let slide_payload =
+                    build_panel_payload(&slide, "slide", &tier, Some(&plane_id), ctx)?;
+                let counter = tier_counters.entry(tier.clone()).or_insert(0);
+                let panel_ctx = ctx.with_assembly_stack_order(*counter);
+                let lowered = lower_panel_payload(
+                    &slide_payload,
+                    slide_payload
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("slide"),
+                    &panel_ctx,
+                )?;
+                *counter = counter.saturating_add(1);
+                collect_payload_index(&slide_payload, &mut panel_payloads, ctx);
+                let mut lowered = lowered;
+                apply_padding_profile_body_props(&mut lowered);
+                plane_children.push(lowered);
+            }
+            if let Some(grid) = plane_grid {
+                let mut plane_panel = build_plane_grid_panel(
+                    plane_id.as_str(),
+                    tier.as_str(),
+                    Some(grid),
+                    plane_args,
+                    plane_children,
+                )?;
+                apply_padding_profile_body_props(&mut plane_panel);
+                panels.push(plane_panel);
+            } else {
+                panels.extend(plane_children);
+            }
+            continue;
+        }
         let regions = child_nodes(&plane, &["regions", "nodes"], "region_ref", ctx)?;
         if plane_grid.is_some() {
             let mut grid_regions = Vec::new();
@@ -204,6 +251,7 @@ pub fn assemble_semantic_scene(
         summary: string_field(payload, &["summary"]).map(str::to_string),
         profile: string_field(payload, &["profile"]).map(str::to_string),
         theme: payload.get("theme").cloned(),
+        default_script: payload.get("default_script").cloned(),
         frame,
         panels,
         panel_payloads,
@@ -240,6 +288,11 @@ fn build_panel_payload(
     copy_if_present(args, &mut payload, "shell");
     copy_if_present(args, &mut payload, "head_props");
     copy_if_present(args, &mut payload, "body_props");
+    if role == "slide" {
+        copy_if_present(args, &mut payload, "pattern");
+        copy_if_present(args, &mut payload, "chapter");
+        copy_if_present(args, &mut payload, "viewpoints");
+    }
     if let Some(chrome_role) = string_field_map(args, &["chrome_role"]) {
         payload.insert(
             "chrome_role".to_string(),
@@ -253,6 +306,26 @@ fn build_panel_payload(
         .unwrap_or_default();
     props.insert("__mei_ui_role".to_string(), Value::String(role.to_string()));
     props.insert("__mei_tier".to_string(), Value::String(tier.to_string()));
+    if role == "slide" {
+        if let Some(pattern) = string_field_map(args, &["pattern"]) {
+            props.insert(
+                "__mei_slide_pattern".to_string(),
+                Value::String(pattern.to_string()),
+            );
+        }
+        if let Some(chapter) = string_field_map(args, &["chapter"]) {
+            props.insert(
+                "__mei_slide_chapter".to_string(),
+                Value::String(chapter.to_string()),
+            );
+        }
+        if let Some(title) = string_field_map(args, &["title"]) {
+            props.insert(
+                "__mei_slide_title".to_string(),
+                Value::String(title.to_string()),
+            );
+        }
+    }
     if let Some(plane_id) = plane_id {
         props.insert(
             "__mei_plane_id".to_string(),
@@ -287,6 +360,30 @@ fn build_panel_payload(
     let mut blocks = Vec::new();
     if !has_shell {
         match role {
+            "slide" => {
+                if !child_nodes(value, &["contents", "content"], "", ctx)?.is_empty() {
+                    anyhow::bail!(
+                        "slide `{id}` must use region_ref children; direct content is not allowed"
+                    );
+                }
+                if args
+                    .and_then(|map| map.get("blocks"))
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty())
+                {
+                    anyhow::bail!(
+                        "slide `{id}` must use region_ref children; direct blocks are not allowed"
+                    );
+                }
+                for region in child_nodes(value, &["regions"], "region_ref", ctx)? {
+                    blocks.push(panel_call(build_panel_payload(
+                        &region, "region", tier, plane_id, ctx,
+                    )?));
+                }
+                if blocks.is_empty() {
+                    anyhow::bail!("slide `{id}` must declare at least one region_ref child");
+                }
+            }
             "region" => {
                 if !child_nodes(value, &["contents", "content"], "", ctx)?.is_empty() {
                     anyhow::bail!(
@@ -428,6 +525,7 @@ fn load_semantic_fragment_payload(
         "plane_ref" => "plane_layout",
         "region_ref" => "region_layout",
         "section_ref" => "section_layout",
+        "slide_ref" => "slide_layout",
         other => {
             anyhow::bail!("unsupported semantic ref `{other}`");
         }

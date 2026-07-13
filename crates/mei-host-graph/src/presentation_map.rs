@@ -38,11 +38,44 @@ pub struct ViewpointMapEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PresentationDeckSlide {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    pub order: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PresentationDeck {
+    #[serde(rename = "stageKind")]
+    pub stage_kind: String,
+    pub slides: Vec<PresentationDeckSlide>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "activeSlideId"
+    )]
+    pub active_slide_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PresentationMapDocument {
     #[serde(rename = "schemaVersion")]
     pub schema_version: String,
     pub scene: String,
     pub viewpoints: BTreeMap<String, ViewpointMapEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deck: Option<PresentationDeck>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultScript"
+    )]
+    pub default_script: Option<Value>,
 }
 
 fn panel_tier(panel: &UiNodeDecl) -> String {
@@ -420,6 +453,15 @@ pub fn build_presentation_map(
     panels: &[UiNodeDecl],
     panel_payloads: &BTreeMap<String, Value>,
 ) -> PresentationMapDocument {
+    build_presentation_map_with_default_script(scene_id, panels, panel_payloads, None)
+}
+
+pub fn build_presentation_map_with_default_script(
+    scene_id: &str,
+    panels: &[UiNodeDecl],
+    panel_payloads: &BTreeMap<String, Value>,
+    default_script: Option<Value>,
+) -> PresentationMapDocument {
     let mut viewpoints = BTreeMap::new();
     for panel in panels {
         let tier = panel_tier(panel);
@@ -457,10 +499,79 @@ pub fn build_presentation_map(
             &mut viewpoints,
         );
     }
+    let deck = build_presentation_deck(panels);
     PresentationMapDocument {
         schema_version: "mei-presentation-map-v1".to_string(),
         scene: scene_id.to_string(),
         viewpoints,
+        deck,
+        default_script,
+    }
+}
+
+fn build_presentation_deck(panels: &[UiNodeDecl]) -> Option<PresentationDeck> {
+    let mut slides = Vec::new();
+    collect_deck_slides(panels, &mut slides);
+    if slides.is_empty() {
+        return None;
+    }
+    for (order, slide) in slides.iter_mut().enumerate() {
+        slide.order = order;
+    }
+    let active_slide_id = slides.first().map(|slide| slide.id.clone());
+    Some(PresentationDeck {
+        stage_kind: "presentation".to_string(),
+        slides,
+        active_slide_id,
+    })
+}
+
+fn collect_deck_slides(panels: &[UiNodeDecl], out: &mut Vec<PresentationDeckSlide>) {
+    let mut seen = std::collections::BTreeSet::new();
+    collect_deck_slides_inner(panels, out, &mut seen);
+}
+
+fn collect_deck_slides_inner(
+    panels: &[UiNodeDecl],
+    out: &mut Vec<PresentationDeckSlide>,
+    seen: &mut std::collections::BTreeSet<String>,
+) {
+    for panel in panels {
+        if panel.props.get("__mei_ui_role").and_then(Value::as_str) == Some("slide") {
+            if seen.insert(panel.id.clone()) {
+                out.push(PresentationDeckSlide {
+                    id: panel.id.clone(),
+                    title: panel
+                        .props
+                        .get("__mei_slide_title")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| panel.title.clone()),
+                    chapter: panel
+                        .props
+                        .get("__mei_slide_chapter")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    pattern: panel
+                        .props
+                        .get("__mei_slide_pattern")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    order: out.len(),
+                });
+            }
+        }
+        let nested: Vec<UiNodeDecl> = panel
+            .blocks
+            .iter()
+            .filter_map(|node| match node {
+                UiTreeNode::Panel(child) => Some(child.clone()),
+                _ => None,
+            })
+            .collect();
+        if !nested.is_empty() {
+            collect_deck_slides_inner(&nested, out, seen);
+        }
     }
 }
 
@@ -675,5 +786,33 @@ mod tests {
         assert_eq!(merged.panel_id, "basemap");
         assert_eq!(merged.tier, "t0");
         assert_eq!(merged.world_ref.as_deref(), Some("park_world"));
+    }
+
+    #[test]
+    fn presentation_map_serializes_default_script_as_camel_case() {
+        let default_script = json!({
+            "id": "deck-default",
+            "title": "Deck 默认讲稿",
+            "steps": [{
+                "id": "cover",
+                "title": "封面",
+                "caption": "开场",
+                "speaker_notes": "欢迎",
+                "actions": [
+                    {"type": "show_page", "pageId": "slide-01-cover"},
+                    {"type": "highlight", "viewpoint": "cover-title"}
+                ]
+            }]
+        });
+        let map = build_presentation_map_with_default_script(
+            "intro",
+            &[],
+            &BTreeMap::new(),
+            Some(default_script.clone()),
+        );
+        let value = presentation_map_to_value(&map);
+        assert_eq!(value.get("defaultScript"), Some(&default_script));
+        assert!(value.get("default_script").is_none());
+        assert!(value.get("deck").is_none());
     }
 }
