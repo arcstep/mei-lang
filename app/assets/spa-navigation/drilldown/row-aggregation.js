@@ -112,6 +112,8 @@
   function isDedicatedExplainMetricId(metricId, { supportRole = "" } = {}) {
     const text = String(metricId || "").trim();
     if (!text || isScalarRowsetMetricId(text)) return false;
+    // `metric::detail` 不是服务端 dataframe；应回退为 `::__scalar_rowset__`。
+    if (text.endsWith("::detail")) return false;
     if (sceneQualifiedMetricHasExplainSuffix(text)) return true;
     if (text.includes("::")) return !text.includes(".mei::");
     const role = String(supportRole || "").trim().toLowerCase();

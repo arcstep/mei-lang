@@ -54,7 +54,8 @@ function renderProgress(host, percent, shell) {
   if (!host.shadowRoot) {
     host.attachShadow({ mode: "open" });
   }
-  const pct = Math.round(percent * 10000) / 100;
+  const pct = Math.round(percent * 1000) / 10;
+  const pctLabel = `${pct.toFixed(1)}%`;
   host.shadowRoot.innerHTML = `
     <style>
       :host {
@@ -75,8 +76,18 @@ function renderProgress(host, percent, shell) {
         padding: 0 ${shell.insetX};
         box-sizing: border-box;
         display: flex;
+        flex-direction: column;
         align-items: center;
-        justify-content: stretch;
+        justify-content: center;
+        gap: 2px;
+      }
+      .label {
+        font-family: Microsoft YaHei, MicrosoftYaHei, PingFang SC, sans-serif;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.88);
+        letter-spacing: 0;
       }
       .track {
         width: 100%;
@@ -86,13 +97,14 @@ function renderProgress(host, percent, shell) {
         overflow: hidden;
       }
       .fill {
-        width: ${pct}%;
+        width: ${Math.max(0, Math.min(100, pct))}%;
         height: 100%;
         background: ${shell.fill};
         border-radius: ${shell.radius};
       }
     </style>
     <div class="wrap">
+      <div class="label">${pctLabel}</div>
       <div class="track">
         <div class="fill"></div>
       </div>

@@ -174,6 +174,7 @@ template row_metric_card(
     metric = None,
     popup = None,
     placements = None,
+    gap = "4px",
 ):
     metric_card(
         id = id,
@@ -187,9 +188,9 @@ template row_metric_card(
             rows = ["1fr"],
             columns = ["auto", "auto", "auto"],
             areas = [["label", "value", "unit"]],
-            gap = LAYOUT_SPACE_1,
+            gap = gap,
             align = "center",
-            justify = "start",
+            justify = "center",
         ),
         props = {
             "width": "100%",
@@ -199,6 +200,7 @@ template row_metric_card(
             "padding": LAYOUT_SPACE_1,
             "border": "none",
             "__mei_layout_fill": True,
+            "__mei_metric_inline_align": "compact",
         },
     )
 
@@ -211,6 +213,7 @@ template plain_metric_card(
     popup = None,
     layout = None,
     placements = None,
+    patch = None,
 ):
     metric_card(
         id = id,
@@ -220,6 +223,7 @@ template plain_metric_card(
         popup = popup,
         layout = layout,
         placements = placements,
+        patch = patch,
         surface = "compound_sub_stack",
         props = {
             "width": "100%",
@@ -263,6 +267,45 @@ template compound_panel(
             "radius": "0",
             "border": "none",
             "__mei_slot_frame_bg": True,
+            "__mei_layout_fill": True,
+        },
+        layout = layout,
+        blocks = blocks,
+    )
+
+# --- 长条复合框（zhifa AI 区：metric-bg-long@3x.svg；areas main|rtop / main|rbottom）---
+template long_compound_panel(
+    id = "panel",
+    area = None,
+    layout = None,
+    blocks = [],
+    padding = "2px 6px",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        chrome = "bare",
+        show_heading = False,
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "background": {
+                "color": "rgba(98,190,235,0.10)",
+                "image": "url(" + METRICS_ASSET + "/metric-bg-long@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": padding,
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+            "__mei_slot_bg_stretch": True,
             "__mei_layout_fill": True,
         },
         layout = layout,

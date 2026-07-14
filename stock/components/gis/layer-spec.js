@@ -507,9 +507,48 @@ export function resolveMetricRows(props) {
 
 /** 从任意 prop 值解析 `metric_ref` 运行时引用（用于 map layer `dataKey`）。 */
 export function resolveRuntimeMetricRefFromValue(value) {
-  const ref = value?.__mei_runtime_ref;
-  if (ref && ref.kind === "metric" && ref.dataset_id && ref.metric_id) {
-    return ref;
+  if (!value || typeof value !== "object") return null;
+  const runtimeRef = value.__mei_runtime_ref;
+  if (
+    runtimeRef &&
+    runtimeRef.kind === "metric" &&
+    runtimeRef.dataset_id &&
+    runtimeRef.metric_id
+  ) {
+    return runtimeRef;
+  }
+  // 编译后的 metric_ref：{ __ref: "metric", id, from_dataset }
+  const kind = String(value.__ref || "").trim().toLowerCase();
+  const datasetId = String(value.dataset_id || value.from_dataset || "").trim();
+  const metricId = String(value.metric_id || value.id || "").trim();
+  if (kind === "metric" && datasetId && metricId) {
+    return {
+      kind: "metric",
+      dataset_id: datasetId,
+      metric_id: metricId,
+      scene_id: value.scene_id,
+      target: value.target,
+    };
+  }
+  // 部分未完全展开的 call 形态：{ __ref: "metric_ref", __args: { arg0, bundle } }
+  if (kind === "metric_ref") {
+    const args = value.__args && typeof value.__args === "object" ? value.__args : {};
+    const callMetricId = String(args.arg0 || args.id || args.metric_id || "").trim();
+    const bundle = String(args.bundle || args.from_dataset || "").trim();
+    const callDatasetId = bundle
+      ? bundle.startsWith("__world_metrics__::")
+        ? bundle
+        : `__world_metrics__::${bundle}`
+      : String(value.from_dataset || value.dataset_id || "").trim();
+    if (callMetricId && callDatasetId) {
+      return {
+        kind: "metric",
+        dataset_id: callDatasetId,
+        metric_id: callMetricId,
+        scene_id: value.scene_id,
+        target: value.target,
+      };
+    }
   }
   return null;
 }

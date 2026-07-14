@@ -702,6 +702,11 @@ if (!customElements.get(TAG)) {
         this.shadowRoot.querySelector(".status-focal") ||
         this.shadowRoot.querySelector(".status");
       this.errorEl = this.shadowRoot.querySelector(".error");
+      // shell 重建后旧按钮/面板上的监听已失效，必须重新绑定。
+      this._layerToggleBound = false;
+      this._layerControlPanelBound = false;
+      this._portaledNavCtrl = null;
+      this._portaledLayerControl = null;
       this.bindLayerToggleEvents();
       if (this.map) {
         this.map.remove();
@@ -1048,6 +1053,9 @@ if (!customElements.get(TAG)) {
       if (this.layerControlEl && path.includes(this.layerControlEl)) {
         return true;
       }
+      if (this._portaledLayerControl && path.includes(this._portaledLayerControl)) {
+        return true;
+      }
       if (this._portaledNavCtrl && path.includes(this._portaledNavCtrl)) {
         return true;
       }
@@ -1104,12 +1112,16 @@ if (!customElements.get(TAG)) {
 
     bindLayerToggleEvents() {
       const btn = this.ensureLayerToggleElement();
-      if (!btn || this._layerToggleBound) return;
-      btn.addEventListener("click", (event) => {
+      if (!btn) return;
+      if (this._layerToggleClickHandler) {
+        btn.removeEventListener("click", this._layerToggleClickHandler);
+      }
+      this._layerToggleClickHandler = (event) => {
         event.preventDefault();
         event.stopPropagation();
         this.setLayerControlOpen(!this._layerControlOpen);
-      });
+      };
+      btn.addEventListener("click", this._layerToggleClickHandler);
       this._layerToggleBound = true;
     }
 
@@ -1151,10 +1163,17 @@ if (!customElements.get(TAG)) {
     }
 
     getNavCtrlGroup() {
-      const nav =
-        this._portaledNavCtrl ||
-        this.mapContainer?.querySelector(".maplibregl-ctrl-top-right");
-      return nav?.querySelector(".maplibregl-ctrl-group") || null;
+      const candidates = [
+        this._portaledNavCtrl,
+        ...(this.mapContainer
+          ? this.mapContainer.querySelectorAll(".maplibregl-ctrl-top-right")
+          : []),
+      ].filter(Boolean);
+      for (const nav of candidates) {
+        const group = nav.querySelector?.(".maplibregl-ctrl-group");
+        if (group) return group;
+      }
+      return null;
     }
 
     /** 将图层按钮挂入 MapLibre NavigationControl 的 ctrl-group（作为第四枚工具钮） */
@@ -1834,11 +1853,29 @@ if (!customElements.get(TAG)) {
         this.restoreCockpitMapToolsLayer();
         return;
       }
-      const navCtrl =
-        this._portaledNavCtrl ||
-        this.mapContainer.querySelector(".maplibregl-ctrl-top-right");
+      // MapLibre may recreate `.maplibregl-ctrl-top-right` after we portal the old
+      // node — prefer the live corner that still owns the ctrl-group.
+      const liveNav = [
+        ...this.mapContainer.querySelectorAll(".maplibregl-ctrl-top-right"),
+      ].find((el) => el.querySelector(".maplibregl-ctrl-group"));
+      let navCtrl = liveNav || null;
+      if (
+        !navCtrl &&
+        this._portaledNavCtrl?.isConnected &&
+        this._portaledNavCtrl.querySelector(".maplibregl-ctrl-group")
+      ) {
+        navCtrl = this._portaledNavCtrl;
+      }
       if (!navCtrl) {
         return;
+      }
+      if (
+        this._portaledNavCtrl &&
+        this._portaledNavCtrl !== navCtrl &&
+        this._portaledNavCtrl.isConnected
+      ) {
+        this._portaledNavCtrl.remove();
+        this._portaledNavCtrl = null;
       }
       navCtrl.classList.add("mei-cockpit-floating-map-tools");
       navCtrl.setAttribute("data-mei-overlay-role", "map_tools");
@@ -1854,12 +1891,22 @@ if (!customElements.get(TAG)) {
         this._portaledNavCtrl = navCtrl;
       }
       this.positionCockpitNavCtrl(navCtrl);
+      // MapLibre may leave an empty corner shell after portal — hide it.
+      this.mapContainer.querySelectorAll(".maplibregl-ctrl-top-right").forEach((el) => {
+        if (el === navCtrl) return;
+        if (!el.querySelector(".maplibregl-ctrl-group")) {
+          el.style.display = "none";
+        }
+      });
     }
 
     restoreCockpitMapToolsLayer() {
       const nav = this._portaledNavCtrl;
       if (nav?.isConnected && this.mapContainer?.isConnected) {
-        nav.classList.remove("mei-cockpit-floating-map-tools");
+        nav.classList.remove(
+          "mei-cockpit-floating-map-tools",
+          "mei-cockpit-in-stage-shell",
+        );
         nav.style.position = "";
         nav.style.top = "";
         nav.style.right = "";
@@ -1868,6 +1915,7 @@ if (!customElements.get(TAG)) {
         nav.style.margin = "";
         nav.style.zIndex = "";
         nav.style.pointerEvents = "";
+        nav.style.display = "";
         this.mapContainer.appendChild(nav);
       }
       this._portaledNavCtrl = null;
