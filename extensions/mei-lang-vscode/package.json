@@ -1,0 +1,80 @@
+{
+  "name": "mei-lang",
+  "displayName": "MeiLang",
+  "description": "MeiLang (.mei) language support: TextMate highlighting and mei-lsp.",
+  "version": "2.5.8",
+  "publisher": "mei-lang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arcstep/mei-lang"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "mei",
+    "meilang",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:mei"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "mei",
+        "aliases": [
+          "MeiLang",
+          "mei"
+        ],
+        "extensions": [
+          ".mei"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mei",
+        "scopeName": "source.mei",
+        "path": "./syntaxes/mei.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "MeiLang",
+      "properties": {
+        "mei.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the mei-lsp binary. Empty = auto-detect (.mei/runtime/bin/mei-lsp, PATH, or mei-lang/target/debug/mei-lsp)."
+        },
+        "mei.lsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and mei-lsp."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "sync-version": "node ./scripts/sync-version.js",
+    "package": "npm run sync-version && npx --yes @vscode/vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}

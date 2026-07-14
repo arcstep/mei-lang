@@ -1,0 +1,18 @@
+# 最小着色样例（mei-syntax 作者面，非 Starlark）
+app_skeleton(
+  id = "hello",
+  title = "Hello MeiLang",
+  default_scene = "home",
+)
+
+navigation(
+  key = "default_access",
+  scene = "home",
+  url = "/apps/app/hello/scene/home",
+)
+
+# 字面量与字符串（Python 风格表面，非完整控制流）
+ok = True
+label = "MeiLang"
+note = """multi
+line"""
