@@ -6,8 +6,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
     dataset_materialize_cache_epoch, resolve_data_snapshot_import_entry,
-    resolve_versioned_source_identifier, source_file_content_signature, CompiledApp, DatasetView,
-    FilterIntent, QueryState, RuntimeMetricEvalScope,
+    resolve_versioned_source_identifier, resolve_versioned_source_path,
+    source_file_content_signature, CompiledApp, DatasetView, FilterIntent, QueryState,
+    RuntimeMetricEvalScope,
 };
 use serde::Serialize;
 use serde_json::Value;

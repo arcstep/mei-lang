@@ -34,6 +34,42 @@ fn try_resolve_metric_on_resource<'a>(
     None
 }
 
+/// `resolve_*_key` 在仅有 parent scalar 时会“发明” `parent::__scalar_rowset__` 键；
+/// 若该键并不存在于 defs/metrics，则不能当作具体 metric 命中（否则会抢先于真正含 rowset 定义的 bundle）。
+fn metric_def_key_is_concrete(dataset: &DatasetView, resolved_key: &str) -> bool {
+    if dataset.has_runtime_metric_defs() {
+        return dataset.runtime_metric_defs.contains_key(resolved_key);
+    }
+    if dataset.uses_compiled_metric_snapshot_only() {
+        return dataset.metrics.contains_key(resolved_key);
+    }
+    false
+}
+
+fn try_resolve_concrete_metric_on_resource<'a>(
+    resource: &'a LoadedResource,
+    metric_id: &str,
+) -> Option<(&'a LoadedResource, String)> {
+    let (resource, resolved) = try_resolve_metric_on_resource(resource, metric_id)?;
+    let dataset = resource.dataset.as_ref()?;
+    metric_def_key_is_concrete(dataset, resolved.as_str()).then_some((resource, resolved))
+}
+
+fn try_resolve_concrete_metric_anywhere<'a>(
+    compiled: &'a CompiledApp,
+    metric_id: &str,
+) -> Option<(&'a LoadedResource, String)> {
+    for resource in &compiled.resources {
+        if resource.dataset.is_none() {
+            continue;
+        }
+        if let Some(resolved) = try_resolve_concrete_metric_on_resource(resource, metric_id) {
+            return Some(resolved);
+        }
+    }
+    None
+}
+
 fn world_metrics_capsule_from_metric_id(metric_id: &str) -> Option<String> {
     metric_id
         .split("::")
@@ -82,6 +118,16 @@ pub fn locate_runtime_metric_resource<'a>(
 ) -> Result<(&'a LoadedResource, String)> {
     let primary =
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
+    // 明细/rowset：优先命中真正声明了 `::__scalar_rowset__` 的 owner（通常是 metric bundle），
+    // 避免被仅含 parent scalar 的 snapshot 资源“发明”假 rowset 键并合成出单行 value。
+    if metric_id.trim().ends_with("::__scalar_rowset__") {
+        if let Some(resolved) = try_resolve_concrete_metric_on_resource(primary, metric_id) {
+            return Ok(resolved);
+        }
+        if let Some(resolved) = try_resolve_concrete_metric_anywhere(compiled, metric_id) {
+            return Ok(resolved);
+        }
+    }
     if let Some(resolved) = try_resolve_metric_on_resource(primary, metric_id) {
         return Ok(resolved);
     }
@@ -496,6 +542,140 @@ mod tests {
             resolved,
             "scenes/03-指标体系.mei::inspection_frequency_reduction_rate::__scalar_rowset__"
         );
+    }
+
+    #[test]
+    fn locate_scalar_rowset_prefers_concrete_bundle_def_over_parent_only_snapshot() {
+        let snapshot_id = "panel_snapshot_with_parent_only";
+        let bundle_id = "metrics/supervision-warning.bundle.mei";
+        let parent = "supervision_items_count";
+        let rowset = "supervision_items_count::__scalar_rowset__";
+        let mut snapshot_metrics = BTreeMap::new();
+        snapshot_metrics.insert(
+            parent.to_string(),
+            MetricContract {
+                id: parent.to_string(),
+                label: None,
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: Vec::new(),
+                value: json!({"value": 1}),
+                value_format: None,
+                dataset: None,
+                transforms: Vec::new(),
+            },
+        );
+        let mut bundle_defs = BTreeMap::new();
+        bundle_defs.insert(parent.to_string(), json!({"id": parent, "shape": "scalar"}));
+        bundle_defs.insert(
+            rowset.to_string(),
+            json!({"id": rowset, "shape": "dataframe"}),
+        );
+        let mut lineage = orders_dataset();
+        lineage.id = "supervision_matters".to_string();
+        let compiled = CompiledApp {
+            app_id: "test".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![
+                LoadedResource {
+                    id: "supervision_matters".to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(lineage),
+                },
+                LoadedResource {
+                    id: snapshot_id.to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(DatasetView {
+                        id: snapshot_id.to_string(),
+                        title: None,
+                        purpose: None,
+                        schema: Vec::new(),
+                        stage_schema: Vec::new(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        source: SourceDecl {
+                            kind: "derived".to_string(),
+                            path: String::new(),
+                            sheet: None,
+                            header_row: None,
+                            preview_rows: None,
+                            page_size: None,
+                            max_page_size: None,
+                            table: None,
+                            query: None,
+                            connection: None,
+                            content: None,
+                        },
+                        sources: Vec::new(),
+                        metrics: snapshot_metrics,
+                        runtime_metric_defs: BTreeMap::new(),
+                        runtime_analysis_graph: Default::default(),
+                        runtime_analysis_contracts: Default::default(),
+                    }),
+                },
+                LoadedResource {
+                    id: bundle_id.to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(DatasetView {
+                        id: bundle_id.to_string(),
+                        title: None,
+                        purpose: None,
+                        schema: Vec::new(),
+                        stage_schema: Vec::new(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        source: SourceDecl {
+                            kind: "metric_bundle".to_string(),
+                            path: String::new(),
+                            sheet: None,
+                            header_row: None,
+                            preview_rows: None,
+                            page_size: None,
+                            max_page_size: None,
+                            table: None,
+                            query: None,
+                            connection: None,
+                            content: None,
+                        },
+                        sources: Vec::new(),
+                        metrics: BTreeMap::new(),
+                        runtime_metric_defs: bundle_defs,
+                        runtime_analysis_graph: Default::default(),
+                        runtime_analysis_contracts: Default::default(),
+                    }),
+                },
+            ],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let (owner, resolved) =
+            locate_runtime_metric_resource(&compiled, "supervision_matters", rowset)
+                .expect("locate concrete rowset");
+        assert_eq!(owner.id, bundle_id);
+        assert_eq!(resolved, rowset);
     }
 
     #[test]

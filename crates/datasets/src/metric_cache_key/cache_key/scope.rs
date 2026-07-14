@@ -96,7 +96,7 @@ fn dataset_source_fingerprint(app_root: &Path, dataset: &DatasetView) -> String 
         );
     }
     let resolved_identifier = resolve_versioned_source_identifier(app_root, path);
-    let absolute_path = app_root.join(&resolved_identifier);
+    let absolute_path = resolve_versioned_source_path(app_root, path);
     let content_signature = resolve_data_snapshot_import_entry(
         app_root,
         path,
