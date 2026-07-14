@@ -66,12 +66,12 @@
     }
   },
   "mcg": {
-    "node_count": 71,
+    "node_count": 67,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 9,
       "metric_def_bundle": 2,
-      "navigation": 14,
+      "navigation": 10,
       "page_instance": 4,
       "semantic_graph": 40,
       "warmup_policy": 1

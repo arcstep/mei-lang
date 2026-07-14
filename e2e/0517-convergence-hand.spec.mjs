@@ -3,7 +3,7 @@
  */
 import { test, expect } from "@playwright/test";
 
-const APP = process.env.MEI_HAND_APP || "data-demo";
+const APP = process.env.MEI_HAND_APP || "zhifa";
 
 test.describe("0517 convergence hand checklist", () => {
   test("legacy build/run/copilot routes return 404", async ({ request }) => {

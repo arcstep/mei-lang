@@ -267,7 +267,7 @@ fn rewrite_primary_progress_triptych_body(args: &Map<String, Value>) -> Value {
     })
 }
 
-/// Fill-down progress triptych（pretty-panels 行政检查「无违规」行）。
+/// Fill-down progress triptych（zhifa 行政检查「无违规」行）。
 /// 与 `long_metric_compound_fill_body` 同理：content_panel 产物里嵌套 biz 宏若未
 /// 在此重写，`v2_lower` 会 `Ok(Vec::new())` 静默丢掉整块。
 fn rewrite_primary_progress_triptych_fill_body(args: &Map<String, Value>) -> Value {
@@ -408,7 +408,7 @@ fn rewrite_long_metric_compound_body(args: &Map<String, Value>) -> Value {
     })
 }
 
-/// Fill-down long compound used by pretty-panels 行政检查 bottom row.
+/// Fill-down long compound used by zhifa 行政检查 bottom row.
 /// Must be rewritten in-host: template expand of nested `metric(...)` is not
 /// reliable for content_panel artifacts, and a failed expand silently drops the block.
 fn rewrite_long_metric_compound_fill_body(args: &Map<String, Value>) -> Value {

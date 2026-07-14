@@ -1,7 +1,7 @@
 {
   "schemaVersion": "mei-app-launch-v1",
-  "appId": "pretty-panels",
-  "displayName": "Pretty Panels · 全量预热",
+  "appId": "zhifa",
+  "displayName": "Zhifa · 全量预热",
   "generation": "current",
   "dataModeCeiling": "eval",
   "runtimePlan": {
@@ -11,7 +11,7 @@
   "warmup": {
     "enabled": true,
     "apps": {
-      "pretty-panels": {
+      "zhifa": {
         "hotScenes": ["home"],
         "compileScope": { "skipDiscover": true },
         "focuses": [
@@ -107,8 +107,8 @@
   "menu": {
     "items": [
       {
-        "app_id": "pretty-panels",
-        "label": "Pretty Panels · 全量预热",
+        "app_id": "zhifa",
+        "label": "Zhifa · 全量预热",
         "order": 10
       }
     ]

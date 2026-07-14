@@ -176,9 +176,9 @@ mod tests {
                 root: "apps/mini-park".to_string(),
             },
             WorkspaceAppMeta {
-                id: "pretty-panels".to_string(),
-                title: "Pretty Panels".to_string(),
-                root: "apps/pretty-panels".to_string(),
+                id: "zhifa".to_string(),
+                title: "Zhifa".to_string(),
+                root: "apps/zhifa".to_string(),
             },
         ];
         let html = mei_lang_app::render_workspace_page(

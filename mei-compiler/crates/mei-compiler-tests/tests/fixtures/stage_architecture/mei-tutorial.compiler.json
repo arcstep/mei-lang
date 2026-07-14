@@ -24,11 +24,11 @@
     "id": "mei-tutorial",
     "title": "MeiLang 入门 · Tutorial"
   },
-  "block_count": 41,
+  "block_count": 40,
   "blocks_by_kind": {
     "app_skeleton": 1,
     "content_panel": 9,
-    "navigation": 2,
+    "navigation": 1,
     "plane_layout": 1,
     "presentation": 1,
     "region_layout": 9,
@@ -47,7 +47,6 @@
     "content_panel:mei-tutorial/intro/deck/p/slide-08-matrix/r-main/s-content/content",
     "content_panel:mei-tutorial/intro/deck/p/slide-09-next/r-main/s-content/content",
     "navigation:access:intro",
-    "navigation:default_access",
     "presentation:intro@src/presentation/intro/intro.deck.mdx",
     "slide_layout:mei-tutorial/intro/deck/p/slide-01-cover",
     "slide_layout:mei-tutorial/intro/deck/p/slide-02-why",
@@ -89,18 +88,6 @@
       },
       "block_id": "navigation:access:intro",
       "key": "access:intro",
-      "scene": "intro",
-      "url": "/apps/mei-tutorial/intro"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "intro@src/presentation/intro/intro.deck.mdx"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_access",
-      "key": "default_access",
       "scene": "intro",
       "url": "/apps/mei-tutorial/intro"
     }
@@ -145,5 +132,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.8"
+  "syntax_version": "2.5.9"
 }

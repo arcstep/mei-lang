@@ -137,9 +137,9 @@ fn metric_block(area: &str, label: &str) -> BlockDecl {
 #[test]
 fn ui_layout_index_builds_section_slotted_layout_and_slots() {
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -258,9 +258,9 @@ fn ui_layout_index_builds_section_slotted_layout_and_slots() {
 #[test]
 fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -718,9 +718,9 @@ fn sample_section_with_panel_ref_wrapper() -> UiNodeDecl {
 #[test]
 fn ui_layout_index_penetrates_panel_ref_wrapper_for_metric_card_content() {
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -853,9 +853,9 @@ fn collect_tree_nodes_with_role_into<'a>(
 #[test]
 fn ui_layout_index_dedupes_duplicate_scene_routes() {
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![
             CompiledSceneRoute {
                 scene_id: "home".to_string(),
@@ -945,8 +945,8 @@ fn resolve_build_preview_scope_for_ssr_skips_ui_scope() {
 
     let node = BuildNodeId::ui_scope("home", "home/T1/left_rail/enforcement");
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
         app_root: "/tmp".to_string(),
         scene_routes: vec![],
         active_scene: Some("home".to_string()),
@@ -981,8 +981,8 @@ fn resolve_build_preview_scope_for_ssr_skips_scene_panel_for_full_scene() {
 
     let node = BuildNodeId::scene_panel("mini-park", "mini-park/T1/main");
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
         app_root: "/tmp".to_string(),
         scene_routes: vec![],
         active_scene: Some("mini-park".to_string()),
@@ -1058,9 +1058,9 @@ fn ui_scope_for_block_matches_instance_id_stem() {
         },
     );
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![],
         active_scene: None,
         stage_registry: Default::default(),
@@ -1728,9 +1728,9 @@ fn sample_rail_with_sections(sections: Vec<UiNodeDecl>) -> UiNodeDecl {
 
 fn compiled_with_panels(panels: Vec<UiNodeDecl>) -> CompiledApp {
     CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -2077,9 +2077,9 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         import_scope: None,
     };
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -2167,9 +2167,9 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
         import_scope: None,
     };
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -2344,9 +2344,9 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
     );
 
     let compiled = CompiledApp {
-        app_id: "pretty-panels".to_string(),
-        title: "Pretty Panels".to_string(),
-        app_root: "/tmp/pretty-panels".to_string(),
+        app_id: "zhifa".to_string(),
+        title: "Zhifa".to_string(),
+        app_root: "/tmp/zhifa".to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,

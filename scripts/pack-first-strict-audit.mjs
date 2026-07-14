@@ -11,7 +11,7 @@ const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0
 );
 const viewPath =
   process.argv.find((a) => a.startsWith("/") && !a.includes("://")) ||
-  "/apps/data-demo/view?surface=app&scene=home";
+  "/apps/zhifa/view?surface=app&scene=home";
 const appUrl = `${base}${viewPath.startsWith("/") ? viewPath : `/${viewPath}`}`;
 
 function isLegacyHostApi(url) {

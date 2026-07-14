@@ -204,7 +204,7 @@ impl UiLayoutIndex {
     }
 }
 
-/// Bootstrap attachment for client layout budget projection (pretty-panels pilot).
+/// Bootstrap attachment for client layout budget projection (zhifa pilot).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct LayoutBudgetManifest {
     pub revision: String,

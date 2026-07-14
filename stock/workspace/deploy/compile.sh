@@ -6,7 +6,7 @@ WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 # shellcheck source=lib.sh
 source "${DEPLOY_DIR}/lib.sh"
 
-APP="${MEI_APP:-data-demo}"
+APP="${MEI_APP:-zhifa}"
 parse_common_args "$@"
 
 ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"

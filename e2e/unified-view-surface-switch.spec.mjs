@@ -5,7 +5,7 @@ import { test, expect } from "@playwright/test";
  * Access is stage-only navigation now — see docs/mei-lang-v2/03-ui/0334-stage-scene-presentation-and-presenter-freeze.md
  * and 0523 (2.2.9). Prefer stage-switch coverage under /apps/{id}/{stage} when rewritten.
  */
-const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "pretty-panels";
+const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "zhifa";
 const COLD_START_TREE_TIMEOUT_MS = Number(process.env.MEI_E2E_TREE_TIMEOUT_MS || 15000);
 const SKIP_REASON =
   "skipped: Access is stage-only (0334); layout/prototype surfaces removed on host-shell";

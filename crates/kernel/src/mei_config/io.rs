@@ -7,16 +7,17 @@ use anyhow::{Context, Result};
 use super::types::{MeiConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN};
 use super::workspace_paths::{app_mei_config_path, workspace_config_path};
 
-/// 仅认 app 根目录的 `.mei-config.json`，不再向上/向 segment 回退。
+/// Prefer `app.toml` when present (Wave D); else `app.config.json`.
 pub fn resolve_mei_config_path(app_root: &Path, _source_root: Option<&Path>) -> PathBuf {
+    let toml = app_root.join(super::types::APP_TOML_FILENAME);
+    if toml.is_file() {
+        return toml;
+    }
     app_mei_config_path(app_root)
 }
 
-pub fn load_mei_config_for_app(app_root: &Path, source_root: Option<&Path>) -> MeiConfig {
-    let path = resolve_mei_config_path(app_root, source_root);
-    let mut config = MeiConfig::load_or_default(&path);
-    config.apply_profile_runtime_defaults();
-    config
+pub fn load_mei_config_for_app(app_root: &Path, _source_root: Option<&Path>) -> MeiConfig {
+    super::load_app_manifest(app_root).to_mei_config()
 }
 
 /// 读取 `{workspace}/workspace.json`。
@@ -29,11 +30,11 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
 }
 
 pub fn resolve_app_entry_main(app_root: &Path) -> String {
-    let path = app_mei_config_path(app_root);
-    if path.is_file() {
-        MeiConfig::load_or_default(&path).entry.main_rel()
-    } else {
+    let config = load_mei_config_for_app(app_root, None);
+    if config.entry.main.trim().is_empty() {
         DEFAULT_APP_ENTRY_MAIN.to_string()
+    } else {
+        config.entry.main_rel()
     }
 }
 

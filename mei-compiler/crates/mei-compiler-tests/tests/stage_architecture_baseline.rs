@@ -15,7 +15,7 @@ const GOLDEN_APPS: &[&str] = &[
     "metric-grid",
     "mei-tutorial",
     "mini-data",
-    "pretty-panels",
+    "zhifa",
     "mini-park",
 ];
 
@@ -142,11 +142,35 @@ fn deck_slide_summary(blocks: &[GraphBlock]) -> Value {
     })
 }
 
-/// Phase 1 additive: StageRegistry view inferred from access navigations (T2 excluded).
+/// Phase 1 additive: StageRegistry from access navigations (T2 excluded).
+/// After 0119 closure pass, Stage-level access:* may be compiler-synthesized from MDX.
 fn stage_registry_summary(blocks: &[GraphBlock], default_scene: &str) -> Value {
     let mut stages = Vec::new();
     let mut excluded_t2 = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
+
+    // Prefer stage_mdx + presentation/deck-derived access navigations.
+    for block in blocks.iter().filter(|b| b.kind == "stage_mdx") {
+        let payload = &block.payload;
+        let stage_id = payload
+            .get("stage_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if stage_id.is_empty() || !seen.insert(stage_id.to_string()) {
+            continue;
+        }
+        let profile = payload
+            .get("profile")
+            .and_then(|v| v.as_str())
+            .unwrap_or("cockpit");
+        stages.push(json!({
+            "stage_id": stage_id,
+            "profile": profile,
+            "is_default": stage_id == default_scene,
+            "legacy_scene_id": stage_id,
+        }));
+    }
 
     for block in blocks.iter().filter(|b| b.kind == "navigation") {
         let payload = &block.payload;

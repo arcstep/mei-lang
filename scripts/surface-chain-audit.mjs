@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appId = process.env.MEI_AUDIT_APP || "pretty-panels";
+const appId = process.env.MEI_AUDIT_APP || "zhifa";
 const outPath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",

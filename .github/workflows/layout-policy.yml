@@ -8,8 +8,8 @@ on:
       - 'crates/mei-host-graph/src/assemble.rs'
       - 'crates/mei-host-graph/src/artifact_biz_macros.rs'
       - 'host-shell/tests/layout_policy_apps.rs'
-      - 'host-shell/tests/pretty_panels_body_padding.rs'
-      - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
+      - 'host-shell/tests/zhifa_body_padding.rs'
+      - 'host-shell/tests/zhifa_ui_structure_probe.rs'
       - 'app/src/ui/shell_manage/build_panels.rs'
       - '.github/workflows/layout-policy.yml'
   pull_request:
@@ -17,8 +17,8 @@ on:
       - 'crates/kernel/**'
       - 'crates/mei-host-graph/**'
       - 'host-shell/tests/layout_policy_apps.rs'
-      - 'host-shell/tests/pretty_panels_body_padding.rs'
-      - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
+      - 'host-shell/tests/zhifa_body_padding.rs'
+      - 'host-shell/tests/zhifa_ui_structure_probe.rs'
 
 jobs:
   layout-policy:
@@ -48,14 +48,14 @@ jobs:
       - name: Compile ws-demo-v2 cockpit apps
         run: |
           WS="${{ steps.ws.outputs.path }}"
-          for app in pretty-panels data-demo mini-park _author-frame-smoke; do
+          for app in zhifa mini-park _author-frame-smoke; do
             cargo run -p mei-compiler -- compile --workspace "$WS" --app "$app"
           done
 
       - name: Import bundles for integration tests
         run: |
           WS="${{ steps.ws.outputs.path }}"
-          for app in pretty-panels data-demo mini-park; do
+          for app in zhifa mini-park; do
             cargo run -p mei-host-shell -- import --workspace "$WS" --app "$app" \
               --bundle "$WS/apps/$app/env/current/build/exchange/$app.meibundle"
           done
@@ -66,5 +66,5 @@ jobs:
       - name: Host-shell layout policy integration tests
         run: |
           cargo test -p mei-host-shell --test layout_policy_apps \
-            --test pretty_panels_body_padding \
-            --test pretty_panels_ui_structure_probe
+            --test zhifa_body_padding \
+            --test zhifa_ui_structure_probe

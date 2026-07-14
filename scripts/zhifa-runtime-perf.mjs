@@ -13,7 +13,7 @@ const valueFor = (flag, fallback) => {
 };
 const repeat = Math.max(1, Number.parseInt(valueFor("--repeat", "10"), 10) || 10);
 const jsonPath = valueFor("--json", "");
-const targetUrl = `${base}/apps/pretty-panels/home`;
+const targetUrl = `${base}/apps/zhifa/home`;
 const budgets = {
   warmP50Ms: 500,
   warmP95Ms: 800,
@@ -48,7 +48,7 @@ function classify(url) {
   if (pathname === "/api/host/view-revision") return "view-revision";
   if (pathname === "/api/host/layer-batch") return "layer-batch";
   if (pathname === "/api/host/scene-drilldown-context") return "drilldown";
-  if (pathname === "/apps/pretty-panels/home") return "document";
+  if (pathname === "/apps/zhifa/home") return "document";
   return "";
 }
 

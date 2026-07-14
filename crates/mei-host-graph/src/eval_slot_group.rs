@@ -973,17 +973,24 @@ pub fn ensure_eval_slot_group_cached(
     let cache_key =
         eval_slot_group_cache_key(semantic_core, slot_group_id, data_mode.slug(), "default");
     if let Some(bytes) = take_layer(cache_key.as_str()) {
-        let doc: EvalSlotGroupDocument = serde_json::from_slice(bytes.as_slice())?;
-        let content_hash = layer_entry_meta(cache_key.as_str())
-            .map(|(_, hash)| hash)
-            .filter(|hash| !hash.is_empty())
-            .unwrap_or_else(|| "cached".to_string());
-        let pref = PayloadRef::new(
-            EVAL_SLOT_GROUP_KIND,
-            content_hash.as_str(),
-            EVAL_SLOT_GROUP_SCHEMA,
-        );
-        return Ok((doc, pref, true));
+        if crate::schema_gate::layer_bytes_match_schema(bytes.as_slice(), EVAL_SLOT_GROUP_SCHEMA) {
+            let doc: EvalSlotGroupDocument = serde_json::from_slice(bytes.as_slice())?;
+            if crate::schema_gate::document_schema_ok(
+                doc.schema_version.as_str(),
+                EVAL_SLOT_GROUP_SCHEMA,
+            ) {
+                let content_hash = layer_entry_meta(cache_key.as_str())
+                    .map(|(_, hash)| hash)
+                    .filter(|hash| !hash.is_empty())
+                    .unwrap_or_else(|| "cached".to_string());
+                let pref = PayloadRef::new(
+                    EVAL_SLOT_GROUP_KIND,
+                    content_hash.as_str(),
+                    EVAL_SLOT_GROUP_SCHEMA,
+                );
+                return Ok((doc, pref, true));
+            }
+        }
     }
     let structure = build_structure_full_document(compiled, layout_policy_revision);
     let document = build_eval_slot_group_document(
@@ -1225,9 +1232,9 @@ mod tests {
             import_scope: None,
         };
         let compiled = CompiledApp {
-            app_id: "pretty-panels".to_string(),
-            title: "pretty-panels".to_string(),
-            app_root: "/tmp/pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
             scene_routes: vec![],
             active_scene: Some("home".to_string()),
             stage_registry: Default::default(),
@@ -1415,9 +1422,9 @@ mod tests {
             frame_viewport: None,
         };
         let compiled = CompiledApp {
-            app_id: "pretty-panels".to_string(),
-            title: "pretty-panels".to_string(),
-            app_root: "/tmp/pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
             scene_routes: vec![],
             active_scene: Some("home".to_string()),
             stage_registry: Default::default(),
@@ -1521,9 +1528,9 @@ mod tests {
             frame_viewport: None,
         };
         let compiled = CompiledApp {
-            app_id: "pretty-panels".to_string(),
-            title: "pretty-panels".to_string(),
-            app_root: "/tmp/pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
             scene_routes: vec![],
             active_scene: Some("home".to_string()),
             stage_registry: Default::default(),
@@ -1726,9 +1733,9 @@ mod tests {
         };
         // Put penalty first so a naive full-scan would pick the wrong props.
         let compiled = CompiledApp {
-            app_id: "pretty-panels".to_string(),
-            title: "pretty-panels".to_string(),
-            app_root: "/tmp/pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
             scene_routes: vec![],
             active_scene: Some("home".to_string()),
             stage_registry: Default::default(),
@@ -1839,9 +1846,9 @@ mod tests {
             import_scope: None,
         };
         let compiled = CompiledApp {
-            app_id: "pretty-panels".to_string(),
-            title: "pretty-panels".to_string(),
-            app_root: "/tmp/pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
             scene_routes: vec![],
             active_scene: Some("home".to_string()),
             stage_registry: Default::default(),

@@ -707,22 +707,22 @@ mod tests {
     #[test]
     fn instance_spec_from_launch_carries_runtime_plan_ceiling_and_warmup() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let app_root = tmp.path().join("apps/pretty-panels");
+        let app_root = tmp.path().join("apps/zhifa");
         std::fs::create_dir_all(app_root.join("env/current")).expect("mkdir");
         let launch = mei_host_core::AppLaunchDocument {
             id: "data-scoped".to_string(),
-            path: "apps/pretty-panels/launch/data-scoped.json".to_string(),
+            path: "apps/zhifa/launch/data-scoped.json".to_string(),
             revision: "abcdefghijklmnop".to_string(),
             config: mei_host_core::AppLaunchConfig {
                 schema_version: mei_host_core::SCHEMA_APP_LAUNCH_V1.to_string(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 display_name: Some("scoped".to_string()),
                 generation: "current".to_string(),
                 data_mode_ceiling: Some("scoped".to_string()),
                 runtime_plan: Some(serde_json::json!({
                     "defaultMode": "frozen",
                     "apps": {
-                        "pretty-panels": {
+                        "zhifa": {
                             "targets": [
                                 { "scope": "home/t1/r-right-rail/s-warning", "mode": "hot" }
                             ],
@@ -733,12 +733,12 @@ mod tests {
                 theme: None,
                 warmup: Some(serde_json::json!({
                     "enabled": true,
-                    "apps": { "pretty-panels": { "hotScenes": ["home"] } }
+                    "apps": { "zhifa": { "hotScenes": ["home"] } }
                 })),
                 menu: None,
             },
         };
-        let spec = instance_spec_from_launch(tmp.path(), "pretty-panels", &launch).expect("spec");
+        let spec = instance_spec_from_launch(tmp.path(), "zhifa", &launch).expect("spec");
         assert_eq!(spec.data_mode_ceiling.as_deref(), Some("scoped"));
         assert_eq!(
             spec.config_snapshot.runtime_plan.default_mode,
@@ -748,14 +748,14 @@ mod tests {
             .config_snapshot
             .runtime_plan
             .apps
-            .get("pretty-panels")
+            .get("zhifa")
             .expect("app plan");
         assert_eq!(app_plan.targets.len(), 1);
         assert_eq!(app_plan.targets[0].mode, RuntimeMode::Hot);
         assert!(spec.config_snapshot.warmup.is_some());
         assert!(mei_lang_kernel::runtime_plan_requires_warm(
             &spec.config_snapshot.runtime_plan,
-            "pretty-panels"
+            "zhifa"
         ));
     }
 }

@@ -380,9 +380,21 @@ async fn prepare_current_launch(
                 "appId": app_id,
                 "launchId": launch.id,
                 "phase": "prebuilding",
-                "message": "正在编译应用并准备数据快照…",
+                "message": if crate::startup::defer_warmup_to_prebuild() {
+                    "正在等待后台 prebuild 完成…"
+                } else {
+                    "正在编译应用并准备数据快照…"
+                },
             }),
         ));
+    }
+    // `start.sh --app` runs deploy/prebuild.sh in the background while host
+    // autostarts. Both used to call prepare→replace_env_generation and race on
+    // env/{ver} (macOS ENOTEMPTY / "Directory not empty"). When defer is on,
+    // wait for that background job instead of wiping again.
+    if crate::startup::defer_warmup_to_prebuild() {
+        wait_for_deferred_app_prebuild(workspace, app_id).await?;
+        return Ok(());
     }
     let workspace = workspace.to_path_buf();
     let app_id = app_id.to_string();
@@ -394,6 +406,64 @@ async fn prepare_current_launch(
     .map_err(|error| StartStopError::Unavailable(format!("app prebuild task failed: {error}")))?
     .map_err(|error| StartStopError::Unavailable(format!("app prebuild failed: {error}")))?;
     Ok(())
+}
+
+async fn wait_for_deferred_app_prebuild(
+    workspace: &std::path::Path,
+    app_id: &str,
+) -> Result<(), StartStopError> {
+    const POLL: std::time::Duration = std::time::Duration::from_millis(500);
+    const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+    let started = std::time::Instant::now();
+    let mut polls: u32 = 0;
+    loop {
+        polls = polls.saturating_add(1);
+        let pid_alive = deferred_prebuild_pid_alive(workspace);
+        let imported =
+            crate::landing::app_has_prebuilt_access_entry(workspace, app_id);
+        if !pid_alive && imported {
+            tracing::info!(
+                app = %app_id,
+                waited_ms = started.elapsed().as_millis() as u64,
+                "deferred prebuild ready for autostart"
+            );
+            return Ok(());
+        }
+        if started.elapsed() > MAX_WAIT {
+            return Err(StartStopError::Unavailable(format!(
+                "timed out waiting for deferred prebuild of `{app_id}` (pid_alive={pid_alive}, imported={imported})"
+            )));
+        }
+        if polls == 1 || polls.is_multiple_of(10) {
+            tracing::info!(
+                app = %app_id,
+                pid_alive,
+                imported,
+                "waiting for deferred prebuild before app start"
+            );
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+fn deferred_prebuild_pid_alive(workspace: &std::path::Path) -> bool {
+    let pid_path = workspace.join("deploy/state/prebuild.pid");
+    let Ok(raw) = std::fs::read_to_string(&pid_path) else {
+        return false;
+    };
+    let Ok(pid) = raw.trim().parse::<i32>() else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {
@@ -691,7 +761,7 @@ mod tests {
 
     #[test]
     fn current_generation_launch_requires_prebuild() {
-        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        let mut config = AppLaunchConfig::default_for_app("zhifa");
         config.generation = "current".to_string();
         assert!(launch_uses_current_generation(&config));
 
@@ -701,18 +771,18 @@ mod tests {
 
     #[test]
     fn warmup_scenes_include_all_hot_scenes() {
-        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        let mut config = AppLaunchConfig::default_for_app("zhifa");
         config.warmup = Some(serde_json::json!({
             "enabled": true,
             "apps": {
-                "pretty-panels": {
+                "zhifa": {
                     "hotScenes": ["home/t1", "home"]
                 }
             }
         }));
         let workspace = Path::new("/tmp/mei-missing-workspace");
         assert_eq!(
-            launch_warmup_scenes(workspace, &config, "pretty-panels"),
+            launch_warmup_scenes(workspace, &config, "zhifa"),
             vec!["home/t1".to_string(), "home".to_string()]
         );
         // Missing hotScenes for this app → default_scene fallback (home when app.mei missing).
@@ -724,16 +794,16 @@ mod tests {
 
     #[test]
     fn warmup_disabled_skips_all_scenes() {
-        let mut config = AppLaunchConfig::default_for_app("pretty-panels");
+        let mut config = AppLaunchConfig::default_for_app("zhifa");
         config.warmup = Some(serde_json::json!({
             "enabled": false,
             "apps": {
-                "pretty-panels": {
+                "zhifa": {
                     "hotScenes": ["home"]
                 }
             }
         }));
-        assert!(launch_warmup_scenes(Path::new("/tmp"), &config, "pretty-panels").is_empty());
+        assert!(launch_warmup_scenes(Path::new("/tmp"), &config, "zhifa").is_empty());
     }
 }
 

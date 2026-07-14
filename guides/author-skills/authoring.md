@@ -32,7 +32,7 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 
 样板：
 
-- `workspaces/ws-demo-v2/apps/pretty-panels/src/scene/**`
+- `workspaces/ws-demo-v2/apps/zhifa/src/scene/**`
 - `workspaces/ws-demo-v2/apps/mini-park/src/scene/**`
 
 ## 推荐工作流
@@ -44,7 +44,7 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 3. `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
 4. `.mei/knowledge/author/workspace-config-reference.md`
 5. `.mei/knowledge/author/components/*`、`templates/*`
-6. 相近 example（优先 pretty-panels / mini-park）
+6. 相近 example（优先 zhifa / mini-park）
 
 作者态默认 **source-first + knowledge-first**。不要先把 `inspect summary` / `workspace summary` 当源码替代品。
 
@@ -75,7 +75,7 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 curl -X POST http://127.0.0.1:9527/api/host/build \
   -H 'Content-Type: application/json' \
   -d '{
-    "appId": "pretty-panels",
+    "appId": "zhifa",
     "mode": "build",
     "sceneId": "home",
     "targetFile": "src/scene/home/t1/r-left-rail/s-enforcement/content.mei"

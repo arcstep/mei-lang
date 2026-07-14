@@ -247,7 +247,7 @@ mod mcg_index_tests {
         if !source_root.is_dir() {
             return;
         }
-        let root = build_mcg_tree_root(source_root.as_path(), "pretty-panels");
+        let root = build_mcg_tree_root(source_root.as_path(), "zhifa");
         assert_eq!(root.group, "mcg");
         let semantic = root
             .children
@@ -256,7 +256,7 @@ mod mcg_index_tests {
             .expect("semantic_graph group");
         assert!(
             !semantic.children.is_empty(),
-            "pretty-panels MCG should expose semantic_graph nodes"
+            "zhifa MCG should expose semantic_graph nodes"
         );
     }
 

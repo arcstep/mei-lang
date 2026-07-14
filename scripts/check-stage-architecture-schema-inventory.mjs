@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 对照 0106 §4 Schema 台账与源码常量；漂移则失败。
+ * 对照归档 0106 §4 Schema 台账与源码常量；漂移则失败。
+ * 台账真源：docs/archive/mei-lang-v2-stage-architecture-remediation-2026-07/0106-…
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +12,7 @@ const meiRoot = path.resolve(__dirname, "..");
 const docsRoot = path.resolve(meiRoot, "../docs");
 const doc0106 = path.join(
   docsRoot,
-  "mei-lang-v2/01-design-goals/0106-phase-0-baseline-freeze-and-inventory.md",
+  "archive/mei-lang-v2-stage-architecture-remediation-2026-07/0106-phase-0-baseline-freeze-and-inventory.md",
 );
 
 const EXPECTED = [
@@ -101,13 +102,22 @@ const requiredRuntime = [
   "mei-tutorial__intro.runtime.json",
   "mini-data__home.runtime.json",
   "mini-data__supervision.runtime.json",
-  "pretty-panels__home.runtime.json",
+  "zhifa__home.runtime.json",
   "mini-park__home.runtime.json",
   "mini-park__home_2d.runtime.json",
 ];
 for (const name of requiredRuntime) {
   if (!fs.existsSync(path.join(runtimeFixtures, name))) {
     issues.push(`missing runtime fixture: ${name}`);
+  }
+}
+
+for (const name of [
+  "mei-prebuild-compile-index-v9",
+  "is_current_prebuild_compile_index_schema",
+]) {
+  if (!corpus.includes(name)) {
+    issues.push(`Gate C compile-index evidence missing: ${name}`);
   }
 }
 

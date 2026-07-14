@@ -10,7 +10,7 @@ cd "${ROOT_DIR}"
 LIVE='(frame\.add_panel\(|titled_shell\(|board_assembly\(|assembly_view\(|panel_slot\(|panel_contract\(|ops\.layoutTuning|row_budgets\s*=)'
 
 ZERO_TOLERANCE=(
-  workspaces/ws-demo-v2/apps/pretty-panels
+  workspaces/ws-demo-v2/apps/zhifa
   workspaces/ws-demo-v2/apps/mini-data
   workspaces/ws-demo-v2/stock/templates
 )
@@ -29,13 +29,13 @@ EXCLUDE_COMMON=(
   --glob '!**/dist/**'
   --glob '!**/archive/**'
   --glob '!**/check-layout-legacy-blacklist.sh'
-  --glob '!**/0324-pretty-panels-layout-tuning-case-studies.md'
+  --glob '!**/0324-zhifa-layout-tuning-case-studies.md'
   --glob '!**/0533-layout-policy-migration.md'
   --glob '!**/02100601-v1-equivalence.md'
   --glob '!**/021008-v1-v2-hybrid-authoring.md'
 )
 
-echo "==> [1/2] zero-tolerance: pretty-panels / mini-data / cockpit stock"
+echo "==> [1/2] zero-tolerance: zhifa / mini-data / cockpit stock"
 zt_hits="$(rg -n --no-heading -e "${LIVE}" "${EXCLUDE_COMMON[@]}" "${ZERO_TOLERANCE[@]}" 2>/dev/null || true)"
 # Allow ban-commentary lines in stock README / macros headers
 zt_hits="$(echo "${zt_hits}" | grep -v -E '禁止|已删除|DELETE|不得|不再|原 `micro_panel`|无 row_budgets|禁止 row_budgets|禁止 `row_budgets`' || true)"
@@ -59,7 +59,7 @@ doc_hits="$(echo "${doc_hits}" | grep -v 'authoring.md:' || true)"
 doc_hits="$(echo "${doc_hits}" | grep -v 'components-reference.md:' || true)"
 doc_hits="$(echo "${doc_hits}" | grep -v '0300-ui-layout' || true)"
 doc_hits="$(echo "${doc_hits}" | grep -v '0327-t1-fill-down' || true)"
-doc_hits="$(echo "${doc_hits}" | grep -v '0328-pretty-panels-fill-down' || true)"
+doc_hits="$(echo "${doc_hits}" | grep -v '0328-zhifa-fill-down' || true)"
 doc_hits="$(echo "${doc_hits}" | grep -v '0329-cockpit-viewport' || true)"
 if [[ -n "$(echo "${doc_hits}" | sed '/^$/d')" ]]; then
   echo "FAIL: docs/guides still contain live banned call-sites:"

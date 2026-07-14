@@ -115,7 +115,7 @@ content_panel(
 )
 ```
 
-样板真源：`pretty-panels/.../s-enforcement/content.mei`、`mini-park/.../s-lake-pavilion/content.mei`。  
+样板真源：`zhifa/.../s-enforcement/content.mei`、`mini-park/.../s-lake-pavilion/content.mei`。  
 源码里构造器名可能是 `content_panel`——与 `content_panel` 同义。
 
 section 标题壳：
@@ -160,7 +160,7 @@ component(
 )
 ```
 
-地图 / stage 常落在 T0 `content.mei`，经 section bare shell 透传（见 mini-park / pretty-panels `t0/**`）。
+地图 / stage 常落在 T0 `content.mei`，经 section bare shell 透传（见 mini-park / zhifa `t0/**`）。
 
 ## 组件选择规则
 

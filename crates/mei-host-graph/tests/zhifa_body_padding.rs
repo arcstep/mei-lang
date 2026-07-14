@@ -29,8 +29,8 @@ fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNo
 }
 
 #[test]
-fn pretty_panels_enforcement_section_uses_padding_profile_not_body_props() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+fn zhifa_enforcement_section_uses_padding_profile_not_body_props() {
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * P2.0 baseline matrix for pretty-panels + data-full.
+ * P2.0 baseline matrix for zhifa + data-full.
  *
  * Runs on an independent Host port / generation so it does NOT clear the
  * user's currently running data-full service cache.
@@ -31,7 +31,7 @@ const WORKSPACE = path.resolve(
 );
 const LAUNCH = path.join(
   WORKSPACE,
-  "apps/pretty-panels/launch/data-full.json"
+  "apps/zhifa/launch/data-full.json"
 );
 const PORT = Number(process.env.MEI_BASELINE_PORT || 19627);
 const ROUNDS = Math.max(3, Number(process.env.MEI_BASELINE_ROUNDS || 5));
@@ -105,7 +105,7 @@ function startHost() {
     [
       "--cargo",
       "--app-config",
-      "apps/pretty-panels/launch/data-full.json",
+      "apps/zhifa/launch/data-full.json",
       "--port",
       String(PORT),
     ],
@@ -177,14 +177,14 @@ async function main() {
     report.warmupLastRun = snapshot?.warmupLastRun ?? null;
 
     const targets = [
-      { id: "home", path: "/apps/pretty-panels/" },
+      { id: "home", path: "/apps/zhifa/" },
       {
         id: "warning_t2",
-        path: "/apps/pretty-panels/home/t2/r-right-rail/s-warning",
+        path: "/apps/zhifa/home/t2/r-right-rail/s-warning",
       },
       {
         id: "enforcement_matters_t2",
-        path: "/apps/pretty-panels/home/t2/r-left-rail/s-enforcement",
+        path: "/apps/zhifa/home/t2/r-left-rail/s-enforcement",
       },
     ];
 

@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn theme_layout_overlay_response_fields_serialize() {
         let resp = ThemeLayoutOverlayResponse {
-            app_id: "pretty-panels".to_string(),
+            app_id: "zhifa".to_string(),
             theme_id: "cockpit".to_string(),
             session_id: "s".to_string(),
             revision: "r".to_string(),

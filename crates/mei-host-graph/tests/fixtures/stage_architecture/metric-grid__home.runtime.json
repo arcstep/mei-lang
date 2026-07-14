@@ -110,6 +110,11 @@
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
       "url": "/apps/build/metric-grid?scene=home&file=src/scene/home.mei"
+    },
+    {
+      "assembly_key": "home@src/scene/home.mei",
+      "scene_id": "home",
+      "url": "/apps/metric-grid/home"
     }
   ],
   "stage_programs": {

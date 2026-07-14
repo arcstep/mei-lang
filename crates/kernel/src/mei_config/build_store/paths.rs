@@ -8,7 +8,7 @@ use crate::mei_config::workspace_paths::{
 };
 
 use super::prebuild_override::{prebuild_build_root_override, prebuild_var_root_override};
-use super::types::{read_links_state, BuildManifest, DEV_TOOLCHAIN_ALIAS};
+use super::types::{read_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA, DEV_TOOLCHAIN_ALIAS};
 
 use std::fs;
 
@@ -160,5 +160,13 @@ pub fn read_build_manifest(env_dir: &Path) -> Result<Option<BuildManifest>> {
         return Ok(None);
     }
     let raw = fs::read_to_string(&path)?;
-    Ok(Some(serde_json::from_str(&raw)?))
+    let manifest: BuildManifest = serde_json::from_str(&raw)?;
+    if manifest.schema_version.trim() != BUILD_MANIFEST_SCHEMA {
+        anyhow::bail!(
+            "BUILD.json schema_version mismatch: got {:?}, expected {BUILD_MANIFEST_SCHEMA} ({})",
+            manifest.schema_version,
+            path.display()
+        );
+    }
+    Ok(Some(manifest))
 }

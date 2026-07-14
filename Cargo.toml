@@ -25,7 +25,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "2.5.8"
+version = "2.5.9"
 license = "MIT"
 
 [workspace.dependencies]
@@ -38,6 +38,7 @@ leptos = { version = "0.8", features = ["ssr"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tower-lsp = "0.20"

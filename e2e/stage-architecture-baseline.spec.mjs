@@ -288,15 +288,15 @@ const GOLDENS = /** @type {GoldenCase[]} */ ([
     ],
   },
   {
-    id: "pretty-panels",
+    id: "zhifa",
     configs: ["panels-dev", "all"],
     probes: [
       {
         name: "home-cockpit",
-        path: "/apps/pretty-panels/home",
+        path: "/apps/zhifa/home",
         readySelectors: ["#workspace-root", "main.main"],
         assert: async (page) => {
-          expect(page.url()).toMatch(/\/apps\/pretty-panels\/home/);
+          expect(page.url()).toMatch(/\/apps\/zhifa\/home/);
           const state = await page.evaluate(() => {
             const layer = window.__mei?.layer_plan || {};
             const mcgPages =

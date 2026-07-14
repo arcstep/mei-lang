@@ -5,7 +5,7 @@
 按优先级读取：
 
 1. 当前任务相关的 `.mei` 文件（优先 `assembly.mei` / `layout.mei` / `content.mei`）
-2. 对应 example：`pretty-panels`、`mini-park` 的 `src/scene/**`
+2. 对应 example：`zhifa`、`mini-park` 的 `src/scene/**`
 3. `.mei/profiles/author.md`
 4. 同目录的 `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`
 5. `.mei/knowledge/author/workspace-config-reference.md`

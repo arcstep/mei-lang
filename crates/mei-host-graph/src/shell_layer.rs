@@ -105,9 +105,15 @@ where
         SHELL_LAYER_SCHEMA,
     );
     if let Some(bytes) = take_layer(cache_key.as_str()) {
-        if let Ok(doc) = serde_json::from_slice::<ShellLayerDocument>(bytes.as_slice()) {
-            if !is_placeholder_shell_document(&doc) {
-                return (doc, true);
+        if crate::schema_gate::layer_bytes_match_schema(bytes.as_slice(), SHELL_LAYER_SCHEMA) {
+            if let Ok(doc) = serde_json::from_slice::<ShellLayerDocument>(bytes.as_slice()) {
+                if crate::schema_gate::document_schema_ok(
+                    doc.schema_version.as_str(),
+                    SHELL_LAYER_SCHEMA,
+                ) && !is_placeholder_shell_document(&doc)
+                {
+                    return (doc, true);
+                }
             }
         }
     }
@@ -133,4 +139,68 @@ pub fn shell_layer_json(
 ) -> serde_json::Value {
     let (doc, _) = ensure_shell_layer_cached(app_id, scene_id, route_mode, tab, chrome, None);
     json!(doc)
+}
+
+#[cfg(test)]
+mod gate_c_tests {
+    use super::*;
+    use crate::layer_store::store_layer;
+    use crate::view_artifact::shell_cache_key;
+
+    #[test]
+    fn shell_cache_miss_on_wrong_schema_then_rebuilds() {
+        let app_id = "gate-c-shell";
+        let scene_id = "home";
+        let route_mode = "app";
+        let tab = "scene";
+        let chrome = "full";
+        let cache_key = shell_cache_key(
+            app_id,
+            scene_id,
+            route_mode,
+            tab,
+            chrome,
+            None,
+            SHELL_LAYER_SCHEMA,
+        );
+        let stale = br#"{"schema_version":"shell-v0","route_mode":"app","tab":"scene","chrome":"full","topbar_html":"<header class=\"mei-shell-topbar mei-shell-rich\">stale shell content that is long enough to avoid placeholder detection path when schema matched</header>","statusbar_html":""}"#;
+        store_layer(
+            cache_key,
+            "shell.app",
+            "stale-hash",
+            stale,
+        );
+
+        let rich = ShellLayerDocument {
+            schema_version: SHELL_LAYER_SCHEMA.to_string(),
+            route_mode: route_mode.to_string(),
+            tab: tab.to_string(),
+            chrome: chrome.to_string(),
+            topbar_html: "<header class=\"mei-shell-topbar mei-shell-rich\">rebuilt shell content long enough to not be treated as placeholder bootstrap stub</header>".to_string(),
+            statusbar_html: String::new(),
+        };
+        let (doc, hit) = ensure_shell_layer_rendered(
+            app_id,
+            scene_id,
+            route_mode,
+            tab,
+            chrome,
+            None,
+            || rich.clone(),
+        );
+        assert!(!hit, "wrong schema must miss and rebuild");
+        assert_eq!(doc.schema_version, SHELL_LAYER_SCHEMA);
+
+        let (doc2, hit2) = ensure_shell_layer_rendered(
+            app_id,
+            scene_id,
+            route_mode,
+            tab,
+            chrome,
+            None,
+            || panic!("must hit cache after rebuild"),
+        );
+        assert!(hit2);
+        assert_eq!(doc2.schema_version, SHELL_LAYER_SCHEMA);
+    }
 }

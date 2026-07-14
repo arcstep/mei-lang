@@ -60,7 +60,7 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 
 Runnable 样板：
 
-- `workspaces/ws-demo-v2/apps/pretty-panels/src/scene/**`
+- `workspaces/ws-demo-v2/apps/zhifa/src/scene/**`
 - `workspaces/ws-demo-v2/apps/mini-park/src/scene/**`
 
 目录形态：`t*/r-*/s-*/content.mei`（扁平前缀，不用 `planes/regions/sections` 硬目录）。

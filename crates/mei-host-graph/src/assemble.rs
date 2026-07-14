@@ -51,6 +51,7 @@ pub struct ScopeRoute {
 pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRoute>> {
     let registry = McgRegistryWriter::load(source_root, app_id);
     let app_root = resolve_app_root(source_root, app_id);
+    let programs = crate::stage_program_discover::discover_stage_programs(app_root.as_path());
     let mut routes = Vec::new();
     for node in registry.nodes_of_kind(GraphNodeKind::Navigation) {
         let Some(pref) = node.payload_ref.as_ref() else {
@@ -62,6 +63,7 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
         let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
         let scene_id = payload
             .get("scene")
+            .or_else(|| payload.get("stage"))
             .and_then(|v| v.as_str())
             .unwrap_or("home")
             .to_string();
@@ -70,7 +72,12 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let assembly_key = extract_assembly_ref(&payload).unwrap_or_else(|| node.id.key.clone());
+        let mut assembly_key = extract_assembly_ref(&payload).unwrap_or_else(|| node.id.key.clone());
+        if let Some(prog) =
+            crate::stage_program_discover::discover_program_for_stage(&programs, scene_id.as_str())
+        {
+            assembly_key = prog.assembly_key.clone();
+        }
         if url.contains(&format!("/apps/{app_id}/"))
             || url.contains("/scene/")
             || node.id.key.contains("access")
@@ -81,6 +88,17 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
                 assembly_key,
             });
         }
+    }
+    // 0119: when MDX programs exist, ensure each stage has a ScopeRoute (no Scene 直挂 required).
+    for prog in &programs {
+        if routes.iter().any(|r| r.scene_id == prog.stage_id) {
+            continue;
+        }
+        routes.push(ScopeRoute {
+            scene_id: prog.stage_id.clone(),
+            url: format!("/apps/{app_id}/{}", prog.stage_id),
+            assembly_key: prog.assembly_key.clone(),
+        });
     }
     if routes.is_empty() {
         routes.push(ScopeRoute {
@@ -674,6 +692,13 @@ fn resolve_assembly_key(
     registry: &crate::mcg::registry::McgRegistry,
     scene_id: &str,
 ) -> String {
+    let app_root = resolve_app_root(source_root, app_id);
+    let programs = crate::stage_program_discover::discover_stage_programs(app_root.as_path());
+    if let Some(prog) =
+        crate::stage_program_discover::discover_program_for_stage(&programs, scene_id)
+    {
+        return prog.assembly_key.clone();
+    }
     let scene_id = resolve_scene_id_for_assembly(source_root, app_id, registry, scene_id);
     if scene_id == "home" {
         return registry
@@ -687,7 +712,6 @@ fn resolve_assembly_key(
             })
             .map(|n| n.id.key.clone())
             .unwrap_or_else(|| {
-                let app_root = resolve_app_root(source_root, app_id);
                 mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), "home")
             });
     }
@@ -701,7 +725,6 @@ fn resolve_assembly_key(
             return route.assembly_key;
         }
     }
-    let app_root = resolve_app_root(source_root, app_id);
     if let Some(key) = find_assembly_key_by_scene(app_root.as_path(), registry, scene_id.as_str()) {
         return key;
     }

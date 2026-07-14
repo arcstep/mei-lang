@@ -109,17 +109,45 @@ pub fn replace_env_generation(app_root: &Path, env_version: &str) -> Result<(Pat
     let build_dir = app_env_build_dir(app_root, env_version);
     let var_dir = app_env_var_dir(app_root, env_version);
     fs::create_dir_all(app_env_dir(app_root, env_version))?;
-    if build_dir.exists() {
-        fs::remove_dir_all(&build_dir)?;
-    }
-    if var_dir.exists() {
-        fs::remove_dir_all(&var_dir)?;
-    }
+    remove_dir_all_resilient(&build_dir)?;
+    remove_dir_all_resilient(&var_dir)?;
     fs::create_dir_all(&build_dir)?;
     fs::create_dir_all(var_dir.join("cache"))?;
     fs::create_dir_all(var_dir.join("eval-cache"))?;
     fs::create_dir_all(var_dir.join("data-snapshots"))?;
     Ok((build_dir, var_dir))
+}
+
+/// `remove_dir_all` can surface ENOTEMPTY under concurrent writers (macOS 66 / Linux 39).
+fn remove_dir_all_resilient(path: &Path) -> Result<()> {
+    use std::io::ErrorKind;
+    use std::thread;
+    use std::time::Duration;
+
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut last_error = None;
+    for attempt in 0..6u32 {
+        match fs::remove_dir_all(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                let busy = matches!(
+                    error.raw_os_error(),
+                    Some(66) /* macOS ENOTEMPTY */ | Some(39) /* Linux ENOTEMPTY */
+                ) || error.kind() == ErrorKind::DirectoryNotEmpty;
+                last_error = Some(error);
+                if !busy || attempt == 5 {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(40 * u64::from(attempt + 1)));
+            }
+        }
+    }
+    Err(last_error
+        .map(anyhow::Error::from)
+        .unwrap_or_else(|| anyhow::anyhow!("remove_dir_all failed for {}", path.display())))
 }
 
 pub struct PrebuildGeneration {

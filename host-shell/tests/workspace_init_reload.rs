@@ -53,7 +53,10 @@ fn reload_imports_ws_demo_v2_when_bundle_exists() {
         Some(ws) => ws,
         None => return,
     };
-    let bundle = workspace.join("apps/data-demo/build/active/exchange/data-demo.meibundle");
+    if !workspace.join("apps/zhifa").is_dir() {
+        return;
+    }
+    let bundle = workspace.join("apps/zhifa/build/active/exchange/zhifa.meibundle");
     if !bundle.is_file() {
         return;
     }
@@ -63,7 +66,7 @@ fn reload_imports_ws_demo_v2_when_bundle_exists() {
             "--workspace",
             workspace.to_str().expect("path"),
             "--app",
-            "data-demo",
+            "zhifa",
             "--bundle",
             bundle.to_str().expect("bundle"),
             "--json",

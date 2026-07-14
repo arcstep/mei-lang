@@ -215,7 +215,7 @@
     "world_is_content": true
   },
   "active_scene": "home",
-  "app_id": "pretty-panels",
+  "app_id": "zhifa",
   "assembly_key": "home@src/scene/home.mei",
   "digest_policy": {
     "compare_absolute_compile_revision": false,
@@ -232,12 +232,12 @@
     }
   },
   "mcg": {
-    "node_count": 264,
+    "node_count": 263,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 12,
       "metric_def_bundle": 11,
-      "navigation": 47,
+      "navigation": 46,
       "page_instance": 42,
       "semantic_graph": 150,
       "warmup_policy": 1
@@ -819,54 +819,54 @@
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
     {
-      "assembly_key": "pretty-panels/home/t2/r-mechanism-documents/c-effect-mechanism-documents",
+      "assembly_key": "zhifa/home/t2/r-mechanism-documents/c-effect-mechanism-documents",
       "scene_id": "effect_mechanism_documents_page",
-      "url": "/apps/app/pretty-panels/scene/effect_mechanism_documents_page"
+      "url": "/apps/app/zhifa/scene/effect_mechanism_documents_page"
     },
     {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
-      "url": "/apps/pretty-panels/home"
+      "url": "/apps/zhifa/home"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-issue-clue-detail/c-issue-clue-detail",
+      "assembly_key": "zhifa/home/t2/r-issue-clue-detail/c-issue-clue-detail",
       "scene_id": "issue_clue_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_clue_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_clue_detail_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-issue-handling-detail/c-issue-handling-detail",
+      "assembly_key": "zhifa/home/t2/r-issue-handling-detail/c-issue-handling-detail",
       "scene_id": "issue_handling_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_handling_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_handling_detail_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-issue-result-detail/c-issue-result-detail",
+      "assembly_key": "zhifa/home/t2/r-issue-result-detail/c-issue-result-detail",
       "scene_id": "issue_result_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_result_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_result_detail_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-supervision-items/c-supervision-items-analytics",
+      "assembly_key": "zhifa/home/t2/r-supervision-items/c-supervision-items-analytics",
       "scene_id": "supervision_items_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/supervision_items_analytics_page"
+      "url": "/apps/app/zhifa/scene/supervision_items_analytics_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-supervision-models/c-supervision-models-analytics",
+      "assembly_key": "zhifa/home/t2/r-supervision-models/c-supervision-models-analytics",
       "scene_id": "supervision_models_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/supervision_models_analytics_page"
+      "url": "/apps/app/zhifa/scene/supervision_models_analytics_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-typical-cases/c-typical-cases-detail",
+      "assembly_key": "zhifa/home/t2/r-typical-cases/c-typical-cases-detail",
       "scene_id": "typical_cases_detail_page",
-      "url": "/apps/app/pretty-panels/scene/typical_cases_detail_page"
+      "url": "/apps/app/zhifa/scene/typical_cases_detail_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-warning-detail/c-warning-detail",
+      "assembly_key": "zhifa/home/t2/r-warning-detail/c-warning-detail",
       "scene_id": "warning_detail_page",
-      "url": "/apps/app/pretty-panels/scene/warning_detail_page"
+      "url": "/apps/app/zhifa/scene/warning_detail_page"
     },
     {
-      "assembly_key": "pretty-panels/home/t2/r-warnings/c-warnings-analytics",
+      "assembly_key": "zhifa/home/t2/r-warnings/c-warnings-analytics",
       "scene_id": "warnings_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/warnings_analytics_page"
+      "url": "/apps/app/zhifa/scene/warnings_analytics_page"
     }
   ],
   "stage_programs": {

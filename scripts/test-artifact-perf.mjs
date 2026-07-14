@@ -21,8 +21,8 @@ async function fetchManifest(appId, scene) {
 }
 
 async function main() {
-  const cold = await fetchManifest("data-demo", "home");
-  const warm = await fetchManifest("data-demo", "home");
+  const cold = await fetchManifest("zhifa", "home");
+  const warm = await fetchManifest("zhifa", "home");
   const report = { cold, warm, serverUrl };
   console.log(JSON.stringify(report, null, 2));
   if (cold.status !== 200) {

@@ -1,4 +1,6 @@
 pub const APP_CONFIG_FILENAME: &str = "app.config.json";
+/// Unified App metadata（0540 / Wave D）：`apps/{id}/app.toml`。
+pub const APP_TOML_FILENAME: &str = "app.toml";
 /// App 级配置文件名（v2：`apps/{id}/app.config.json`）。
 pub const MEI_CONFIG_FILENAME: &str = APP_CONFIG_FILENAME;
 pub const WORKSPACE_CONFIG_FILENAME: &str = "workspace.json";

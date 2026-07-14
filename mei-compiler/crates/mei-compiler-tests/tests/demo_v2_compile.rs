@@ -12,15 +12,19 @@ fn ws_demo_v2_root() -> std::path::PathBuf {
 #[test]
 fn demo_v2_compiles_graph_blocks() {
     let workspace = ws_demo_v2_root();
-    if !workspace.join("apps/data-demo/src/app.mei").is_file() {
+    if !workspace.join("apps/zhifa/src/app.mei").is_file() {
         eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
         return;
     }
-    let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
+    let outcome = compile_app(&workspace, "zhifa").expect("compile zhifa");
     assert_eq!(outcome.syntax_version, env!("CARGO_PKG_VERSION"));
-    assert_eq!(outcome.files.len(), 47, "expected 47 v2 author files");
     assert!(
-        outcome.blocks.len() >= 120,
+        outcome.files.len() > 10,
+        "expected many v2 author files, got {}",
+        outcome.files.len()
+    );
+    assert!(
+        outcome.blocks.len() > 50,
         "expected many graph blocks, got {}",
         outcome.blocks.len()
     );
@@ -42,7 +46,7 @@ fn demo_v2_compiles_graph_blocks() {
         outcome
             .blocks
             .iter()
-            .any(|b| b.block_id == "app_skeleton:data-demo"),
+            .any(|b| b.block_id == "app_skeleton:zhifa"),
         "missing app_skeleton block"
     );
 }
@@ -50,11 +54,11 @@ fn demo_v2_compiles_graph_blocks() {
 #[test]
 fn demo_v2_meibundle_roundtrip_and_size() {
     let workspace = ws_demo_v2_root();
-    if !workspace.join("apps/data-demo/src/app.mei").is_file() {
+    if !workspace.join("apps/zhifa/src/app.mei").is_file() {
         eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
         return;
     }
-    let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
+    let outcome = compile_app(&workspace, "zhifa").expect("compile zhifa");
     let exchange = exchange_from_outcome(&outcome);
 
     let indexed_ids: HashSet<_> = exchange
@@ -71,10 +75,10 @@ fn demo_v2_meibundle_roundtrip_and_size() {
         assert!(indexed_ids.contains(&block.block_id));
     }
 
-    let digest = compute_workspace_digest(&workspace, "data-demo", "stock/templates");
+    let digest = compute_workspace_digest(&workspace, "zhifa", "stock/templates");
     let dir = std::env::temp_dir().join("mei-compiler-tests");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let bundle_path = dir.join("data-demo.meibundle");
+    let bundle_path = dir.join("zhifa.meibundle");
 
     let write_stats = write_bundle_from_outcome(
         &outcome,

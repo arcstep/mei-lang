@@ -18,7 +18,7 @@ fn upload_rel_configured_separately_from_assets() {
     let Some(workspace) = ws_demo_v2_root() else {
         return;
     };
-    let app_root = resolve_app_root(workspace.as_path(), "data-demo");
+    let app_root = resolve_app_root(workspace.as_path(), "zhifa");
     if !app_root.is_dir() {
         return;
     }

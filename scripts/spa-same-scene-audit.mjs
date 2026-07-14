@@ -5,11 +5,11 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/app`;
+const appUrl = `${base}/apps/zhifa/app`;
 
 function isDocument(url) {
   const u = new URL(url);
-  if (!u.pathname.includes("/apps/data-demo/")) return false;
+  if (!u.pathname.includes("/apps/zhifa/")) return false;
   if (u.pathname.includes("/api/")) return false;
   return u.pathname.includes("/view") || u.pathname.endsWith("/app");
 }
@@ -33,7 +33,7 @@ async function main() {
     const boot = window.__meiLangBoot || {};
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "data-demo",
+        appId: "zhifa",
         sceneId: "home/t2/r-drilldown/s-inspection-dashboard",
         scope: "home/t2/r-drilldown/s-inspection-dashboard",
         source: "spa-same-scene-audit",

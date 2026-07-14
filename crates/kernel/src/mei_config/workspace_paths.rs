@@ -5,7 +5,7 @@ use super::build_store::resolve_app_build_root_following_active;
 use super::io::load_workspace_config;
 use super::stock_catalog::normalize_stock_relative_path;
 use super::types::{
-    WorkspaceConfig, APP_CONFIG_FILENAME, DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL,
+    WorkspaceConfig, APP_CONFIG_FILENAME, APP_TOML_FILENAME, DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL,
     DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL, DEFAULT_STOCK_AUTHORING_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEFAULT_TOOLCHAIN_REL,
     LEGACY_WORKSPACE_HOSTS_DIR_REL, LEGACY_WORKSPACE_PLATFORM_DIR_REL,
@@ -26,7 +26,7 @@ pub fn resolve_symlink_target_from_link(link: &Path) -> Option<PathBuf> {
 }
 
 pub fn is_app_config_root(dir: &Path) -> bool {
-    dir.join(APP_CONFIG_FILENAME).is_file()
+    dir.join(APP_TOML_FILENAME).is_file() || dir.join(APP_CONFIG_FILENAME).is_file()
 }
 
 pub fn is_v2_app_root(dir: &Path) -> bool {
@@ -38,6 +38,10 @@ pub fn is_v2_app_root(dir: &Path) -> bool {
 
 pub fn app_mei_config_path(app_root: &Path) -> PathBuf {
     app_root.join(APP_CONFIG_FILENAME)
+}
+
+pub fn app_toml_path(app_root: &Path) -> PathBuf {
+    app_root.join(APP_TOML_FILENAME)
 }
 
 pub fn workspace_config_path(segment_root: &Path) -> PathBuf {

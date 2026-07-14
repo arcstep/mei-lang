@@ -38,11 +38,11 @@
     }
   },
   "mcg": {
-    "node_count": 11,
+    "node_count": 8,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 1,
-      "navigation": 4,
+      "navigation": 1,
       "semantic_graph": 5
     },
     "schemaVersion": "mei-mcg-registry-v2"
@@ -97,12 +97,7 @@
     {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
-      "url": "/apps/app/mini-grid/scene/home"
-    },
-    {
-      "assembly_key": "home@src/scene/home.mei",
-      "scene_id": "home",
-      "url": "/apps/build/mini-grid?scene=home&file=src/scene/home.mei"
+      "url": "/apps/mini-grid/home"
     }
   ],
   "stage_programs": {

@@ -32,13 +32,13 @@
     "id": "mini-data",
     "title": "真实数据 · Mini Data"
   },
-  "block_count": 71,
+  "block_count": 67,
   "blocks_by_kind": {
     "app_skeleton": 1,
     "content_panel": 9,
     "link_decl": 4,
     "metric_def_bundle": 2,
-    "navigation": 10,
+    "navigation": 6,
     "page_instance": 4,
     "plane_layout": 4,
     "presentation": 1,
@@ -66,10 +66,6 @@
     "navigation:access:supervision_items_analytics_page",
     "navigation:access:supervision_models_analytics_page",
     "navigation:access:warnings_analytics_page",
-    "navigation:build:home",
-    "navigation:default_access",
-    "navigation:default_access_supervision",
-    "navigation:default_build",
     "presentation:supervision@src/presentation/supervision/supervision.deck.mdx",
     "slide_layout:mini-data/supervision/deck/p/slide-01-mission",
     "slide_layout:mini-data/supervision/deck/p/slide-02-chain",
@@ -163,54 +159,6 @@
       "key": "access:warnings_analytics_page",
       "scene": "warnings_analytics_page",
       "url": "/apps/app/mini-data/scene/warnings_analytics_page"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:build:home",
-      "key": "build:home",
-      "scene": "home",
-      "url": "/apps/mini-data/home"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_access",
-      "key": "default_access",
-      "scene": "home",
-      "url": "/apps/mini-data/home"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "supervision@src/presentation/supervision/supervision.deck.mdx"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_access_supervision",
-      "key": "default_access_supervision",
-      "scene": "supervision",
-      "url": "/apps/mini-data/supervision"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_build",
-      "key": "default_build",
-      "scene": "home",
-      "url": "/apps/mini-data/home"
     }
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
@@ -314,5 +262,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.8"
+  "syntax_version": "2.5.9"
 }

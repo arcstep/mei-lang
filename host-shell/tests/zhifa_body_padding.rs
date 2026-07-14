@@ -17,26 +17,26 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-fn pretty_panels_bundle() -> PathBuf {
-    ws_demo_v2().join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle")
+fn zhifa_bundle() -> PathBuf {
+    ws_demo_v2().join("apps/zhifa/env/current/build/exchange/zhifa.meibundle")
 }
 
-fn ensure_pretty_panels_imported() -> PathBuf {
+fn ensure_zhifa_imported() -> PathBuf {
     let workspace = ws_demo_v2();
     INIT.call_once(|| {
         assert!(
-            pretty_panels_bundle().is_file(),
-            "run `mei-compiler compile --workspace ws-demo-v2 --app pretty-panels` first"
+            zhifa_bundle().is_file(),
+            "run `mei-compiler compile --workspace ws-demo-v2 --app zhifa` first"
         );
-        let ctx = HostContext::new(workspace.clone(), "pretty-panels");
+        let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
             &ImportOptions {
-                bundle_path: Some(pretty_panels_bundle()),
+                bundle_path: Some(zhifa_bundle()),
             },
         )
-        .expect("import pretty-panels bundle");
-        clear_assemble_cache_for_app("pretty-panels");
+        .expect("import zhifa bundle");
+        clear_assemble_cache_for_app("zhifa");
     });
     workspace
 }
@@ -60,14 +60,14 @@ fn enforcement_body_cell_style(html: &str) -> String {
 }
 
 #[test]
-fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
-    let workspace = ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+fn zhifa_home_ssr_applies_titled_shell_body_padding() {
+    let workspace = ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let topbar_menu = load_topbar_menu_context(workspace.as_path());
     let apps = vec![WorkspaceAppMeta {
-        id: "pretty-panels".to_string(),
+        id: "zhifa".to_string(),
         title: outcome.compiled.title.clone(),
         root: outcome.compiled.app_root.clone(),
     }];
@@ -76,7 +76,7 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
     let html = render_page(
         &apps,
         &outcome.compiled,
-        "pretty-panels",
+        "zhifa",
         Some(&topbar_menu),
         UiRouteMode::App,
         Some(outcome.compiled.active_target_file.as_str()),
@@ -155,9 +155,9 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
 }
 
 #[test]
-fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
-    let workspace = ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+fn zhifa_home_layer_plan_includes_t1_viewport_chrome() {
+    let workspace = ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let contract = outcome
@@ -233,9 +233,9 @@ fn panel_has_layout_fill(contract: &mei_lang_kernel::SceneContract, panel_id: &s
 }
 
 #[test]
-fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
-    let workspace = ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+fn zhifa_right_rail_sections_have_no_layout_policy_overflow() {
+    let workspace = ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let right_rail_errors: Vec<_> = outcome
@@ -264,9 +264,9 @@ fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
 }
 
 #[test]
-fn pretty_panels_theme_layout_merges_via_index() {
-    let workspace = ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+fn zhifa_theme_layout_merges_via_index() {
+    let workspace = ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     assert!(

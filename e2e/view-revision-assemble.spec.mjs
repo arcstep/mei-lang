@@ -9,7 +9,7 @@ test.describe("view-revision assemble", () => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const response = await page.request.get(
-      `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}`,
+      `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}`,
     );
     expect(response.ok()).toBeTruthy();
     const json = await response.json();
@@ -22,14 +22,14 @@ test.describe("view-revision assemble", () => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const first = await page.request.get(
-      `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}`,
+      `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}`,
     );
     expect(first.ok()).toBeTruthy();
     const baseline = await first.json();
     const manifestDigest = encodeURIComponent(baseline.manifest_revision_digest);
     const surfaceDigest = encodeURIComponent(baseline.surface_revision_digest);
     const second = await page.request.get(
-      `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
+      `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
     );
     expect(second.ok()).toBeTruthy();
     const matched = await second.json();
@@ -44,7 +44,7 @@ test.describe("view-revision assemble", () => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const response = await page.request.get(
-      `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}&recover=1`,
+      `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}&recover=1`,
     );
     expect(response.ok()).toBeTruthy();
     const json = await response.json();
@@ -60,7 +60,7 @@ test.describe("view-revision assemble", () => {
   test("client bundles expose view-revision modules", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
-    await page.goto(`${base}/apps/app/data-demo/scene/home`);
+    await page.goto(`${base}/apps/app/zhifa/scene/home`);
     const exposed = await page.evaluate(() => ({
       viewRevision: typeof window.__meiLangBoot?.viewRevisionClient?.fetchViewRevision === "function",
       readClientDigests: typeof window.__meiLangBoot?.readClientDigests === "function",
@@ -264,7 +264,7 @@ test.describe("view-revision assemble", () => {
     expect(state.actionCount).toBeGreaterThan(0);
   });
 
-  test("data-demo app surface materializes preview without html fragment", async ({ page }) => {
+  test("zhifa app surface materializes preview without html fragment", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const htmlFragmentRequests = [];
@@ -274,7 +274,7 @@ test.describe("view-revision assemble", () => {
         htmlFragmentRequests.push(url);
       }
     });
-    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+    await page.goto(`${base}/apps/zhifa/view?surface=app&scene=home`, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForFunction(
@@ -290,7 +290,7 @@ test.describe("view-revision assemble", () => {
     expect(htmlFragmentRequests).toEqual([]);
   });
 
-  test("pretty-panels warm F5 restores in one readonly transaction", async ({ page }) => {
+  test("zhifa warm F5 restores in one readonly transaction", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const layerBatchRequests = [];
@@ -300,7 +300,7 @@ test.describe("view-revision assemble", () => {
       if (url.includes("/api/host/layer-batch")) layerBatchRequests.push(url);
       if (url.includes("/api/host/scene-drilldown-context")) drilldownRequests.push(url);
     });
-    await page.goto(`${base}/apps/pretty-panels/home`, { waitUntil: "networkidle" });
+    await page.goto(`${base}/apps/zhifa/home`, { waitUntil: "networkidle" });
     await page.waitForFunction(
       () =>
         document
@@ -335,7 +335,7 @@ test.describe("view-revision assemble", () => {
     expect(diagnostics.prunes).toBe(0);
   });
 
-  test("data-demo cold start uses compose preview without scene-revision", async ({ page }) => {
+  test("zhifa cold start uses compose preview without scene-revision", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const sceneRevisionCalls = [];
@@ -345,7 +345,7 @@ test.describe("view-revision assemble", () => {
       }
     });
     page.on("console", () => {});
-    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+    await page.goto(`${base}/apps/zhifa/view?surface=app&scene=home`, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForFunction(
@@ -383,7 +383,7 @@ test.describe("view-revision assemble", () => {
       try {
         const path = new URL(request.url()).pathname;
         if (
-          /\/apps\/(?:app|access|run|presentation|slides|copilot|data-demo|mini-park)\/[^/]+\/scene\//.test(
+          /\/apps\/(?:app|access|run|presentation|slides|copilot|zhifa|mini-park)\/[^/]+\/scene\//.test(
             path,
           )
         ) {
@@ -406,7 +406,7 @@ test.describe("view-revision assemble", () => {
   test("compose applies runtime.plans layer_plan on thin shell", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
-    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+    await page.goto(`${base}/apps/zhifa/view?surface=app&scene=home`, {
       waitUntil: "networkidle",
     });
     await page.waitForFunction(
@@ -463,10 +463,10 @@ test.describe("view-revision assemble", () => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const bootstrap = await page.request.get(
-      `${base}/api/host/scene-bootstrap?app=data-demo&scene=home`,
+      `${base}/api/host/scene-bootstrap?app=zhifa&scene=home`,
     );
     const evalPack = await page.request.get(
-      `${base}/api/host/scene-eval-pack?app=data-demo&scene=home&pack=unified`,
+      `${base}/api/host/scene-eval-pack?app=zhifa&scene=home&pack=unified`,
     );
     expect(bootstrap.ok()).toBeTruthy();
     expect(evalPack.ok()).toBeTruthy();
@@ -493,7 +493,7 @@ test.describe("view-revision assemble", () => {
         }
       } catch (_) {}
     });
-    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+    await page.goto(`${base}/apps/zhifa/view?surface=app&scene=home`, {
       waitUntil: "networkidle",
     });
     await page.waitForFunction(

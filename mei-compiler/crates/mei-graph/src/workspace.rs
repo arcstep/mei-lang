@@ -224,6 +224,10 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         files.push(outcome);
     }
 
+    // 0119: synthesize access navigation from Stage MDX / Deck so authors need not
+    // write sandwich navigation+assembly_ref for MCG graph closure.
+    crate::stage_closure::synthesize_stage_access_navigation(&app_root, app_id, &mut blocks);
+
     files.sort_by(|a, b| a.source_file.cmp(&b.source_file));
     blocks.sort_by(|a, b| a.block_id.cmp(&b.block_id));
 

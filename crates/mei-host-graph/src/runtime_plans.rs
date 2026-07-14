@@ -144,14 +144,19 @@ pub fn ensure_runtime_plans_cached(
 ) -> Result<(RuntimePlansDocument, PayloadRef, bool)> {
     let cache_key = runtime_plans_cache_key(semantic_core, layout_policy_revision);
     if let Some(bytes) = take_layer(cache_key.as_str()) {
-        let doc: RuntimePlansDocument = serde_json::from_slice(bytes.as_slice())?;
-        let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
-        let pref = PayloadRef::new(
-            RUNTIME_PLANS_KIND,
-            content_hash.as_str(),
-            RUNTIME_PLANS_SCHEMA,
-        );
-        return Ok((doc, pref, true));
+        if crate::schema_gate::layer_bytes_match_schema(bytes.as_slice(), RUNTIME_PLANS_SCHEMA) {
+            let doc: RuntimePlansDocument = serde_json::from_slice(bytes.as_slice())?;
+            if crate::schema_gate::document_schema_ok(doc.schema_version.as_str(), RUNTIME_PLANS_SCHEMA)
+            {
+                let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
+                let pref = PayloadRef::new(
+                    RUNTIME_PLANS_KIND,
+                    content_hash.as_str(),
+                    RUNTIME_PLANS_SCHEMA,
+                );
+                return Ok((doc, pref, true));
+            }
+        }
     }
     let document = build_runtime_plans_document(
         workspace_root,

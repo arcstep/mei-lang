@@ -6,21 +6,21 @@
 scene → plane_layout → region_layout → section_layout + section_shell → content_panel
 ```
 
-样板：`workspaces/ws-demo-v2/apps/pretty-panels`、`mini-park` 的 `src/scene/**`（`t*/r-*/s-*/content.mei`）。
+样板：`workspaces/ws-demo-v2/apps/zhifa`、`mini-park` 的 `src/scene/**`（`t*/r-*/s-*/content.mei`）。
 
 ## 应用入口
 
 ```python
 app_skeleton(
-    id = "pretty-panels",
-    title = "面板调试 · Pretty Panels",
+    id = "zhifa",
+    title = "面板调试 · Zhifa",
     default_scene = "home",
 )
 
 navigation(
     key = "access:home",
     scene = "home",
-    url = "/apps/app/pretty-panels/scene/home",
+    url = "/apps/app/zhifa/scene/home",
     assembly = assembly_ref("home@src/scene/home/assembly.mei"),
 )
 ```
@@ -51,8 +51,8 @@ scene(
         align = "stretch",
     ),
     planes = [
-        plane_ref("pretty-panels/home/t0"),
-        plane_ref("pretty-panels/home/t1"),
+        plane_ref("zhifa/home/t0"),
+        plane_ref("zhifa/home/t1"),
     ],
 )
 ```
@@ -64,7 +64,7 @@ scene(
 ```python
 plane_layout(
     id = "t1",
-    key = "pretty-panels/home/t1",
+    key = "zhifa/home/t1",
     tier = "t1",
     layout = grid(
         rows = ["72px", "1fr"],
@@ -76,10 +76,10 @@ plane_layout(
         gap = rail_standard_gap(),
     ),
     regions = [
-        region_ref("pretty-panels/home/t1/r-header"),
-        region_ref("pretty-panels/home/t1/r-left-rail"),
-        region_ref("pretty-panels/home/t1/r-center-rail"),
-        region_ref("pretty-panels/home/t1/r-right-rail"),
+        region_ref("zhifa/home/t1/r-header"),
+        region_ref("zhifa/home/t1/r-left-rail"),
+        region_ref("zhifa/home/t1/r-center-rail"),
+        region_ref("zhifa/home/t1/r-right-rail"),
     ],
 )
 ```
@@ -91,7 +91,7 @@ plane_layout(
 ```python
 region_layout(
     id = "left_rail",
-    key = "pretty-panels/home/t1/r-left-rail",
+    key = "zhifa/home/t1/r-left-rail",
     chrome_role = "rail",
     area = "left_rail",
     layout = grid(
@@ -100,9 +100,9 @@ region_layout(
         gap = rail_standard_gap(),
     ),
     sections = [
-        section_ref("pretty-panels/home/t1/r-left-rail/s-enforcement"),
-        section_ref("pretty-panels/home/t1/r-left-rail/s-inspection"),
-        section_ref("pretty-panels/home/t1/r-left-rail/s-penalty"),
+        section_ref("zhifa/home/t1/r-left-rail/s-enforcement"),
+        section_ref("zhifa/home/t1/r-left-rail/s-inspection"),
+        section_ref("zhifa/home/t1/r-left-rail/s-penalty"),
     ],
 )
 ```
@@ -116,7 +116,7 @@ region_layout(
 ```python
 section_layout(
     id = "enforcement",
-    key = "pretty-panels/home/t1/r-left-rail/s-enforcement",
+    key = "zhifa/home/t1/r-left-rail/s-enforcement",
     area = "enforcement",
     title = "执法要素",
     budget = budget(width = "100%", padding_profile = "dense_strip_100"),

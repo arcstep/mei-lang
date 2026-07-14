@@ -67,7 +67,7 @@ mod tests {
     fn empty_shell(data_plane: bool) -> ShellState {
         let mut shell = ShellState::new(
             PathBuf::from("/tmp/ws"),
-            "pretty-panels".to_string(),
+            "zhifa".to_string(),
             PathBuf::from("/tmp/pkg"),
             BTreeMap::new(),
             false,
@@ -80,7 +80,7 @@ mod tests {
     fn unconfigured_title_is_not_generic_preparing() {
         let shell = empty_shell(false);
         assert_eq!(
-            resolve_access_gate_title(&shell, None, "pretty-panels", "unconfigured"),
+            resolve_access_gate_title(&shell, None, "zhifa", "unconfigured"),
             "工作区尚未配置"
         );
     }
@@ -89,7 +89,7 @@ mod tests {
     fn missing_runtime_title_is_app_stopped() {
         let shell = empty_shell(true);
         assert_eq!(
-            resolve_access_gate_title(&shell, None, "pretty-panels", "warming"),
+            resolve_access_gate_title(&shell, None, "zhifa", "warming"),
             "应用未启动"
         );
     }
@@ -99,7 +99,7 @@ mod tests {
         let mut shell = empty_shell(true);
         shell.ops_job = Some(crate::build_ops::OpsJobState::running("prebuild", 1));
         assert_eq!(
-            resolve_access_gate_title(&shell, None, "pretty-panels", "runtime_starting"),
+            resolve_access_gate_title(&shell, None, "zhifa", "runtime_starting"),
             "应用正在启动"
         );
     }

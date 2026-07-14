@@ -9,7 +9,7 @@ const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  const response = await page.request.get(`${base}/api/runtime/snapshot?appId=data-demo`);
+  const response = await page.request.get(`${base}/api/runtime/snapshot?appId=zhifa`);
   if (!response.ok()) {
     await browser.close();
     console.log(JSON.stringify({ ok: false, status: response.status() }, null, 2));

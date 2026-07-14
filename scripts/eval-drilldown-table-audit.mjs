@@ -5,7 +5,7 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/view?surface=app`;
+const appUrl = `${base}/apps/zhifa/view?surface=app`;
 const TARGET_SCOPE = "penalty_total_analytics_page";
 
 function isDatasetQuery(url) {
@@ -63,7 +63,7 @@ async function main() {
   const failures = [];
   if (!preflight.hasTargetScope) {
     failures.push(
-      `bootstrap_scopes missing ${TARGET_SCOPE} (got ${preflight.neighborScopeIds.length} scopes) — run data-demo prebuild/warmup first`,
+      `bootstrap_scopes missing ${TARGET_SCOPE} (got ${preflight.neighborScopeIds.length} scopes) — run zhifa prebuild/warmup first`,
     );
   }
 
@@ -99,7 +99,7 @@ async function main() {
         const boot = window.__meiLangBoot || {};
         if (typeof boot.dispatchScopeActivation === "function") {
           boot.dispatchScopeActivation({
-            appId: "data-demo",
+            appId: "zhifa",
             sceneId: scopeId,
             scope: scopeId,
             source: "eval-drilldown-table-audit-preflight",
@@ -134,7 +134,7 @@ async function main() {
           dataset_id: "penalty_result_dashboard_ds",
           _mei: {
             active_scene_id: "home",
-            app_id: "data-demo",
+            app_id: "zhifa",
             active_target_file: "src/scene/home/assembly.mei",
           },
           popup: {

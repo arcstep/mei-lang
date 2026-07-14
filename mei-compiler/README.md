@@ -16,14 +16,14 @@ mei-compiler emit-decl --file path/to/file.mei
 mei-compiler check --workspace ../workspaces/ws-hello --app hello
 
 # 编译（默认写 apps/{app}/build/active/exchange/{app}.meibundle）
-mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app data-demo
+mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app zhifa
 
 # 人类查看
-mei-compiler bundle inspect apps/data-demo/build/active/exchange/data-demo.meibundle --pretty
-mei-compiler bundle stats apps/data-demo/build/active/exchange/data-demo.meibundle
+mei-compiler bundle inspect apps/zhifa/build/active/exchange/zhifa.meibundle --pretty
+mei-compiler bundle stats apps/zhifa/build/active/exchange/zhifa.meibundle
 
 # 调试：stdout 去重 JSON
-mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app data-demo --format json --pretty
+mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app zhifa --format json --pretty
 
 mei-compiler parse --file path/to/file.mei --expand
 ```

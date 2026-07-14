@@ -3841,10 +3841,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -3890,10 +3890,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4515,10 +4515,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4658,16 +4658,16 @@ mod tests {
                     "unit": "件"
                 },
                 "presentation": {
-                    "icon": "url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)"
+                    "icon": "url(/workspace-app-assets/zhifa/assets/待办@3x.png)"
                 }
             }
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4683,11 +4683,11 @@ mod tests {
         };
         assert_eq!(
             panel.props["background"]["image"],
-            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+            json!("url(/workspace-app-assets/zhifa/assets/待办@3x.png)")
         );
         assert_eq!(
             panel.props["__mei_metric_presentation"]["icon"],
-            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+            json!("url(/workspace-app-assets/zhifa/assets/待办@3x.png)")
         );
         let value_block = match &panel.blocks[1] {
             UiTreeNode::Block(block) => block,
@@ -4695,7 +4695,7 @@ mod tests {
         };
         assert_eq!(
             value_block.props["__mei_metric_presentation"]["icon"],
-            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+            json!("url(/workspace-app-assets/zhifa/assets/待办@3x.png)")
         );
     }
 
@@ -4717,10 +4717,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),
@@ -4754,10 +4754,10 @@ mod tests {
         });
         let ctx = PanelLowerContext {
             app_root: Path::new("/tmp"),
-            app_id: "pretty-panels",
+            app_id: "zhifa",
             registry: &McgRegistry {
                 schema_version: String::new(),
-                app_id: "pretty-panels".to_string(),
+                app_id: "zhifa".to_string(),
                 registry_revision: String::new(),
                 updated_at_ms: 0,
                 nodes: Vec::new(),

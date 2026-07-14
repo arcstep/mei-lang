@@ -664,8 +664,8 @@ dependencies = [
  "convert_case 0.6.0",
  "pathdiff",
  "serde_core",
- "toml",
- "winnow",
+ "toml 1.1.2+spec-1.1.0",
+ "winnow 1.0.2",
 ]
 
 [[package]]
@@ -1983,7 +1983,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mei-app-runtime"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "mei-bundle"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-graph",
  "serde",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "clap",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler-tests"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-bundle",
  "mei-graph",
@@ -2047,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "mei-graph"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2059,7 +2059,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-auth"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-core"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-graph"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "mei-bundle",
@@ -2118,7 +2118,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-shell"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2144,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-app"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "csv",
  "leptos",
@@ -2155,7 +2155,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-datasets"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2170,7 +2170,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-kernel"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2179,6 +2179,7 @@ dependencies = [
  "csv",
  "mei-lower",
  "mei-surface",
+ "mei-syntax",
  "parquet",
  "regex",
  "rusqlite",
@@ -2187,12 +2188,13 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "toml 0.8.23",
  "walkdir",
 ]
 
 [[package]]
 name = "mei-lang-lsp"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
@@ -2206,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-server"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2244,7 +2246,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-toolchain"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2260,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lower"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-graph",
  "mei-surface",
@@ -2270,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "mei-plug-ds"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "anyhow",
  "axum",
@@ -2291,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "mei-surface"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2301,11 +2303,13 @@ dependencies = [
 
 [[package]]
 name = "mei-syntax"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "chumsky",
  "serde",
+ "tempfile",
  "thiserror 2.0.18",
+ "walkdir",
 ]
 
 [[package]]
@@ -3341,6 +3345,15 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_spanned"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
@@ -3859,15 +3872,36 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+dependencies = [
+ "serde",
+ "serde_spanned 0.6.9",
+ "toml_datetime 0.6.11",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
 dependencies = [
  "serde_core",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 1.1.1",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
- "winnow",
+ "winnow 1.0.2",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3880,13 +3914,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_edit"
+version = "0.22.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_spanned 0.6.9",
+ "toml_datetime 0.6.11",
+ "toml_write",
+ "winnow 0.7.15",
+]
+
+[[package]]
 name = "toml_parser"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
 dependencies = [
- "winnow",
+ "winnow 1.0.2",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tower"
@@ -4562,6 +4616,15 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "winnow"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
@@ -4671,7 +4734,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "ws-spbjw-integration-tests"
-version = "2.5.8"
+version = "2.5.9"
 dependencies = [
  "mei-lang-app",
  "mei-lang-datasets",

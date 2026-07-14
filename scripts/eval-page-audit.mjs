@@ -5,7 +5,7 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/app`;
+const appUrl = `${base}/apps/zhifa/app`;
 
 function isDatasetQueryApi(url) {
   const p = new URL(url).pathname;
@@ -38,7 +38,7 @@ async function main() {
     const boot = window.__meiLangBoot || {};
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "data-demo",
+        appId: "zhifa",
         sceneId: scope,
         scope,
         source: "eval-page-audit",
@@ -47,7 +47,7 @@ async function main() {
     }
     window.dispatchEvent(
       new CustomEvent("meilang:scope-activation", {
-        detail: { appId: "data-demo", sceneId: scope, scope, source: "eval-page-audit" },
+        detail: { appId: "zhifa", sceneId: scope, scope, source: "eval-page-audit" },
       }),
     );
   }, drilldownScope);
@@ -69,7 +69,7 @@ async function main() {
     }
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "data-demo",
+        appId: "zhifa",
         sceneId: "home/t2/r-drilldown/s-supervision-warning",
         scope: "home/t2/r-drilldown/s-supervision-warning",
         source: "eval-page-audit-retry",

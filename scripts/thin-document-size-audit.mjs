@@ -6,7 +6,7 @@
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 const MAX_BYTES = 32 * 1024;
 const routes = [
-  { name: "pretty-panels/home", url: `${base}/apps/pretty-panels/home` },
+  { name: "zhifa/home", url: `${base}/apps/zhifa/home` },
 ];
 
 async function headDocument(route) {

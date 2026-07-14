@@ -11,7 +11,7 @@ const base = (argv.find((a) => !a.startsWith("--")) || "http://127.0.0.1:9527").
   /\/+$/,
   "",
 );
-const appUrl = `${base}/apps/data-demo/app`;
+const appUrl = `${base}/apps/zhifa/app`;
 
 function isEvalPackHttp(url) {
   const u = new URL(url);
@@ -113,7 +113,7 @@ async function main() {
       const sceneId = neighbor || "penalty_total_analytics_page";
       if (typeof boot.dispatchScopeActivation === "function") {
         return boot.dispatchScopeActivation({
-          appId: "data-demo",
+          appId: "zhifa",
           sceneId,
           scope: sceneId,
           source: "eval-board-audit",
@@ -124,7 +124,7 @@ async function main() {
       window.dispatchEvent(
         new CustomEvent("meilang:scope-activation", {
           detail: {
-            appId: "data-demo",
+            appId: "zhifa",
             sceneId,
             scope: sceneId,
             source: "eval-board-audit",

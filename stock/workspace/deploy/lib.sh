@@ -167,7 +167,7 @@ apply_workspace_deploy_env() {
       export MEI_APP="${derived}"
     fi
   elif [[ -z "${MEI_APP:-}" ]]; then
-    export MEI_APP="data-demo"
+    export MEI_APP="zhifa"
   fi
 
   # deploy.devEval → MEI_DEV_EVAL_*（CLI/环境变量已显式设置时不覆盖）
@@ -412,7 +412,7 @@ discovered_app_ids() {
 
 ensure_build_generation_aligned() {
   local workspace_root="$1"
-  local app="${2:-data-demo}"
+  local app="${2:-zhifa}"
   echo "==> align env generation (profile=${PROFILE}, source=${SOURCE}, runtime=${RUNTIME})"
   MEI_ENV_GENERATION="$(run_mei_host_shell "${workspace_root}" \
     build prepare --workspace "${workspace_root}" --app "${app}")"

@@ -22,7 +22,7 @@ const jsonOut = (() => {
   const i = args.indexOf("--json");
   return i >= 0 ? args[i + 1] : "";
 })();
-const appUrl = `${base}/apps/pretty-panels/view`;
+const appUrl = `${base}/apps/zhifa/view`;
 
 const HOST_API = [
   { kind: "document", test: (u) => /\/view(\?|$)/.test(u.pathname) && !u.pathname.includes("/api/") },
@@ -383,7 +383,7 @@ async function main() {
   await browser.close();
 
   const coldStartApps = [
-    { label: "data-demo", path: "/apps/data-demo/view?surface=app&scene=home" },
+    { label: "zhifa", path: "/apps/zhifa/view?surface=app&scene=home" },
     { label: "mini-park", path: "/apps/mini-park/view?surface=app&scene=home" },
   ];
   report.coldStartBenchmarks = [];
@@ -419,11 +419,11 @@ async function main() {
     await benchBrowser.close();
   }
 
-  report.prettyPanelsWarmF5 = [];
+  report.zhifaWarmF5 = [];
   {
     const warmBrowser = await chromium.launch({ headless: true });
     const warmPage = await warmBrowser.newPage();
-    await warmPage.goto(`${base}/apps/pretty-panels/home`, {
+    await warmPage.goto(`${base}/apps/zhifa/home`, {
       waitUntil: "networkidle",
       timeout: 120000,
     });
@@ -433,7 +433,7 @@ async function main() {
         () => window.__meiRenderPipeline?.last?.endedAt === "user_visible_ready",
         { timeout: 120000 },
       );
-      report.prettyPanelsWarmF5.push({
+      report.zhifaWarmF5.push({
         run,
         ...(await collectClientSnapshot(warmPage)).pipeline,
       });
@@ -463,14 +463,14 @@ async function main() {
       );
     }
   }
-  if (report.prettyPanelsWarmF5.length) {
-    const sorted = report.prettyPanelsWarmF5
+  if (report.zhifaWarmF5.length) {
+    const sorted = report.zhifaWarmF5
       .map((row) => row.userVisibleReadyMs)
       .filter(Number.isFinite)
       .sort((a, b) => a - b);
     const quantile = (p) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
     console.log(
-      `\npretty-panels 暖 F5: p50=${quantile(0.5)}ms p95=${quantile(0.95)}ms（预算 500/800ms）`,
+      `\nzhifa 暖 F5: p50=${quantile(0.5)}ms p95=${quantile(0.95)}ms（预算 500/800ms）`,
     );
   }
 

@@ -19,8 +19,8 @@ fn ensure_imported() -> PathBuf {
     let workspace = ws_demo_v2();
     INIT.call_once(|| {
         let bundle =
-            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
-        let ctx = HostContext::new(workspace.clone(), "pretty-panels");
+            workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
+        let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
             &ImportOptions {
@@ -28,7 +28,7 @@ fn ensure_imported() -> PathBuf {
             },
         )
         .expect("import");
-        clear_assemble_cache_for_app("pretty-panels");
+        clear_assemble_cache_for_app("zhifa");
     });
     workspace
 }
@@ -53,9 +53,9 @@ fn find_panel_by_id<'a>(
 }
 
 #[test]
-fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
+fn zhifa_map_stage_resolves_maplibre_in_region_tree() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let contract = outcome.compiled.scene_contract.as_ref().unwrap();
@@ -152,9 +152,9 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
 }
 
 #[test]
-fn pretty_panels_ui_structure_includes_header_section() {
+fn zhifa_ui_structure_includes_header_section() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let header = find_panel_by_id(
@@ -186,9 +186,9 @@ fn pretty_panels_ui_structure_includes_header_section() {
 }
 
 #[test]
-fn pretty_panels_ui_structure_includes_left_rail_sections() {
+fn zhifa_ui_structure_includes_left_rail_sections() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let left_rail = find_panel_by_id(
@@ -231,9 +231,9 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
 }
 
 #[test]
-fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
+fn zhifa_penalty_section_surfaces_contract_level_charts() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let ui = build_ui_layout_index(&outcome.compiled);
@@ -269,9 +269,9 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
 }
 
 #[test]
-fn pretty_panels_assemble_accepts_legacy_assembly_scene_id() {
+fn zhifa_assemble_accepts_legacy_assembly_scene_id() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "assembly")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "assembly")
             .expect("assemble")
             .expect("home via assembly alias");
     assert_eq!(
@@ -282,9 +282,9 @@ fn pretty_panels_assemble_accepts_legacy_assembly_scene_id() {
 }
 
 #[test]
-fn pretty_panels_warnings_drilldown_has_runtime_projection_slots() {
+fn zhifa_warnings_drilldown_has_runtime_projection_slots() {
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let mut assembly = outcome

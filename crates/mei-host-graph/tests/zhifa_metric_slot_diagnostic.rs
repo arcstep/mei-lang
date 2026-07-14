@@ -16,23 +16,23 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-fn ensure_pretty_panels_imported() {
+fn ensure_zhifa_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
         let bundle =
-            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
+            workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         if !bundle.is_file() {
             return;
         }
-        let ctx = HostContext::new(workspace.clone(), "pretty-panels");
+        let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
             &ImportOptions {
                 bundle_path: Some(bundle),
             },
         )
-        .expect("import pretty-panels bundle");
-        clear_assemble_cache_for_app("pretty-panels");
+        .expect("import zhifa bundle");
+        clear_assemble_cache_for_app("zhifa");
     });
 }
 
@@ -55,9 +55,9 @@ fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNo
 }
 
 #[test]
-fn pretty_panels_enforcement_body_includes_triptych_and_compound_shell() {
-    ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+fn zhifa_enforcement_body_includes_triptych_and_compound_shell() {
+    ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome
@@ -91,9 +91,9 @@ fn pretty_panels_enforcement_body_includes_triptych_and_compound_shell() {
 }
 
 #[test]
-fn pretty_panels_issue_body_exports_four_status_metric_cards() {
-    ensure_pretty_panels_imported();
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+fn zhifa_issue_body_exports_four_status_metric_cards() {
+    ensure_zhifa_imported();
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome

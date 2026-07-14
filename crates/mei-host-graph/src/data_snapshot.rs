@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::Result;
-use mei_host_core::{load_app_config, path_for_log};
+use mei_host_core::path_for_log;
 use mei_lang_kernel::{
-    data_snapshot_import_manifest_path, ops_source_entry_to_decl,
-    publish_xlsx_data_snapshots_for_paths, resolve_app_root, OpsSourceEntry,
+    data_snapshot_import_manifest_path, load_mei_config_for_app, ops_source_entry_to_decl,
+    publish_xlsx_data_snapshots_for_paths, resolve_app_root,
 };
 use serde::Serialize;
 
@@ -19,7 +19,7 @@ pub struct PublishDataSnapshotsReport {
     pub total_written_bytes: u64,
 }
 
-/// Collect xlsx/xls sources from `app.config.json` ops.sources and imported metric bundles.
+/// Collect xlsx/xls sources from `app.toml` / `app.config.json` ops.sources and metric bundles.
 pub fn collect_app_xlsx_sources(
     source_root: &Path,
     app_id: &str,
@@ -27,12 +27,9 @@ pub fn collect_app_xlsx_sources(
     let app_root = resolve_app_root(source_root, app_id);
     let mut out = BTreeSet::new();
 
-    let config = load_app_config(app_root.as_path())?;
-    for (_, value) in config.ops.sources {
-        let Ok(entry) = serde_json::from_value::<OpsSourceEntry>(value) else {
-            continue;
-        };
-        push_xlsx_source(&mut out, &ops_source_entry_to_decl(&entry));
+    let config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
+    for entry in config.ops.sources.values() {
+        push_xlsx_source(&mut out, &ops_source_entry_to_decl(entry));
     }
 
     let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);

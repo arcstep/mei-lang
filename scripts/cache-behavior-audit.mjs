@@ -6,7 +6,7 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/pretty-panels/view`;
+const appUrl = `${base}/apps/zhifa/view`;
 
 function classify(url) {
   const u = new URL(url);
@@ -40,7 +40,7 @@ async function snapshotClient(page, surface) {
     const stored = boot.readViewRevision?.(vrCtx) || null;
     const holdings =
       (await boot.layerArtifactCache?.listHoldings?.(
-        ctx.app_id || ctx.appId || "pretty-panels",
+        ctx.app_id || ctx.appId || "zhifa",
         ctx.scene_id || ctx.sceneId || "home",
       )) || [];
     const refs = window.__mei?.scene_manifest_refs || {};

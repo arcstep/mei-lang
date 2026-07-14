@@ -22,20 +22,20 @@
       "home"
     ]
   },
-  "app_id": "pretty-panels",
+  "app_id": "zhifa",
   "app_skeleton": {
-    "block_id": "app_skeleton:pretty-panels",
+    "block_id": "app_skeleton:zhifa",
     "default_stage": "home",
-    "id": "pretty-panels",
-    "title": "面板调试 · Pretty Panels"
+    "id": "zhifa",
+    "title": "面板调试 · Zhifa"
   },
-  "block_count": 264,
+  "block_count": 263,
   "blocks_by_kind": {
     "app_skeleton": 1,
     "content_panel": 12,
     "link_decl": 36,
     "metric_def_bundle": 11,
-    "navigation": 11,
+    "navigation": 10,
     "page_instance": 42,
     "plane_layout": 3,
     "region_layout": 48,
@@ -45,7 +45,7 @@
     "warmup_policy": 1
   },
   "critical_block_ids": [
-    "app_skeleton:pretty-panels",
+    "app_skeleton:zhifa",
     "content_panel:effectiveness-stats",
     "content_panel:enforcement-stats",
     "content_panel:gis-map",
@@ -67,8 +67,7 @@
     "navigation:access:supervision_models_analytics_page",
     "navigation:access:typical_cases_detail_page",
     "navigation:access:warning_detail_page",
-    "navigation:access:warnings_analytics_page",
-    "navigation:default_access"
+    "navigation:access:warnings_analytics_page"
   ],
   "deck_or_slides": {
     "presentation_block_ids": [],
@@ -82,14 +81,14 @@
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-mechanism-documents/c-effect-mechanism-documents"
+          "arg0": "zhifa/home/t2/r-mechanism-documents/c-effect-mechanism-documents"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:effect_mechanism_documents_page",
       "key": "access:effect_mechanism_documents_page",
       "scene": "effect_mechanism_documents_page",
-      "url": "/apps/app/pretty-panels/scene/effect_mechanism_documents_page"
+      "url": "/apps/app/zhifa/scene/effect_mechanism_documents_page"
     },
     {
       "assembly": {
@@ -101,115 +100,103 @@
       "block_id": "navigation:access:home",
       "key": "access:home",
       "scene": "home",
-      "url": "/apps/pretty-panels/home"
+      "url": "/apps/zhifa/home"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-issue-clue-detail/c-issue-clue-detail"
+          "arg0": "zhifa/home/t2/r-issue-clue-detail/c-issue-clue-detail"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:issue_clue_detail_page",
       "key": "access:issue_clue_detail_page",
       "scene": "issue_clue_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_clue_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_clue_detail_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-issue-handling-detail/c-issue-handling-detail"
+          "arg0": "zhifa/home/t2/r-issue-handling-detail/c-issue-handling-detail"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:issue_handling_detail_page",
       "key": "access:issue_handling_detail_page",
       "scene": "issue_handling_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_handling_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_handling_detail_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-issue-result-detail/c-issue-result-detail"
+          "arg0": "zhifa/home/t2/r-issue-result-detail/c-issue-result-detail"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:issue_result_detail_page",
       "key": "access:issue_result_detail_page",
       "scene": "issue_result_detail_page",
-      "url": "/apps/app/pretty-panels/scene/issue_result_detail_page"
+      "url": "/apps/app/zhifa/scene/issue_result_detail_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-supervision-items/c-supervision-items-analytics"
+          "arg0": "zhifa/home/t2/r-supervision-items/c-supervision-items-analytics"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:supervision_items_analytics_page",
       "key": "access:supervision_items_analytics_page",
       "scene": "supervision_items_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/supervision_items_analytics_page"
+      "url": "/apps/app/zhifa/scene/supervision_items_analytics_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-supervision-models/c-supervision-models-analytics"
+          "arg0": "zhifa/home/t2/r-supervision-models/c-supervision-models-analytics"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:supervision_models_analytics_page",
       "key": "access:supervision_models_analytics_page",
       "scene": "supervision_models_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/supervision_models_analytics_page"
+      "url": "/apps/app/zhifa/scene/supervision_models_analytics_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-typical-cases/c-typical-cases-detail"
+          "arg0": "zhifa/home/t2/r-typical-cases/c-typical-cases-detail"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:typical_cases_detail_page",
       "key": "access:typical_cases_detail_page",
       "scene": "typical_cases_detail_page",
-      "url": "/apps/app/pretty-panels/scene/typical_cases_detail_page"
+      "url": "/apps/app/zhifa/scene/typical_cases_detail_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-warning-detail/c-warning-detail"
+          "arg0": "zhifa/home/t2/r-warning-detail/c-warning-detail"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:warning_detail_page",
       "key": "access:warning_detail_page",
       "scene": "warning_detail_page",
-      "url": "/apps/app/pretty-panels/scene/warning_detail_page"
+      "url": "/apps/app/zhifa/scene/warning_detail_page"
     },
     {
       "assembly": {
         "__args": {
-          "arg0": "pretty-panels/home/t2/r-warnings/c-warnings-analytics"
+          "arg0": "zhifa/home/t2/r-warnings/c-warnings-analytics"
         },
         "__ref": "assembly_ref"
       },
       "block_id": "navigation:access:warnings_analytics_page",
       "key": "access:warnings_analytics_page",
       "scene": "warnings_analytics_page",
-      "url": "/apps/app/pretty-panels/scene/warnings_analytics_page"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_access",
-      "key": "default_access",
-      "scene": "home",
-      "url": "/apps/pretty-panels/home"
+      "url": "/apps/app/zhifa/scene/warnings_analytics_page"
     }
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
@@ -476,5 +463,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.8"
+  "syntax_version": "2.5.9"
 }

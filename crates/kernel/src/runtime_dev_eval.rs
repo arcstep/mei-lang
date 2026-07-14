@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn instance_spec_plan_is_preferred_over_env() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let app_id = "pretty-panels";
+        let app_id = "zhifa";
         let spec_dir = tmp.path().join("deploy/runtime/apps").join(app_id);
         std::fs::create_dir_all(&spec_dir).expect("mkdir");
         let plan = RuntimePlan {
@@ -519,7 +519,7 @@ mod tests {
             "configSnapshot": {
                 "profileId": "data-scoped",
                 "profileRevision": "r1",
-                "profileFile": "apps/pretty-panels/launch/data-scoped.json",
+                "profileFile": "apps/zhifa/launch/data-scoped.json",
                 "runtimePlan": plan,
             },
             "runtimeAbi": "test",

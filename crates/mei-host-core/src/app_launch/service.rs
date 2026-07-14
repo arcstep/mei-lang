@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use mei_lang_kernel::{load_app_manifest, AppManifest};
 use sha2::{Digest, Sha256};
 
 use super::paths::{ensure_app_launch_dir, launch_json_path, resolve_launch_path};
@@ -17,14 +18,63 @@ pub enum AppLaunchError {
     Invalid(String),
 }
 
-/// Phase 8.5: at most one launch document per app (`launch.json`).
+fn app_root(workspace: &Path, app_id: &str) -> std::path::PathBuf {
+    workspace.join("apps").join(app_id)
+}
+
+fn document_from_manifest(
+    workspace: &Path,
+    app_id: &str,
+    manifest: &AppManifest,
+) -> Result<AppLaunchDocument, AppLaunchError> {
+    let value = manifest.to_launch_json_value(app_id);
+    let mut config: AppLaunchConfig = serde_json::from_value(value)
+        .map_err(|e| AppLaunchError::InvalidJson(e.to_string()))?;
+    if config.app_id.trim().is_empty() {
+        config.app_id = app_id.to_string();
+    } else if config.app_id != app_id {
+        return Err(AppLaunchError::Invalid(format!(
+            "launch config appId `{}` does not match directory app `{}`",
+            config.app_id, app_id
+        )));
+    }
+    let raw = serde_json::to_string(&config).unwrap_or_default();
+    let path = manifest
+        .source_path
+        .clone()
+        .unwrap_or_else(|| AppManifest::app_toml_path(&app_root(workspace, app_id)));
+    Ok(AppLaunchDocument {
+        id: "launch".to_string(),
+        path: rel_display(workspace, &path),
+        revision: revision_hash(
+            manifest
+                .source_raw
+                .as_deref()
+                .unwrap_or(raw.as_str()),
+        ),
+        config,
+    })
+}
+
+/// Phase 8.5: at most one launch document per app (`launch.json` or `app.toml`).
 pub fn list_launch_configs(
     workspace: &Path,
     app_id: &str,
 ) -> Result<Vec<AppLaunchSummary>, AppLaunchError> {
+    let root = app_root(workspace, app_id);
+    if AppManifest::has_app_toml(&root) {
+        let manifest = load_app_manifest(&root);
+        let doc = document_from_manifest(workspace, app_id, &manifest)?;
+        return Ok(vec![AppLaunchSummary {
+            id: "launch".to_string(),
+            path: doc.path,
+            revision: doc.revision,
+            display_name: doc.config.display_name,
+            is_default: true,
+        }]);
+    }
     let path = launch_json_path(workspace, app_id);
     if !path.is_file() {
-        // One-shot migrate from legacy launch/default.json if present.
         migrate_legacy_launch_if_needed(workspace, app_id)?;
     }
     if !path.is_file() {
@@ -48,6 +98,11 @@ pub fn read_launch_config(
     app_id: &str,
     config_ref: &str,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
+    let root = app_root(workspace, app_id);
+    if AppManifest::has_app_toml(&root) {
+        let manifest = load_app_manifest(&root);
+        return document_from_manifest(workspace, app_id, &manifest);
+    }
     migrate_legacy_launch_if_needed(workspace, app_id)?;
     let path = resolve_launch_path(workspace, app_id, config_ref);
     if !path.is_file() {
@@ -99,10 +154,16 @@ pub fn resolve_default_launch(
 }
 
 /// Materialize `launch.json` if missing (migrating from `launch/default.json` when present).
+/// When `app.toml` exists, never write `launch.json` — project from the toml manifest.
 pub fn ensure_default_launch_config(
     workspace: &Path,
     app_id: &str,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
+    let root = app_root(workspace, app_id);
+    if AppManifest::has_app_toml(&root) {
+        let manifest = load_app_manifest(&root);
+        return document_from_manifest(workspace, app_id, &manifest);
+    }
     ensure_app_launch_dir(workspace, app_id).map_err(|e| AppLaunchError::Io(e.to_string()))?;
     migrate_legacy_launch_if_needed(workspace, app_id)?;
     let path = launch_json_path(workspace, app_id);

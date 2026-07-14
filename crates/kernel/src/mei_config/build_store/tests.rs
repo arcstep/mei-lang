@@ -487,3 +487,51 @@ fn links_roundtrip() {
     let loaded = read_links_state(ws).expect("read");
     assert_eq!(loaded.build.candidate.as_deref(), Some("WS-20260201.0"));
 }
+
+#[test]
+fn read_build_manifest_refuses_wrong_schema() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let env_dir = tmp.path().join("apps/demo/env/WS-1");
+    fs::create_dir_all(&env_dir).unwrap();
+    fs::write(
+        env_dir.join("BUILD.json"),
+        r#"{"schemaVersion":"mei-build-manifest-v0","buildId":"WS-1","appId":"demo","toolchainVersion":"x","finishedAt":"t"}"#,
+    )
+    .unwrap();
+    let err = read_build_manifest(&env_dir).unwrap_err();
+    assert!(
+        err.to_string().contains("schema_version mismatch"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn read_build_manifest_accepts_current_schema() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let env_dir = tmp.path().join("apps/demo/env/WS-1");
+    fs::create_dir_all(&env_dir).unwrap();
+    fs::write(
+        env_dir.join("BUILD.json"),
+        format!(
+            r#"{{"schemaVersion":"{BUILD_MANIFEST_SCHEMA}","buildId":"WS-1","appId":"demo","toolchainVersion":"x","finishedAt":"t"}}"#
+        ),
+    )
+    .unwrap();
+    let m = read_build_manifest(&env_dir).unwrap().expect("manifest");
+    assert_eq!(m.env_version, "WS-1");
+}
+
+#[test]
+fn rollback_build_requires_previous_link() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir");
+    write_ws(ws, "20260201");
+    let links = LinksState::default();
+    write_links_state(ws, &links).expect("write");
+    let err = rollback_build(ws).expect_err("no previous");
+    assert!(
+        err.to_string().contains("no previous build to rollback"),
+        "got: {err}"
+    );
+}

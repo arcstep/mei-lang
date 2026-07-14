@@ -109,11 +109,23 @@ pub fn store_manifest_index_memory(cache_key: &str, document: &ManifestIndexDocu
 pub fn take_manifest_index(cache_key: &str) -> Option<ManifestIndexDocument> {
     if let Ok(cache) = memory_index_store().lock() {
         if let Some(doc) = cache.get(cache_key) {
-            return Some(doc.clone());
+            if crate::schema_gate::document_schema_ok(
+                doc.schema_version.as_str(),
+                MANIFEST_INDEX_SCHEMA,
+            ) {
+                return Some(doc.clone());
+            }
         }
     }
     let bytes = take_layer(cache_key)?;
-    serde_json::from_slice(bytes.as_slice()).ok()
+    if !crate::schema_gate::layer_bytes_match_schema(bytes.as_slice(), MANIFEST_INDEX_SCHEMA) {
+        return None;
+    }
+    let doc: ManifestIndexDocument = serde_json::from_slice(bytes.as_slice()).ok()?;
+    if !crate::schema_gate::document_schema_ok(doc.schema_version.as_str(), MANIFEST_INDEX_SCHEMA) {
+        return None;
+    }
+    Some(doc)
 }
 
 pub fn load_manifest_index_from_content_store(

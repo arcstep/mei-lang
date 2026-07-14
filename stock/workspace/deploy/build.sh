@@ -7,7 +7,7 @@ WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 # shellcheck source=lib.sh
 source "${DEPLOY_DIR}/lib.sh"
 
-APP="${MEI_APP:-data-demo}"
+APP="${MEI_APP:-zhifa}"
 PROFILE="debug"
 FROM="lang"
 RELEASE_TAG="${MEI_RELEASE_TAG:-darwin-arm64-local}"

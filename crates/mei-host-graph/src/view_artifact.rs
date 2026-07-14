@@ -409,6 +409,7 @@ pub fn eval_slot_group_cache_key(
         "slot_group_id": slot_group_id,
         "data_mode": data_mode,
         "filter_signature": filter_signature,
+        "schema_version": "eval-slot-group-v1",
     });
     serde_json::to_string(&wrapper).unwrap_or_else(|_| EVAL_SLOT_GROUP_KIND.to_string())
 }
@@ -562,6 +563,40 @@ mod manifest_revision_tests {
     }
 
     #[test]
+    fn semantic_revision_digest_changes_when_scene_id_changes() {
+        let mut layers = std::collections::BTreeMap::new();
+        layers.insert(
+            "structure.full".to_string(),
+            json!({"artifact_id": "s1", "content_hash": "h1"}),
+        );
+        let home = SceneViewManifest {
+            schema_version: "1".to_string(),
+            app_id: "demo".to_string(),
+            scene_id: "home".to_string(),
+            semantic_core: crate::SemanticCacheCore {
+                app_id: "demo".to_string(),
+                scene_id: "home".to_string(),
+                preview_scope: None,
+                registry_revision: "r1".to_string(),
+                client_revision: "c1".to_string(),
+                data_generation: "g1".to_string(),
+                compile_epoch: "e1".to_string(),
+            },
+            revision_digest: String::new(),
+            layers: layers.clone(),
+            compose_defaults: None,
+            surface_revision_digest: None,
+        };
+        let mut other = home.clone();
+        other.scene_id = "supervision".to_string();
+        other.semantic_core.scene_id = "supervision".to_string();
+        assert_ne!(
+            semantic_revision_digest(&home, None),
+            semantic_revision_digest(&other, None)
+        );
+    }
+
+    #[test]
     fn semantic_revision_digest_ignores_shell_and_compose_view_axes() {
         let mut layers = std::collections::BTreeMap::new();
         layers.insert(
@@ -697,6 +732,16 @@ mod tests {
         let eval = eval_slot_group_cache_key(&core, "panel:left", "eval", "default");
         assert!(eval.contains("eval"));
         assert!(!eval.contains("build"));
+    }
+
+    #[test]
+    fn eval_slot_group_cache_key_includes_schema_version() {
+        let core = build_semantic_cache_core("demo", "home", None, "r", "c", "g", "e");
+        let key = eval_slot_group_cache_key(&core, "scene:default", "eval", "default");
+        assert!(
+            key.contains("eval-slot-group-v1"),
+            "Gate C: cache key must include schema: {key}"
+        );
     }
 }
 

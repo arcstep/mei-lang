@@ -6,7 +6,7 @@ const FORBIDDEN_TOKENS: &[&str] = &["for", "while", "lambda", "load", "import", 
 const WORLD_MEI_SUFFIX: &str = ".world.mei";
 const WORLD_ALLOWED_TOKENS: &[&str] = &["for", "enum"];
 const GRID_ONLY_POLICY_ROOTS: &[&str] = &[
-    "/workspaces/ws-demo-v2/apps/pretty-panels/",
+    "/workspaces/ws-demo-v2/apps/zhifa/",
     "/workspaces/ws-demo-v2/stock/templates/cockpit/",
 ];
 /// Author DSL patterns rejected on all paths (Phase 3 layout purge).
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn region_layout_rejects_direct_blocks() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-layout-debug-controller/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -380,14 +380,14 @@ mod tests {
     #[test]
     fn region_layout_rejects_stage_anchor() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
             r#"region_layout(
                 id = "map_stage",
                 placement = stage_anchor(top = "0", left = "0", width = "100%", height = "1080px"),
-                sections = [section_ref("pretty-panels/home/t0/r-map-stage/s-map-stage")],
+                sections = [section_ref("zhifa/home/t0/r-map-stage/s-map-stage")],
             )"#,
         )
         .expect_err("stage_anchor should be rejected");
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn region_layout_allows_stage_aperture_frame_without_sections() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn section_layout_rejects_panel_ref_passthrough_contents() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn section_layout_allows_shell_body_panel_ref() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-left-rail/s-enforcement/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-left-rail/s-enforcement/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn section_layout_allows_bare_content_panel_shell() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn section_layout_allows_contents_with_inline_block() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-layout-debug-controller/s-layout-debug/layout.mei",
+            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/s-layout-debug/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,

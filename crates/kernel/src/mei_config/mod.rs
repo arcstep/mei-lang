@@ -4,6 +4,7 @@
 
 mod auth_bundle;
 mod authoring_policy;
+mod app_manifest;
 mod build_store;
 mod io;
 mod ops;
@@ -16,6 +17,11 @@ mod workspace_paths;
 
 #[cfg(test)]
 mod tests;
+
+pub use app_manifest::{
+    load_app_manifest, load_app_manifest_from_json_pair, load_app_manifest_from_toml,
+    migrate_json_pair_to_toml, write_app_toml, AppManifest, AppTomlDocument, APP_TOML_SCHEMA,
+};
 
 pub use auth_bundle::{
     load_workspace_auth_bundle, workspace_auth_config_path, workspace_auth_host_id,
@@ -81,7 +87,7 @@ pub use types::{
     WorkspaceStockConfig, WorkspaceStockPreviewConfig, WorkspaceStockSourceEntry,
     WorkspaceToolchainConfig, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL,
-    APP_CONFIG_FILENAME, APP_ENV_REL, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH,
+    APP_CONFIG_FILENAME, APP_ENV_REL, APP_TOML_FILENAME, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH,
     BUILD_MANIFEST_FILENAME, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID,
     DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_CATALOG_APP_ID, DEFAULT_STOCK_COMPONENTS_REL,
     DEFAULT_STOCK_TEMPLATES_REL, DEPLOY_LINKS_REL, LEGACY_AUTH_JOURNAL_REL_PATH,
@@ -95,8 +101,8 @@ pub use types::{
     WORKSPACE_LOCAL_DIR_REL, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL,
     WORKSPACE_SNAPSHOT_GIT_REL,
 };
-pub use workspace_paths::{
-    app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
+    pub use workspace_paths::{
+    app_mei_config_path, app_source_rel_path_lookup_keys, app_toml_path, canonical_app_source_rel_path,
     default_scene_assembly_key, is_app_mei_source_rel, is_region_structure_mei_path,
     is_section_structure_mei_path, is_v2_app_root, resolve_app_build_root,
     resolve_app_build_store_root, resolve_app_data_snapshot_root, resolve_app_eval_cache_root,

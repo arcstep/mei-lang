@@ -1727,7 +1727,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/build/context/export?app_id=pretty-panels&node=&tab=overview")
+                    .uri("/api/build/context/export?app_id=zhifa&node=&tab=overview")
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -1759,7 +1759,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/build/workspace-fragment?app_id=pretty-panels&node=&tab=preview")
+                    .uri("/api/build/workspace-fragment?app_id=zhifa&node=&tab=preview")
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -2010,7 +2010,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/apps/access/pretty-panels")
+                    .uri("/apps/access/zhifa")
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -2022,7 +2022,7 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/apps/pretty-panels/home")
+            Some("/apps/zhifa/home")
         );
     }
 

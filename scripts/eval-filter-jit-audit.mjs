@@ -5,7 +5,7 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/app`;
+const appUrl = `${base}/apps/zhifa/app`;
 
 function isMetricApi(url) {
   return new URL(url).pathname.includes("/api/datasets/metrics/");
@@ -18,7 +18,7 @@ function isJitPackApi(url) {
 
 async function fetchSnapshot(request) {
   const response = await request.get(
-    `${base}/api/runtime/snapshot?appId=${encodeURIComponent("data-demo")}`,
+    `${base}/api/runtime/snapshot?appId=${encodeURIComponent("zhifa")}`,
   );
   if (!response.ok()) {
     return null;
@@ -58,7 +58,7 @@ async function main() {
     const sceneId = "home/t2/r-drilldown/s-supervision-warning";
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "data-demo",
+        appId: "zhifa",
         sceneId,
         scope: sceneId,
         source: "eval-filter-jit-audit",

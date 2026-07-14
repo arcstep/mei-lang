@@ -7,24 +7,24 @@ import fs from "node:fs";
 import path from "node:path";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/view?surface=app`;
+const appUrl = `${base}/apps/zhifa/view?surface=app`;
 const scope = "penalty_total_analytics_page";
 
 function resolveManifestPath(scopeId) {
   const roots = [
     path.join(
       process.cwd(),
-      "../workspaces/ws-demo-v2/apps/data-demo/env/current/var/client-bootstrap",
+      "../workspaces/ws-demo-v2/apps/zhifa/env/current/var/client-bootstrap",
       `${scopeId}.json`,
     ),
     path.join(
       process.cwd(),
-      "../workspaces/ws-demo-v2/apps/data-demo/var/active/client-bootstrap",
+      "../workspaces/ws-demo-v2/apps/zhifa/var/active/client-bootstrap",
       `${scopeId}.json`,
     ),
     path.join(
       process.cwd(),
-      "../workspaces/ws-demo-v2/apps/data-demo/var/client-bootstrap",
+      "../workspaces/ws-demo-v2/apps/zhifa/var/client-bootstrap",
       `${scopeId}.json`,
     ),
   ];
@@ -48,7 +48,7 @@ async function main() {
   let bootstrapScopesFromApi = [];
   try {
     const response = await fetch(
-      `${base}/api/host/scene-bootstrap?app=data-demo&scene=home`,
+      `${base}/api/host/scene-bootstrap?app=zhifa&scene=home`,
       { headers: { Accept: "application/json" } },
     );
     if (response.ok) {
@@ -93,7 +93,7 @@ async function main() {
       const boot = window.__meiLangBoot || {};
       if (typeof boot.dispatchScopeActivation === "function") {
         return boot.dispatchScopeActivation({
-          appId: "data-demo",
+          appId: "zhifa",
           sceneId: scopeId,
           scope: scopeId,
           source: "eval-board-scope-identity",
@@ -101,7 +101,7 @@ async function main() {
       }
       window.dispatchEvent(
         new CustomEvent("meilang:scope-activation", {
-          detail: { appId: "data-demo", sceneId: scopeId, scope: scopeId },
+          detail: { appId: "zhifa", sceneId: scopeId, scope: scopeId },
         }),
       );
       return true;

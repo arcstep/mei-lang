@@ -59,6 +59,23 @@ check_schema_inventory() {
     || die "schema inventory mismatch — see 0106 §4"
 }
 
+  check_gate_c_tests() {
+  log "Gate C format / schema / generation tests"
+  (
+    cd "${ROOT}"
+    cargo test -p mei-host-graph --lib schema_gate -- --nocapture
+    cargo test -p mei-host-graph --lib gate_c_tests -- --nocapture
+    cargo test -p mei-host-graph --lib semantic_revision_digest_changes_when_scene_id -- --nocapture
+    cargo test -p mei-host-graph --lib discovers_stage -- --nocapture
+    cargo test -p mei-host-graph --lib eval_slot_group_cache_key_includes_schema -- --nocapture
+  ) || die "Gate C host-graph tests failed"
+  (
+    cd "${ROOT}"
+    cargo test -p mei-lang-kernel --lib read_build_manifest_ -- --nocapture
+    cargo test -p mei-lang-kernel --lib rollback_build_requires_previous -- --nocapture
+  ) || die "Gate C kernel tests failed"
+}
+
 wait_host_ready() {
   local url="$1"
   local tries="${2:-90}"
@@ -114,7 +131,7 @@ apps_for_config() {
   case "$1" in
     grid-demo) echo "mini-grid:home metric-grid:home mini-data:home" ;;
     mei-tutorial-only) echo "mei-tutorial:intro" ;;
-    panels-dev) echo "pretty-panels:home mini-data:home mini-data:supervision" ;;
+    panels-dev) echo "zhifa:home mini-data:home mini-data:supervision" ;;
     mini-park) echo "mini-park:home mini-park:home_2d" ;; # scene_id=home_2d；URL=/apps/mini-park/home-2d
     *) die "unknown config $1" ;;
   esac
@@ -278,9 +295,11 @@ main() {
       run_rust_baseline "pass-${i}/${REPEAT}"
     done
     check_schema_inventory
+    check_gate_c_tests
   else
     log "rust baselines skipped (MEI_STAGE_BASELINE_SKIP_RUST=1)"
     check_schema_inventory
+    check_gate_c_tests
   fi
 
   if [[ "${SKIP_BROWSER}" != "1" ]]; then

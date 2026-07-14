@@ -5,7 +5,7 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/pretty-panels/view?surface=app`;
+const appUrl = `${base}/apps/zhifa/view?surface=app`;
 
 function fail(msg) {
   console.error(`FAIL: ${msg}`);
@@ -69,7 +69,7 @@ async function main() {
     fail(`F5 reload missing host topbar chrome (buttons=${chromeAfterF5.topbarButtons})`);
   } else pass("F5 reload: host topbar chrome visible");
 
-  const layoutF5Url = `${base}/apps/pretty-panels/view?surface=layout`;
+  const layoutF5Url = `${base}/apps/zhifa/view?surface=layout`;
   await page.goto(layoutF5Url, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(2500);
   const f5LayoutBaseline = await page.evaluate(() => {
@@ -172,8 +172,8 @@ async function main() {
   console.log("after layout click:", { ...afterLayout, layoutDocFetches });
   if (layoutDocFetches > 0) fail(`surface switch caused ${layoutDocFetches} document fetch(es)`);
   else pass("surface switch: no full page reload");
-  if (!String(afterLayout.href).includes("/apps/pretty-panels/")) fail(`surface switch left wrong app: ${afterLayout.href}`);
-  else pass("surface switch: stayed on pretty-panels");
+  if (!String(afterLayout.href).includes("/apps/zhifa/")) fail(`surface switch left wrong app: ${afterLayout.href}`);
+  else pass("surface switch: stayed on zhifa");
   if (!String(afterLayout.href).includes("surface=layout")) fail(`URL missing surface=layout: ${afterLayout.href}`);
   else pass("surface switch: URL updated");
   if (afterLayout.surface !== "layout") fail(`body data-surface=${afterLayout.surface}`);

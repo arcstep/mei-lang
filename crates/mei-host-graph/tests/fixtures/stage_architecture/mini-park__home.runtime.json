@@ -50,12 +50,12 @@
     }
   },
   "mcg": {
-    "node_count": 81,
+    "node_count": 73,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 11,
       "metric_def_bundle": 2,
-      "navigation": 22,
+      "navigation": 14,
       "page_instance": 4,
       "semantic_graph": 37,
       "warmup_policy": 2,
@@ -134,6 +134,12 @@
     {
       "is_default": false,
       "kind": "scene",
+      "scene_id": "home_2d",
+      "target_file": "src/scene/home-2d/assembly.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "scene",
       "scene_id": "park_point_1_page",
       "target_file": "src/scene/home/t2/r-drilldown/c-park-point-1/content.mei"
     },
@@ -154,12 +160,6 @@
       "kind": "scene",
       "scene_id": "park_point_4_page",
       "target_file": "src/scene/home/t2/r-drilldown/c-park-point-4/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "home_2d",
-      "target_file": "src/scene/home-2d/assembly.mei"
     }
   ],
   "schema_ledger": {
@@ -184,27 +184,12 @@
     {
       "assembly_key": "home@src/scene/home/assembly.mei",
       "scene_id": "home",
-      "url": "/apps/app/mini-park/scene/home"
-    },
-    {
-      "assembly_key": "home@src/scene/home/assembly.mei",
-      "scene_id": "home",
-      "url": "/apps/build/mini-park?scene=home&file=src/scene/home/assembly.mei"
-    },
-    {
-      "assembly_key": "home@src/scene/home/assembly.mei",
-      "scene_id": "home",
-      "url": "/apps/run/mini-park/scene/home"
+      "url": "/apps/mini-park/home"
     },
     {
       "assembly_key": "home_2d@src/scene/home-2d/assembly.mei",
       "scene_id": "home_2d",
-      "url": "/apps/app/mini-park/scene/home-2d"
-    },
-    {
-      "assembly_key": "home_2d@src/scene/home-2d/assembly.mei",
-      "scene_id": "home_2d",
-      "url": "/apps/run/mini-park/scene/home-2d"
+      "url": "/apps/mini-park/home_2d"
     },
     {
       "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-1",

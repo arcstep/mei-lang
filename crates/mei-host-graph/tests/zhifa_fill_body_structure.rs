@@ -18,29 +18,29 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-fn ensure_pretty_panels_imported() {
+fn ensure_zhifa_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
         let bundle =
-            workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
+            workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         if !bundle.is_file() {
             return;
         }
-        let ctx = HostContext::new(workspace.clone(), "pretty-panels");
+        let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
             &ImportOptions {
                 bundle_path: Some(bundle),
             },
         )
-        .expect("import pretty-panels bundle");
-        clear_assemble_cache_for_app("pretty-panels");
+        .expect("import zhifa bundle");
+        clear_assemble_cache_for_app("zhifa");
     });
 }
 
-fn assemble_pretty_panels_home() -> mei_host_graph::AssembleOutcome {
-    ensure_pretty_panels_imported();
-    assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+fn assemble_zhifa_home() -> mei_host_graph::AssembleOutcome {
+    ensure_zhifa_imported();
+    assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome")
 }
@@ -54,8 +54,8 @@ fn structure_scope_count(structure: &StructureFullDocument, needle: &str) -> usi
 }
 
 #[test]
-fn pretty_panels_enforcement_and_issue_export_body_structure() {
-    let outcome = assemble_pretty_panels_home();
+fn zhifa_enforcement_and_issue_export_body_structure() {
+    let outcome = assemble_zhifa_home();
 
     let structure = build_structure_full_document(&outcome.compiled, "test");
     assert!(
@@ -94,8 +94,8 @@ fn pretty_panels_enforcement_and_issue_export_body_structure() {
 }
 
 #[test]
-fn pretty_panels_section_head_eval_slots_do_not_aggregate_scene_mounts() {
-    let outcome = assemble_pretty_panels_home();
+fn zhifa_section_head_eval_slots_do_not_aggregate_scene_mounts() {
+    let outcome = assemble_zhifa_home();
     let structure = build_structure_full_document(&outcome.compiled, "test");
 
     for scope_suffix in [

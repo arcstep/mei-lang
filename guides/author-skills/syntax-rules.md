@@ -78,5 +78,5 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 ## 写作要求
 
 - 先主干结构，后 content 细节
-- 能用 pretty-panels / mini-park 证明的，才写进脚本规范
+- 能用 zhifa / mini-park 证明的，才写进脚本规范
 - 先 current syntax，再考虑设计中的未来能力

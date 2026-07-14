@@ -5,9 +5,9 @@
 import { chromium } from "@playwright/test";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/app`;
+const appUrl = `${base}/apps/zhifa/app`;
 
-async function fetchSnapshot(request, appId = "data-demo") {
+async function fetchSnapshot(request, appId = "zhifa") {
   const response = await request.get(
     `${base}/api/runtime/snapshot?appId=${encodeURIComponent(appId)}`,
   );

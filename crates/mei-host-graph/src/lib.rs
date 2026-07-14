@@ -26,11 +26,13 @@ mod presentation_map;
 mod projection_normalize;
 mod runtime_plans;
 mod scene_materialize;
+mod schema_gate;
 mod scope_target;
 mod semantic_cache;
 mod semantic_scene;
 mod shell_layer;
 mod stage_bootstrap;
+mod stage_program_discover;
 mod structure_full;
 mod surface;
 mod theme_layout_merge;
@@ -47,6 +49,10 @@ mod world_plan;
 pub use assemble::{
     assemble_scope_from_registry, collect_all_t2_page_scenes, list_scope_routes,
     t2_page_scenes_for_section_scope, AssembleOutcome, ScopeRoute,
+};
+pub use stage_program_discover::{
+    discover_program_for_stage, discover_stage_programs, scene_use_to_target,
+    DiscoveredStageProgram, StageProgramProfile,
 };
 pub use assemble_cache::{
     assemble_cache_key, assemble_cache_key_partitioned, clear_assemble_cache_for_app,

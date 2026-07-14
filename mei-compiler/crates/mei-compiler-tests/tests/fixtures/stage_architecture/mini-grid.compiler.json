@@ -24,11 +24,11 @@
     "id": "mini-grid",
     "title": "最简 Grid · Mini Grid"
   },
-  "block_count": 11,
+  "block_count": 8,
   "blocks_by_kind": {
     "app_skeleton": 1,
     "content_panel": 1,
-    "navigation": 4,
+    "navigation": 1,
     "plane_layout": 1,
     "region_layout": 1,
     "scene": 1,
@@ -38,10 +38,7 @@
   "critical_block_ids": [
     "app_skeleton:mini-grid",
     "content_panel:mini-metric",
-    "navigation:access:home",
-    "navigation:build:home",
-    "navigation:default_access",
-    "navigation:default_build"
+    "navigation:access:home"
   ],
   "deck_or_slides": {
     "presentation_block_ids": [],
@@ -62,43 +59,7 @@
       "block_id": "navigation:access:home",
       "key": "access:home",
       "scene": "home",
-      "url": "/apps/app/mini-grid/scene/home"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:build:home",
-      "key": "build:home",
-      "scene": "home",
-      "url": "/apps/build/mini-grid?scene=home&file=src/scene/home.mei"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_access",
-      "key": "default_access",
-      "scene": "home",
-      "url": "/apps/app/mini-grid/scene/home"
-    },
-    {
-      "assembly": {
-        "__args": {
-          "arg0": "home@src/scene/home.mei"
-        },
-        "__ref": "assembly_ref"
-      },
-      "block_id": "navigation:default_build",
-      "key": "default_build",
-      "scene": "home",
-      "url": "/apps/build/mini-grid"
+      "url": "/apps/mini-grid/home"
     }
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
@@ -138,5 +99,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.8"
+  "syntax_version": "2.5.9"
 }

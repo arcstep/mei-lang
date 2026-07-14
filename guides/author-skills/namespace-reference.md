@@ -5,7 +5,7 @@
 ### App / Navigation
 
 ```python
-app_skeleton(id = "pretty-panels", title = "...", default_scene = "home")
+app_skeleton(id = "zhifa", title = "...", default_scene = "home")
 navigation(key = "access:home", scene = "home", url = "...", assembly = assembly_ref(...))
 ```
 
@@ -27,9 +27,9 @@ content_panel(id = "...", chrome = "bare", layout = grid(...), blocks = [...])
 ### Refs（结构）
 
 ```python
-plane_ref("pretty-panels/home/t1")
-region_ref("pretty-panels/home/t1/r-left-rail")
-section_ref("pretty-panels/home/t1/r-left-rail/s-enforcement")
+plane_ref("zhifa/home/t1")
+region_ref("zhifa/home/t1/r-left-rail")
+section_ref("zhifa/home/t1/r-left-rail/s-enforcement")
 panel_ref("content/enforcement-stats")
 assembly_ref("home@src/scene/home/assembly.mei")
 assembly_ref("mini-park/home/t2/r-drilldown/c-park-point-1")

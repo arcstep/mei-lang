@@ -788,7 +788,8 @@ async fn run_serve_control_plane(
         managed_plug: Arc::new(Mutex::new(None)),
         app_runtime: app_runtime.clone(),
     };
-    if !launch_targets.is_empty() {
+    let defer_autostart = crate::startup::defer_warmup_to_prebuild() && !launch_targets.is_empty();
+    if !launch_targets.is_empty() && !defer_autostart {
         crate::app_launch_api::autostart_launch_targets(&state, &launch_targets).await;
         let app_ids = launch_targets
             .iter()
@@ -821,7 +822,9 @@ async fn run_serve_control_plane(
         listen_url.as_str(),
         &[
             version_line.as_str(),
-            if route_ready {
+            if defer_autostart {
+                "control plane ready — waiting for deferred prebuild before app autostart"
+            } else if route_ready {
                 "control plane ready — LaunchManifest routes active"
             } else {
                 "control plane ready — open /runtime to launch apps"
@@ -841,6 +844,22 @@ async fn run_serve_control_plane(
         access_detail,
     ]);
     println!("Open:      {listen_url}/runtime");
+    if defer_autostart {
+        let deferred_state = state.clone();
+        let deferred_targets = launch_targets.clone();
+        tokio::spawn(async move {
+            crate::app_launch_api::autostart_launch_targets(&deferred_state, &deferred_targets)
+                .await;
+            let app_ids = deferred_targets
+                .iter()
+                .map(|target| target.app_id.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let guard = deferred_state.shell.read().expect("state lock");
+            crate::startup::prime_view_layer_artifacts(&guard, app_ids.as_slice(), "home");
+        });
+    }
     let app = crate::http::router(state)
         .layer(axum::middleware::from_fn_with_state(
             auth_state,

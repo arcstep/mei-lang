@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn registry_scope_key_from_golden_case_region_ref() {
         assert_eq!(
-            registry_scope_key_from_reference("pretty-panels/home/t2/r-warnings"),
+            registry_scope_key_from_reference("zhifa/home/t2/r-warnings"),
             Some("home/t2/r-warnings".to_string())
         );
     }

@@ -29,6 +29,12 @@ use crate::compile::discover_routes::{
 use crate::compile::scene::{find_scene_route, resolve_scene_routes};
 
 pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
+    if let Some(stage) = crate::mei_config::load_app_manifest(app_root)
+        .default_stage
+        .filter(|s| !s.trim().is_empty())
+    {
+        return Ok(Some(stage));
+    }
     let app_main = resolve_app_main_path(app_root);
     match evaluate_mei_file(&app_main) {
         Ok(app_decls) => {
@@ -58,18 +64,24 @@ pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>
     Ok(scan_default_scene_from_app_source(app_root))
 }
 
-/// Scene ids declared by classic `app(...)` routes or graph-native `navigation(...)` / deck stages.
+/// Scene / stage ids: Stage Program MDX enumeration first (0119), then union with
+/// classic `app(...)` routes / graph-native `navigation(...)` (T2 pages etc.).
 pub fn resolve_scene_ids_from_root(app_root: &Path) -> Result<Vec<String>> {
-    let app_main = resolve_app_main_path(app_root);
     let mut scenes = Vec::new();
     let mut seen = BTreeSet::new();
-    let mut push = |scene: String| {
-        let trimmed = scene.trim().to_string();
-        if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+    let push = |scene: &str, scenes: &mut Vec<String>, seen: &mut BTreeSet<String>| {
+        let trimmed = scene.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
             return;
         }
-        scenes.push(trimmed);
+        scenes.push(trimmed.to_string());
     };
+
+    for prog in mei_syntax::discover_stage_programs(app_root) {
+        push(prog.stage_id.as_str(), &mut scenes, &mut seen);
+    }
+
+    let app_main = resolve_app_main_path(app_root);
     match evaluate_mei_file(&app_main) {
         Ok(app_decls) => {
             let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
@@ -77,11 +89,9 @@ pub fn resolve_scene_ids_from_root(app_root: &Path) -> Result<Vec<String>> {
                 let route_registry =
                     resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
                 for route in route_registry.routes {
-                    push(route.scene_id);
+                    push(route.scene_id.as_str(), &mut scenes, &mut seen);
                 }
-                return Ok(scenes);
-            }
-            if let Some(values) = app_decls.as_array() {
+            } else if let Some(values) = app_decls.as_array() {
                 for value in values {
                     if value.get("kind").and_then(Value::as_str) != Some("navigation") {
                         continue;
@@ -92,22 +102,15 @@ pub fn resolve_scene_ids_from_root(app_root: &Path) -> Result<Vec<String>> {
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
                     {
-                        push(scene.to_string());
+                        push(scene, &mut scenes, &mut seen);
                     }
                 }
             }
         }
         Err(_) => {}
     }
-    drop(push);
-    if scenes.is_empty() {
-        for scene in scan_navigation_scenes_from_app_source(app_root) {
-            let trimmed = scene.trim().to_string();
-            if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
-                continue;
-            }
-            scenes.push(trimmed);
-        }
+    for scene in scan_navigation_scenes_from_app_source(app_root) {
+        push(scene.as_str(), &mut scenes, &mut seen);
     }
     Ok(scenes)
 }

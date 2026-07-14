@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use mei_host_core::load_app_config;
 use mei_lang_kernel::{
-    build_runtime_metric_artifacts, ops_source_entry_to_decl, ColumnSchema, DatasetView,
-    LoadedResource, OpsSourceEntry, SourceDecl,
+    build_runtime_metric_artifacts, load_mei_config_for_app, ops_source_entry_to_decl,
+    ColumnSchema, DatasetView, LoadedResource, OpsSourceEntry, SourceDecl,
 };
 use serde_json::Value;
 
@@ -86,14 +85,7 @@ pub fn load_metric_resources_hydrated(
 }
 
 fn load_app_ops_sources(app_root: &Path) -> anyhow::Result<BTreeMap<String, OpsSourceEntry>> {
-    let config = load_app_config(app_root)?;
-    let mut sources = BTreeMap::new();
-    for (key, value) in config.ops.sources {
-        if let Ok(entry) = serde_json::from_value::<OpsSourceEntry>(value) {
-            sources.insert(key, entry);
-        }
-    }
-    Ok(sources)
+    Ok(load_mei_config_for_app(app_root, None).ops.sources)
 }
 
 fn build_owner_dataset_view(

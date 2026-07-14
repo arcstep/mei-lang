@@ -50,7 +50,7 @@ const UNITS: &[GoldenUnit] = &[
         scene_id: "supervision",
     },
     GoldenUnit {
-        app_id: "pretty-panels",
+        app_id: "zhifa",
         scene_id: "home",
     },
     GoldenUnit {

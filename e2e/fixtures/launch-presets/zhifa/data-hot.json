@@ -1,7 +1,7 @@
 {
   "schemaVersion": "mei-app-launch-v1",
-  "appId": "pretty-panels",
-  "displayName": "Pretty Panels · 全量不预热",
+  "appId": "zhifa",
+  "displayName": "Zhifa · 全量不预热",
   "generation": "current",
   "dataModeCeiling": "eval",
   "runtimePlan": {
@@ -15,8 +15,8 @@
   "menu": {
     "items": [
       {
-        "app_id": "pretty-panels",
-        "label": "Pretty Panels · 全量不预热",
+        "app_id": "zhifa",
+        "label": "Zhifa · 全量不预热",
         "order": 20
       }
     ]

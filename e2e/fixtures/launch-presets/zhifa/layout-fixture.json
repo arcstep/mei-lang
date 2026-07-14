@@ -1,13 +1,13 @@
 {
   "schemaVersion": "mei-app-launch-v1",
-  "appId": "pretty-panels",
-  "displayName": "Pretty Panels · 静态布局",
+  "appId": "zhifa",
+  "displayName": "Zhifa · 静态布局",
   "generation": "current",
   "dataModeCeiling": "static",
   "runtimePlan": {
     "defaultMode": "frozen",
     "apps": {
-      "pretty-panels": {
+      "zhifa": {
         "targets": [
           { "scope": "home", "mode": "frozen" }
         ],
@@ -22,8 +22,8 @@
   "menu": {
     "items": [
       {
-        "app_id": "pretty-panels",
-        "label": "Pretty Panels · 静态布局",
+        "app_id": "zhifa",
+        "label": "Zhifa · 静态布局",
         "order": 30
       }
     ]

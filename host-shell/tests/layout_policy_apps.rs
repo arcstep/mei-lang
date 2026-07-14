@@ -65,14 +65,9 @@ fn assert_home_assembles_without_layout_policy_errors(app_id: &str) {
 }
 
 #[test]
-fn pretty_panels_home_strict_layout_policy_clean() {
-    INIT.call_once(|| ensure_imported("pretty-panels"));
-    assert_home_assembles_without_layout_policy_errors("pretty-panels");
-}
-
-#[test]
-fn data_demo_home_strict_layout_policy_clean() {
-    assert_home_assembles_without_layout_policy_errors("data-demo");
+fn zhifa_home_strict_layout_policy_clean() {
+    INIT.call_once(|| ensure_imported("zhifa"));
+    assert_home_assembles_without_layout_policy_errors("zhifa");
 }
 
 #[test]
@@ -84,7 +79,7 @@ fn mini_park_home_strict_layout_policy_clean() {
 fn ws_demo_v2_apps_compile_with_strict_layout_policy() {
     let workspace = ws_demo_v2();
     let manifest_dir = mei_lang_root();
-    for app_id in ["pretty-panels", "data-demo", "mini-park"] {
+    for app_id in ["zhifa", "mini-park"] {
         let status = Command::new("cargo")
             .current_dir(&manifest_dir)
             .args([

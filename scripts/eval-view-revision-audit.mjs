@@ -15,7 +15,7 @@ async function main() {
   const failures = [];
 
   const first = await page.request.get(
-    `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}`,
+    `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}`,
   );
   if (!first.ok()) {
     failures.push(`view-revision baseline failed: ${first.status()}`);
@@ -25,7 +25,7 @@ async function main() {
   const surfaceDigest = encodeURIComponent(baseline.surface_revision_digest || "");
 
   const second = await page.request.get(
-    `${base}/api/host/view-revision?app_id=data-demo&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
+    `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
   );
   let apiStatus = "";
   if (!second.ok()) {
@@ -38,13 +38,13 @@ async function main() {
     }
   }
 
-  await page.goto(`${base}/apps/data-demo/app`, { waitUntil: "networkidle", timeout: 120000 });
+  await page.goto(`${base}/apps/zhifa/app`, { waitUntil: "networkidle", timeout: 120000 });
   await page.waitForTimeout(2000);
 
   const clientOutcome = await page.evaluate(async () => {
     const boot = window.__meiLangBoot || {};
     const ctx = boot.parseViewContext?.(window.location.href) || {
-      app_id: "data-demo",
+      app_id: "zhifa",
       scene_id: "home",
       surface: "app",
     };
@@ -52,7 +52,7 @@ async function main() {
       return { ok: false, reason: "viewRevisionClient_missing" };
     }
     const result = await boot.viewRevisionClient.fetchViewRevision({
-      app_id: ctx.app_id || ctx.appId || "data-demo",
+      app_id: ctx.app_id || ctx.appId || "zhifa",
       scene_id: ctx.scene_id || ctx.sceneId || "home",
       surface: ctx.surface || "app",
       compose: { route_mode: "app", review_projection: "live_full" },

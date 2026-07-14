@@ -215,6 +215,11 @@ pub(crate) fn write_prebuild_compile_index(
     Ok(())
 }
 
+/// Gate C: only the current compile-index schema may be loaded.
+pub(crate) fn is_current_prebuild_compile_index_schema(schema_version: &str) -> bool {
+    schema_version == PREBUILD_COMPILE_INDEX_SCHEMA_V9
+}
+
 pub(crate) fn load_prebuild_compile_index(app_root: &Path) -> Result<Option<PrebuildCompileIndex>> {
     let path = prebuild_compile_index_path(app_root);
     if !path.is_file() {
@@ -224,8 +229,8 @@ pub(crate) fn load_prebuild_compile_index(app_root: &Path) -> Result<Option<Preb
         .with_context(|| format!("read prebuild compile index {}", path.display()))?;
     let persisted = serde_json::from_str::<PersistedPrebuildCompileIndex>(&raw)
         .with_context(|| format!("parse prebuild compile index {}", path.display()))?;
-    if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V9 {
-        // Phase 9: refuse indexes from prior schemas (stage_id / default_stage wire change).
+    if !is_current_prebuild_compile_index_schema(persisted.schema_version.as_str()) {
+        // Gate C / Phase 9: refuse indexes from prior schemas (stage_id / default_stage wire).
         return Ok(None);
     }
     Ok(Some(PrebuildCompileIndex {
@@ -592,3 +597,4 @@ pub(crate) fn disk_usage_report(summary: DirSizeSummary) -> PrebuildDiskUsageRep
         bytes: summary.bytes,
     }
 }
+

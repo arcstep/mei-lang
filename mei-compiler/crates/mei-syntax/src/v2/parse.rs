@@ -543,7 +543,7 @@ template slot_metric_card(id = "y"):
     #[test]
     fn parses_v2_panel_with_refs() {
         let source = include_str!(
-            "../../../../../../workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-left-rail/s-enforcement/content.mei"
+            "../../../../../../workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-left-rail/s-enforcement/content.mei"
         );
         let file = parse_v2_source(source).expect("parse enforcement content.mei");
         assert!(file

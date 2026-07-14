@@ -5,7 +5,10 @@ use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 fn home_inspection_total_card_has_metric_source() {
     let workspace =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-    if !workspace.join("apps/data-demo/app.config.json").is_file() {
+    if !workspace.join("apps/data-demo").is_dir()
+        && !workspace.join("apps/data-demo/app.config.json").is_file()
+        && !workspace.join("apps/data-demo/app.toml").is_file()
+    {
         return;
     }
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")

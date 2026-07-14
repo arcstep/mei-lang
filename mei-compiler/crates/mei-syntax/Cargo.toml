@@ -8,3 +8,7 @@ license.workspace = true
 chumsky.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

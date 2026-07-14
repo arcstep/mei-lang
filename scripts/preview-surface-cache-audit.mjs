@@ -9,7 +9,7 @@ const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0
   /\/+$/,
   "",
 );
-const viewPath = process.argv.find((a) => a.startsWith("/")) || "/apps/data-demo/view?surface=app";
+const viewPath = process.argv.find((a) => a.startsWith("/")) || "/apps/zhifa/view?surface=app";
 const appUrl = `${base}${viewPath.startsWith("/") ? viewPath : `/${viewPath}`}`;
 
 function isSceneFragment(url) {
