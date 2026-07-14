@@ -171,6 +171,11 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
     let compiled = CompiledApp {
         app_id: "preview-ledger".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: vec![resource_a, resource_b],
         world_metrics: BTreeMap::from([(

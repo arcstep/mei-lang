@@ -1,0 +1,245 @@
+{
+  "abi": {
+    "capability_count": 9,
+    "capability_ids": [
+      "slide-01-cover-content",
+      "slide-02-why-content",
+      "slide-03-graph-content",
+      "slide-04-stages-content",
+      "slide-05-planes-content",
+      "slide-06-content-content",
+      "slide-07-build-content",
+      "slide-08-matrix-content",
+      "slide-09-next-content"
+    ],
+    "digest_policy": {
+      "narration_includes_caption_notes_timing": true,
+      "structure_excludes_caption_notes_timing": true
+    },
+    "narration_cue_count": 0,
+    "narration_digest": "30406ea523c53def",
+    "profile_layout_policy": "slides:inline=constrained/block=constrained/fill=paged_aperture",
+    "public_slot_count": 33,
+    "public_slot_ids": [
+      "slide-01-cover-content",
+      "slide-02-why-content",
+      "slide-03-graph-content",
+      "slide-04-stages-content",
+      "slide-05-planes-content",
+      "slide-06-content-content",
+      "slide-07-build-content",
+      "slide-08-matrix-content",
+      "slide-09-next-content",
+      "vp_build_steps",
+      "vp_build_title",
+      "vp_build_visual",
+      "vp_content_claim",
+      "vp_content_evidence",
+      "vp_cover_hero",
+      "vp_graph_claim",
+      "vp_graph_evidence",
+      "vp_matrix_q1",
+      "vp_matrix_q2",
+      "vp_matrix_q3",
+      "vp_matrix_q4",
+      "vp_matrix_title",
+      "vp_next_hero",
+      "vp_planes_steps",
+      "vp_planes_title",
+      "vp_planes_visual",
+      "vp_stages_fab",
+      "vp_stages_pres",
+      "vp_stages_scene",
+      "vp_why_action",
+      "vp_why_claim",
+      "vp_why_evidence",
+      "vp_why_explain"
+    ],
+    "slot_module_id": "scene:intro",
+    "stage_mdx_source": null,
+    "stage_surface": "paged",
+    "structure_digest": "278499c63a57c264",
+    "world_capability_count": 0,
+    "world_is_content": true
+  },
+  "active_scene": "intro",
+  "app_id": "mei-tutorial",
+  "assembly_key": "intro@src/presentation/intro/intro.deck.mdx",
+  "digest_policy": {
+    "compare_absolute_compile_revision": false,
+    "compare_absolute_manifest_digest": false,
+    "compare_structure_counts": true,
+    "compile_revision_present": true
+  },
+  "layer_plan": {
+    "schemaVersion": "mei-layer-plan-v1",
+    "tier_entry_counts": {
+      "p": 27,
+      "t1": 9
+    }
+  },
+  "mcg": {
+    "node_count": 41,
+    "nodes_by_kind": {
+      "app_skeleton": 1,
+      "content_panel": 9,
+      "navigation": 2,
+      "semantic_graph": 29
+    },
+    "schemaVersion": "mei-mcg-registry-v2"
+  },
+  "mrg": {
+    "schemaVersion": "mei-mrg-registry-v3",
+    "slot_count_compared": false
+  },
+  "panel_ids": [
+    "r-main",
+    "s-content",
+    "slide-01-cover",
+    "slide-01-cover-content",
+    "slide-02-why",
+    "slide-02-why-content",
+    "slide-03-graph",
+    "slide-03-graph-content",
+    "slide-04-stages",
+    "slide-04-stages-content",
+    "slide-05-planes",
+    "slide-05-planes-content",
+    "slide-06-content",
+    "slide-06-content-content",
+    "slide-07-build",
+    "slide-07-build-content",
+    "slide-08-matrix",
+    "slide-08-matrix-content",
+    "slide-09-next",
+    "slide-09-next-content"
+  ],
+  "presentation_map": {
+    "default_script_step_count": 10,
+    "schemaVersion": "mei-presentation-map-v1",
+    "slide_count": 9,
+    "slide_ids": [
+      "slide-01-cover",
+      "slide-02-why",
+      "slide-03-graph",
+      "slide-04-stages",
+      "slide-05-planes",
+      "slide-06-content",
+      "slide-07-build",
+      "slide-08-matrix",
+      "slide-09-next"
+    ],
+    "viewpoint_count": 24,
+    "viewpoint_ids": [
+      "vp_build_steps",
+      "vp_build_title",
+      "vp_build_visual",
+      "vp_content_claim",
+      "vp_content_evidence",
+      "vp_cover_hero",
+      "vp_graph_claim",
+      "vp_graph_evidence",
+      "vp_matrix_q1",
+      "vp_matrix_q2",
+      "vp_matrix_q3",
+      "vp_matrix_q4",
+      "vp_matrix_title",
+      "vp_next_hero",
+      "vp_planes_steps",
+      "vp_planes_title",
+      "vp_planes_visual",
+      "vp_stages_fab",
+      "vp_stages_pres",
+      "vp_stages_scene",
+      "vp_why_action",
+      "vp_why_claim",
+      "vp_why_evidence",
+      "vp_why_explain"
+    ]
+  },
+  "scene_id": "intro",
+  "scene_routes": [
+    {
+      "is_default": false,
+      "kind": "presentation",
+      "scene_id": "intro",
+      "target_file": "src/presentation/intro/intro.deck.mdx"
+    }
+  ],
+  "schema_ledger": {
+    "build_manifest": "mei-build-manifest-v1",
+    "client_bootstrap": "mei-client-bootstrap-v1",
+    "compile_bundle": "mei-compile-bundle-v1",
+    "compiler_graph": "mei-compiler-graph-v2",
+    "eval_slot_group": "eval-slot-group-v1",
+    "layer_plan": "mei-layer-plan-v1",
+    "manifest_index": "manifest-index-v1",
+    "mcg_registry": "mei-mcg-registry-v2",
+    "mrg_registry_host_graph": "mei-mrg-registry-v3",
+    "mrg_registry_server_note": "mei-mrg-registry-v2 (server/src/graph/mrg/registry.rs) forks from host-graph v3",
+    "presentation_map": "mei-presentation-map-v1",
+    "runtime_plans": "runtime-plans-v2",
+    "scene_view_manifest": "scene-view-manifest-v1",
+    "shell_layer": "shell-v1",
+    "structure_full": "structure-full-v1"
+  },
+  "schema_version": "mei-stage-architecture-runtime-baseline-v1",
+  "scope_routes": [
+    {
+      "assembly_key": "intro@src/presentation/intro/intro.deck.mdx",
+      "scene_id": "intro",
+      "url": "/apps/mei-tutorial/intro"
+    }
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "intro",
+        "profile": "slides",
+        "source_anchor": "src/presentation/intro/intro.deck.mdx",
+        "stage_id": "intro",
+        "state_namespace": "stage:intro",
+        "surface": "paged",
+        "unit_count": 9,
+        "unit_ids": [
+          "slide-01-cover",
+          "slide-02-why",
+          "slide-03-graph",
+          "slide-04-stages",
+          "slide-05-planes",
+          "slide-06-content",
+          "slide-07-build",
+          "slide-08-matrix",
+          "slide-09-next"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "intro",
+    "excluded_t2_scene_ids": [],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "intro",
+        "profile": "slides",
+        "source_anchor": "src/presentation/intro/intro.deck.mdx",
+        "stage_id": "intro"
+      }
+    ]
+  },
+  "structure_full": {
+    "node_count": 90,
+    "scene_root_count": 1,
+    "scene_roots": [
+      "intro/intro"
+    ],
+    "schema_version": "structure-full-v1"
+  },
+  "t2_page_count": 0,
+  "t2_page_scenes": [],
+  "world_plan": {
+    "world_count": 0,
+    "world_ids": []
+  }
+}

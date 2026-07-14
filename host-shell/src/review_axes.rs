@@ -1,8 +1,11 @@
 //! Page render axes: data mode + review projection (0508).
 //! Access compose defaults follow stage_kind (scene vs presentation), not layout/prototype surface.
+//! Phase 1: StageKind maps to StageProfile (Scene→Cockpit, Presentation→Slides); not a cache key.
 
 use mei_lang_app::UiRouteMode;
-use mei_lang_kernel::{DataMode, DataModeCeiling, ReviewProjection};
+use mei_lang_kernel::{
+    DataMode, DataModeCeiling, ReviewProjection, StageProfile, StageRegistry,
+};
 
 use crate::pages::AppQuery;
 use crate::state::ShellState;
@@ -31,18 +34,28 @@ impl StageKind {
         }
     }
 
-    /// Infer from route kind / target_file (same rules as Access topbar).
+    /// Map host StageKind → product StageProfile (Phase 1).
+    pub fn to_stage_profile(self) -> StageProfile {
+        match self {
+            Self::Scene => StageProfile::Cockpit,
+            Self::Presentation => StageProfile::Slides,
+        }
+    }
+
+    /// Map product StageProfile → host StageKind.
+    pub fn from_stage_profile(profile: StageProfile) -> Self {
+        match profile {
+            StageProfile::Cockpit => Self::Scene,
+            StageProfile::Slides => Self::Presentation,
+        }
+    }
+
+    /// Infer from route kind / target_file (same rules as StageProfile / Access topbar).
     pub fn from_route_meta(kind: &str, target_file: &str) -> Self {
-        let kind = kind.trim().to_ascii_lowercase();
-        if kind == "presentation" {
-            return Self::Presentation;
-        }
-        let target = target_file.replace('\\', "/").to_ascii_lowercase();
-        if target.contains("/presentation/") || target.starts_with("presentation/") {
-            Self::Presentation
-        } else {
-            Self::Scene
-        }
+        let profile = StageProfile::from_route_meta(kind, target_file);
+        let kind = Self::from_stage_profile(profile);
+        debug_assert_eq!(kind.to_stage_profile(), profile);
+        kind
     }
 
     /// Resolve from compiled scene routes for `scene_id`; missing route → Scene.
@@ -56,6 +69,34 @@ impl StageKind {
             .map(|route| Self::from_route_meta(route.kind.as_str(), route.target_file.as_str()))
             .unwrap_or(Self::Scene)
     }
+
+    /// Prefer StageRegistry when available; fall back to Scene for unknown ids.
+    pub fn from_stage_registry(registry: &StageRegistry, stage_id: &str) -> Self {
+        registry
+            .get(stage_id)
+            .map(|desc| Self::from_stage_profile(desc.profile))
+            .unwrap_or(Self::Scene)
+    }
+
+    /// Resolve stage kind preferring Registry, then legacy routes.
+    pub fn resolve(
+        registry: &StageRegistry,
+        routes: &[mei_lang_kernel::CompiledSceneRoute],
+        stage_or_scene_id: &str,
+    ) -> Self {
+        if registry.contains(stage_or_scene_id) {
+            return Self::from_stage_registry(registry, stage_or_scene_id);
+        }
+        Self::from_scene_routes(routes, stage_or_scene_id)
+    }
+}
+
+/// Read Phase 2 StageProgram for a stage_id (diagnostic / Inspector). Not a cache key.
+pub fn stage_program_for<'a>(
+    compiled: &'a mei_lang_kernel::CompiledApp,
+    stage_id: &str,
+) -> Option<&'a mei_lang_kernel::StageProgram> {
+    compiled.stage_programs.get(stage_id)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,6 +388,46 @@ mod tests {
         );
         assert_eq!(
             StageKind::from_route_meta("scene", "src/scene/home.mei"),
+            StageKind::Scene
+        );
+    }
+
+    #[test]
+    fn stage_kind_maps_to_stage_profile() {
+        assert_eq!(
+            StageKind::Scene.to_stage_profile(),
+            mei_lang_kernel::StageProfile::Cockpit
+        );
+        assert_eq!(
+            StageKind::Presentation.to_stage_profile(),
+            mei_lang_kernel::StageProfile::Slides
+        );
+        assert_eq!(
+            StageKind::from_stage_profile(mei_lang_kernel::StageProfile::Slides),
+            StageKind::Presentation
+        );
+    }
+
+    #[test]
+    fn stage_kind_from_stage_registry_prefers_profile() {
+        use mei_lang_kernel::{StageDescriptor, StageId, StageProfile, StageRegistry};
+        let registry = StageRegistry {
+            stages: vec![StageDescriptor {
+                id: StageId::new("intro"),
+                profile: StageProfile::Slides,
+                title: None,
+                source_anchor: "src/presentation/intro/intro.deck.mdx".to_string(),
+                is_default: true,
+                legacy_scene_id: "intro".to_string(),
+            }],
+            default_stage_id: Some(StageId::new("intro")),
+        };
+        assert_eq!(
+            StageKind::from_stage_registry(&registry, "intro"),
+            StageKind::Presentation
+        );
+        assert_eq!(
+            StageKind::from_stage_registry(&registry, "missing"),
             StageKind::Scene
         );
     }

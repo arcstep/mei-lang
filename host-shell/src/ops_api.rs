@@ -134,7 +134,13 @@ pub async fn api_host_ops_prebuild(
         .to_string();
 
     let scenes = if let Some(config_name) = launch_config.as_deref() {
-        match mei_host_core::read_launch_config(workspace.as_path(), app_id.as_str(), config_name) {
+        let launch_result = if config_name == "default" {
+            // 0537：`config=default` 缺失时物化 launch/default.json，与 apps start / --launch all 对齐
+            mei_host_core::ensure_default_launch_config(workspace.as_path(), app_id.as_str())
+        } else {
+            mei_host_core::read_launch_config(workspace.as_path(), app_id.as_str(), config_name)
+        };
+        match launch_result {
             Ok(launch) => {
                 crate::app_launch_api::apply_launch_runtime_profile(
                     &http,

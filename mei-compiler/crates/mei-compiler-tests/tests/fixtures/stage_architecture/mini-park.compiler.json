@@ -1,0 +1,406 @@
+{
+  "abi": {
+    "content_panel_count": 11,
+    "content_panel_ids": [
+      "cafe-corner",
+      "gis-map",
+      "home:map_stage",
+      "home_2d:map_stage",
+      "lake-pavilion",
+      "map-viewport",
+      "play-zone",
+      "sakura-path",
+      "svg-basemap",
+      "viewport-canvas",
+      "world-viewport"
+    ],
+    "digest_note": "structure_digest/narration_digest are asserted in mei-host-graph runtime baseline",
+    "stage_mdx_count": 2,
+    "stage_mdx_fills": [],
+    "stage_mdx_stage_ids": [
+      "home",
+      "home_2d"
+    ]
+  },
+  "app_id": "mini-park",
+  "app_skeleton": {
+    "block_id": "app_skeleton:mini-park",
+    "default_scene": "home",
+    "id": "mini-park",
+    "title": "迷你公园 · Mini Park"
+  },
+  "block_count": 82,
+  "blocks_by_kind": {
+    "app_skeleton": 1,
+    "content_panel": 12,
+    "link_decl": 4,
+    "map_spec": 1,
+    "metric_def_bundle": 2,
+    "navigation": 18,
+    "page_instance": 4,
+    "plane_layout": 4,
+    "region_layout": 10,
+    "scene": 2,
+    "section_layout": 15,
+    "stage_mdx": 2,
+    "view_spec": 3,
+    "warmup_policy": 2,
+    "world": 2
+  },
+  "critical_block_ids": [
+    "app_skeleton:mini-park",
+    "content_panel:cafe-corner",
+    "content_panel:gis-map",
+    "content_panel:home:map_stage",
+    "content_panel:home_2d:map_stage",
+    "content_panel:lake-pavilion",
+    "content_panel:map-viewport",
+    "content_panel:play-zone",
+    "content_panel:sakura-path",
+    "content_panel:svg-basemap",
+    "content_panel:viewport-canvas",
+    "content_panel:world-viewport",
+    "navigation:access:home",
+    "navigation:access:park_point_1_page",
+    "navigation:access:park_point_2_page",
+    "navigation:access:park_point_3_page",
+    "navigation:access:park_point_4_page",
+    "navigation:build:home",
+    "navigation:build:park_point_1_page",
+    "navigation:build:park_point_2_page",
+    "navigation:build:park_point_3_page",
+    "navigation:build:park_point_4_page",
+    "navigation:copilot:intro",
+    "navigation:copilot:intro_2d",
+    "navigation:default_access",
+    "navigation:default_access_2d",
+    "navigation:default_build",
+    "navigation:run:home",
+    "navigation:run:home_2d",
+    "navigation:speaker:intro"
+  ],
+  "deck_or_slides": {
+    "presentation_block_ids": [],
+    "slide_block_ids": [],
+    "slide_count": 0,
+    "step_like_block_ids": [],
+    "step_like_count": 0
+  },
+  "file_count": 62,
+  "navigations": [
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:home",
+      "key": "access:home",
+      "scene": "home",
+      "url": "/apps/app/mini-park/scene/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-1"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:park_point_1_page",
+      "key": "access:park_point_1_page",
+      "scene": "park_point_1_page",
+      "url": "/apps/app/mini-park/scene/park_point_1_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-2"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:park_point_2_page",
+      "key": "access:park_point_2_page",
+      "scene": "park_point_2_page",
+      "url": "/apps/app/mini-park/scene/park_point_2_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-3"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:park_point_3_page",
+      "key": "access:park_point_3_page",
+      "scene": "park_point_3_page",
+      "url": "/apps/app/mini-park/scene/park_point_3_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-4"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:park_point_4_page",
+      "key": "access:park_point_4_page",
+      "scene": "park_point_4_page",
+      "url": "/apps/app/mini-park/scene/park_point_4_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:home",
+      "key": "build:home",
+      "scene": "home",
+      "url": "/apps/build/mini-park?scene=home&file=src/scene/home/assembly.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-1"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:park_point_1_page",
+      "key": "build:park_point_1_page",
+      "scene": "park_point_1_page",
+      "url": "/apps/build/mini-park?scene=park_point_1_page&file=src/scene/home/t2/r-drilldown/c-park-point-1/content.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-2"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:park_point_2_page",
+      "key": "build:park_point_2_page",
+      "scene": "park_point_2_page",
+      "url": "/apps/build/mini-park?scene=park_point_2_page&file=src/scene/home/t2/r-drilldown/c-park-point-2/content.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-3"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:park_point_3_page",
+      "key": "build:park_point_3_page",
+      "scene": "park_point_3_page",
+      "url": "/apps/build/mini-park?scene=park_point_3_page&file=src/scene/home/t2/r-drilldown/c-park-point-3/content.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-park/home/t2/r-drilldown/c-park-point-4"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:park_point_4_page",
+      "key": "build:park_point_4_page",
+      "scene": "park_point_4_page",
+      "url": "/apps/build/mini-park?scene=park_point_4_page&file=src/scene/home/t2/r-drilldown/c-park-point-4/content.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:copilot:intro",
+      "key": "copilot:intro",
+      "scene": "home",
+      "url": "/apps/copilot/mini-park/presentation/intro"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home_2d@src/scene/home-2d/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:copilot:intro_2d",
+      "key": "copilot:intro_2d",
+      "scene": "home_2d",
+      "url": "/apps/copilot/mini-park/presentation/intro?scene=home_2d"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access",
+      "key": "default_access",
+      "scene": "home",
+      "url": "/apps/app/mini-park/scene/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home_2d@src/scene/home-2d/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access_2d",
+      "key": "default_access_2d",
+      "scene": "home_2d",
+      "url": "/apps/app/mini-park/scene/home-2d"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_build",
+      "key": "default_build",
+      "scene": "home",
+      "url": "/apps/build/mini-park"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:run:home",
+      "key": "run:home",
+      "scene": "home",
+      "url": "/apps/run/mini-park/scene/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home_2d@src/scene/home-2d/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:run:home_2d",
+      "key": "run:home_2d",
+      "scene": "home_2d",
+      "url": "/apps/run/mini-park/scene/home-2d"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home/assembly.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:speaker:intro",
+      "key": "speaker:intro",
+      "scene": "home",
+      "url": "/apps/copilot/mini-park/presentation/intro"
+    }
+  ],
+  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "source_files": [
+    "app.mei",
+    "data/metrics/park-map.bundle.mei",
+    "data/metrics/park-narrative.bundle.mei",
+    "map/home-basemap-runtime.map.mei",
+    "scene/home-2d/assembly.mei",
+    "scene/home-2d/t0/layout.mei",
+    "scene/home-2d/t0/r-map-stage/content.mei",
+    "scene/home-2d/t0/r-map-stage/gis-map/content.mei",
+    "scene/home-2d/t0/r-map-stage/layout.mei",
+    "scene/home-2d/t0/r-map-stage/s-map-stage/layout.mei",
+    "scene/home-2d/t0/r-viewport-canvas/content.mei",
+    "scene/home-2d/t0/r-viewport-canvas/layout.mei",
+    "scene/home-2d/t0/r-viewport-canvas/s-viewport-canvas/layout.mei",
+    "scene/home/assembly.mei",
+    "scene/home/t0/layout.mei",
+    "scene/home/t0/r-map-stage/content.mei",
+    "scene/home/t0/r-map-stage/gis-map/content.mei",
+    "scene/home/t0/r-map-stage/layout.mei",
+    "scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+    "scene/home/t0/r-viewport-canvas/content.mei",
+    "scene/home/t0/r-viewport-canvas/layout.mei",
+    "scene/home/t0/r-viewport-canvas/s-viewport-canvas/layout.mei",
+    "scene/home/t0/r-world-viewport/content.mei",
+    "scene/home/t0/r-world-viewport/layout.mei",
+    "scene/home/t0/r-world-viewport/s-world-viewport/layout.mei",
+    "scene/home/t1/geometry.mei",
+    "scene/home/t1/layout.mei",
+    "scene/home/t1/r-center-rail/layout.mei",
+    "scene/home/t1/r-center-rail/s-map-viewport/content.mei",
+    "scene/home/t1/r-center-rail/s-map-viewport/layout.mei",
+    "scene/home/t1/r-header/layout.mei",
+    "scene/home/t1/r-header/s-header/layout.mei",
+    "scene/home/t1/r-left-rail/layout.mei",
+    "scene/home/t1/r-left-rail/s-lake-pavilion/content.mei",
+    "scene/home/t1/r-left-rail/s-lake-pavilion/layout.mei",
+    "scene/home/t1/r-left-rail/s-sakura-path/content.mei",
+    "scene/home/t1/r-left-rail/s-sakura-path/layout.mei",
+    "scene/home/t1/r-right-rail/layout.mei",
+    "scene/home/t1/r-right-rail/s-cafe-corner/content.mei",
+    "scene/home/t1/r-right-rail/s-cafe-corner/layout.mei",
+    "scene/home/t1/r-right-rail/s-play-zone/content.mei",
+    "scene/home/t1/r-right-rail/s-play-zone/layout.mei",
+    "scene/home/t2/layout.mei",
+    "scene/home/t2/links/popups.mei",
+    "scene/home/t2/r-drilldown/c-park-point-1/content.mei",
+    "scene/home/t2/r-drilldown/c-park-point-2/content.mei",
+    "scene/home/t2/r-drilldown/c-park-point-3/content.mei",
+    "scene/home/t2/r-drilldown/c-park-point-4/content.mei",
+    "scene/home/t2/r-drilldown/layout.mei",
+    "scene/home/t2/r-drilldown/s-park-point-1/layout.mei",
+    "scene/home/t2/r-drilldown/s-park-point-2/layout.mei",
+    "scene/home/t2/r-drilldown/s-park-point-3/layout.mei",
+    "scene/home/t2/r-drilldown/s-park-point-4/layout.mei",
+    "stage/home.stage.mdx",
+    "stage/home_2d.stage.mdx",
+    "view/home-basemap-viewpoints.view.mei",
+    "view/home-world-runtime.view.mei",
+    "view/home-world-viewpoints.view.mei",
+    "warmup/home-2d.critical.mei",
+    "warmup/home.critical.mei",
+    "world/3d/plaza-native.world.mei",
+    "world/gis/park-world.world.mei"
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home/assembly.mei",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [
+      "park_point_1_page",
+      "park_point_2_page",
+      "park_point_3_page",
+      "park_point_4_page"
+    ],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "stage_id": "home"
+      }
+    ]
+  },
+  "syntax_version": "2.5.7"
+}

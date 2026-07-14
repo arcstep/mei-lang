@@ -1,0 +1,149 @@
+{
+  "abi": {
+    "content_panel_count": 9,
+    "content_panel_ids": [
+      "mei-tutorial/intro/deck/p/slide-01-cover/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-02-why/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-03-graph/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-04-stages/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-05-planes/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-06-content/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-07-build/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-08-matrix/r-main/s-content/content",
+      "mei-tutorial/intro/deck/p/slide-09-next/r-main/s-content/content"
+    ],
+    "digest_note": "structure_digest/narration_digest are asserted in mei-host-graph runtime baseline",
+    "stage_mdx_count": 0,
+    "stage_mdx_fills": [],
+    "stage_mdx_stage_ids": []
+  },
+  "app_id": "mei-tutorial",
+  "app_skeleton": {
+    "block_id": "app_skeleton:mei-tutorial",
+    "default_scene": "intro",
+    "id": "mei-tutorial",
+    "title": "MeiLang 入门 · Tutorial"
+  },
+  "block_count": 41,
+  "blocks_by_kind": {
+    "app_skeleton": 1,
+    "content_panel": 9,
+    "navigation": 2,
+    "plane_layout": 1,
+    "presentation": 1,
+    "region_layout": 9,
+    "section_layout": 9,
+    "slide_layout": 9
+  },
+  "critical_block_ids": [
+    "app_skeleton:mei-tutorial",
+    "content_panel:mei-tutorial/intro/deck/p/slide-01-cover/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-02-why/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-03-graph/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-04-stages/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-05-planes/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-06-content/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-07-build/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-08-matrix/r-main/s-content/content",
+    "content_panel:mei-tutorial/intro/deck/p/slide-09-next/r-main/s-content/content",
+    "navigation:access:intro",
+    "navigation:default_access",
+    "presentation:intro@src/presentation/intro/intro.deck.mdx",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-01-cover",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-02-why",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-03-graph",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-04-stages",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-05-planes",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-06-content",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-07-build",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-08-matrix",
+    "slide_layout:mei-tutorial/intro/deck/p/slide-09-next"
+  ],
+  "deck_or_slides": {
+    "presentation_block_ids": [
+      "presentation:intro@src/presentation/intro/intro.deck.mdx"
+    ],
+    "slide_block_ids": [
+      "slide_layout:mei-tutorial/intro/deck/p/slide-01-cover",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-02-why",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-03-graph",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-04-stages",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-05-planes",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-06-content",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-07-build",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-08-matrix",
+      "slide_layout:mei-tutorial/intro/deck/p/slide-09-next"
+    ],
+    "slide_count": 9,
+    "step_like_block_ids": [],
+    "step_like_count": 0
+  },
+  "file_count": 2,
+  "navigations": [
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "intro@src/presentation/intro/intro.deck.mdx"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:intro",
+      "key": "access:intro",
+      "scene": "intro",
+      "url": "/apps/mei-tutorial/intro"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "intro@src/presentation/intro/intro.deck.mdx"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access",
+      "key": "default_access",
+      "scene": "intro",
+      "url": "/apps/mei-tutorial/intro"
+    }
+  ],
+  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "source_files": [
+    "app.mei",
+    "presentation/intro/intro.deck.mdx"
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "intro",
+        "profile": "slides",
+        "source_anchor": "src/presentation/intro/intro.deck.mdx",
+        "stage_id": "intro",
+        "state_namespace": "stage:intro",
+        "unit_count": 9,
+        "unit_ids": [
+          "slide-01-cover",
+          "slide-02-why",
+          "slide-03-graph",
+          "slide-04-stages",
+          "slide-05-planes",
+          "slide-06-content",
+          "slide-07-build",
+          "slide-08-matrix",
+          "slide-09-next"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "intro",
+    "excluded_t2_scene_ids": [],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "intro",
+        "profile": "slides",
+        "stage_id": "intro"
+      }
+    ]
+  },
+  "syntax_version": "2.5.7"
+}

@@ -104,10 +104,7 @@ fn section_with_body(id: &str, body: UiNodeDecl, extra_props: serde_json::Value)
 }
 
 fn strict_fill_options() -> LayoutBudgetValidateOptions {
-    LayoutBudgetValidateOptions {
-        strict_t1_fill_down: true,
-        strict_t2_fill_down: true,
-    }
+    LayoutBudgetValidateOptions::for_embedded_scene(true, true)
 }
 
 fn resolve_with_strict(
@@ -296,22 +293,19 @@ fn layout_policy_budget_overflow_path_deleted_forbids_content_budget() {
 
 #[test]
 fn layout_policy_region_overflow_emits_error() {
-    let sec_a = section_with_body(
-        "sec_a",
-        content_panel("body_a", &[300], &["1fr"]),
-        json!({
-            "__mei_ui_role": "section",
-            "__mei_padding_profile": "dense",
-        }),
-    );
-    let sec_b = section_with_body(
-        "sec_b",
-        content_panel("body_b", &[300], &["1fr"]),
-        json!({
-            "__mei_ui_role": "section",
-            "__mei_padding_profile": "dense",
-        }),
-    );
+    // Overflow is checked after materialize stamps `__mei_section_derived_height_px`.
+    // Construct a post-stamp region tree and re-enter materialize overflow validation
+    // by using non-fill sections that already carry derived heights (no content_budget).
+    let mut sec_a = empty_panel("sec_a");
+    sec_a.props = json!({
+        "__mei_ui_role": "section",
+        "__mei_section_derived_height_px": 180.0,
+    });
+    let mut sec_b = empty_panel("sec_b");
+    sec_b.props = json!({
+        "__mei_ui_role": "section",
+        "__mei_section_derived_height_px": 180.0,
+    });
     let mut region = empty_panel("right_rail");
     region.layout = Some(LayoutDecl {
         layout_type: "grid".to_string(),
@@ -331,14 +325,28 @@ fn layout_policy_region_overflow_emits_error() {
     region.blocks = vec![UiTreeNode::Panel(sec_a), UiTreeNode::Panel(sec_b)];
     let mut panels = vec![region];
     let mut diagnostics = Vec::new();
-    resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
+    // Skip fill-down enforcement so empty sections don't emit body_not_fill.
+    validate_layout_budget_policy_with_options(
+        &mut panels,
+        &mut diagnostics,
+        "overflow.mei",
+        &LayoutBudgetValidateOptions::for_profile_and_ops(
+            crate::model::StageProfile::Slides,
+            true,
+            true,
+        ),
+    );
+    crate::compile::layout_budget::materialize_layout_budget_px(
+        &mut panels,
+        &mut diagnostics,
+        "overflow.mei",
+    );
     assert_has_code(&diagnostics, "layout_policy_region_overflow");
 }
 
 #[test]
 fn layout_policy_fill_down_compliant_tree_emits_no_errors() {
-    let body = content_panel("content_strip", &[], &["1fr"]);
-    let mut body = body;
+    let mut body = fill_content_panel("content_strip", &["1fr"]);
     body.props = json!({
         "__mei_layout_fill": true,
         "height": "100%",
@@ -371,7 +379,7 @@ fn layout_policy_fill_down_compliant_tree_emits_no_errors() {
         UiTreeNode::Panel(section),
         UiTreeNode::Panel(section_with_body(
             "inspection",
-            content_panel("inspection_body", &[200], &["1fr"]),
+            fill_content_panel("inspection_body", &["1fr"]),
             json!({
                 "__mei_ui_role": "section",
                 "__mei_padding_profile": "compact_ai",
@@ -472,10 +480,7 @@ fn layout_policy_t2_fill_down_requires_explicit_opt_out() {
         &mut opted_out_panels,
         &mut opted_out_diagnostics,
         "content-driven-t2.mei",
-        &LayoutBudgetValidateOptions {
-            strict_t1_fill_down: true,
-            strict_t2_fill_down: false,
-        },
+        &LayoutBudgetValidateOptions::for_embedded_scene(true, false),
     );
     assert!(
         !opted_out_diagnostics
@@ -615,7 +620,7 @@ fn find_panel_by_id_recursive<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a
 
 #[test]
 fn layout_policy_budget_compliant_tree_emits_no_errors() {
-    let body = content_panel("content_strip", &[100, 80], &["1fr", "1fr"]);
+    let body = fill_content_panel("content_strip", &["1fr", "1fr"]);
     let section = section_with_body(
         "enforcement",
         body,
@@ -651,5 +656,73 @@ fn layout_policy_budget_compliant_tree_emits_no_errors() {
     assert!(
         layout_errors.is_empty(),
         "expected no layout_policy errors, got {layout_errors:?}"
+    );
+}
+
+#[test]
+fn slides_paged_aperture_skips_fill_down_enforcement() {
+    let mut body = empty_panel("slide-content");
+    body.props = json!({
+        "__mei_ui_role": "content",
+        "__mei_tier": "t1",
+        // Missing __mei_layout_fill — would fail under cockpit strict.
+    });
+    let mut section = empty_panel("slide-section");
+    section.props = json!({
+        "__mei_ui_role": "section",
+        "__mei_tier": "t1",
+    });
+    section.blocks = vec![UiTreeNode::Panel(body)];
+    let mut panels = vec![section];
+    let mut diagnostics = Vec::new();
+    validate_layout_budget_policy_with_options(
+        &mut panels,
+        &mut diagnostics,
+        "slides.deck.mdx",
+        &LayoutBudgetValidateOptions::for_profile_and_ops(
+            crate::model::StageProfile::Slides,
+            true,
+            true,
+        ),
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code == "layout_policy_body_not_fill"),
+        "slides paged aperture must not apply cockpit Fill-down: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn cockpit_fill_down_error_includes_profile_tag() {
+    let mut body = empty_panel("enforcement-stats");
+    body.props = json!({
+        "__mei_ui_role": "content",
+        "__mei_tier": "t1",
+    });
+    let section = section_with_body(
+        "s1",
+        body,
+        json!({
+            "__mei_ui_role": "section",
+            "__mei_tier": "t1",
+        }),
+    );
+    let mut panels = vec![section];
+    let mut diagnostics = Vec::new();
+    validate_layout_budget_policy_with_options(
+        &mut panels,
+        &mut diagnostics,
+        "cockpit.mei",
+        &LayoutBudgetValidateOptions::for_embedded_scene(true, true),
+    );
+    let hit = diagnostics
+        .iter()
+        .find(|d| d.code == "layout_policy_body_not_fill");
+    assert!(hit.is_some(), "expected fill-down error: {diagnostics:?}");
+    assert!(
+        hit.unwrap().message.contains("[profile=cockpit]"),
+        "expected profile-aware diagnostic: {:?}",
+        hit.unwrap().message
     );
 }

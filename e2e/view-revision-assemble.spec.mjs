@@ -113,6 +113,45 @@ test.describe("view-revision assemble", () => {
     }));
     expect(materialized.viewport).toBeTruthy();
     expect(materialized.propsOrHost).toBeTruthy();
+    await page.waitForFunction(
+      () => {
+        const opinion = document.querySelector("mei-cockpit-opinion-panel");
+        const actionBar = document.querySelector("mei-cockpit-scene-action-bar");
+        return (
+          opinion?.props &&
+          Object.keys(opinion.props).length > 0 &&
+          opinion.shadowRoot?.querySelector(".body")?.textContent?.trim() &&
+          actionBar?.props &&
+          Array.isArray(actionBar.props.actions) &&
+          actionBar.props.actions.length > 0
+        );
+      },
+      { timeout: 60000 },
+    );
+    const stageState = await page.evaluate(() => {
+      const mapStage = document
+        .querySelector("mei-map-maplibre")
+        ?.closest("[data-mei-stage-kind]");
+      const worldStage = document
+        .querySelector("mei-world-stage")
+        ?.closest("[data-mei-stage-kind]");
+      const opinion = document.querySelector("mei-cockpit-opinion-panel");
+      const actionBar = document.querySelector("mei-cockpit-scene-action-bar");
+      return {
+        mapKind: mapStage?.getAttribute("data-mei-stage-kind") || "",
+        mapDisplay: mapStage ? getComputedStyle(mapStage).display : "",
+        worldKind: worldStage?.getAttribute("data-mei-stage-kind") || "",
+        worldVisibility: worldStage ? getComputedStyle(worldStage).visibility : "",
+        opinionBody: opinion?.shadowRoot?.querySelector(".body")?.textContent?.trim() || "",
+        actionCount: actionBar?.shadowRoot?.querySelectorAll(".action-btn").length || 0,
+      };
+    });
+    expect(stageState.mapKind).toBe("map-stage");
+    expect(stageState.mapDisplay).not.toBe("none");
+    expect(stageState.worldKind).toBe("world-stage");
+    expect(stageState.worldVisibility).toBe("hidden");
+    expect(stageState.opinionBody.length).toBeGreaterThan(0);
+    expect(stageState.actionCount).toBeGreaterThan(0);
   });
 
   test("data-demo app surface materializes preview without html fragment", async ({ page }) => {

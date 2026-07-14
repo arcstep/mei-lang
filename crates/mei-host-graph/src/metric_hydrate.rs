@@ -162,13 +162,16 @@ fn lower_bundle_dataset(
         return None;
     }
     let schema = lower_bundle_schema(args.get("schema"));
-    let source = attach_schema_normalize(
-        enrich_file_backed_source(
-            args.get("source")
-                .and_then(|source| resolve_bundle_source(source, ops_sources))
-                .unwrap_or_else(empty_source_decl),
+    let source = attach_filter_dimensions(
+        attach_schema_normalize(
+            enrich_file_backed_source(
+                args.get("source")
+                    .and_then(|source| resolve_bundle_source(source, ops_sources))
+                    .unwrap_or_else(empty_source_decl),
+            ),
+            &schema,
         ),
-        &schema,
+        args.get("filters"),
     );
     Some(DatasetView {
         id,
@@ -343,6 +346,81 @@ fn attach_schema_normalize(source: SourceDecl, schema: &[ColumnSchema]) -> Sourc
         content: serde_json::to_string(&Value::Object(meta)).ok(),
         ..source
     }
+}
+
+/// 把 dataset filters 声明（如 `supervisionCategory → 监督类别`）写入
+/// source.content.filter_dimensions，供 metric dataframe 作用域绑定识别逻辑 key。
+fn attach_filter_dimensions(source: SourceDecl, filters: Option<&Value>) -> SourceDecl {
+    let parsed = parse_bundle_filter_dimensions(filters);
+    if parsed.is_empty() {
+        return source;
+    }
+    let mut meta = source
+        .content
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let existing = meta
+        .get("filter_dimensions")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if !existing.is_empty() {
+        return source;
+    }
+    meta.insert(
+        "filter_dimensions".to_string(),
+        Value::Object(
+            parsed
+                .into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect(),
+        ),
+    );
+    SourceDecl {
+        content: serde_json::to_string(&Value::Object(meta)).ok(),
+        ..source
+    }
+}
+
+fn parse_bundle_filter_dimensions(filters: Option<&Value>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(map) = filters.and_then(Value::as_object) else {
+        return out;
+    };
+    for (key, expr_val) in map {
+        let Some(expr) = expr_val
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
+            continue;
+        };
+        if let Some(field) = parse_filter_expression_column(expr) {
+            out.insert(key.clone(), field);
+        }
+    }
+    out
+}
+
+fn parse_filter_expression_column(expr: &str) -> Option<String> {
+    for marker in [
+        " in filter.",
+        " contains filter.",
+        " between filter.",
+        " eq filter.",
+        " gte filter.",
+        " lte filter.",
+    ] {
+        if let Some(idx) = expr.find(marker) {
+            let column = expr[..idx].trim();
+            if !column.is_empty() {
+                return Some(column.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn normalize_map_from_schema(schema: &[ColumnSchema]) -> BTreeMap<String, String> {

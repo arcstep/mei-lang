@@ -92,6 +92,11 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
     let compiled = CompiledApp {
         app_id: "preview-world-metric".to_string(),
         active_scene: Some("cockpit_embedded_carousel".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "03-cockpit-embedded-carousel.mei".to_string(),
         resources: Vec::new(),
         world_metrics: BTreeMap::from([(

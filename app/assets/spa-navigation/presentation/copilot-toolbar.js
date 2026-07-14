@@ -442,6 +442,9 @@
     if (target.dataset.copilotCaptionToggle === "true") {
       uiState.captionVisible = !uiState.captionVisible;
       target.classList.toggle("is-active", uiState.captionVisible);
+      if (typeof boot.presenterSession?.setPref === "function") {
+        boot.presenterSession.setPref("caption", uiState.captionVisible);
+      }
       renderCaption();
       return;
     }
@@ -544,6 +547,32 @@
     if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
       layout.syncCopilotFabToolbarLayout();
     }
+    const session = boot.presenterSession;
+    const snap = session && typeof session.getSnapshot === "function" ? session.getSnapshot() : null;
+    const navigable = Boolean(snap?.hasNavigableCues);
+    // Track off / empty catalog: hide cue navigation + autoplay affordances.
+    ["copilot-session", "copilot-prev", "copilot-next"].forEach((key) => {
+      const btn = toolbar.querySelector(`[data-${key}]`);
+      if (!(btn instanceof HTMLElement)) return;
+      btn.hidden = !navigable;
+      btn.disabled = !navigable;
+      btn.classList.toggle("is-disabled", !navigable);
+    });
+    if (snap?.prefs) {
+      uiState.captionVisible = Boolean(snap.prefs.caption);
+      const captionBtn = toolbar.querySelector("[data-copilot-caption-toggle]");
+      if (captionBtn) {
+        captionBtn.classList.toggle("is-active", uiState.captionVisible);
+      }
+      const tts = ttsApi();
+      if (tts && typeof tts.setEnabled === "function" && !snap.prefs.voice) {
+        try {
+          if (tts.state?.enabled) tts.setEnabled(false);
+        } catch (_) {}
+      }
+      const notesOpen = Boolean(snap.prefs.speaker_notes);
+      uiState.drawerOpen = notesOpen;
+    }
     const sessionBtn = toolbar.querySelector("[data-copilot-session]");
     if (sessionBtn) {
       sessionBtn.textContent = sessionButtonLabel(eng);
@@ -555,11 +584,15 @@
     if (ttsBtn) {
       const tts = ttsApi();
       const supported = Boolean(tts && typeof tts.isSupported === "function" && tts.isSupported());
-      ttsBtn.disabled = !supported;
+      const voiceOn = snap?.prefs ? Boolean(snap.prefs.voice) : true;
+      ttsBtn.disabled = !supported || !voiceOn;
       ttsBtn.classList.toggle("is-active", Boolean(tts?.state?.enabled || tts?.state?.speaking));
+      ttsBtn.hidden = !navigable;
     }
-    toolbar.dataset.progress =
-      eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
+                toolbar.dataset.progress =
+      eng && Array.isArray(eng.steps) && eng.steps.length
+        ? `${eng.stepIndex + 1} / ${eng.steps.length}`
+        : "";
     toolbar.title = step?.title || manifest?.title || COPILOT_TITLE;
     const nextOpen = uiState.toolbarOpen;
     if (nextOpen) {
@@ -570,6 +603,8 @@
       floatingRoot()?.classList.remove("copilot-toolbar-active");
     }
     refreshFabChrome();
+    renderCaption();
+    renderDrawer();
   }
 
   function renderAll() {

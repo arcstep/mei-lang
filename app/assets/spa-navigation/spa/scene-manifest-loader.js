@@ -97,7 +97,7 @@
       body: JSON.stringify({
         app_id: appId,
         scene: sceneId || "home",
-        layers: layerNames,
+        layers: Array.isArray(layerNames) ? layerNames : [],
         data_mode: axes?.data_mode || "",
         review_projection: axes?.review_projection || "",
         tab: axes?.tab || "",

@@ -1,0 +1,276 @@
+{
+  "abi": {
+    "capability_count": 4,
+    "capability_ids": [
+      "slide-01-mission-content",
+      "slide-02-chain-content",
+      "slide-03-path-content",
+      "slide-04-handoff-content"
+    ],
+    "digest_policy": {
+      "narration_includes_caption_notes_timing": true,
+      "structure_excludes_caption_notes_timing": true
+    },
+    "narration_cue_count": 0,
+    "narration_digest": "30406ea523c53def",
+    "profile_layout_policy": "slides:inline=constrained/block=constrained/fill=paged_aperture",
+    "public_slot_count": 15,
+    "public_slot_ids": [
+      "slide-01-mission-content",
+      "slide-02-chain-content",
+      "slide-03-path-content",
+      "slide-04-handoff-content",
+      "vp_chain_items",
+      "vp_chain_models",
+      "vp_chain_warnings",
+      "vp_handoff_title",
+      "vp_mission_action",
+      "vp_mission_body",
+      "vp_mission_tagline",
+      "vp_mission_title",
+      "vp_path_shell",
+      "vp_path_steps",
+      "vp_path_title"
+    ],
+    "slot_module_id": "scene:supervision",
+    "stage_mdx_source": null,
+    "stage_surface": "paged",
+    "structure_digest": "d088b18ef3b3659a",
+    "world_capability_count": 0,
+    "world_is_content": true
+  },
+  "active_scene": "supervision",
+  "app_id": "mini-data",
+  "assembly_key": "supervision@src/presentation/supervision/supervision.deck.mdx",
+  "digest_policy": {
+    "compare_absolute_compile_revision": false,
+    "compare_absolute_manifest_digest": false,
+    "compare_structure_counts": true,
+    "compile_revision_present": true
+  },
+  "layer_plan": {
+    "schemaVersion": "mei-layer-plan-v1",
+    "tier_entry_counts": {
+      "p": 12,
+      "t1": 4
+    }
+  },
+  "mcg": {
+    "node_count": 71,
+    "nodes_by_kind": {
+      "app_skeleton": 1,
+      "content_panel": 9,
+      "metric_def_bundle": 2,
+      "navigation": 14,
+      "page_instance": 4,
+      "semantic_graph": 40,
+      "warmup_policy": 1
+    },
+    "schemaVersion": "mei-mcg-registry-v2"
+  },
+  "mrg": {
+    "schemaVersion": "mei-mrg-registry-v3",
+    "slot_count_compared": false
+  },
+  "panel_ids": [
+    "r-main",
+    "s-content",
+    "slide-01-mission",
+    "slide-01-mission-content",
+    "slide-02-chain",
+    "slide-02-chain-content",
+    "slide-03-path",
+    "slide-03-path-content",
+    "slide-04-handoff",
+    "slide-04-handoff-content"
+  ],
+  "presentation_map": {
+    "default_script_step_count": 8,
+    "schemaVersion": "mei-presentation-map-v1",
+    "slide_count": 4,
+    "slide_ids": [
+      "slide-01-mission",
+      "slide-02-chain",
+      "slide-03-path",
+      "slide-04-handoff"
+    ],
+    "viewpoint_count": 11,
+    "viewpoint_ids": [
+      "vp_chain_items",
+      "vp_chain_models",
+      "vp_chain_warnings",
+      "vp_handoff_title",
+      "vp_mission_action",
+      "vp_mission_body",
+      "vp_mission_tagline",
+      "vp_mission_title",
+      "vp_path_shell",
+      "vp_path_steps",
+      "vp_path_title"
+    ]
+  },
+  "scene_id": "supervision",
+  "scene_routes": [
+    {
+      "is_default": false,
+      "kind": "scene",
+      "scene_id": "enforcement_analytics_page",
+      "target_file": "src/scene/home/t2/r-enforcement/c-enforcement-analytics/content.mei"
+    },
+    {
+      "is_default": true,
+      "kind": "scene",
+      "scene_id": "home",
+      "target_file": "src/scene/home.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "presentation",
+      "scene_id": "supervision",
+      "target_file": "src/presentation/supervision/supervision.deck.mdx"
+    },
+    {
+      "is_default": false,
+      "kind": "scene",
+      "scene_id": "supervision_items_analytics_page",
+      "target_file": "src/scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "scene",
+      "scene_id": "supervision_models_analytics_page",
+      "target_file": "src/scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "scene",
+      "scene_id": "warnings_analytics_page",
+      "target_file": "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei"
+    }
+  ],
+  "schema_ledger": {
+    "build_manifest": "mei-build-manifest-v1",
+    "client_bootstrap": "mei-client-bootstrap-v1",
+    "compile_bundle": "mei-compile-bundle-v1",
+    "compiler_graph": "mei-compiler-graph-v2",
+    "eval_slot_group": "eval-slot-group-v1",
+    "layer_plan": "mei-layer-plan-v1",
+    "manifest_index": "manifest-index-v1",
+    "mcg_registry": "mei-mcg-registry-v2",
+    "mrg_registry_host_graph": "mei-mrg-registry-v3",
+    "mrg_registry_server_note": "mei-mrg-registry-v2 (server/src/graph/mrg/registry.rs) forks from host-graph v3",
+    "presentation_map": "mei-presentation-map-v1",
+    "runtime_plans": "runtime-plans-v2",
+    "scene_view_manifest": "scene-view-manifest-v1",
+    "shell_layer": "shell-v1",
+    "structure_full": "structure-full-v1"
+  },
+  "schema_version": "mei-stage-architecture-runtime-baseline-v1",
+  "scope_routes": [
+    {
+      "assembly_key": "mini-data/home/t2/r-enforcement/c-enforcement-analytics",
+      "scene_id": "enforcement_analytics_page",
+      "url": "/apps/app/mini-data/scene/enforcement_analytics_page"
+    },
+    {
+      "assembly_key": "home@src/scene/home.mei",
+      "scene_id": "home",
+      "url": "/apps/mini-data/home"
+    },
+    {
+      "assembly_key": "supervision@src/presentation/supervision/supervision.deck.mdx",
+      "scene_id": "supervision",
+      "url": "/apps/mini-data/supervision"
+    },
+    {
+      "assembly_key": "mini-data/home/t2/r-supervision-items/c-supervision-items-analytics",
+      "scene_id": "supervision_items_analytics_page",
+      "url": "/apps/app/mini-data/scene/supervision_items_analytics_page"
+    },
+    {
+      "assembly_key": "mini-data/home/t2/r-supervision-models/c-supervision-models-analytics",
+      "scene_id": "supervision_models_analytics_page",
+      "url": "/apps/app/mini-data/scene/supervision_models_analytics_page"
+    },
+    {
+      "assembly_key": "mini-data/home/t2/r-warnings/c-warnings-analytics",
+      "scene_id": "warnings_analytics_page",
+      "url": "/apps/app/mini-data/scene/warnings_analytics_page"
+    }
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/stage/home.stage.mdx",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "surface": "viewport",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      },
+      {
+        "legacy_scene_id": "supervision",
+        "profile": "slides",
+        "source_anchor": "src/presentation/supervision/supervision.deck.mdx",
+        "stage_id": "supervision",
+        "state_namespace": "stage:supervision",
+        "surface": "paged",
+        "unit_count": 4,
+        "unit_ids": [
+          "slide-01-mission",
+          "slide-02-chain",
+          "slide-03-path",
+          "slide-04-handoff"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [
+      "enforcement_analytics_page",
+      "supervision_items_analytics_page",
+      "supervision_models_analytics_page",
+      "warnings_analytics_page"
+    ],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home.mei",
+        "stage_id": "home"
+      },
+      {
+        "is_default": false,
+        "legacy_scene_id": "supervision",
+        "profile": "slides",
+        "source_anchor": "src/presentation/supervision/supervision.deck.mdx",
+        "stage_id": "supervision"
+      }
+    ]
+  },
+  "structure_full": {
+    "node_count": 42,
+    "scene_root_count": 1,
+    "scene_roots": [
+      "supervision/supervision"
+    ],
+    "schema_version": "structure-full-v1"
+  },
+  "t2_page_count": 4,
+  "t2_page_scenes": [
+    "enforcement_analytics_page",
+    "supervision_items_analytics_page",
+    "supervision_models_analytics_page",
+    "warnings_analytics_page"
+  ],
+  "world_plan": {
+    "world_count": 0,
+    "world_ids": []
+  }
+}

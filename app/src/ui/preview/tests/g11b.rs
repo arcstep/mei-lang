@@ -58,6 +58,11 @@ fn runtime_scene_anchor_prefers_matching_route_scene_id() {
             access_export: true,
         }],
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei"
             .to_string(),
         file_tree: Vec::new(),
@@ -97,6 +102,11 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
     let compiled = CompiledApp {
         app_id: "demo".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: Vec::new(),
         world_metrics: BTreeMap::new(),
@@ -236,6 +246,11 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
     let compiled = CompiledApp {
         app_id: "preview-alias".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: resources.values().cloned().collect(),
         world_metrics: BTreeMap::from([(

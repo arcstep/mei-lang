@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::compile::mutations::{apply_frame_mutations, apply_world_mutations};
-use crate::compile::panel_normalize::normalize_panel_slots;
+use crate::compile::panel_normalize::normalize_panel_slots_with_options;
 use crate::model::{Diagnostic, Severity};
 use crate::typed_refs::SceneRegistry;
 
@@ -111,7 +111,15 @@ pub(super) fn validate_and_apply_mutations(
         &mut ctx.diagnostics,
         target_file,
     );
-    normalize_panel_slots(&mut ctx.panels, &mut ctx.diagnostics, target_file);
+    normalize_panel_slots_with_options(
+        &mut ctx.panels,
+        &mut ctx.diagnostics,
+        target_file,
+        &crate::compile::layout_budget::LayoutBudgetValidateOptions::for_embedded_scene(
+            ctx.config.ops.strict_fill_down,
+            ctx.config.ops.fill_down,
+        ),
+    );
     if ctx.scene_decl_count > 1 {
         ctx.diagnostics.push(Diagnostic {
             severity: Severity::Error,

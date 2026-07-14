@@ -40,10 +40,10 @@ pub fn enrich_compiled_scope(
         theme_id.as_str(),
         &mei_config.ops.themes,
     );
-    let layout_options = LayoutBudgetValidateOptions {
-        strict_t1_fill_down: mei_config.ops.strict_fill_down,
-        strict_t2_fill_down: mei_config.ops.fill_down,
-    };
+    let layout_options = LayoutBudgetValidateOptions::for_embedded_scene(
+        mei_config.ops.strict_fill_down,
+        mei_config.ops.fill_down,
+    );
     if let Some(contract) = compiled.scene_contract.as_mut() {
         let source_path = compiled.active_target_file.as_str();
         if options.materialize_px {

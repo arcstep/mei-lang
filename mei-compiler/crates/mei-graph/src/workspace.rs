@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use mei_syntax::parse_deck_source_file;
 use mei_syntax::v2::parse_v2_source_file;
+use mei_syntax::StageMdxError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
@@ -10,6 +11,7 @@ use crate::deck::{deck_to_v2, DeckBuildError};
 use crate::expand::expand_v2_file;
 use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
 use crate::registry::{MacroRegistry, TemplateRoots};
+use crate::stage_mdx::compile_cockpit_stage_file;
 use crate::world_expand::{expand_world_v2_file, WorldContextCatalog, WorldExpandError};
 
 #[derive(Debug, Error)]
@@ -54,6 +56,15 @@ pub enum CompileAppError {
         "presentation_dual_source_forbidden: legacy presentation authoring is forbidden at `{path}`; use `src/presentation/{{stage}}/{{stage}}.deck.mdx`"
     )]
     LegacyPresentationForbidden { path: PathBuf },
+    #[error("{error}")]
+    StageMdxParse { error: StageMdxError },
+    #[error(
+        "narration_aot_session_dual_source: cockpit stage `{stage_id}` has both `src/stage/{{id}}.stage.mdx` and default AOT `*.scene.mdx` at `{scene_mdx}`"
+    )]
+    NarrationAotSessionDualSource {
+        stage_id: String,
+        scene_mdx: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,11 +126,29 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         .collect();
     deck_paths.sort();
 
+    let mut stage_mdx_paths: Vec<PathBuf> = WalkDir::new(&src_root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".stage.mdx"))
+        })
+        .map(|entry| entry.into_path())
+        .collect();
+    stage_mdx_paths.sort();
+
     reject_legacy_presentation_authoring(&src_root)?;
 
     for path in &deck_paths {
         validate_deck_location(&src_root, path)?;
         reject_dual_presentation_source(path)?;
+    }
+
+    for path in &stage_mdx_paths {
+        validate_stage_mdx_location(&src_root, path)?;
+        reject_stage_mdx_scene_dual_source(&src_root, path)?;
     }
 
     // Old presentation deep trees are forbidden; never lower them as author input.
@@ -187,6 +216,14 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         files.push(outcome);
     }
 
+    for path in &stage_mdx_paths {
+        let rel = source_relative_path(&src_root, path);
+        let outcome = compile_cockpit_stage_file(path, &rel)
+            .map_err(|error| CompileAppError::StageMdxParse { error })?;
+        blocks.extend(outcome.blocks.clone());
+        files.push(outcome);
+    }
+
     files.sort_by(|a, b| a.source_file.cmp(&b.source_file));
     blocks.sort_by(|a, b| a.block_id.cmp(&b.block_id));
 
@@ -221,6 +258,59 @@ fn validate_deck_location(src_root: &Path, path: &Path) -> Result<(), CompileApp
             path.display()
         )))
     }
+}
+
+/// Cockpit Stage MDX must live at `src/stage/{stage_id}.stage.mdx`.
+fn validate_stage_mdx_location(src_root: &Path, path: &Path) -> Result<(), CompileAppError> {
+    let rel = path.strip_prefix(src_root).unwrap_or(path);
+    let components: Vec<_> = rel.components().collect();
+    let valid = components.len() == 2
+        && components[0].as_os_str() == "stage"
+        && components[1]
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".stage.mdx"));
+    if valid {
+        Ok(())
+    } else {
+        Err(CompileAppError::Config(format!(
+            "{}:1:1: cockpit stage mdx path must be `src/stage/{{stage_id}}.stage.mdx`",
+            path.display()
+        )))
+    }
+}
+
+/// When AOT Stage MDX exists, a same-stage `*.scene.mdx` with `default_for_stage: true` is dual-source.
+fn reject_stage_mdx_scene_dual_source(
+    src_root: &Path,
+    stage_mdx_path: &Path,
+) -> Result<(), CompileAppError> {
+    let file_stem = stage_mdx_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_suffix(".stage.mdx"))
+        .unwrap_or("");
+    if file_stem.is_empty() {
+        return Ok(());
+    }
+    let scene_mdx = src_root.join("scene").join(format!("{file_stem}.scene.mdx"));
+    if !scene_mdx.is_file() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&scene_mdx).unwrap_or_default();
+    let is_default_aot = raw.lines().any(|line| {
+        let t = line.trim();
+        t == "default_for_stage: true"
+            || t == "default_for_stage:true"
+            || t.eq_ignore_ascii_case("default_for_stage: yes")
+    });
+    if is_default_aot {
+        return Err(CompileAppError::NarrationAotSessionDualSource {
+            stage_id: file_stem.to_string(),
+            scene_mdx,
+        });
+    }
+    Ok(())
 }
 
 fn reject_legacy_presentation_authoring(src_root: &Path) -> Result<(), CompileAppError> {

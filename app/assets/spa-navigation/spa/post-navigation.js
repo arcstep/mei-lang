@@ -194,6 +194,22 @@
           boot.markLoadingPostSpaDone(navigationId);
         }
         applySceneProjectionDepth(doc);
+        // Phase 5: rebind Stage Surface + Presenter Session for the new stage (no cross-stage prefs).
+        try {
+          if (typeof boot.stageSurface?.syncFromLocation === "function") {
+            boot.stageSurface.syncFromLocation();
+          }
+          const stageId =
+            sceneCtx?.sceneId ||
+            (typeof boot.stageSurface?.parseStageIdFromPath === "function"
+              ? boot.stageSurface.parseStageIdFromPath()
+              : "");
+          if (typeof boot.presenterSession?.resetForStage === "function") {
+            boot.presenterSession.resetForStage(stageId);
+          }
+        } catch (error) {
+          console.warn("[spa-navigation] stage surface / presenter rebind skipped", error);
+        }
         document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);

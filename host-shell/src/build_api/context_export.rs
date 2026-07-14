@@ -240,6 +240,91 @@ pub async fn api_build_context_export(
         "- scene_routes: {}\n",
         compiled.scene_routes.len()
     ));
+    md.push_str(&format!(
+        "- stage_registry: {}\n",
+        compiled.stage_registry.stages.len()
+    ));
+    md.push_str(&format!(
+        "- stage_programs: {}\n",
+        compiled.stage_programs.programs.len()
+    ));
+    if let Some(stage_id) = ctx.scene_id.as_deref() {
+        if let Some(program) = crate::review_axes::stage_program_for(compiled, stage_id) {
+            md.push_str(&format!(
+                "- active_stage_program: `{}` profile=`{}` units={} source=`{}`\n",
+                program.stage_id.as_str(),
+                program.profile.as_str(),
+                program.units.len(),
+                program.source_anchor.replace('\\', "/")
+            ));
+            if !program.units.is_empty() {
+                let unit_ids: Vec<&str> = program.unit_ids();
+                md.push_str(&format!("- stage_program_units: `{}`\n", unit_ids.join(", ")));
+            }
+            if let Some(slot_ref) = program.slot_module_ref.as_deref() {
+                md.push_str(&format!("- slot_module_ref: `{slot_ref}`\n"));
+            }
+            if let Some(digest) = program.structure_digest.as_deref() {
+                md.push_str(&format!("- structure_digest: `{digest}`\n"));
+            }
+            if let Some(digest) = program.narration_digest.as_deref() {
+                md.push_str(&format!("- narration_digest: `{digest}`\n"));
+            }
+            md.push_str(&format!("- stage_surface: `{}`\n", program.surface.as_str()));
+            let policy = mei_lang_kernel::ProfileLayoutPolicy::for_profile(program.profile);
+            md.push_str(&format!(
+                "- profile_layout_policy: `{}`\n",
+                policy.summary_label()
+            ));
+            if program.source_anchor.contains(".stage.mdx") {
+                md.push_str(&format!(
+                    "- stage_mdx_source: `{}`\n",
+                    program.source_anchor.replace('\\', "/")
+                ));
+            }
+        }
+    }
+    md.push_str(&format!(
+        "- stage_registry_count: {}\n",
+        compiled.stage_registry.stages.len()
+    ));
+    md.push_str(&format!(
+        "- scene_slot_modules: {}\n",
+        compiled.scene_slot_modules.len()
+    ));
+    md.push_str(&format!(
+        "- content_capabilities: {}\n",
+        compiled.content_capabilities.len()
+    ));
+    let world_cap_count = compiled
+        .content_capabilities
+        .values()
+        .filter(|c| c.is_world())
+        .count();
+    md.push_str(&format!(
+        "- world_content_capabilities: {} (not Stage identity)\n",
+        world_cap_count
+    ));
+    md.push_str(&format!(
+        "- narration_catalogs: {}\n",
+        compiled.narration_catalogs.len()
+    ));
+    if let Some(stage_id) = ctx.scene_id.as_deref() {
+        let module_key = format!("scene:{stage_id}");
+        if let Some(module) = compiled.scene_slot_modules.get(&module_key) {
+            md.push_str(&format!(
+                "- public_slots: `{}`\n",
+                module.slot_ids().join(", ")
+            ));
+        }
+        let narr_key = format!("narration:{stage_id}");
+        if let Some(catalog) = compiled.narration_catalogs.get(&narr_key) {
+            md.push_str(&format!(
+                "- narration_cues: {}\n",
+                catalog.cue_count()
+            ));
+        }
+    }
     md.push_str(&format!("- resources: {}\n", compiled.resources.len()));
     md.push_str(&format!("- diagnostics: {}\n", compiled.diagnostics.len()));
     md.push_str(&format!(

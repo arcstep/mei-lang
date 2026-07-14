@@ -19,6 +19,7 @@ use crate::state::SharedState;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SceneManifestQuery {
+    #[serde(default, alias = "app")]
     pub app_id: String,
     pub scene: Option<String>,
     #[serde(default)]
@@ -34,6 +35,7 @@ pub struct LayerBatchRequest {
     #[serde(default)]
     pub app_id: String,
     pub scene: Option<String>,
+    #[serde(default)]
     pub layers: Vec<String>,
     #[serde(default)]
     pub data_mode: Option<String>,
@@ -71,7 +73,11 @@ fn render_shell_with_host(
 ) -> Option<mei_host_graph::ShellLayerDocument> {
     let compiled = args.compiled?;
     let route_mode = UiRouteMode::from_slug(args.route_mode);
-    let stage_kind = StageKind::from_scene_routes(&compiled.scene_routes, args.scene_id);
+    let stage_kind = StageKind::resolve(
+        &compiled.stage_registry,
+        &compiled.scene_routes,
+        args.scene_id,
+    );
     let review_projection =
         crate::review_axes::ssr_review_projection(route_mode, stage_kind, args.data_mode).slug();
     let (mut topbar_html, mut statusbar_html) = mei_lang_app::render_access_shell_chrome_html(
@@ -231,7 +237,11 @@ fn stage_kind_for_scene(
     scene_id: &str,
 ) -> StageKind {
     match mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id) {
-        Ok(Some(outcome)) => StageKind::from_scene_routes(&outcome.compiled.scene_routes, scene_id),
+        Ok(Some(outcome)) => StageKind::resolve(
+            &outcome.compiled.stage_registry,
+            &outcome.compiled.scene_routes,
+            scene_id,
+        ),
         _ => StageKind::Scene,
     }
 }

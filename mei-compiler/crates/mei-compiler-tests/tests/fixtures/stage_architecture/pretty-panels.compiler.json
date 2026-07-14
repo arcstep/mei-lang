@@ -1,0 +1,480 @@
+{
+  "abi": {
+    "content_panel_count": 12,
+    "content_panel_ids": [
+      "effectiveness-stats",
+      "enforcement-stats",
+      "gis-map",
+      "home:map_stage",
+      "indicator-system",
+      "inspection-stats",
+      "issue-stats",
+      "map-viewport",
+      "penalty-stats",
+      "realtime-table",
+      "supervision-stats",
+      "typical-cases"
+    ],
+    "digest_note": "structure_digest/narration_digest are asserted in mei-host-graph runtime baseline",
+    "stage_mdx_count": 1,
+    "stage_mdx_fills": [],
+    "stage_mdx_stage_ids": [
+      "home"
+    ]
+  },
+  "app_id": "pretty-panels",
+  "app_skeleton": {
+    "block_id": "app_skeleton:pretty-panels",
+    "default_scene": "home",
+    "id": "pretty-panels",
+    "title": "面板调试 · Pretty Panels"
+  },
+  "block_count": 264,
+  "blocks_by_kind": {
+    "app_skeleton": 1,
+    "content_panel": 12,
+    "link_decl": 36,
+    "metric_def_bundle": 11,
+    "navigation": 11,
+    "page_instance": 42,
+    "plane_layout": 3,
+    "region_layout": 48,
+    "scene": 1,
+    "section_layout": 97,
+    "stage_mdx": 1,
+    "warmup_policy": 1
+  },
+  "critical_block_ids": [
+    "app_skeleton:pretty-panels",
+    "content_panel:effectiveness-stats",
+    "content_panel:enforcement-stats",
+    "content_panel:gis-map",
+    "content_panel:home:map_stage",
+    "content_panel:indicator-system",
+    "content_panel:inspection-stats",
+    "content_panel:issue-stats",
+    "content_panel:map-viewport",
+    "content_panel:penalty-stats",
+    "content_panel:realtime-table",
+    "content_panel:supervision-stats",
+    "content_panel:typical-cases",
+    "navigation:access:effect_mechanism_documents_page",
+    "navigation:access:home",
+    "navigation:access:issue_clue_detail_page",
+    "navigation:access:issue_handling_detail_page",
+    "navigation:access:issue_result_detail_page",
+    "navigation:access:supervision_items_analytics_page",
+    "navigation:access:supervision_models_analytics_page",
+    "navigation:access:typical_cases_detail_page",
+    "navigation:access:warning_detail_page",
+    "navigation:access:warnings_analytics_page",
+    "navigation:default_access"
+  ],
+  "deck_or_slides": {
+    "presentation_block_ids": [],
+    "slide_block_ids": [],
+    "slide_count": 0,
+    "step_like_block_ids": [],
+    "step_like_count": 0
+  },
+  "file_count": 224,
+  "navigations": [
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-mechanism-documents/c-effect-mechanism-documents"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:effect_mechanism_documents_page",
+      "key": "access:effect_mechanism_documents_page",
+      "scene": "effect_mechanism_documents_page",
+      "url": "/apps/app/pretty-panels/scene/effect_mechanism_documents_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:home",
+      "key": "access:home",
+      "scene": "home",
+      "url": "/apps/pretty-panels/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-issue-clue-detail/c-issue-clue-detail"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:issue_clue_detail_page",
+      "key": "access:issue_clue_detail_page",
+      "scene": "issue_clue_detail_page",
+      "url": "/apps/app/pretty-panels/scene/issue_clue_detail_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-issue-handling-detail/c-issue-handling-detail"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:issue_handling_detail_page",
+      "key": "access:issue_handling_detail_page",
+      "scene": "issue_handling_detail_page",
+      "url": "/apps/app/pretty-panels/scene/issue_handling_detail_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-issue-result-detail/c-issue-result-detail"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:issue_result_detail_page",
+      "key": "access:issue_result_detail_page",
+      "scene": "issue_result_detail_page",
+      "url": "/apps/app/pretty-panels/scene/issue_result_detail_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-supervision-items/c-supervision-items-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:supervision_items_analytics_page",
+      "key": "access:supervision_items_analytics_page",
+      "scene": "supervision_items_analytics_page",
+      "url": "/apps/app/pretty-panels/scene/supervision_items_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-supervision-models/c-supervision-models-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:supervision_models_analytics_page",
+      "key": "access:supervision_models_analytics_page",
+      "scene": "supervision_models_analytics_page",
+      "url": "/apps/app/pretty-panels/scene/supervision_models_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-typical-cases/c-typical-cases-detail"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:typical_cases_detail_page",
+      "key": "access:typical_cases_detail_page",
+      "scene": "typical_cases_detail_page",
+      "url": "/apps/app/pretty-panels/scene/typical_cases_detail_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-warning-detail/c-warning-detail"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:warning_detail_page",
+      "key": "access:warning_detail_page",
+      "scene": "warning_detail_page",
+      "url": "/apps/app/pretty-panels/scene/warning_detail_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "pretty-panels/home/t2/r-warnings/c-warnings-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:warnings_analytics_page",
+      "key": "access:warnings_analytics_page",
+      "scene": "warnings_analytics_page",
+      "url": "/apps/app/pretty-panels/scene/warnings_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access",
+      "key": "default_access",
+      "scene": "home",
+      "url": "/apps/pretty-panels/home"
+    }
+  ],
+  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "source_files": [
+    "app.mei",
+    "data/metrics/effectiveness.bundle.mei",
+    "data/metrics/enforcement-elements.bundle.mei",
+    "data/metrics/indicator-system.bundle.mei",
+    "data/metrics/inspection-dashboard.bundle.mei",
+    "data/metrics/issue-handling.bundle.mei",
+    "data/metrics/map.bundle.mei",
+    "data/metrics/penalty-dashboard.bundle.mei",
+    "data/metrics/realtime-warning.bundle.mei",
+    "data/metrics/static-layout.bundle.mei",
+    "data/metrics/supervision-warning.bundle.mei",
+    "data/metrics/typical-cases.bundle.mei",
+    "scene/home.mei",
+    "scene/home/t0.mei",
+    "scene/home/t0/r-map-stage.mei",
+    "scene/home/t0/r-map-stage/content.mei",
+    "scene/home/t0/r-map-stage/gis-map/content.mei",
+    "scene/home/t0/r-map-stage/s-map-stage.mei",
+    "scene/home/t1.mei",
+    "scene/home/t1/geometry.mei",
+    "scene/home/t1/r-center-rail.mei",
+    "scene/home/t1/r-center-rail/s-indicator-system.mei",
+    "scene/home/t1/r-center-rail/s-indicator-system/content.mei",
+    "scene/home/t1/r-center-rail/s-map-viewport.mei",
+    "scene/home/t1/r-center-rail/s-map-viewport/content.mei",
+    "scene/home/t1/r-center-rail/s-realtime-table.mei",
+    "scene/home/t1/r-center-rail/s-realtime-table/content.mei",
+    "scene/home/t1/r-header.mei",
+    "scene/home/t1/r-header/s-header.mei",
+    "scene/home/t1/r-layout-debug-controller.mei",
+    "scene/home/t1/r-layout-debug-controller/s-layout-debug.mei",
+    "scene/home/t1/r-left-rail.mei",
+    "scene/home/t1/r-left-rail/s-enforcement.mei",
+    "scene/home/t1/r-left-rail/s-enforcement/content.mei",
+    "scene/home/t1/r-left-rail/s-inspection.mei",
+    "scene/home/t1/r-left-rail/s-inspection/content.mei",
+    "scene/home/t1/r-left-rail/s-penalty.mei",
+    "scene/home/t1/r-left-rail/s-penalty/content.mei",
+    "scene/home/t1/r-right-rail.mei",
+    "scene/home/t1/r-right-rail/s-cases.mei",
+    "scene/home/t1/r-right-rail/s-cases/content.mei",
+    "scene/home/t1/r-right-rail/s-effect.mei",
+    "scene/home/t1/r-right-rail/s-effect/content.mei",
+    "scene/home/t1/r-right-rail/s-issue.mei",
+    "scene/home/t1/r-right-rail/s-issue/content.mei",
+    "scene/home/t1/r-right-rail/s-warning.mei",
+    "scene/home/t1/r-right-rail/s-warning/content.mei",
+    "scene/home/t2.mei",
+    "scene/home/t2/links/popups.mei",
+    "scene/home/t2/r-admin-reconsideration.mei",
+    "scene/home/t2/r-admin-reconsideration/c-admin-reconsideration-analytics/content.mei",
+    "scene/home/t2/r-admin-reconsideration/s-filter.mei",
+    "scene/home/t2/r-admin-reconsideration/s-main.mei",
+    "scene/home/t2/r-ai-warning-cockpit.mei",
+    "scene/home/t2/r-ai-warning-cockpit/c-ai-warning-cockpit/content.mei",
+    "scene/home/t2/r-ai-warning-cockpit/s-filter.mei",
+    "scene/home/t2/r-ai-warning-cockpit/s-main.mei",
+    "scene/home/t2/r-effect-filing.mei",
+    "scene/home/t2/r-effect-filing/c-effect-filing-analytics/content.mei",
+    "scene/home/t2/r-effect-filing/s-filter.mei",
+    "scene/home/t2/r-effect-filing/s-main.mei",
+    "scene/home/t2/r-effect-handled.mei",
+    "scene/home/t2/r-effect-handled/c-effect-handled-analytics/content.mei",
+    "scene/home/t2/r-effect-handled/s-filter.mei",
+    "scene/home/t2/r-effect-handled/s-main.mei",
+    "scene/home/t2/r-effect-mechanism.mei",
+    "scene/home/t2/r-effect-mechanism/c-effect-mechanism-analytics/content.mei",
+    "scene/home/t2/r-effect-mechanism/s-filter.mei",
+    "scene/home/t2/r-effect-mechanism/s-main.mei",
+    "scene/home/t2/r-effect-recovered.mei",
+    "scene/home/t2/r-effect-recovered/c-effect-recovered-analytics/content.mei",
+    "scene/home/t2/r-effect-recovered/s-filter.mei",
+    "scene/home/t2/r-effect-recovered/s-main.mei",
+    "scene/home/t2/r-effect-sanction.mei",
+    "scene/home/t2/r-effect-sanction/c-effect-sanction-analytics/content.mei",
+    "scene/home/t2/r-effect-sanction/s-filter.mei",
+    "scene/home/t2/r-effect-sanction/s-main.mei",
+    "scene/home/t2/r-effect-transfer-clue.mei",
+    "scene/home/t2/r-effect-transfer-clue/c-effect-transfer-clue-analytics/content.mei",
+    "scene/home/t2/r-effect-transfer-clue/s-filter.mei",
+    "scene/home/t2/r-effect-transfer-clue/s-main.mei",
+    "scene/home/t2/r-enforcement-items.mei",
+    "scene/home/t2/r-enforcement-items/c-enforcement-items-analytics/content.mei",
+    "scene/home/t2/r-enforcement-items/s-filter.mei",
+    "scene/home/t2/r-enforcement-items/s-main.mei",
+    "scene/home/t2/r-enforcement-objects-generic.mei",
+    "scene/home/t2/r-enforcement-objects-generic/c-enforcement-objects-generic/content.mei",
+    "scene/home/t2/r-enforcement-objects-generic/s-filter.mei",
+    "scene/home/t2/r-enforcement-objects-generic/s-main.mei",
+    "scene/home/t2/r-enforcement-parks.mei",
+    "scene/home/t2/r-enforcement-parks/c-enforcement-parks-analytics/content.mei",
+    "scene/home/t2/r-enforcement-parks/s-filter.mei",
+    "scene/home/t2/r-enforcement-parks/s-main.mei",
+    "scene/home/t2/r-enforcement-personnel.mei",
+    "scene/home/t2/r-enforcement-personnel/c-enforcement-personnel-analytics/content.mei",
+    "scene/home/t2/r-enforcement-personnel/s-filter.mei",
+    "scene/home/t2/r-enforcement-personnel/s-main.mei",
+    "scene/home/t2/r-enforcement-units.mei",
+    "scene/home/t2/r-enforcement-units/c-enforcement-units-analytics/content.mei",
+    "scene/home/t2/r-enforcement-units/s-filter.mei",
+    "scene/home/t2/r-enforcement-units/s-main.mei",
+    "scene/home/t2/r-enterprise-complaints.mei",
+    "scene/home/t2/r-enterprise-complaints/c-enterprise-complaints-analytics/content.mei",
+    "scene/home/t2/r-enterprise-complaints/s-filter.mei",
+    "scene/home/t2/r-enterprise-complaints/s-main.mei",
+    "scene/home/t2/r-enterprise-whitelist.mei",
+    "scene/home/t2/r-enterprise-whitelist/c-enterprise-whitelist-analytics/content.mei",
+    "scene/home/t2/r-enterprise-whitelist/s-filter.mei",
+    "scene/home/t2/r-enterprise-whitelist/s-main.mei",
+    "scene/home/t2/r-indicator-inspection-frequency.mei",
+    "scene/home/t2/r-indicator-inspection-frequency/c-indicator-inspection-frequency-analytics/content.mei",
+    "scene/home/t2/r-indicator-inspection-frequency/s-filter.mei",
+    "scene/home/t2/r-indicator-inspection-frequency/s-main.mei",
+    "scene/home/t2/r-indicator-penalty-revenue.mei",
+    "scene/home/t2/r-indicator-penalty-revenue/c-indicator-penalty-revenue-analytics/content.mei",
+    "scene/home/t2/r-indicator-penalty-revenue/s-filter.mei",
+    "scene/home/t2/r-indicator-penalty-revenue/s-main.mei",
+    "scene/home/t2/r-indicator-rectification.mei",
+    "scene/home/t2/r-indicator-rectification/c-indicator-rectification-analytics/content.mei",
+    "scene/home/t2/r-indicator-rectification/s-filter.mei",
+    "scene/home/t2/r-indicator-rectification/s-main.mei",
+    "scene/home/t2/r-indicator-warnings-verification.mei",
+    "scene/home/t2/r-indicator-warnings-verification/c-indicator-warnings-verification-analytics/content.mei",
+    "scene/home/t2/r-indicator-warnings-verification/s-filter.mei",
+    "scene/home/t2/r-indicator-warnings-verification/s-main.mei",
+    "scene/home/t2/r-inspection-no-violation.mei",
+    "scene/home/t2/r-inspection-no-violation/c-inspection-no-violation-analytics/content.mei",
+    "scene/home/t2/r-inspection-no-violation/s-filter.mei",
+    "scene/home/t2/r-inspection-no-violation/s-main.mei",
+    "scene/home/t2/r-inspection-today.mei",
+    "scene/home/t2/r-inspection-today/c-inspection-today-analytics/content.mei",
+    "scene/home/t2/r-inspection-today/s-filter.mei",
+    "scene/home/t2/r-inspection-today/s-main.mei",
+    "scene/home/t2/r-inspection-total.mei",
+    "scene/home/t2/r-inspection-total/c-inspection-total-analytics/content.mei",
+    "scene/home/t2/r-inspection-total/s-filter.mei",
+    "scene/home/t2/r-inspection-total/s-main.mei",
+    "scene/home/t2/r-inspection-week.mei",
+    "scene/home/t2/r-inspection-week/c-inspection-week-analytics/content.mei",
+    "scene/home/t2/r-inspection-week/s-filter.mei",
+    "scene/home/t2/r-inspection-week/s-main.mei",
+    "scene/home/t2/r-issue-clue-detail.mei",
+    "scene/home/t2/r-issue-clue-detail/c-issue-clue-detail/content.mei",
+    "scene/home/t2/r-issue-clue-detail/s-filter.mei",
+    "scene/home/t2/r-issue-clue-detail/s-main.mei",
+    "scene/home/t2/r-issue-doing.mei",
+    "scene/home/t2/r-issue-doing/c-issue-doing-analytics/content.mei",
+    "scene/home/t2/r-issue-doing/s-filter.mei",
+    "scene/home/t2/r-issue-doing/s-main.mei",
+    "scene/home/t2/r-issue-done.mei",
+    "scene/home/t2/r-issue-done/c-issue-done-analytics/content.mei",
+    "scene/home/t2/r-issue-done/s-filter.mei",
+    "scene/home/t2/r-issue-done/s-main.mei",
+    "scene/home/t2/r-issue-handling-detail.mei",
+    "scene/home/t2/r-issue-handling-detail/c-issue-handling-detail/content.mei",
+    "scene/home/t2/r-issue-handling-detail/s-filter.mei",
+    "scene/home/t2/r-issue-handling-detail/s-main.mei",
+    "scene/home/t2/r-issue-pending.mei",
+    "scene/home/t2/r-issue-pending/c-issue-pending-analytics/content.mei",
+    "scene/home/t2/r-issue-pending/s-filter.mei",
+    "scene/home/t2/r-issue-pending/s-main.mei",
+    "scene/home/t2/r-issue-rate.mei",
+    "scene/home/t2/r-issue-rate/c-issue-rate-analytics/content.mei",
+    "scene/home/t2/r-issue-rate/s-filter.mei",
+    "scene/home/t2/r-issue-rate/s-main.mei",
+    "scene/home/t2/r-issue-result-detail.mei",
+    "scene/home/t2/r-issue-result-detail/c-issue-result-detail/content.mei",
+    "scene/home/t2/r-issue-result-detail/s-filter.mei",
+    "scene/home/t2/r-issue-result-detail/s-main.mei",
+    "scene/home/t2/r-key-enterprises.mei",
+    "scene/home/t2/r-key-enterprises/c-key-enterprises-analytics/content.mei",
+    "scene/home/t2/r-key-enterprises/s-filter.mei",
+    "scene/home/t2/r-key-enterprises/s-main.mei",
+    "scene/home/t2/r-mechanism-documents.mei",
+    "scene/home/t2/r-mechanism-documents/c-effect-mechanism-documents/content.mei",
+    "scene/home/t2/r-mechanism-documents/s-filter.mei",
+    "scene/home/t2/r-mechanism-documents/s-main.mei",
+    "scene/home/t2/r-penalty-today.mei",
+    "scene/home/t2/r-penalty-today/c-penalty-today-analytics/content.mei",
+    "scene/home/t2/r-penalty-today/s-filter.mei",
+    "scene/home/t2/r-penalty-today/s-main.mei",
+    "scene/home/t2/r-penalty-total.mei",
+    "scene/home/t2/r-penalty-total/c-penalty-total-analytics/content.mei",
+    "scene/home/t2/r-penalty-total/s-filter.mei",
+    "scene/home/t2/r-penalty-total/s-main.mei",
+    "scene/home/t2/r-penalty-week.mei",
+    "scene/home/t2/r-penalty-week/c-penalty-week-analytics/content.mei",
+    "scene/home/t2/r-penalty-week/s-filter.mei",
+    "scene/home/t2/r-penalty-week/s-main.mei",
+    "scene/home/t2/r-records-devices.mei",
+    "scene/home/t2/r-records-devices/c-records-devices-analytics/content.mei",
+    "scene/home/t2/r-records-devices/s-filter.mei",
+    "scene/home/t2/r-records-devices/s-main.mei",
+    "scene/home/t2/r-records-playback.mei",
+    "scene/home/t2/r-records-playback/c-records-playback-analytics/content.mei",
+    "scene/home/t2/r-records-playback/s-filter.mei",
+    "scene/home/t2/r-records-playback/s-main.mei",
+    "scene/home/t2/r-supervision-items.mei",
+    "scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei",
+    "scene/home/t2/r-supervision-items/s-filter.mei",
+    "scene/home/t2/r-supervision-items/s-main.mei",
+    "scene/home/t2/r-supervision-models.mei",
+    "scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei",
+    "scene/home/t2/r-supervision-models/s-filter.mei",
+    "scene/home/t2/r-supervision-models/s-main.mei",
+    "scene/home/t2/r-typical-cases.mei",
+    "scene/home/t2/r-typical-cases/c-typical-cases-detail/content.mei",
+    "scene/home/t2/r-typical-cases/s-filter.mei",
+    "scene/home/t2/r-typical-cases/s-main.mei",
+    "scene/home/t2/r-warning-detail.mei",
+    "scene/home/t2/r-warning-detail/c-warning-detail/content.mei",
+    "scene/home/t2/r-warning-detail/s-filter.mei",
+    "scene/home/t2/r-warning-detail/s-main.mei",
+    "scene/home/t2/r-warnings.mei",
+    "scene/home/t2/r-warnings/c-warnings-analytics/content.mei",
+    "scene/home/t2/r-warnings/s-filter.mei",
+    "scene/home/t2/r-warnings/s-main.mei",
+    "stage/home.stage.mdx",
+    "templates/shared/analytics-table-columns.mei",
+    "templates/shared/card-mappings.mei",
+    "templates/shared/dataset-schemas.mei",
+    "templates/shared/drilldown-local-nav.mei",
+    "templates/shared/filter-fields.mei",
+    "warmup/home.critical.mei"
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home.mei",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [
+      "effect_mechanism_documents_page",
+      "issue_clue_detail_page",
+      "issue_handling_detail_page",
+      "issue_result_detail_page",
+      "supervision_items_analytics_page",
+      "supervision_models_analytics_page",
+      "typical_cases_detail_page",
+      "warning_detail_page",
+      "warnings_analytics_page"
+    ],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "stage_id": "home"
+      }
+    ]
+  },
+  "syntax_version": "2.5.7"
+}

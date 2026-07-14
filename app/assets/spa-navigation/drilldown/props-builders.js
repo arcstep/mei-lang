@@ -175,31 +175,24 @@
       popupParams.rowsetDatasetId,
       localRowsetId,
     );
-    const ownerScenePath = nonEmptyString(
-      importedCapsuleScenePathFromMetricId(popupMetricId),
-      popupParams.metric?.__mei_runtime_ref?.scene_path,
-      resolveMetricOwnerScenePath(
-        config?.detailSlot ? [config.detailSlot] : [],
-        {
-          metric_id: popupMetricId,
-          dataset_id: rowsetFromPopup,
-          host_scene_file: config?.hostSceneFile,
-        },
-      ),
+    // 本地 metric id（无 `.mei::` / `__` 前缀）不要用父级 host_scene_file 做 path 前缀。
+    // 否则会变成 `.../c-warnings-analytics/content.mei::supervision_models_count`，
+    // 与目标 board / rowset 错位。世界 capsule 路径仍可由已带前缀的 metric id 保留。
+    const alreadyScoped =
+      popupMetricId.includes(".mei::") || popupMetricId.startsWith("__");
+    const localMetricId = normalizeMetricLocalId(popupMetricId) || popupMetricId;
+    const tableMetricId = resolveCardMetricRowsetId(
+      alreadyScoped ? popupMetricId : localMetricId,
     );
-    const scopedMetricId =
-      popupMetricId.includes(".mei::") || popupMetricId.startsWith("__")
-        ? popupMetricId
-        : ownerScenePath
-          ? `${ownerScenePath}::${normalizeMetricLocalId(popupMetricId)}`
-          : popupMetricId;
-    const tableMetricId = resolveCardMetricRowsetId(scopedMetricId);
     const runtimeRef = {
       kind: "metric",
       metric_id: tableMetricId,
       dataset_id: nonEmptyString(
         rowsetFromPopup,
-        qualifyDatasetIdForScene(rowsetFromPopup, ownerScenePath),
+        qualifyDatasetIdForScene(
+          rowsetFromPopup,
+          nonEmptyString(boardSceneFile, config?.hostSceneFile),
+        ),
       ),
       scene_id: boardSceneId,
       scene_path: boardSceneFile,
@@ -241,7 +234,10 @@
       previewCompileAnchor: {
         sceneId: boardSceneId,
         scenePath: boardSceneFile,
-        ownerScenePath,
+        ownerScenePath: nonEmptyString(
+          importedCapsuleScenePathFromMetricId(popupMetricId),
+          boardSceneFile,
+        ),
       },
       rowDrilldown: resolveDeclaredRowDrilldownSpec(config),
     };

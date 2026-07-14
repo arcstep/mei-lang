@@ -102,6 +102,7 @@ pub use source_paths::canonicalize_compiled_app_source_paths;
 
 pub use layout_budget::{
     materialize_fill_section_derived_heights, materialize_layout_budget_px, resolve_layout_budgets,
+    resolve_layout_budgets_with_options,
     validate_layout_budget_policy, validate_layout_budget_policy_with_options,
     LayoutBudgetValidateOptions,
 };
@@ -111,7 +112,9 @@ pub use materialize_cache::dataset_materialize_cache_hit_count;
 pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;
-pub use panel_normalize::{normalize_panel_slots, panel_resolved_has_head};
+pub use panel_normalize::{
+    normalize_panel_slots, normalize_panel_slots_with_options, panel_resolved_has_head,
+};
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
 pub fn clear_runtime_compile_caches() {

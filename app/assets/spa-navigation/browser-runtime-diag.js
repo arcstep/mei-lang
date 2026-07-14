@@ -104,6 +104,16 @@
           exitCount: 0,
           sceneBootstrapCount: 0,
           sceneDisposeCount: 0,
+          softSuspendCount: 0,
+          renderCount: 0,
+          lastFrameMs: 0,
+          idleRenderDelta: null,
+          idleSampleMs: null,
+          softSuspended: false,
+          renderingActive: false,
+          quality: null,
+          rendererInfo: null,
+          fpsWindow: null,
         },
         storage: {
           sceneShellIdbEntries: 0,
@@ -131,6 +141,8 @@
   let lastCanvasCount = 0;
   let snapshotTimer = 0;
   const alertCooldown = {};
+  let worldRenderFpsFrames = 0;
+  let worldRenderFpsWindowStart = nowMs();
 
   function ensureSummaryShape() {
     const s = state.summary;
@@ -139,6 +151,13 @@
     }
     if (!s.world) {
       s.world = emptyState().summary.world;
+    } else {
+      const defaults = emptyState().summary.world;
+      for (const key of Object.keys(defaults)) {
+        if (s.world[key] === undefined) {
+          s.world[key] = defaults[key];
+        }
+      }
     }
     if (!s.storage) {
       s.storage = emptyState().summary.storage;
@@ -199,6 +218,72 @@
     }, FLUSH_MS);
   }
 
+  function recordWorldRender(sample = {}) {
+    if (!isEnabled()) return;
+    ensureSummaryShape();
+    const w = state.summary.world;
+    const renderCount = Number(sample.renderCount);
+    if (Number.isFinite(renderCount)) {
+      w.renderCount = renderCount;
+    }
+    const lastFrameMs = Number(sample.lastFrameMs);
+    if (Number.isFinite(lastFrameMs)) {
+      w.lastFrameMs = Math.round(lastFrameMs * 100) / 100;
+    }
+    if (typeof sample.softSuspended === "boolean") {
+      w.softSuspended = sample.softSuspended;
+    }
+    if (typeof sample.renderingActive === "boolean") {
+      w.renderingActive = sample.renderingActive;
+    }
+    if (sample.quality != null) {
+      w.quality = String(sample.quality);
+    }
+    if (sample.rendererInfo && typeof sample.rendererInfo === "object") {
+      w.rendererInfo = { ...sample.rendererInfo };
+    }
+
+    worldRenderFpsFrames += 1;
+    const elapsed = nowMs() - worldRenderFpsWindowStart;
+    if (elapsed >= 1000) {
+      const fps = (worldRenderFpsFrames * 1000) / Math.max(elapsed, 1);
+      w.fpsWindow = Math.round(fps * 10) / 10;
+      worldRenderFpsFrames = 0;
+      worldRenderFpsWindowStart = nowMs();
+    }
+    scheduleFlush();
+  }
+
+  async function sampleWorldIdle(ms = 3000) {
+    ensureSummaryShape();
+    const waitMs = Math.max(500, Number(ms) || 3000);
+    const baseline = Number(state.summary.world.renderCount) || 0;
+    const stage =
+      window.__meiLangBoot?.activeWorldStage ||
+      document.querySelector("mei-world-stage");
+    const before = stage?.getPerfSnapshot?.() || { renderCount: baseline };
+    const startCount = Number(before.renderCount) || baseline;
+    await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+    const after = stage?.getPerfSnapshot?.() || {
+      renderCount: state.summary.world.renderCount,
+    };
+    const endCount = Number(after.renderCount) || Number(state.summary.world.renderCount) || 0;
+    const delta = Math.max(0, endCount - startCount);
+    state.summary.world.idleRenderDelta = delta;
+    state.summary.world.idleSampleMs = waitMs;
+    scheduleFlush();
+    return {
+      waitMs,
+      startCount,
+      endCount,
+      delta,
+      softSuspended: Boolean(after.softSuspended ?? state.summary.world.softSuspended),
+      renderingActive: Boolean(after.renderingActive ?? state.summary.world.renderingActive),
+      hasRenderer: Boolean(after.hasRenderer),
+      rendererInfo: after.rendererInfo || state.summary.world.rendererInfo,
+    };
+  }
+
   function pushEvent(kind, detail = {}) {
     if (!isEnabled()) return;
     const eventKind = String(kind || "event");
@@ -208,6 +293,11 @@
     } else if (eventKind === "world_scene_bootstrapped") {
       ensureSummaryShape();
       state.summary.world.sceneBootstrapCount += 1;
+    } else if (eventKind === "world_scene_soft_suspended") {
+      ensureSummaryShape();
+      state.summary.world.softSuspendCount += 1;
+      state.summary.world.softSuspended = true;
+      state.summary.world.renderingActive = false;
     }
     state.recentEvents.unshift({
       t: Math.round(nowMs()),
@@ -710,8 +800,21 @@
         "计数全为 0：请确认未在 dump 前调用 reset()，且地图已加载后再开始测试。",
       );
     }
+    if (w.idleRenderDelta != null && w.idleRenderDelta > 2) {
+      hints.push(
+        `静止采样 ${w.idleSampleMs || "?"}ms 内仍有 ${w.idleRenderDelta} 次 Three render，检查 invalidate/RAF 是否停帧。`,
+      );
+    }
+    if (w.softSuspendCount > 0 && w.sceneDisposeCount > w.softSuspendCount + 2) {
+      hints.push(
+        "softSuspend 次数少于 full dispose，检查 map↔world 是否误走 fullDispose。",
+      );
+    }
     hints.push(
       "快检：(() => { const d = window.__meiBrowserRuntimeDiag; d?.snapshot?.(); return d?.dump?.(); })()",
+    );
+    hints.push(
+      "Gate8 idle：await window.__meiBrowserRuntimeDiag.sampleWorldIdle(3000)",
     );
     return hints;
   }
@@ -747,6 +850,8 @@
     layoutSyncBurst = { windowStart: nowMs(), count: 0, baseline: 0 };
     canvasGrowthStreak = 0;
     lastCanvasCount = 0;
+    worldRenderFpsFrames = 0;
+    worldRenderFpsWindowStart = nowMs();
     Object.keys(alertCooldown).forEach((key) => delete alertCooldown[key]);
     flush();
   }
@@ -761,11 +866,13 @@
     window.addEventListener("mei:world-stage-entered", () => {
       ensureSummaryShape();
       state.summary.world.enterCount += 1;
+      state.summary.world.softSuspended = false;
       void collectSnapshot();
     });
     window.addEventListener("mei:world-stage-exited", () => {
       ensureSummaryShape();
       state.summary.world.exitCount += 1;
+      state.summary.world.renderingActive = false;
       void collectSnapshot();
     });
     window.addEventListener("beforeunload", () => flush());
@@ -800,6 +907,8 @@
     recordMap,
     recordGisStart,
     recordGisFinish,
+    recordWorldRender,
+    sampleWorldIdle,
     exportReport,
     dump,
     copy,

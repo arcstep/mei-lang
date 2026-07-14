@@ -113,6 +113,27 @@
 
   function disposeRuntimeHooks(options) {
     const opts = options || {};
+    // Phase 5: Stage switch — stop Presenter Session + close T2 local shell.
+    // Phase 6: dispose World Content (not a Stage) on leave.
+    try {
+      if (typeof boot.presenterSession?.stop === "function") {
+        boot.presenterSession.stop();
+      }
+    } catch (_) {}
+    try {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("mei:world-stage-exited", {
+            detail: { reason: "stage-switch" },
+          }),
+        );
+      }
+    } catch (_) {}
+    try {
+      if (typeof boot.closeLayer2Stack === "function") {
+        boot.closeLayer2Stack();
+      }
+    } catch (_) {}
     const names = [
       "disposeAgentPanel",
       "disposeStatusBar",

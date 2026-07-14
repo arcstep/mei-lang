@@ -1,5 +1,7 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledSceneRoute, WorkspaceAppMeta};
+use mei_lang_kernel::{
+    is_stage_registry_candidate, CompiledSceneRoute, WorkspaceAppMeta,
+};
 use std::collections::BTreeMap;
 
 use crate::ui::manage_routing::access_scene_query;
@@ -385,24 +387,8 @@ fn is_presentation_stage_route(route: &CompiledSceneRoute) -> bool {
 }
 
 fn is_top_level_stage_route(route: &CompiledSceneRoute) -> bool {
-    if !route.access_export {
-        return false;
-    }
-    let kind = route.kind.trim().to_ascii_lowercase();
-    // T2 page_instance 等「page」不是独立舞台，不得进顶栏
-    if kind == "page" || kind == "board" || kind == "scene_first_board" {
-        return false;
-    }
-    let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
-    if target.contains("/t2/") || target.contains("/overlay/") {
-        return false;
-    }
-    kind == "scene"
-        || kind == "presentation"
-        || kind == "file_ref"
-        || kind.is_empty()
-        || target.contains("/presentation/")
-        || target.contains("/scene/")
+    // Phase 1: align Access topbar with StageRegistry candidate rules.
+    is_stage_registry_candidate(route)
 }
 
 fn stage_switcher_view(
@@ -450,6 +436,16 @@ fn stage_switcher_view(
             } else {
                 "场景"
             };
+            let surface = if is_presentation_stage_route(route) {
+                "paged"
+            } else {
+                "viewport"
+            };
+            let profile = if is_presentation_stage_route(route) {
+                "slides"
+            } else {
+                "cockpit"
+            };
             let href = app_scene_href(
                 active_app_path,
                 Some(scene_id.as_str()),
@@ -470,6 +466,8 @@ fn stage_switcher_view(
                     data-mei-spa-nav="1"
                     data-mei-stage-scene=scene_id.clone()
                     data-mei-stage-kind=if is_presentation_stage_route(route) { "presentation" } else { "scene" }
+                    data-mei-stage-profile=profile
+                    data-mei-stage-surface=surface
                 >
                     <span class="app-menu-item-label">{item_label}</span>
                     <span class="app-menu-item-meta mei-text-muted mei-font-1">{kind_hint}</span>

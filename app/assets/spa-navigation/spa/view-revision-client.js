@@ -607,7 +607,6 @@
     const missing = assemble.missing || [];
     if (
       missing.length &&
-      result.outcome === ViewRevisionOutcome.ASSEMBLE_LOCAL &&
       plan?.manifest?.layers &&
       boot.sceneManifestLoader?.ensureLayers
     ) {
@@ -620,7 +619,10 @@
       );
       assemble = await tryAssembleLocal(ctx, plan, assembleOptions);
       if (assemble.ok) {
-        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+        boot.lastViewRevisionOutcome =
+          result.outcome === ViewRevisionOutcome.REFETCH
+            ? ViewRevisionOutcome.REFETCH
+            : ViewRevisionOutcome.ASSEMBLE_LOCAL;
         return { ...result, assemble, recoveredMissing: missing };
       }
     }
@@ -647,15 +649,28 @@
         boot.cacheDiagTrace("missing-layers", detail);
       }
       result = await negotiateViewRevision(ctx, { recover: true, signal: opts.signal });
-      assemble = await tryAssembleLocal(
-        ctx,
+      const recoverPlan =
         result.plan || {
           manifest: result.response?.manifest || null,
           layer_refs: result.response?.assembly_plan?.layer_refs || {},
           compose_defaults: composeDefaultsFromResponse(result.response, ctx),
-        },
-        assembleOptions,
-      );
+        };
+      assemble = await tryAssembleLocal(ctx, recoverPlan, assembleOptions);
+      const recoverMissing = assemble.missing || [];
+      if (
+        recoverMissing.length &&
+        recoverPlan?.manifest?.layers &&
+        boot.sceneManifestLoader?.ensureLayers
+      ) {
+        await boot.sceneManifestLoader.ensureLayers(
+          recoverMissing,
+          ctx.app_id || ctx.appId,
+          ctx.scene_id || ctx.sceneId,
+          { ...ctx, local_miss: true, signal: opts.signal },
+          recoverPlan.manifest,
+        );
+        assemble = await tryAssembleLocal(ctx, recoverPlan, assembleOptions);
+      }
       if (assemble.ok) {
         boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
         if (typeof boot.rememberViewRevision === "function" && result.response) {

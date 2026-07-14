@@ -29,6 +29,7 @@ mod scene_materialize;
 mod semantic_cache;
 mod semantic_scene;
 mod shell_layer;
+mod stage_bootstrap;
 mod structure_full;
 mod surface;
 mod theme_layout_merge;
@@ -80,7 +81,9 @@ pub use manifest_index::{
     store_manifest_index_memory, take_manifest_index, ManifestIndexDocument, SurfaceManifestSlice,
     MANIFEST_INDEX_KIND, MANIFEST_INDEX_SCHEMA,
 };
-pub use mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter};
+pub use mcg::registry::{
+    McgNodeRecord, McgRegistry, McgRegistryWriter, MCG_REGISTRY_SCHEMA_VERSION,
+};
 pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
@@ -138,6 +141,9 @@ pub use semantic_scene::{
     assemble_semantic_scene, collect_world_payloads_from_scene, default_target_for_scene,
     has_semantic_scene, load_semantic_scene_payload, target_key_from_payload,
     SemanticSceneAssembly,
+};
+pub use stage_bootstrap::{
+    narration_catalogs_bootstrap, stage_programs_bootstrap, stage_registry_bootstrap,
 };
 pub use shell_layer::{
     build_shell_layer_document, ensure_shell_layer_cached, ensure_shell_layer_rendered,

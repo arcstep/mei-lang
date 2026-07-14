@@ -77,9 +77,28 @@
 
   function resolveStageKind() {
     const mei = window.__mei;
-    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
-    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
+    // Phase 5: prefer stage_registry, then scene_routes.
+    const stages = Array.isArray(mei?.stage_registry?.stages)
+      ? mei.stage_registry.stages
+      : [];
+    const reg = stages.find((entry) => String(entry?.stage_id || "") === sceneId);
+    if (reg) {
+      const profile = String(reg.profile || "").toLowerCase();
+      if (profile === "slides") return "presentation";
+      if (profile === "cockpit") return "scene";
+      const surface = String(reg.surface || "").toLowerCase();
+      if (surface === "paged") return "presentation";
+      return "scene";
+    }
+    const programs = mei?.stage_programs || {};
+    const program = programs[sceneId];
+    if (program) {
+      if (String(program.profile || "") === "slides") return "presentation";
+      if (String(program.surface || "") === "paged") return "presentation";
+      return "scene";
+    }
+    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
     if (route) {
       const kind = String(route?.kind || "").trim().toLowerCase();

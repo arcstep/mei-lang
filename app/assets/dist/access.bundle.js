@@ -10798,9 +10798,28 @@
 
   function resolveStageKind() {
     const mei = window.__mei;
-    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
-    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
+    // Phase 5: prefer stage_registry, then scene_routes.
+    const stages = Array.isArray(mei?.stage_registry?.stages)
+      ? mei.stage_registry.stages
+      : [];
+    const reg = stages.find((entry) => String(entry?.stage_id || "") === sceneId);
+    if (reg) {
+      const profile = String(reg.profile || "").toLowerCase();
+      if (profile === "slides") return "presentation";
+      if (profile === "cockpit") return "scene";
+      const surface = String(reg.surface || "").toLowerCase();
+      if (surface === "paged") return "presentation";
+      return "scene";
+    }
+    const programs = mei?.stage_programs || {};
+    const program = programs[sceneId];
+    if (program) {
+      if (String(program.profile || "") === "slides") return "presentation";
+      if (String(program.surface || "") === "paged") return "presentation";
+      return "scene";
+    }
+    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
     if (route) {
       const kind = String(route?.kind || "").trim().toLowerCase();
@@ -11906,6 +11925,16 @@
           exitCount: 0,
           sceneBootstrapCount: 0,
           sceneDisposeCount: 0,
+          softSuspendCount: 0,
+          renderCount: 0,
+          lastFrameMs: 0,
+          idleRenderDelta: null,
+          idleSampleMs: null,
+          softSuspended: false,
+          renderingActive: false,
+          quality: null,
+          rendererInfo: null,
+          fpsWindow: null,
         },
         storage: {
           sceneShellIdbEntries: 0,
@@ -11933,6 +11962,8 @@
   let lastCanvasCount = 0;
   let snapshotTimer = 0;
   const alertCooldown = {};
+  let worldRenderFpsFrames = 0;
+  let worldRenderFpsWindowStart = nowMs();
 
   function ensureSummaryShape() {
     const s = state.summary;
@@ -11941,6 +11972,13 @@
     }
     if (!s.world) {
       s.world = emptyState().summary.world;
+    } else {
+      const defaults = emptyState().summary.world;
+      for (const key of Object.keys(defaults)) {
+        if (s.world[key] === undefined) {
+          s.world[key] = defaults[key];
+        }
+      }
     }
     if (!s.storage) {
       s.storage = emptyState().summary.storage;
@@ -12001,6 +12039,72 @@
     }, FLUSH_MS);
   }
 
+  function recordWorldRender(sample = {}) {
+    if (!isEnabled()) return;
+    ensureSummaryShape();
+    const w = state.summary.world;
+    const renderCount = Number(sample.renderCount);
+    if (Number.isFinite(renderCount)) {
+      w.renderCount = renderCount;
+    }
+    const lastFrameMs = Number(sample.lastFrameMs);
+    if (Number.isFinite(lastFrameMs)) {
+      w.lastFrameMs = Math.round(lastFrameMs * 100) / 100;
+    }
+    if (typeof sample.softSuspended === "boolean") {
+      w.softSuspended = sample.softSuspended;
+    }
+    if (typeof sample.renderingActive === "boolean") {
+      w.renderingActive = sample.renderingActive;
+    }
+    if (sample.quality != null) {
+      w.quality = String(sample.quality);
+    }
+    if (sample.rendererInfo && typeof sample.rendererInfo === "object") {
+      w.rendererInfo = { ...sample.rendererInfo };
+    }
+
+    worldRenderFpsFrames += 1;
+    const elapsed = nowMs() - worldRenderFpsWindowStart;
+    if (elapsed >= 1000) {
+      const fps = (worldRenderFpsFrames * 1000) / Math.max(elapsed, 1);
+      w.fpsWindow = Math.round(fps * 10) / 10;
+      worldRenderFpsFrames = 0;
+      worldRenderFpsWindowStart = nowMs();
+    }
+    scheduleFlush();
+  }
+
+  async function sampleWorldIdle(ms = 3000) {
+    ensureSummaryShape();
+    const waitMs = Math.max(500, Number(ms) || 3000);
+    const baseline = Number(state.summary.world.renderCount) || 0;
+    const stage =
+      window.__meiLangBoot?.activeWorldStage ||
+      document.querySelector("mei-world-stage");
+    const before = stage?.getPerfSnapshot?.() || { renderCount: baseline };
+    const startCount = Number(before.renderCount) || baseline;
+    await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+    const after = stage?.getPerfSnapshot?.() || {
+      renderCount: state.summary.world.renderCount,
+    };
+    const endCount = Number(after.renderCount) || Number(state.summary.world.renderCount) || 0;
+    const delta = Math.max(0, endCount - startCount);
+    state.summary.world.idleRenderDelta = delta;
+    state.summary.world.idleSampleMs = waitMs;
+    scheduleFlush();
+    return {
+      waitMs,
+      startCount,
+      endCount,
+      delta,
+      softSuspended: Boolean(after.softSuspended ?? state.summary.world.softSuspended),
+      renderingActive: Boolean(after.renderingActive ?? state.summary.world.renderingActive),
+      hasRenderer: Boolean(after.hasRenderer),
+      rendererInfo: after.rendererInfo || state.summary.world.rendererInfo,
+    };
+  }
+
   function pushEvent(kind, detail = {}) {
     if (!isEnabled()) return;
     const eventKind = String(kind || "event");
@@ -12010,6 +12114,11 @@
     } else if (eventKind === "world_scene_bootstrapped") {
       ensureSummaryShape();
       state.summary.world.sceneBootstrapCount += 1;
+    } else if (eventKind === "world_scene_soft_suspended") {
+      ensureSummaryShape();
+      state.summary.world.softSuspendCount += 1;
+      state.summary.world.softSuspended = true;
+      state.summary.world.renderingActive = false;
     }
     state.recentEvents.unshift({
       t: Math.round(nowMs()),
@@ -12512,8 +12621,21 @@
         "计数全为 0：请确认未在 dump 前调用 reset()，且地图已加载后再开始测试。",
       );
     }
+    if (w.idleRenderDelta != null && w.idleRenderDelta > 2) {
+      hints.push(
+        `静止采样 ${w.idleSampleMs || "?"}ms 内仍有 ${w.idleRenderDelta} 次 Three render，检查 invalidate/RAF 是否停帧。`,
+      );
+    }
+    if (w.softSuspendCount > 0 && w.sceneDisposeCount > w.softSuspendCount + 2) {
+      hints.push(
+        "softSuspend 次数少于 full dispose，检查 map↔world 是否误走 fullDispose。",
+      );
+    }
     hints.push(
       "快检：(() => { const d = window.__meiBrowserRuntimeDiag; d?.snapshot?.(); return d?.dump?.(); })()",
+    );
+    hints.push(
+      "Gate8 idle：await window.__meiBrowserRuntimeDiag.sampleWorldIdle(3000)",
     );
     return hints;
   }
@@ -12549,6 +12671,8 @@
     layoutSyncBurst = { windowStart: nowMs(), count: 0, baseline: 0 };
     canvasGrowthStreak = 0;
     lastCanvasCount = 0;
+    worldRenderFpsFrames = 0;
+    worldRenderFpsWindowStart = nowMs();
     Object.keys(alertCooldown).forEach((key) => delete alertCooldown[key]);
     flush();
   }
@@ -12563,11 +12687,13 @@
     window.addEventListener("mei:world-stage-entered", () => {
       ensureSummaryShape();
       state.summary.world.enterCount += 1;
+      state.summary.world.softSuspended = false;
       void collectSnapshot();
     });
     window.addEventListener("mei:world-stage-exited", () => {
       ensureSummaryShape();
       state.summary.world.exitCount += 1;
+      state.summary.world.renderingActive = false;
       void collectSnapshot();
     });
     window.addEventListener("beforeunload", () => flush());
@@ -12602,6 +12728,8 @@
     recordMap,
     recordGisStart,
     recordGisFinish,
+    recordWorldRender,
+    sampleWorldIdle,
     exportReport,
     dump,
     copy,
@@ -18079,31 +18207,24 @@
       popupParams.rowsetDatasetId,
       localRowsetId,
     );
-    const ownerScenePath = nonEmptyString(
-      importedCapsuleScenePathFromMetricId(popupMetricId),
-      popupParams.metric?.__mei_runtime_ref?.scene_path,
-      resolveMetricOwnerScenePath(
-        config?.detailSlot ? [config.detailSlot] : [],
-        {
-          metric_id: popupMetricId,
-          dataset_id: rowsetFromPopup,
-          host_scene_file: config?.hostSceneFile,
-        },
-      ),
+    // 本地 metric id（无 `.mei::` / `__` 前缀）不要用父级 host_scene_file 做 path 前缀。
+    // 否则会变成 `.../c-warnings-analytics/content.mei::supervision_models_count`，
+    // 与目标 board / rowset 错位。世界 capsule 路径仍可由已带前缀的 metric id 保留。
+    const alreadyScoped =
+      popupMetricId.includes(".mei::") || popupMetricId.startsWith("__");
+    const localMetricId = normalizeMetricLocalId(popupMetricId) || popupMetricId;
+    const tableMetricId = resolveCardMetricRowsetId(
+      alreadyScoped ? popupMetricId : localMetricId,
     );
-    const scopedMetricId =
-      popupMetricId.includes(".mei::") || popupMetricId.startsWith("__")
-        ? popupMetricId
-        : ownerScenePath
-          ? `${ownerScenePath}::${normalizeMetricLocalId(popupMetricId)}`
-          : popupMetricId;
-    const tableMetricId = resolveCardMetricRowsetId(scopedMetricId);
     const runtimeRef = {
       kind: "metric",
       metric_id: tableMetricId,
       dataset_id: nonEmptyString(
         rowsetFromPopup,
-        qualifyDatasetIdForScene(rowsetFromPopup, ownerScenePath),
+        qualifyDatasetIdForScene(
+          rowsetFromPopup,
+          nonEmptyString(boardSceneFile, config?.hostSceneFile),
+        ),
       ),
       scene_id: boardSceneId,
       scene_path: boardSceneFile,
@@ -18145,7 +18266,10 @@
       previewCompileAnchor: {
         sceneId: boardSceneId,
         scenePath: boardSceneFile,
-        ownerScenePath,
+        ownerScenePath: nonEmptyString(
+          importedCapsuleScenePathFromMetricId(popupMetricId),
+          boardSceneFile,
+        ),
       },
       rowDrilldown: resolveDeclaredRowDrilldownSpec(config),
     };
@@ -22666,6 +22790,118 @@
 })();
 
 
+/* ===== spa-navigation/spa/stage-surface.js ===== */
+/**
+ * Phase 5 Stage Surface dispatcher — viewport (cockpit) vs paged (slides).
+ * Single Access mount; profile selects host behaviour (not a second mount tree).
+ */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  function readRegistryStages() {
+    const mei = window.__mei || {};
+    const reg = mei.stage_registry;
+    if (reg && Array.isArray(reg.stages)) return reg.stages;
+    return [];
+  }
+
+  function parseStageIdFromPath(pathname) {
+    const path = String(pathname || window.location.pathname || "");
+    const stageMatch = path.match(/^\/apps\/[^/]+\/([^/?#]+)/);
+    if (stageMatch) {
+      const seg = String(stageMatch[1] || "").trim();
+      const reserved = new Set([
+        "view",
+        "layout",
+        "prototype",
+        "app",
+        "access",
+        "build",
+        "manage",
+      ]);
+      if (seg && !reserved.has(seg.toLowerCase())) return seg;
+    }
+    return String(window.__mei?.active_scene_id || "home").trim() || "home";
+  }
+
+  function resolveStageMeta(stageId) {
+    const id = String(stageId || parseStageIdFromPath()).trim();
+    const fromReg = readRegistryStages().find(
+      (s) => String(s?.stage_id || "") === id,
+    );
+    if (fromReg) {
+      return {
+        stageId: id,
+        profile: String(fromReg.profile || "cockpit"),
+        surface: String(fromReg.surface || (fromReg.profile === "slides" ? "paged" : "viewport")),
+      };
+    }
+    const programs = window.__mei?.stage_programs || {};
+    const program = programs[id];
+    if (program) {
+      return {
+        stageId: id,
+        profile: String(program.profile || "cockpit"),
+        surface: String(program.surface || "viewport"),
+      };
+    }
+    const routes = Array.isArray(window.__mei?.scene_routes)
+      ? window.__mei.scene_routes
+      : [];
+    const route = routes.find((r) => String(r?.scene_id || "") === id);
+    if (route) {
+      const kind = String(route.kind || "").toLowerCase();
+      const slides = kind === "presentation";
+      return {
+        stageId: id,
+        profile: slides ? "slides" : "cockpit",
+        surface: slides ? "paged" : "viewport",
+      };
+    }
+    return { stageId: id, profile: "cockpit", surface: "viewport" };
+  }
+
+  function applyStageSurface(meta) {
+    const surface = String(meta?.surface || "viewport");
+    const profile = String(meta?.profile || "cockpit");
+    const stageId = String(meta?.stageId || "");
+    const body = document.body;
+    if (body instanceof HTMLElement) {
+      body.setAttribute("data-mei-stage-surface", surface);
+      body.setAttribute("data-mei-stage-profile", profile);
+      if (stageId) body.setAttribute("data-mei-stage-id", stageId);
+    }
+    const compose = document.getElementById("mei-compose-root");
+    if (compose instanceof HTMLElement) {
+      compose.setAttribute("data-mei-stage-surface", surface);
+      compose.setAttribute("data-mei-stage-profile", profile);
+    }
+    return { surface, profile, stageId };
+  }
+
+  function syncFromLocation() {
+    const meta = resolveStageMeta(parseStageIdFromPath());
+    return applyStageSurface(meta);
+  }
+
+  boot.stageSurface = {
+    readRegistryStages,
+    parseStageIdFromPath,
+    resolveStageMeta,
+    applyStageSurface,
+    syncFromLocation,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => syncFromLocation(), {
+      once: true,
+    });
+  } else {
+    syncFromLocation();
+  }
+})();
+
+
 /* ===== spa-navigation/presentation/world-stage-runtime.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -26451,6 +26687,215 @@
 })();
 
 
+/* ===== spa-navigation/presentation/presenter-session.js ===== */
+/**
+ * Phase 5 Presenter Session — multi-axis prefs + NarrationCatalog binding.
+ * Axes: track | transport | caption | speaker_notes | voice | actions
+ * Does not write back to AOT / Stage MDX.
+ */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  const PRESETS = {
+    browse: {
+      track: "off",
+      transport: "manual",
+      caption: false,
+      speaker_notes: false,
+      voice: false,
+      actions: false,
+    },
+    hint: {
+      track: "selected",
+      transport: "manual",
+      caption: true,
+      speaker_notes: false,
+      voice: false,
+      actions: true,
+    },
+    presenter: {
+      track: "selected",
+      transport: "manual",
+      caption: true,
+      speaker_notes: true,
+      voice: false,
+      actions: true,
+    },
+    auto: {
+      track: "selected",
+      transport: "auto",
+      caption: true,
+      speaker_notes: false,
+      voice: true,
+      actions: true,
+    },
+    silent: {
+      track: "selected",
+      transport: "manual",
+      caption: false,
+      speaker_notes: false,
+      voice: false,
+      actions: true,
+    },
+  };
+
+  const state = {
+    stageId: "",
+    catalogKey: "",
+    trackId: null,
+    cueIndex: -1,
+    prefs: { ...PRESETS.browse },
+    preset: "browse",
+  };
+
+  function parseStageId() {
+    const surface = boot.stageSurface;
+    if (surface?.parseStageIdFromPath) return surface.parseStageIdFromPath();
+    return String(window.__mei?.active_scene_id || "home").trim() || "home";
+  }
+
+  function catalogForStage(stageId) {
+    const catalogs = window.__mei?.narration_catalogs || {};
+    const key = `narration:${stageId}`;
+    const direct = catalogs[key];
+    if (direct) return { key, catalog: direct };
+    // Fallback: any catalog whose id ends with stage
+    for (const [k, v] of Object.entries(catalogs)) {
+      if (k.includes(stageId)) return { key: k, catalog: v };
+    }
+    return { key, catalog: null };
+  }
+
+  function cueCount(catalog) {
+    if (!catalog || !Array.isArray(catalog.tracks)) return 0;
+    return catalog.tracks.reduce(
+      (n, t) => n + (Array.isArray(t.cues) ? t.cues.length : 0),
+      0,
+    );
+  }
+
+  function defaultTrackId(catalog) {
+    if (!catalog || !Array.isArray(catalog.tracks) || !catalog.tracks.length) {
+      return null;
+    }
+    return String(catalog.tracks[0].id || "default");
+  }
+
+  function catalogToManifest(catalog) {
+    if (!catalog || cueCount(catalog) === 0) return null;
+    const track = catalog.tracks.find((t) => Array.isArray(t.cues) && t.cues.length) ||
+      catalog.tracks[0];
+    if (!track) return null;
+    const steps = (track.cues || []).map((cue, idx) => ({
+      id: cue.id || `cue-${idx}`,
+      target: cue.target?.id || cue.target || "",
+      targetKind: cue.target?.kind || "slot",
+      caption: cue.caption || "",
+      speakerNotes: cue.speaker_notes || cue.speakerNotes || "",
+      actions: Array.isArray(cue.actions) ? cue.actions : [],
+      timingMs: cue.timing_ms ?? cue.timingMs ?? null,
+      source: "narration_catalog",
+    }));
+    return {
+      title: track.id || "Narration",
+      steps,
+      sourceKind: "narration_catalog",
+    };
+  }
+
+  function applyPreset(name) {
+    const preset = PRESETS[name] || PRESETS.browse;
+    state.preset = PRESETS[name] ? name : "browse";
+    state.prefs = { ...preset };
+    if (state.prefs.track === "off") {
+      state.trackId = null;
+      state.cueIndex = -1;
+    }
+    return getSnapshot();
+  }
+
+  function resetForStage(stageId) {
+    const id = String(stageId || parseStageId()).trim();
+    const { key, catalog } = catalogForStage(id);
+    state.stageId = id;
+    state.catalogKey = key;
+    state.cueIndex = -1;
+    const count = cueCount(catalog);
+    if (count === 0) {
+      applyPreset("browse");
+      state.trackId = null;
+    } else {
+      applyPreset("presenter");
+      state.trackId = defaultTrackId(catalog);
+      state.cueIndex = 0;
+    }
+    return getSnapshot();
+  }
+
+  function stop() {
+    state.cueIndex = -1;
+    state.prefs = { ...state.prefs, transport: "manual" };
+    if (state.preset === "auto") state.preset = "presenter";
+    return getSnapshot();
+  }
+
+  function hasNavigableCues() {
+    if (state.prefs.track === "off") return false;
+    const { catalog } = catalogForStage(state.stageId || parseStageId());
+    return cueCount(catalog) > 0;
+  }
+
+  function getSnapshot() {
+    const { catalog } = catalogForStage(state.stageId || parseStageId());
+    return {
+      stageId: state.stageId,
+      catalogKey: state.catalogKey,
+      trackId: state.trackId,
+      cueIndex: state.cueIndex,
+      prefs: { ...state.prefs },
+      preset: state.preset,
+      cueCount: cueCount(catalog),
+      hasNavigableCues: hasNavigableCues(),
+      manifest: state.prefs.track === "off" ? null : catalogToManifest(catalog),
+    };
+  }
+
+  function setPref(axis, value) {
+    if (!(axis in state.prefs)) return getSnapshot();
+    state.prefs[axis] = value;
+    if (axis === "track" && value === "off") {
+      state.trackId = null;
+      state.cueIndex = -1;
+    }
+    return getSnapshot();
+  }
+
+  boot.presenterSession = {
+    PRESETS,
+    resetForStage,
+    applyPreset,
+    stop,
+    getSnapshot,
+    setPref,
+    catalogForStage,
+    catalogToManifest,
+    hasNavigableCues,
+    parseStageId,
+  };
+
+  // Initial bind for current stage (no cross-stage inheritance).
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      () => resetForStage(parseStageId()),
+      { once: true },
+    );
+  } else {
+    resetForStage(parseStageId());
+  }
+})();
+
+
 /* ===== spa-navigation/presentation/presentation-script-library.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -26503,6 +26948,25 @@
   }
 
   function readAotDefaultManifest() {
+    // Phase 5: prefer NarrationCatalog via Presenter Session.
+    const session = boot.presenterSession;
+    if (session && typeof session.getSnapshot === "function") {
+      const snap = session.getSnapshot();
+      if (snap?.prefs?.track === "off") return null;
+      if (snap?.manifest && Array.isArray(snap.manifest.steps) && snap.manifest.steps.length) {
+        return snap.manifest;
+      }
+    }
+    if (session && typeof session.catalogToManifest === "function") {
+      const stageId =
+        (typeof session.parseStageId === "function" && session.parseStageId()) ||
+        parseSceneIdFromPath();
+      const { catalog } = session.catalogForStage(stageId);
+      const fromCatalog = session.catalogToManifest(catalog);
+      if (fromCatalog && Array.isArray(fromCatalog.steps) && fromCatalog.steps.length) {
+        return fromCatalog;
+      }
+    }
     const map = window.__mei?.presentation_map;
     const manifest = map?.defaultScript || map?.default_script || null;
     return manifest && Array.isArray(manifest.steps) && manifest.steps.length ? manifest : null;
@@ -27446,9 +27910,28 @@
 
   function resolveStageKind() {
     const mei = window.__mei;
-    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const sceneId = parseSceneIdFromPath();
-    // Prefer __mei.scene_routes (authoritative after stage switch); do not trust thin-shell DOM.
+    // Phase 5: prefer stage_registry, then scene_routes.
+    const stages = Array.isArray(mei?.stage_registry?.stages)
+      ? mei.stage_registry.stages
+      : [];
+    const reg = stages.find((entry) => String(entry?.stage_id || "") === sceneId);
+    if (reg) {
+      const profile = String(reg.profile || "").toLowerCase();
+      if (profile === "slides") return "presentation";
+      if (profile === "cockpit") return "scene";
+      const surface = String(reg.surface || "").toLowerCase();
+      if (surface === "paged") return "presentation";
+      return "scene";
+    }
+    const programs = mei?.stage_programs || {};
+    const program = programs[sceneId];
+    if (program) {
+      if (String(program.profile || "") === "slides") return "presentation";
+      if (String(program.surface || "") === "paged") return "presentation";
+      return "scene";
+    }
+    const routes = Array.isArray(mei?.scene_routes) ? mei.scene_routes : [];
     const route = routes.find((entry) => String(entry?.scene_id || "") === sceneId) || null;
     if (route) {
       const kind = String(route?.kind || "").trim().toLowerCase();
@@ -28313,6 +28796,9 @@
     if (target.dataset.copilotCaptionToggle === "true") {
       uiState.captionVisible = !uiState.captionVisible;
       target.classList.toggle("is-active", uiState.captionVisible);
+      if (typeof boot.presenterSession?.setPref === "function") {
+        boot.presenterSession.setPref("caption", uiState.captionVisible);
+      }
       renderCaption();
       return;
     }
@@ -28415,6 +28901,32 @@
     if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
       layout.syncCopilotFabToolbarLayout();
     }
+    const session = boot.presenterSession;
+    const snap = session && typeof session.getSnapshot === "function" ? session.getSnapshot() : null;
+    const navigable = Boolean(snap?.hasNavigableCues);
+    // Track off / empty catalog: hide cue navigation + autoplay affordances.
+    ["copilot-session", "copilot-prev", "copilot-next"].forEach((key) => {
+      const btn = toolbar.querySelector(`[data-${key}]`);
+      if (!(btn instanceof HTMLElement)) return;
+      btn.hidden = !navigable;
+      btn.disabled = !navigable;
+      btn.classList.toggle("is-disabled", !navigable);
+    });
+    if (snap?.prefs) {
+      uiState.captionVisible = Boolean(snap.prefs.caption);
+      const captionBtn = toolbar.querySelector("[data-copilot-caption-toggle]");
+      if (captionBtn) {
+        captionBtn.classList.toggle("is-active", uiState.captionVisible);
+      }
+      const tts = ttsApi();
+      if (tts && typeof tts.setEnabled === "function" && !snap.prefs.voice) {
+        try {
+          if (tts.state?.enabled) tts.setEnabled(false);
+        } catch (_) {}
+      }
+      const notesOpen = Boolean(snap.prefs.speaker_notes);
+      uiState.drawerOpen = notesOpen;
+    }
     const sessionBtn = toolbar.querySelector("[data-copilot-session]");
     if (sessionBtn) {
       sessionBtn.textContent = sessionButtonLabel(eng);
@@ -28426,11 +28938,15 @@
     if (ttsBtn) {
       const tts = ttsApi();
       const supported = Boolean(tts && typeof tts.isSupported === "function" && tts.isSupported());
-      ttsBtn.disabled = !supported;
+      const voiceOn = snap?.prefs ? Boolean(snap.prefs.voice) : true;
+      ttsBtn.disabled = !supported || !voiceOn;
       ttsBtn.classList.toggle("is-active", Boolean(tts?.state?.enabled || tts?.state?.speaking));
+      ttsBtn.hidden = !navigable;
     }
-    toolbar.dataset.progress =
-      eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
+                toolbar.dataset.progress =
+      eng && Array.isArray(eng.steps) && eng.steps.length
+        ? `${eng.stepIndex + 1} / ${eng.steps.length}`
+        : "";
     toolbar.title = step?.title || manifest?.title || COPILOT_TITLE;
     const nextOpen = uiState.toolbarOpen;
     if (nextOpen) {
@@ -28441,6 +28957,8 @@
       floatingRoot()?.classList.remove("copilot-toolbar-active");
     }
     refreshFabChrome();
+    renderCaption();
+    renderDrawer();
   }
 
   function renderAll() {
@@ -30428,6 +30946,27 @@
 
   function disposeRuntimeHooks(options) {
     const opts = options || {};
+    // Phase 5: Stage switch — stop Presenter Session + close T2 local shell.
+    // Phase 6: dispose World Content (not a Stage) on leave.
+    try {
+      if (typeof boot.presenterSession?.stop === "function") {
+        boot.presenterSession.stop();
+      }
+    } catch (_) {}
+    try {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("mei:world-stage-exited", {
+            detail: { reason: "stage-switch" },
+          }),
+        );
+      }
+    } catch (_) {}
+    try {
+      if (typeof boot.closeLayer2Stack === "function") {
+        boot.closeLayer2Stack();
+      }
+    } catch (_) {}
     const names = [
       "disposeAgentPanel",
       "disposeStatusBar",
@@ -34301,7 +34840,6 @@
     const missing = assemble.missing || [];
     if (
       missing.length &&
-      result.outcome === ViewRevisionOutcome.ASSEMBLE_LOCAL &&
       plan?.manifest?.layers &&
       boot.sceneManifestLoader?.ensureLayers
     ) {
@@ -34314,7 +34852,10 @@
       );
       assemble = await tryAssembleLocal(ctx, plan, assembleOptions);
       if (assemble.ok) {
-        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+        boot.lastViewRevisionOutcome =
+          result.outcome === ViewRevisionOutcome.REFETCH
+            ? ViewRevisionOutcome.REFETCH
+            : ViewRevisionOutcome.ASSEMBLE_LOCAL;
         return { ...result, assemble, recoveredMissing: missing };
       }
     }
@@ -34341,15 +34882,28 @@
         boot.cacheDiagTrace("missing-layers", detail);
       }
       result = await negotiateViewRevision(ctx, { recover: true, signal: opts.signal });
-      assemble = await tryAssembleLocal(
-        ctx,
+      const recoverPlan =
         result.plan || {
           manifest: result.response?.manifest || null,
           layer_refs: result.response?.assembly_plan?.layer_refs || {},
           compose_defaults: composeDefaultsFromResponse(result.response, ctx),
-        },
-        assembleOptions,
-      );
+        };
+      assemble = await tryAssembleLocal(ctx, recoverPlan, assembleOptions);
+      const recoverMissing = assemble.missing || [];
+      if (
+        recoverMissing.length &&
+        recoverPlan?.manifest?.layers &&
+        boot.sceneManifestLoader?.ensureLayers
+      ) {
+        await boot.sceneManifestLoader.ensureLayers(
+          recoverMissing,
+          ctx.app_id || ctx.appId,
+          ctx.scene_id || ctx.sceneId,
+          { ...ctx, local_miss: true, signal: opts.signal },
+          recoverPlan.manifest,
+        );
+        assemble = await tryAssembleLocal(ctx, recoverPlan, assembleOptions);
+      }
       if (assemble.ok) {
         boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
         if (typeof boot.rememberViewRevision === "function" && result.response) {
@@ -34488,7 +35042,7 @@
       body: JSON.stringify({
         app_id: appId,
         scene: sceneId || "home",
-        layers: layerNames,
+        layers: Array.isArray(layerNames) ? layerNames : [],
         data_mode: axes?.data_mode || "",
         review_projection: axes?.review_projection || "",
         tab: axes?.tab || "",
@@ -37359,14 +37913,35 @@
         host;
     }
     if (!(target instanceof HTMLElement)) return;
-    if (target.getAttribute("data-props") === serialized) return;
-    target.setAttribute("data-props", serialized);
+    const attributeMatches = target.getAttribute("data-props") === serialized;
+    let instanceMatches = false;
+    if ("props" in target) {
+      try {
+        instanceMatches = JSON.stringify(target.props || {}) === serialized;
+      } catch (_) {
+        instanceMatches = false;
+      }
+    }
+    if (
+      attributeMatches &&
+      (instanceMatches ||
+        (typeof target._bind !== "function" && typeof target.render !== "function"))
+    ) {
+      return;
+    }
+    if (!attributeMatches) {
+      target.setAttribute("data-props", serialized);
+    }
     if (typeof target._bind === "function") {
       try {
         target._bind();
       } catch (_) {}
     } else if (typeof target.render === "function") {
       try {
+        // Some lightweight Web Components parse props only during connect and
+        // expose render() without observing data-props. Keep their instance
+        // state in sync when eval layers settle after the structure mount.
+        target.props = props || {};
         target.render();
       } catch (_) {}
     }
@@ -37492,6 +38067,56 @@
     if (tier === "t1") return 1000;
     if (tier === "t2") return 2000;
     return 0;
+  }
+
+  function normalizeStagePanelId(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("-", "_");
+  }
+
+  function stagePlanEntries() {
+    const tiers = global.__mei?.layer_plan?.tiers;
+    if (!tiers || typeof tiers !== "object") return [];
+    return Object.values(tiers)
+      .flatMap((entries) => (Array.isArray(entries) ? entries : []))
+      .filter((entry) => {
+        const stageKind = String(entry?.stageKind || entry?.stage_kind || "").trim();
+        const panelId = String(entry?.panelId || entry?.panel_id || "").trim();
+        return Boolean(stageKind && panelId);
+      })
+      .sort((left, right) => {
+        const leftId = normalizeStagePanelId(left?.panelId || left?.panel_id);
+        const rightId = normalizeStagePanelId(right?.panelId || right?.panel_id);
+        return rightId.length - leftId.length;
+      });
+  }
+
+  function applyStagePlanMetadata(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const entries = stagePlanEntries();
+    if (!entries.length) return;
+    root.querySelectorAll("[data-preview-scope]").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      const scope = normalizeStagePanelId(el.getAttribute("data-preview-scope"));
+      const panelId = normalizeStagePanelId(el.getAttribute("data-mei-panel-id"));
+      const label = normalizeStagePanelId(el.getAttribute("data-mei-structure-label"));
+      const candidates = [scope, panelId, label].filter(Boolean);
+      const entry = entries.find((item) => {
+        const id = normalizeStagePanelId(item?.panelId || item?.panel_id);
+        return id && candidates.some((candidate) => candidate.includes(id));
+      });
+      if (!entry) return;
+      const stageKind = String(entry.stageKind || entry.stage_kind || "").trim();
+      const viewFamily = String(entry.viewFamily || entry.view_family || "").trim();
+      if (stageKind) el.setAttribute("data-mei-stage-kind", stageKind);
+      if (viewFamily) el.setAttribute("data-mei-view-family", viewFamily);
+      el.setAttribute(
+        "data-mei-stage-panel-id",
+        String(entry.panelId || entry.panel_id || "").trim(),
+      );
+    });
   }
 
   function isLayoutUnit(el) {
@@ -39074,6 +39699,8 @@
 
   function finalizeClientPreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
+    applyRuntimePlans(layers["runtime.plans"]);
+    applyStagePlanMetadata(root);
     const projection = String(
       composeAxes?.review_projection || composeAxes?.reviewProjection || "",
     )
@@ -39156,6 +39783,7 @@
 
     cleanupComposeStructureArtifacts(root);
     buildStructureTree(root, structure, composeAxes || {});
+    applyStagePlanMetadata(root);
     applyComposeStructureLayout(root, structure);
     applyComposeThemeLayout(root);
 
@@ -43202,6 +43830,22 @@
           boot.markLoadingPostSpaDone(navigationId);
         }
         applySceneProjectionDepth(doc);
+        // Phase 5: rebind Stage Surface + Presenter Session for the new stage (no cross-stage prefs).
+        try {
+          if (typeof boot.stageSurface?.syncFromLocation === "function") {
+            boot.stageSurface.syncFromLocation();
+          }
+          const stageId =
+            sceneCtx?.sceneId ||
+            (typeof boot.stageSurface?.parseStageIdFromPath === "function"
+              ? boot.stageSurface.parseStageIdFromPath()
+              : "");
+          if (typeof boot.presenterSession?.resetForStage === "function") {
+            boot.presenterSession.resetForStage(stageId);
+          }
+        } catch (error) {
+          console.warn("[spa-navigation] stage surface / presenter rebind skipped", error);
+        }
         document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);

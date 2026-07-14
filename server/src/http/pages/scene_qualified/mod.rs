@@ -66,6 +66,11 @@ mod tests {
         CompiledApp {
             app_id: "demo".to_string(),
             active_scene: Some("home".to_string()),
+            stage_registry: Default::default(),
+            stage_programs: Default::default(),
+            scene_slot_modules: Default::default(),
+            content_capabilities: Default::default(),
+            narration_catalogs: Default::default(),
             active_target_file: "scenes/home.mei".to_string(),
             resources: vec![
                 sample_dataset_resource("warning_list"),

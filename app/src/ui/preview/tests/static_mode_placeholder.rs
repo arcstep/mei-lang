@@ -167,6 +167,11 @@ fn static_metric_fixture_compiled() -> CompiledApp {
     CompiledApp {
         app_id: "preview-explain".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: vec![resource],
         world_metrics: BTreeMap::from([(

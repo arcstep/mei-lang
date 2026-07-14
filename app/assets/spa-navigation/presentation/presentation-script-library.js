@@ -49,6 +49,25 @@
   }
 
   function readAotDefaultManifest() {
+    // Phase 5: prefer NarrationCatalog via Presenter Session.
+    const session = boot.presenterSession;
+    if (session && typeof session.getSnapshot === "function") {
+      const snap = session.getSnapshot();
+      if (snap?.prefs?.track === "off") return null;
+      if (snap?.manifest && Array.isArray(snap.manifest.steps) && snap.manifest.steps.length) {
+        return snap.manifest;
+      }
+    }
+    if (session && typeof session.catalogToManifest === "function") {
+      const stageId =
+        (typeof session.parseStageId === "function" && session.parseStageId()) ||
+        parseSceneIdFromPath();
+      const { catalog } = session.catalogForStage(stageId);
+      const fromCatalog = session.catalogToManifest(catalog);
+      if (fromCatalog && Array.isArray(fromCatalog.steps) && fromCatalog.steps.length) {
+        return fromCatalog;
+      }
+    }
     const map = window.__mei?.presentation_map;
     const manifest = map?.defaultScript || map?.default_script || null;
     return manifest && Array.isArray(manifest.steps) && manifest.steps.length ? manifest : null;

@@ -1,0 +1,318 @@
+{
+  "abi": {
+    "content_panel_count": 9,
+    "content_panel_ids": [
+      "enforcement-compound",
+      "gis-map",
+      "home:map_stage",
+      "map-viewport",
+      "mini-data/supervision/deck/p/slide-01-mission/r-main/s-content/content",
+      "mini-data/supervision/deck/p/slide-02-chain/r-main/s-content/content",
+      "mini-data/supervision/deck/p/slide-03-path/r-main/s-content/content",
+      "mini-data/supervision/deck/p/slide-04-handoff/r-main/s-content/content",
+      "supervision-stats"
+    ],
+    "digest_note": "structure_digest/narration_digest are asserted in mei-host-graph runtime baseline",
+    "stage_mdx_count": 1,
+    "stage_mdx_fills": [
+      {
+        "content": "supervision-stats",
+        "line": 8,
+        "slot": "supervision-stats"
+      }
+    ],
+    "stage_mdx_stage_ids": [
+      "home"
+    ]
+  },
+  "app_id": "mini-data",
+  "app_skeleton": {
+    "block_id": "app_skeleton:mini-data",
+    "default_scene": "home",
+    "id": "mini-data",
+    "title": "真实数据 · Mini Data"
+  },
+  "block_count": 71,
+  "blocks_by_kind": {
+    "app_skeleton": 1,
+    "content_panel": 9,
+    "link_decl": 4,
+    "metric_def_bundle": 2,
+    "navigation": 10,
+    "page_instance": 4,
+    "plane_layout": 4,
+    "presentation": 1,
+    "region_layout": 12,
+    "scene": 1,
+    "section_layout": 17,
+    "slide_layout": 4,
+    "stage_mdx": 1,
+    "warmup_policy": 1
+  },
+  "critical_block_ids": [
+    "app_skeleton:mini-data",
+    "content_panel:enforcement-compound",
+    "content_panel:gis-map",
+    "content_panel:home:map_stage",
+    "content_panel:map-viewport",
+    "content_panel:mini-data/supervision/deck/p/slide-01-mission/r-main/s-content/content",
+    "content_panel:mini-data/supervision/deck/p/slide-02-chain/r-main/s-content/content",
+    "content_panel:mini-data/supervision/deck/p/slide-03-path/r-main/s-content/content",
+    "content_panel:mini-data/supervision/deck/p/slide-04-handoff/r-main/s-content/content",
+    "content_panel:supervision-stats",
+    "navigation:access:enforcement_analytics_page",
+    "navigation:access:home",
+    "navigation:access:supervision",
+    "navigation:access:supervision_items_analytics_page",
+    "navigation:access:supervision_models_analytics_page",
+    "navigation:access:warnings_analytics_page",
+    "navigation:build:home",
+    "navigation:default_access",
+    "navigation:default_access_supervision",
+    "navigation:default_build",
+    "presentation:supervision@src/presentation/supervision/supervision.deck.mdx",
+    "slide_layout:mini-data/supervision/deck/p/slide-01-mission",
+    "slide_layout:mini-data/supervision/deck/p/slide-02-chain",
+    "slide_layout:mini-data/supervision/deck/p/slide-03-path",
+    "slide_layout:mini-data/supervision/deck/p/slide-04-handoff"
+  ],
+  "deck_or_slides": {
+    "presentation_block_ids": [
+      "presentation:supervision@src/presentation/supervision/supervision.deck.mdx"
+    ],
+    "slide_block_ids": [
+      "slide_layout:mini-data/supervision/deck/p/slide-01-mission",
+      "slide_layout:mini-data/supervision/deck/p/slide-02-chain",
+      "slide_layout:mini-data/supervision/deck/p/slide-03-path",
+      "slide_layout:mini-data/supervision/deck/p/slide-04-handoff"
+    ],
+    "slide_count": 4,
+    "step_like_block_ids": [],
+    "step_like_count": 0
+  },
+  "file_count": 46,
+  "navigations": [
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-data/home/t2/r-enforcement/c-enforcement-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:enforcement_analytics_page",
+      "key": "access:enforcement_analytics_page",
+      "scene": "enforcement_analytics_page",
+      "url": "/apps/app/mini-data/scene/enforcement_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:home",
+      "key": "access:home",
+      "scene": "home",
+      "url": "/apps/mini-data/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "supervision@src/presentation/supervision/supervision.deck.mdx"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:supervision",
+      "key": "access:supervision",
+      "scene": "supervision",
+      "url": "/apps/mini-data/supervision"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-data/home/t2/r-supervision-items/c-supervision-items-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:supervision_items_analytics_page",
+      "key": "access:supervision_items_analytics_page",
+      "scene": "supervision_items_analytics_page",
+      "url": "/apps/app/mini-data/scene/supervision_items_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-data/home/t2/r-supervision-models/c-supervision-models-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:supervision_models_analytics_page",
+      "key": "access:supervision_models_analytics_page",
+      "scene": "supervision_models_analytics_page",
+      "url": "/apps/app/mini-data/scene/supervision_models_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "mini-data/home/t2/r-warnings/c-warnings-analytics"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:warnings_analytics_page",
+      "key": "access:warnings_analytics_page",
+      "scene": "warnings_analytics_page",
+      "url": "/apps/app/mini-data/scene/warnings_analytics_page"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:home",
+      "key": "build:home",
+      "scene": "home",
+      "url": "/apps/mini-data/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access",
+      "key": "default_access",
+      "scene": "home",
+      "url": "/apps/mini-data/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "supervision@src/presentation/supervision/supervision.deck.mdx"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access_supervision",
+      "key": "default_access_supervision",
+      "scene": "supervision",
+      "url": "/apps/mini-data/supervision"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_build",
+      "key": "default_build",
+      "scene": "home",
+      "url": "/apps/mini-data/home"
+    }
+  ],
+  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "source_files": [
+    "app.mei",
+    "data/metrics/enforcement-objects.bundle.mei",
+    "data/metrics/supervision-warning.bundle.mei",
+    "presentation/supervision/supervision.deck.mdx",
+    "scene/home.mei",
+    "scene/home/t0.mei",
+    "scene/home/t0/r-map-stage.mei",
+    "scene/home/t0/r-map-stage/content.mei",
+    "scene/home/t0/r-map-stage/gis-map/content.mei",
+    "scene/home/t0/r-map-stage/s-map-stage.mei",
+    "scene/home/t1.mei",
+    "scene/home/t1/geometry.mei",
+    "scene/home/t1/r-header.mei",
+    "scene/home/t1/r-header/s-header.mei",
+    "scene/home/t1/r-map-stage.mei",
+    "scene/home/t1/r-map-stage/s-map-viewport.mei",
+    "scene/home/t1/r-map-stage/s-map-viewport/content.mei",
+    "scene/home/t1/r-right-rail.mei",
+    "scene/home/t1/r-right-rail/s-enforcement.mei",
+    "scene/home/t1/r-right-rail/s-enforcement/content.mei",
+    "scene/home/t1/r-right-rail/s-warning.mei",
+    "scene/home/t1/r-right-rail/s-warning/content.mei",
+    "scene/home/t2.mei",
+    "scene/home/t2/links/popups.mei",
+    "scene/home/t2/r-enforcement.mei",
+    "scene/home/t2/r-enforcement/c-enforcement-analytics/content.mei",
+    "scene/home/t2/r-enforcement/s-filter.mei",
+    "scene/home/t2/r-enforcement/s-main.mei",
+    "scene/home/t2/r-supervision-items.mei",
+    "scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei",
+    "scene/home/t2/r-supervision-items/s-filter.mei",
+    "scene/home/t2/r-supervision-items/s-main.mei",
+    "scene/home/t2/r-supervision-models.mei",
+    "scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei",
+    "scene/home/t2/r-supervision-models/s-filter.mei",
+    "scene/home/t2/r-supervision-models/s-main.mei",
+    "scene/home/t2/r-warnings.mei",
+    "scene/home/t2/r-warnings/c-warnings-analytics/content.mei",
+    "scene/home/t2/r-warnings/s-filter.mei",
+    "scene/home/t2/r-warnings/s-main.mei",
+    "stage/home.stage.mdx",
+    "templates/shared/analytics-table-columns.mei",
+    "templates/shared/dataset-schemas.mei",
+    "templates/shared/drilldown-local-nav.mei",
+    "templates/shared/filter-fields.mei",
+    "warmup/home.critical.mei"
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home.mei",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      },
+      {
+        "legacy_scene_id": "supervision",
+        "profile": "slides",
+        "source_anchor": "src/presentation/supervision/supervision.deck.mdx",
+        "stage_id": "supervision",
+        "state_namespace": "stage:supervision",
+        "unit_count": 4,
+        "unit_ids": [
+          "slide-01-mission",
+          "slide-02-chain",
+          "slide-03-path",
+          "slide-04-handoff"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [
+      "enforcement_analytics_page",
+      "supervision_items_analytics_page",
+      "supervision_models_analytics_page",
+      "warnings_analytics_page"
+    ],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "stage_id": "home"
+      },
+      {
+        "is_default": false,
+        "legacy_scene_id": "supervision",
+        "profile": "slides",
+        "stage_id": "supervision"
+      }
+    ]
+  },
+  "syntax_version": "2.5.7"
+}

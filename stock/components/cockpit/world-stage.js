@@ -46,6 +46,48 @@ const FOOTPRINT_LAYER = {
   default: { lift: 0.018, renderOrder: 15, opacity: 0.55, color: 0x1f4f74 },
   extrude_shell: { lift: 0.034, renderOrder: 30 },
 };
+const RESIZE_DEBOUNCE_MS = 80;
+
+function resolveWorldQuality(props) {
+  const raw = String(props?.quality || props?.renderQuality || "park")
+    .trim()
+    .toLowerCase();
+  if (raw === "high") {
+    return {
+      id: "high",
+      pixelRatioCap: 2,
+      antialias: true,
+      logarithmicDepthBuffer: true,
+    };
+  }
+  if (raw === "low") {
+    return {
+      id: "low",
+      pixelRatioCap: 1,
+      antialias: false,
+      logarithmicDepthBuffer: false,
+    };
+  }
+  return {
+    id: "park",
+    pixelRatioCap: 1.5,
+    antialias: true,
+    logarithmicDepthBuffer: false,
+  };
+}
+
+function computeStructureSignature(props, el) {
+  const worldRef = resolveWorldRef(props, el) || "park_world";
+  const plan = resolveInjectedWorldPlan(worldRef) || props?.worldPlan || null;
+  const primCount = Array.isArray(plan?.primitives) ? plan.primitives.length : 0;
+  const planKey = String(plan?.id || plan?.worldId || plan?.name || worldRef);
+  const quality = resolveWorldQuality(props).id;
+  return `${worldRef}|${planKey}|${primCount}|${quality}`;
+}
+
+function isDocumentHidden() {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
 
 function degToRad(value) {
   return (Number(value) * Math.PI) / 180;
@@ -310,16 +352,24 @@ class MeiWorldStage extends HTMLElement {
     this._worldPlan = null;
     this._pendingWorldTarget = null;
     this._propsSignature = "";
+    this._structureSignature = "";
+    this._quality = resolveWorldQuality({});
     this._animationFrame = 0;
     this._renderingActive = false;
+    this._needsRender = false;
+    this._softSuspended = false;
+    this._renderCount = 0;
+    this._lastFrameMs = 0;
     this._bootstrapPromise = null;
     this._siteOrigin = { lng: 106.38224, lat: 29.62396 };
     this._resizeObserver = null;
+    this._resizeDebounceTimer = 0;
     this._inputSurface = null;
     this._controlsDom = null;
     this._onWorldStageEntered = null;
     this._onWorldStageExited = null;
     this._onViewportStageLayout = null;
+    this._onVisibilityChange = null;
   }
 
   connectedCallback() {
@@ -327,12 +377,17 @@ class MeiWorldStage extends HTMLElement {
     boot.activeWorldStage = this;
     this.props = parseProps(this);
     this._propsSignature = String(this.getAttribute("data-props") || "");
+    this._quality = resolveWorldQuality(this.props);
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
     this.renderChrome();
     if (!this._onWorldStageEntered) {
       this._onWorldStageEntered = () => {
+        this._softSuspended = false;
+        if (this._controls) {
+          this._controls.enabled = true;
+        }
         void this.ensureSceneBootstrapped().then(() => {
           this.activateInteractionSurface();
           this.resumeRendering();
@@ -341,10 +396,15 @@ class MeiWorldStage extends HTMLElement {
       window.addEventListener("mei:world-stage-entered", this._onWorldStageEntered);
     }
     if (!this._onWorldStageExited) {
-      this._onWorldStageExited = () => {
+      this._onWorldStageExited = (event) => {
         this.deactivateInteractionSurface();
         this._pendingWorldTarget = null;
-        this.disposeScene();
+        const reason = String(event?.detail?.reason || "").trim();
+        if (reason === "stage-switch" || reason === "full-dispose") {
+          this.fullDispose();
+        } else {
+          this.softSuspend();
+        }
       };
       window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
     }
@@ -353,11 +413,26 @@ class MeiWorldStage extends HTMLElement {
       window.addEventListener("meilang:viewport-stage-layout", this._onViewportStageLayout);
       window.addEventListener("resize", this._onViewportStageLayout, { passive: true });
     }
+    if (!this._onVisibilityChange) {
+      this._onVisibilityChange = () => {
+        if (isDocumentHidden()) {
+          this.pauseRendering();
+          return;
+        }
+        if (isWorldStageActive() && !this._softSuspended && this._renderer) {
+          this.invalidate();
+        }
+      };
+      document.addEventListener("visibilitychange", this._onVisibilityChange);
+    }
     if (isWorldStageActive()) {
+      this._softSuspended = false;
       void this.ensureSceneBootstrapped().then(() => {
         this.activateInteractionSurface();
         this.resumeRendering();
       });
+    } else if (this._renderer) {
+      this.pauseRendering();
     }
     if (!this._onPreviewUpdated) {
       this._previewUpdatedTimer = 0;
@@ -395,8 +470,12 @@ class MeiWorldStage extends HTMLElement {
       window.removeEventListener("resize", this._onViewportStageLayout);
       this._onViewportStageLayout = null;
     }
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
     this.deactivateInteractionSurface();
-    this.disposeScene();
+    this.fullDispose();
     if (this._onPreviewUpdated) {
       window.removeEventListener("meilang:preview-updated", this._onPreviewUpdated);
       this._onPreviewUpdated = null;
@@ -415,6 +494,9 @@ class MeiWorldStage extends HTMLElement {
     const nextSignature = String(this.getAttribute("data-props") || "");
     const propsChanged = nextSignature !== this._propsSignature;
     this._propsSignature = nextSignature;
+    const nextStructure = computeStructureSignature(this.props, this);
+    const structureChanged = nextStructure !== this._structureSignature;
+    this._quality = resolveWorldQuality(this.props);
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.renderChrome();
@@ -431,6 +513,15 @@ class MeiWorldStage extends HTMLElement {
       }
       return;
     }
+    if (!structureChanged && options.forceBootstrap !== true) {
+      this.applyPixelRatioCap();
+      if (this._pendingWorldTarget) {
+        this.applyWorldTarget(this._pendingWorldTarget);
+      }
+      this.invalidate();
+      return;
+    }
+    this._structureSignature = nextStructure;
     void this.bootstrapScene();
   }
 
@@ -447,8 +538,36 @@ class MeiWorldStage extends HTMLElement {
     return this._bootstrapPromise;
   }
 
+  canRenderFrame() {
+    return (
+      Boolean(this._renderer) &&
+      isWorldStageActive() &&
+      !this._softSuspended &&
+      !isDocumentHidden()
+    );
+  }
+
+  invalidate() {
+    this._needsRender = true;
+    if (!this._renderingActive) {
+      this.kickRenderLoop();
+    }
+  }
+
+  kickRenderLoop() {
+    if (!this.canRenderFrame()) {
+      return;
+    }
+    if (this._animationFrame) {
+      return;
+    }
+    this._renderingActive = true;
+    this._animationFrame = requestAnimationFrame(() => this.animate());
+  }
+
   pauseRendering() {
     this._renderingActive = false;
+    this._needsRender = false;
     if (this._animationFrame) {
       cancelAnimationFrame(this._animationFrame);
       this._animationFrame = 0;
@@ -456,21 +575,86 @@ class MeiWorldStage extends HTMLElement {
   }
 
   resumeRendering() {
-    if (!this._renderer || !isWorldStageActive()) {
+    if (!this.canRenderFrame()) {
       return;
     }
-    if (this._renderingActive) {
-      return;
+    this.invalidate();
+  }
+
+  softSuspend() {
+    this._softSuspended = true;
+    this.pauseRendering();
+    if (this._controls) {
+      this._controls.enabled = false;
     }
-    this._renderingActive = true;
-    this.animate();
+    window.__meiBrowserRuntimeDiag?.record?.("world_scene_soft_suspended", {
+      renderCount: this._renderCount,
+      hadRenderer: Boolean(this._renderer),
+    });
+  }
+
+  publishRenderDiag() {
+    const info = this._renderer?.info;
+    window.__meiBrowserRuntimeDiag?.recordWorldRender?.({
+      renderCount: this._renderCount,
+      lastFrameMs: this._lastFrameMs,
+      softSuspended: this._softSuspended,
+      renderingActive: this._renderingActive,
+      quality: this._quality?.id || "park",
+      rendererInfo: info
+        ? {
+            geometries: info.memory?.geometries ?? 0,
+            textures: info.memory?.textures ?? 0,
+            calls: info.render?.calls ?? 0,
+            triangles: info.render?.triangles ?? 0,
+            points: info.render?.points ?? 0,
+            lines: info.render?.lines ?? 0,
+          }
+        : null,
+    });
+  }
+
+  getPerfSnapshot() {
+    const info = this._renderer?.info;
+    return {
+      renderCount: this._renderCount,
+      lastFrameMs: this._lastFrameMs,
+      softSuspended: this._softSuspended,
+      renderingActive: this._renderingActive,
+      needsRender: this._needsRender,
+      quality: this._quality?.id || "park",
+      hasRenderer: Boolean(this._renderer),
+      pixelRatio: this._renderer?.getPixelRatio?.() ?? null,
+      rendererInfo: info
+        ? {
+            geometries: info.memory?.geometries ?? 0,
+            textures: info.memory?.textures ?? 0,
+            calls: info.render?.calls ?? 0,
+            triangles: info.render?.triangles ?? 0,
+          }
+        : null,
+    };
+  }
+
+  applyPixelRatioCap() {
+    if (!this._renderer || !this._quality) return;
+    const next = Math.min(window.devicePixelRatio || 1, this._quality.pixelRatioCap);
+    if (Math.abs((this._renderer.getPixelRatio?.() || 0) - next) > 0.001) {
+      this._renderer.setPixelRatio(next);
+      this.invalidate();
+    }
   }
 
   disposeScene() {
-    this._renderingActive = false;
-    if (this._animationFrame) {
-      cancelAnimationFrame(this._animationFrame);
-      this._animationFrame = 0;
+    this.fullDispose();
+  }
+
+  fullDispose() {
+    this._softSuspended = false;
+    this.pauseRendering();
+    if (this._resizeDebounceTimer) {
+      clearTimeout(this._resizeDebounceTimer);
+      this._resizeDebounceTimer = 0;
     }
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
@@ -506,22 +690,30 @@ class MeiWorldStage extends HTMLElement {
         }
       });
     }
+    this._scene = null;
+    this._camera = null;
+    this._meshes.clear();
+    this._groups.clear();
+    this._structureSignature = "";
     if (this._renderer) {
       const canvas = this._renderer.domElement;
+      const loseContext = this._renderer.forceContextLoss?.bind(this._renderer);
       this._renderer.dispose();
       if (canvas && typeof canvas.remove === "function") {
         canvas.remove();
       }
-      if (typeof this._renderer.forceContextLoss === "function") {
-        this._renderer.forceContextLoss();
+      if (typeof loseContext === "function") {
+        loseContext();
       }
       this._renderer = null;
       window.__meiBrowserRuntimeDiag?.record?.("world_scene_disposed", {
         hadRenderer: true,
+        mode: "full",
       });
     } else {
       window.__meiBrowserRuntimeDiag?.record?.("world_scene_disposed", {
         hadRenderer: false,
+        mode: "full",
       });
     }
   }
@@ -623,9 +815,11 @@ class MeiWorldStage extends HTMLElement {
     if (!viewport) return;
     try {
       await ensureThreeRuntime();
-      this.disposeScene();
+      this.fullDispose();
       const worldRef = resolveWorldRef(this.props, this) || "park_world";
       this._worldPlan = resolveInjectedWorldPlan(worldRef) || this.props?.worldPlan || null;
+      this._quality = resolveWorldQuality(this.props);
+      this._structureSignature = computeStructureSignature(this.props, this);
       const site = this._worldPlan?.site || this.props?.worldSpec?.site || {};
       const origin = site.origin || site;
       this._siteOrigin = {
@@ -640,11 +834,13 @@ class MeiWorldStage extends HTMLElement {
       this._camera = new THREE.PerspectiveCamera(52, width / height, 0.1, 2400);
       this._camera.position.set(26, 34, 38);
       this._renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        antialias: this._quality.antialias,
         alpha: false,
-        logarithmicDepthBuffer: true,
+        logarithmicDepthBuffer: this._quality.logarithmicDepthBuffer,
       });
-      this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this._renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio || 1, this._quality.pixelRatioCap),
+      );
       this._renderer.setSize(width, height, false);
       viewport.appendChild(this._renderer.domElement);
       this._controls = this.createOrbitControls(this._renderer.domElement);
@@ -665,6 +861,7 @@ class MeiWorldStage extends HTMLElement {
       this._scene.add(ground);
       await this.loadWorldContent();
       this.bindResize(viewport);
+      this._softSuspended = false;
       if (isWorldStageActive()) {
         this.resumeRendering();
       }
@@ -682,7 +879,10 @@ class MeiWorldStage extends HTMLElement {
         worldRef: resolveWorldRef(this.props, this) || "park_world",
         meshCount: this._meshes.size,
         featureCount: this._footprintsByEntity?.size ?? 0,
+        quality: this._quality.id,
+        pixelRatio: this._renderer.getPixelRatio(),
       });
+      this.publishRenderDiag();
     } catch (error) {
       if (errorEl) {
         errorEl.hidden = false;
@@ -762,7 +962,10 @@ class MeiWorldStage extends HTMLElement {
     controls.zoomSpeed = 1.05;
     controls.rotateSpeed = 0.85;
     controls.panSpeed = 0.9;
-    controls.addEventListener("change", () => this.clampControlsTarget());
+    controls.addEventListener("change", () => {
+      this.clampControlsTarget();
+      this.invalidate();
+    });
     return controls;
   }
 
@@ -793,6 +996,7 @@ class MeiWorldStage extends HTMLElement {
       );
     });
     this._controls.update();
+    this.invalidate();
   }
 
   navRotateBearing(deg) {
@@ -801,6 +1005,7 @@ class MeiWorldStage extends HTMLElement {
       spherical.theta -= degToRad(deg);
     });
     this._controls.update();
+    this.invalidate();
   }
 
   navAdjustPitch(deg) {
@@ -813,6 +1018,7 @@ class MeiWorldStage extends HTMLElement {
       );
     });
     this._controls.update();
+    this.invalidate();
   }
 
   bindEntityPicking(domElement) {
@@ -904,23 +1110,55 @@ class MeiWorldStage extends HTMLElement {
       return;
     }
     this._resizeObserver = new ResizeObserver(() => {
-      const width = Math.max(320, viewport.clientWidth || 320);
-      const height = Math.max(240, viewport.clientHeight || 240);
-      this._renderer.setSize(width, height, false);
-      this._camera.aspect = width / height;
-      this._camera.updateProjectionMatrix();
+      if (this._resizeDebounceTimer) {
+        clearTimeout(this._resizeDebounceTimer);
+      }
+      this._resizeDebounceTimer = setTimeout(() => {
+        this._resizeDebounceTimer = 0;
+        if (!this._renderer || !this._camera) return;
+        const width = Math.max(320, viewport.clientWidth || 320);
+        const height = Math.max(240, viewport.clientHeight || 240);
+        this._renderer.setSize(width, height, false);
+        this._camera.aspect = width / height;
+        this._camera.updateProjectionMatrix();
+        this.invalidate();
+      }, RESIZE_DEBOUNCE_MS);
     });
     this._resizeObserver.observe(viewport);
   }
 
   animate() {
-    if (!this._renderingActive || !this._renderer || !this._scene || !this._camera) {
-      this._animationFrame = 0;
+    this._animationFrame = 0;
+    if (!this._renderer || !this._scene || !this._camera) {
+      this._renderingActive = false;
       return;
     }
-    this._animationFrame = requestAnimationFrame(() => this.animate());
-    this._controls?.update();
-    this._renderer.render(this._scene, this._camera);
+    if (!this.canRenderFrame()) {
+      this._renderingActive = false;
+      return;
+    }
+
+    const startedAt = performance.now();
+    let controlsMoving = false;
+    if (this._controls) {
+      controlsMoving = this._controls.update() === true;
+    }
+
+    const shouldDraw = this._needsRender || controlsMoving;
+    if (shouldDraw) {
+      this._renderer.render(this._scene, this._camera);
+      this._renderCount += 1;
+      this._lastFrameMs = performance.now() - startedAt;
+      this._needsRender = false;
+      this.publishRenderDiag();
+    }
+
+    if (controlsMoving || this._needsRender) {
+      this._renderingActive = true;
+      this._animationFrame = requestAnimationFrame(() => this.animate());
+      return;
+    }
+    this._renderingActive = false;
   }
 
   async loadWorldContent() {
@@ -1345,6 +1583,7 @@ class MeiWorldStage extends HTMLElement {
       for (const mesh of this._meshes.values()) {
         mesh.visible = true;
       }
+      this.invalidate();
       return;
     }
     for (const [meshId, mesh] of this._meshes.entries()) {
@@ -1378,6 +1617,7 @@ class MeiWorldStage extends HTMLElement {
       }
       mesh.visible = visible;
     }
+    this.invalidate();
   }
 
   applyCutawayState(cutaway) {
@@ -1439,6 +1679,7 @@ class MeiWorldStage extends HTMLElement {
       const mesh = this._meshes.get(String(meshId));
       if (mesh) mesh.visible = visible;
     });
+    if (ids.length) this.invalidate();
   }
 
   setGroupVisible(groupId, visible) {
@@ -1457,6 +1698,8 @@ class MeiWorldStage extends HTMLElement {
     const group = this.resolveWorldTargetGroup(id);
     if (group?.meshIds || group?.meshes) {
       this.setMeshGroupVisible(group.meshIds || group.meshes, visible);
+    } else {
+      this.invalidate();
     }
   }
 
@@ -1484,6 +1727,7 @@ class MeiWorldStage extends HTMLElement {
     this._camera.lookAt(center);
     this.syncCameraNav(center);
     this.updateStatus(`focus ${entityId}`);
+    this.invalidate();
   }
 
   applyCameraPreset(preset) {
@@ -1521,6 +1765,7 @@ class MeiWorldStage extends HTMLElement {
       this._camera.lookAt(lookAt.x, lookAt.y, lookAt.z);
       this.syncCameraNav(lookAt);
       this.updateStatus(`inspect ${targetEntity || "device"}`);
+      this.invalidate();
       return;
     }
     const distance = Number(preset.distance ?? 36);
@@ -1540,6 +1785,7 @@ class MeiWorldStage extends HTMLElement {
     this._camera.lookAt(center.x, 0.8, center.z);
     this.syncCameraNav(new THREE.Vector3(center.x, 0.8, center.z));
     this.updateStatus(`layout ${targetEntity || "site"}`);
+    this.invalidate();
   }
 
   updateStatus(text) {
@@ -1567,11 +1813,13 @@ class MeiWorldStage extends HTMLElement {
     if (resolved.type === "show_group" || resolved.type === "showGroup") {
       if (resolved.groupId) this.setGroupVisible(resolved.groupId, true);
       this.setMeshGroupVisible(resolved.meshIds || resolved.meshes, true);
+      this.invalidate();
       return true;
     }
     if (resolved.type === "hide_group" || resolved.type === "hideGroup") {
       if (resolved.groupId) this.setGroupVisible(resolved.groupId, false);
       this.setMeshGroupVisible(resolved.meshIds || resolved.meshes, false);
+      this.invalidate();
       return true;
     }
     if (resolved.type === "cutaway_toggle" || resolved.type === "cutawayToggle") {
@@ -1581,6 +1829,7 @@ class MeiWorldStage extends HTMLElement {
           ? ["site", "floor_1", "props"]
           : ["site", "floor_1", "roof", "props"],
       );
+      this.invalidate();
       return true;
     }
     if (resolved.entityId) {
@@ -1593,6 +1842,7 @@ class MeiWorldStage extends HTMLElement {
     if (resolved.groupId) {
       this.setGroupVisible(resolved.groupId, true);
     }
+    this.invalidate();
     return true;
   }
 }
@@ -1633,6 +1883,8 @@ boot.worldStageCameraNav = {
     resolveActiveWorldStage()?.navAdjustPitch(6);
   },
   reset() {
-    resolveActiveWorldStage()?._controls?.reset();
+    const stage = resolveActiveWorldStage();
+    stage?._controls?.reset();
+    stage?.invalidate?.();
   },
 };

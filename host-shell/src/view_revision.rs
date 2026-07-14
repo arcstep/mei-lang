@@ -21,6 +21,7 @@ use crate::state::SharedState;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ViewRevisionQuery {
+    #[serde(default, alias = "app")]
     pub app_id: String,
     pub scene: Option<String>,
     #[serde(default)]
@@ -190,7 +191,8 @@ pub async fn api_host_view_revision(
             app_id,
             scene_id.as_str(),
         ) {
-            Ok(Some(outcome)) => crate::review_axes::StageKind::from_scene_routes(
+            Ok(Some(outcome)) => crate::review_axes::StageKind::resolve(
+                &outcome.compiled.stage_registry,
                 &outcome.compiled.scene_routes,
                 scene_id.as_str(),
             ),

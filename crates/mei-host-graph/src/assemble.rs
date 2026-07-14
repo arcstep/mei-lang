@@ -3,9 +3,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    load_component_assets, load_mei_config_for_app, normalize_panel_slots, resolve_app_root,
-    CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, SceneContract,
-    SceneDecl, UiNodeDecl, UiTreeNode,
+    apply_cockpit_stage_decl, load_component_assets, load_mei_config_for_app,
+    normalize_panel_slots_with_options, resolve_app_root, CockpitFillDecl, CockpitStageDecl,
+    CockpitStepDecl, CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic,
+    LayoutBudgetValidateOptions, LoadedResource, SceneContract, SceneDecl, StageSlideInput,
+    UiNodeDecl, UiTreeNode,
 };
 use serde_json::{json, Value};
 
@@ -341,7 +343,17 @@ fn assemble_scope_from_registry_uncached(
         )
     };
     panel_diagnostics.extend(projection_diagnostics);
-    normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
+    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
+    let layout_options = LayoutBudgetValidateOptions::for_embedded_scene(
+        mei_config.ops.strict_fill_down,
+        mei_config.ops.fill_down,
+    );
+    normalize_panel_slots_with_options(
+        &mut panels,
+        &mut panel_diagnostics,
+        active_target.as_str(),
+        &layout_options,
+    );
     let flat_panels = flatten_panel_tree(&panels);
     let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
     let presentation_map = presentation_map_to_value(&build_presentation_map_with_default_script(
@@ -396,6 +408,11 @@ fn assemble_scope_from_registry_uncached(
         app_root: app_root_str,
         scene_routes,
         active_scene: Some(scene_id.clone()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: active_target.clone(),
         file_tree: Vec::new(),
         scene_contract: Some(scene_contract),
@@ -413,6 +430,9 @@ fn assemble_scope_from_registry_uncached(
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
+    compiled.rebuild_stage_registry();
+    let slides_by_stage = stage_slide_inputs_from_presentation_map(&presentation_map);
+    compiled.rebuild_stage_programs(&slides_by_stage);
 
     load_mei_config_for_app(app_root.as_path(), Some(source_root));
     compiled = crate::enrich_compiled_scope::enrich_compiled_scope(
@@ -421,6 +441,8 @@ fn assemble_scope_from_registry_uncached(
         app_id,
         crate::enrich_compiled_scope::EnrichCompiledScopeOptions::default(),
     );
+    compiled.rebuild_abi_projection(Some(&presentation_map));
+    apply_stage_mdx_from_app_root(&mut compiled, app_root.as_path());
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
 
@@ -463,6 +485,116 @@ fn load_app_meta(
         }
     }
     Ok((registry.app_id.clone(), "home".to_string()))
+}
+
+/// Phase 4: load `src/stage/*.stage.mdx`, validate fills, merge NarrationCatalog.
+fn apply_stage_mdx_from_app_root(compiled: &mut CompiledApp, app_root: &Path) {
+    let stage_dir = app_root.join("src").join("stage");
+    if !stage_dir.is_dir() {
+        return;
+    }
+    let mut paths: Vec<_> = std::fs::read_dir(&stage_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".stage.mdx"))
+        })
+        .collect();
+    paths.sort();
+    for path in paths {
+        let Ok(doc) = mei_syntax::parse_cockpit_stage_file(&path) else {
+            compiled.diagnostics.push(Diagnostic {
+                severity: mei_lang_kernel::Severity::Error,
+                code: "stage_mdx_parse".to_string(),
+                message: format!("failed to parse {}", path.display()),
+                source_path: Some(path.display().to_string()),
+            });
+            continue;
+        };
+        let rel = path
+            .strip_prefix(app_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let decl = CockpitStageDecl {
+            stage_id: doc.frontmatter.stage_id.clone(),
+            scene_use: doc.scene_use.clone(),
+            source_anchor: rel,
+            fills: doc
+                .fills
+                .iter()
+                .map(|f| CockpitFillDecl {
+                    slot: f.slot.clone(),
+                    content: f.content.clone(),
+                    line: f.line,
+                })
+                .collect(),
+            steps: doc
+                .steps
+                .iter()
+                .map(|s| CockpitStepDecl {
+                    id: s.id.clone(),
+                    target: s.target.clone(),
+                    caption: s.caption.as_ref().map(|m| m.markdown.clone()),
+                    speaker_notes: s.speaker_notes.as_ref().map(|m| m.markdown.clone()),
+                    line: s.line,
+                })
+                .collect(),
+        };
+        apply_cockpit_stage_decl(compiled, &decl);
+    }
+}
+
+/// Extract ordered slide units from a presentation_map Value, keyed by map.scene.
+fn stage_slide_inputs_from_presentation_map(
+    presentation_map: &Value,
+) -> BTreeMap<String, Vec<StageSlideInput>> {
+    let mut out = BTreeMap::new();
+    let Some(scene) = presentation_map
+        .get("scene")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return out;
+    };
+    let Some(slides) = presentation_map
+        .get("deck")
+        .and_then(|d| d.get("slides"))
+        .and_then(|v| v.as_array())
+    else {
+        return out;
+    };
+    let mut inputs = Vec::new();
+    for (idx, slide) in slides.iter().enumerate() {
+        let id = slide
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let order = slide
+            .get("order")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(idx);
+        let title = slide
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        inputs.push(StageSlideInput { id, title, order });
+    }
+    if !inputs.is_empty() {
+        out.insert(scene.to_string(), inputs);
+    }
+    out
 }
 
 fn resolve_scene_id_for_assembly(
@@ -559,7 +691,12 @@ fn resolve_assembly_key(
             });
     }
     if let Ok(routes) = list_scope_routes(source_root, app_id) {
-        if let Some(route) = routes.into_iter().find(|route| route.scene_id == scene_id) {
+        let aliases = scene_id_aliases(scene_id.as_str());
+        if let Some(route) = routes.into_iter().find(|route| {
+            aliases
+                .iter()
+                .any(|alias| route.scene_id == *alias)
+        }) {
             return route.assembly_key;
         }
     }
@@ -567,17 +704,34 @@ fn resolve_assembly_key(
     if let Some(key) = find_assembly_key_by_scene(app_root.as_path(), registry, scene_id.as_str()) {
         return key;
     }
-    registry
-        .nodes
-        .iter()
-        .find(|n| {
+    for alias in scene_id_aliases(scene_id.as_str()) {
+        if let Some(key) = registry
+            .nodes
+            .iter()
+            .find(|n| {
+                matches!(
+                    n.id.kind,
+                    GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph
+                ) && n.id.key.split('#').next_back() == Some(alias.as_str())
+            })
+            .map(|n| n.id.key.clone())
+        {
+            return key;
+        }
+    }
+    for alias in scene_id_aliases(scene_id.as_str()) {
+        let candidate =
+            mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), alias.as_str());
+        if registry.nodes.iter().any(|n| {
             matches!(
                 n.id.kind,
                 GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph
-            ) && n.id.key.split('#').next_back() == Some(scene_id.as_str())
-        })
-        .map(|n| n.id.key.clone())
-        .unwrap_or_else(|| format!("overlay/t2/{scene_id}"))
+            ) && n.id.key == candidate
+        }) {
+            return candidate;
+        }
+    }
+    mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), scene_id.as_str())
 }
 
 pub fn board_scene_id_for_node(
@@ -610,15 +764,43 @@ pub(crate) fn find_assembly_key_by_scene(
     registry: &crate::mcg::registry::McgRegistry,
     scene_id: &str,
 ) -> Option<String> {
-    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
-        if node.id.key.contains("home@") {
-            continue;
-        }
-        if board_scene_id_for_node(app_root, node).as_deref() == Some(scene_id) {
+    let aliases = scene_id_aliases(scene_id);
+    for alias in &aliases {
+        let semantic_prefix = format!("{alias}@");
+        if let Some(node) = registry.nodes_of_kind(GraphNodeKind::SemanticGraph).find(|node| {
+            node.id.key == *alias || node.id.key.starts_with(semantic_prefix.as_str())
+        }) {
             return Some(node.id.key.clone());
         }
     }
+    for alias in &aliases {
+        for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
+            if node.id.key.contains("home@") {
+                continue;
+            }
+            if board_scene_id_for_node(app_root, node).as_deref() == Some(alias.as_str()) {
+                return Some(node.id.key.clone());
+            }
+        }
+    }
     None
+}
+
+fn scene_id_aliases(scene_id: &str) -> Vec<String> {
+    let trimmed = scene_id.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![trimmed.to_string()];
+    let underscored = trimmed.replace('-', "_");
+    if underscored != trimmed {
+        out.push(underscored);
+    }
+    let hyphenated = trimmed.replace('_', "-");
+    if hyphenated != trimmed && !out.iter().any(|v| v == &hyphenated) {
+        out.push(hyphenated);
+    }
+    out
 }
 
 fn load_assembly_payload(

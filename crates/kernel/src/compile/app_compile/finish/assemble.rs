@@ -217,6 +217,11 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         app_root: app_root.to_string_lossy().to_string(),
         scene_routes: route_registry.routes,
         active_scene,
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file,
         file_tree,
         scene_contract: active_payload.scene_contract.take(),
@@ -234,6 +239,8 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
+    compiled.rebuild_stage_registry();
+    compiled.rebuild_stage_programs(&std::collections::BTreeMap::new());
     compiled.build_experience_index =
         crate::compile::build_experience_index::build_experience_index(
             &compiled.scene_routes,
@@ -287,6 +294,40 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         });
     }
     compiled.ui_layout_index = ui_layout.index;
+    compiled.rebuild_abi_projection(None);
+    // Phase 4: optional Cockpit Stage MDX (Native) after ABI projection.
+    {
+        let stage_dir = std::path::Path::new(&compiled.app_root).join("src").join("stage");
+        if stage_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&stage_dir) {
+                let mut paths: Vec<_> = entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.ends_with(".stage.mdx"))
+                    })
+                    .collect();
+                paths.sort();
+                for path in paths {
+                    // Kernel finish path does not depend on mei-syntax; host-graph applies
+                    // full parse. Here we only record that Native Stage MDX is present via
+                    // source_anchor hint if a stage program exists.
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if let Some(stage_id) = name.strip_suffix(".stage.mdx") {
+                            if let Some(program) =
+                                compiled.stage_programs.programs.get_mut(stage_id)
+                            {
+                                let rel = format!("src/stage/{name}");
+                                program.source_anchor = rel;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let template_files = if is_catalog_app {
         crate::compile::build_template_index::build_stock_template_files_root(
             workspace_source_root.as_path(),

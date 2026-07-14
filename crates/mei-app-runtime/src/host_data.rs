@@ -55,6 +55,7 @@ pub struct SceneQuery {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ViewRevisionQuery {
+    #[serde(default, alias = "app")]
     pub app_id: String,
     pub scene: Option<String>,
     pub surface: Option<String>,
@@ -73,6 +74,7 @@ pub struct ViewRevisionQuery {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SceneManifestQuery {
+    #[serde(default, alias = "app")]
     pub app_id: String,
     pub scene: Option<String>,
     pub surface: Option<String>,

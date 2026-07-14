@@ -1,0 +1,151 @@
+{
+  "abi": {
+    "capability_count": 1,
+    "capability_ids": [
+      "mini-metric"
+    ],
+    "digest_policy": {
+      "narration_includes_caption_notes_timing": true,
+      "structure_excludes_caption_notes_timing": true
+    },
+    "narration_cue_count": 0,
+    "narration_digest": "30406ea523c53def",
+    "profile_layout_policy": "cockpit:inline=constrained/block=constrained/fill=strict",
+    "public_slot_count": 1,
+    "public_slot_ids": [
+      "mini-metric"
+    ],
+    "slot_module_id": "scene:home",
+    "stage_mdx_source": "src/stage/home.stage.mdx",
+    "stage_surface": "viewport",
+    "structure_digest": "f061a8f75d96f03f",
+    "world_capability_count": 0,
+    "world_is_content": true
+  },
+  "active_scene": "home",
+  "app_id": "mini-grid",
+  "assembly_key": "home@src/scene/home.mei",
+  "digest_policy": {
+    "compare_absolute_compile_revision": false,
+    "compare_absolute_manifest_digest": false,
+    "compare_structure_counts": true,
+    "compile_revision_present": true
+  },
+  "layer_plan": {
+    "schemaVersion": "mei-layer-plan-v1",
+    "tier_entry_counts": {
+      "t1": 5
+    }
+  },
+  "mcg": {
+    "node_count": 11,
+    "nodes_by_kind": {
+      "app_skeleton": 1,
+      "content_panel": 1,
+      "navigation": 4,
+      "semantic_graph": 5
+    },
+    "schemaVersion": "mei-mcg-registry-v2"
+  },
+  "mrg": {
+    "schemaVersion": "mei-mrg-registry-v3",
+    "slot_count_compared": false
+  },
+  "panel_ids": [
+    "demo_metric",
+    "main",
+    "metric",
+    "mini-metric",
+    "t1"
+  ],
+  "presentation_map": {
+    "default_script_step_count": 0,
+    "schemaVersion": "mei-presentation-map-v1",
+    "slide_count": 0,
+    "slide_ids": [],
+    "viewpoint_count": 0,
+    "viewpoint_ids": []
+  },
+  "scene_id": "home",
+  "scene_routes": [
+    {
+      "is_default": true,
+      "kind": "scene",
+      "scene_id": "home",
+      "target_file": "src/scene/home.mei"
+    }
+  ],
+  "schema_ledger": {
+    "build_manifest": "mei-build-manifest-v1",
+    "client_bootstrap": "mei-client-bootstrap-v1",
+    "compile_bundle": "mei-compile-bundle-v1",
+    "compiler_graph": "mei-compiler-graph-v2",
+    "eval_slot_group": "eval-slot-group-v1",
+    "layer_plan": "mei-layer-plan-v1",
+    "manifest_index": "manifest-index-v1",
+    "mcg_registry": "mei-mcg-registry-v2",
+    "mrg_registry_host_graph": "mei-mrg-registry-v3",
+    "mrg_registry_server_note": "mei-mrg-registry-v2 (server/src/graph/mrg/registry.rs) forks from host-graph v3",
+    "presentation_map": "mei-presentation-map-v1",
+    "runtime_plans": "runtime-plans-v2",
+    "scene_view_manifest": "scene-view-manifest-v1",
+    "shell_layer": "shell-v1",
+    "structure_full": "structure-full-v1"
+  },
+  "schema_version": "mei-stage-architecture-runtime-baseline-v1",
+  "scope_routes": [
+    {
+      "assembly_key": "home@src/scene/home.mei",
+      "scene_id": "home",
+      "url": "/apps/app/mini-grid/scene/home"
+    },
+    {
+      "assembly_key": "home@src/scene/home.mei",
+      "scene_id": "home",
+      "url": "/apps/build/mini-grid?scene=home&file=src/scene/home.mei"
+    }
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/stage/home.stage.mdx",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "surface": "viewport",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home.mei",
+        "stage_id": "home"
+      }
+    ]
+  },
+  "structure_full": {
+    "node_count": 14,
+    "scene_root_count": 1,
+    "scene_roots": [
+      "home/home"
+    ],
+    "schema_version": "structure-full-v1"
+  },
+  "t2_page_count": 0,
+  "t2_page_scenes": [],
+  "world_plan": {
+    "world_count": 0,
+    "world_ids": []
+  }
+}

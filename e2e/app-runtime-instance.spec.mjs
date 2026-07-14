@@ -123,7 +123,7 @@ test.describe("app launch config + single runtime (0537)", () => {
 
     const revision = await json(
       await request.get(
-        `${base}/api/host/view-revision?app=${encodeURIComponent(appId)}&scene=home&surface=app`,
+        `${base}/api/host/view-revision?app_id=${encodeURIComponent(appId)}&scene=home&surface=app`,
       ),
     );
 

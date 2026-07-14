@@ -1,0 +1,142 @@
+{
+  "abi": {
+    "content_panel_count": 1,
+    "content_panel_ids": [
+      "enforcement-compound"
+    ],
+    "digest_note": "structure_digest/narration_digest are asserted in mei-host-graph runtime baseline",
+    "stage_mdx_count": 1,
+    "stage_mdx_fills": [
+      {
+        "content": "enforcement-compound",
+        "line": 8,
+        "slot": "enforcement-compound"
+      }
+    ],
+    "stage_mdx_stage_ids": [
+      "home"
+    ]
+  },
+  "app_id": "metric-grid",
+  "app_skeleton": {
+    "block_id": "app_skeleton:metric-grid",
+    "default_scene": "home",
+    "id": "metric-grid",
+    "title": "执法要素 Grid · Metric Grid"
+  },
+  "block_count": 11,
+  "blocks_by_kind": {
+    "app_skeleton": 1,
+    "content_panel": 1,
+    "navigation": 4,
+    "plane_layout": 1,
+    "region_layout": 1,
+    "scene": 1,
+    "section_layout": 1,
+    "stage_mdx": 1
+  },
+  "critical_block_ids": [
+    "app_skeleton:metric-grid",
+    "content_panel:enforcement-compound",
+    "navigation:access:home",
+    "navigation:build:home",
+    "navigation:default_access",
+    "navigation:default_build"
+  ],
+  "deck_or_slides": {
+    "presentation_block_ids": [],
+    "slide_block_ids": [],
+    "slide_count": 0,
+    "step_like_block_ids": [],
+    "step_like_count": 0
+  },
+  "file_count": 7,
+  "navigations": [
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:access:home",
+      "key": "access:home",
+      "scene": "home",
+      "url": "/apps/app/metric-grid/scene/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:build:home",
+      "key": "build:home",
+      "scene": "home",
+      "url": "/apps/build/metric-grid?scene=home&file=src/scene/home.mei"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_access",
+      "key": "default_access",
+      "scene": "home",
+      "url": "/apps/app/metric-grid/scene/home"
+    },
+    {
+      "assembly": {
+        "__args": {
+          "arg0": "home@src/scene/home.mei"
+        },
+        "__ref": "assembly_ref"
+      },
+      "block_id": "navigation:default_build",
+      "key": "default_build",
+      "scene": "home",
+      "url": "/apps/build/metric-grid"
+    }
+  ],
+  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "source_files": [
+    "app.mei",
+    "scene/home.mei",
+    "scene/home/t1.mei",
+    "scene/home/t1/r-main.mei",
+    "scene/home/t1/r-main/s-enforcement.mei",
+    "scene/home/t1/r-main/s-enforcement/content.mei",
+    "stage/home.stage.mdx"
+  ],
+  "stage_programs": {
+    "programs": [
+      {
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "source_anchor": "src/scene/home.mei",
+        "stage_id": "home",
+        "state_namespace": "stage:home",
+        "unit_count": 1,
+        "unit_ids": [
+          "home"
+        ]
+      }
+    ]
+  },
+  "stage_registry": {
+    "default_stage_id": "home",
+    "excluded_t2_scene_ids": [],
+    "stages": [
+      {
+        "is_default": true,
+        "legacy_scene_id": "home",
+        "profile": "cockpit",
+        "stage_id": "home"
+      }
+    ]
+  },
+  "syntax_version": "2.5.7"
+}

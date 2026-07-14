@@ -49,11 +49,31 @@ pub fn normalize_panel_slots(
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
+    normalize_panel_slots_with_options(
+        panels,
+        diagnostics,
+        source_path,
+        &crate::compile::layout_budget::LayoutBudgetValidateOptions::default(),
+    );
+}
+
+/// Phase 6: layout-budget validation uses profile + ops options.
+pub fn normalize_panel_slots_with_options(
+    panels: &mut [UiNodeDecl],
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+    layout_options: &crate::compile::layout_budget::LayoutBudgetValidateOptions,
+) {
     for panel in panels.iter_mut() {
         sanitize_panel_stacking(panel, diagnostics, source_path);
         normalize_panel(panel, diagnostics, source_path);
     }
-    crate::compile::layout_budget::resolve_layout_budgets(panels, diagnostics, source_path);
+    crate::compile::layout_budget::resolve_layout_budgets_with_options(
+        panels,
+        diagnostics,
+        source_path,
+        layout_options,
+    );
 }
 
 pub fn panel_resolved_has_head(panel: &UiNodeDecl) -> bool {

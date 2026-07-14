@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::stage_mdx::core::{
+    check_markdown_line, find_frontmatter_end as core_frontmatter_end, parse_directive_arg,
+    parse_heading, unquote, MarkdownForbidden,
+};
 use crate::v2::{slide_pattern_areas, SLIDE_PATTERNS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,20 +140,14 @@ fn parse_deck_source_at(path: Option<&Path>, source: &str) -> Result<DeckFile, D
 }
 
 fn parse_frontmatter_end(path: Option<&Path>, lines: &[&str]) -> Result<usize, DeckParseError> {
-    if lines.first().map(|line| line.trim()) != Some("---") {
-        return Err(DeckParseError::new(
+    core_frontmatter_end(path, lines).map_err(|e| {
+        DeckParseError::new(
             path,
-            1,
-            1,
-            "deck must start with `---` frontmatter",
-        ));
-    }
-    lines
-        .iter()
-        .enumerate()
-        .skip(1)
-        .find_map(|(index, line)| (line.trim() == "---").then_some(index))
-        .ok_or_else(|| DeckParseError::new(path, 1, 1, "frontmatter is missing closing `---`"))
+            e.line,
+            e.column,
+            e.message.replace("document must start", "deck must start"),
+        )
+    })
 }
 
 fn parse_frontmatter(
@@ -252,19 +250,6 @@ fn required_frontmatter(
                 format!("missing required frontmatter field `{key}`"),
             )
         })
-}
-
-fn unquote(value: &str) -> String {
-    if value.len() >= 2 {
-        let bytes = value.as_bytes();
-        if matches!(
-            (bytes[0], bytes[value.len() - 1]),
-            (b'"', b'"') | (b'\'', b'\'')
-        ) {
-            return value[1..value.len() - 1].to_string();
-        }
-    }
-    value.to_string()
 }
 
 struct DeckParser<'a> {
@@ -595,27 +580,6 @@ impl DeckParser<'_> {
     }
 }
 
-fn parse_heading(line: &str, level: usize) -> Option<(String, String)> {
-    let marker = if level == 1 { "# " } else { "## " };
-    let content = line.strip_prefix(marker)?;
-    let marker_start = content.rfind(" {#")?;
-    if !content.ends_with('}') {
-        return None;
-    }
-    let title = content[..marker_start].trim();
-    let id = &content[marker_start + 3..content.len() - 1];
-    if title.is_empty() || id.is_empty() {
-        return None;
-    }
-    Some((title.to_string(), id.to_string()))
-}
-
-fn parse_directive_arg<'a>(line: &'a str, directive: &str) -> Option<&'a str> {
-    let rest = line.strip_prefix(directive)?;
-    let inner = rest.strip_prefix('(')?.strip_suffix(')')?.trim();
-    (!inner.is_empty()).then_some(inner)
-}
-
 fn validate_id(
     path: Option<&Path>,
     line: usize,
@@ -691,32 +655,30 @@ fn validate_markdown_line(
     line: usize,
     raw: &str,
 ) -> Result<(), DeckParseError> {
-    let trimmed = raw.trim();
-    if trimmed.starts_with('@') {
-        return Err(DeckParseError::new(
+    match check_markdown_line(raw) {
+        Ok(()) => Ok(()),
+        Err(MarkdownForbidden::BareDirective) => Err(DeckParseError::new(
             path,
             line,
             1,
-            format!("directives are not allowed inside Markdown blocks: `{trimmed}`"),
-        ));
-    }
-    if raw.contains('<') || raw.contains('>') {
-        return Err(DeckParseError::new(
+            format!(
+                "directives are not allowed inside Markdown blocks: `{}`",
+                raw.trim()
+            ),
+        )),
+        Err(MarkdownForbidden::JsxHtml) => Err(DeckParseError::new(
             path,
             line,
             1,
             "JSX/HTML is not allowed in deck Markdown",
-        ));
-    }
-    if raw.contains('{') || raw.contains('}') {
-        return Err(DeckParseError::new(
+        )),
+        Err(MarkdownForbidden::JsxExpr) => Err(DeckParseError::new(
             path,
             line,
             1,
             "JSX expressions are not allowed in deck Markdown",
-        ));
+        )),
     }
-    Ok(())
 }
 
 fn markdown_from_lines(lines: &[&str]) -> Result<DeckMarkdown, DeckParseError> {

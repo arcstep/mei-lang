@@ -105,6 +105,11 @@ pub(super) fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
     let compiled = CompiledApp {
         app_id: "preview-explain".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: vec![resource.clone()],
         world_metrics: BTreeMap::from([

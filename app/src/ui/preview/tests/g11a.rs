@@ -146,6 +146,11 @@ fn resolve_value_supports_data_and_metric_refs() {
     let compiled = CompiledApp {
         app_id: "preview-test".to_string(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "scenes/home.mei".to_string(),
         resources: resources.values().cloned().collect(),
         world_metrics: BTreeMap::from([(
@@ -302,6 +307,11 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
         title: String::new(),
         app_root: String::new(),
         active_scene: Some("home".to_string()),
+        stage_registry: Default::default(),
+        stage_programs: Default::default(),
+        scene_slot_modules: Default::default(),
+        content_capabilities: Default::default(),
+        narration_catalogs: Default::default(),
         active_target_file: "src/scenes/home.mei".to_string(),
         scene_routes: Vec::new(),
         file_tree: Vec::new(),

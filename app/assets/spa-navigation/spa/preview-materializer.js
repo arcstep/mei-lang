@@ -2053,14 +2053,35 @@
         host;
     }
     if (!(target instanceof HTMLElement)) return;
-    if (target.getAttribute("data-props") === serialized) return;
-    target.setAttribute("data-props", serialized);
+    const attributeMatches = target.getAttribute("data-props") === serialized;
+    let instanceMatches = false;
+    if ("props" in target) {
+      try {
+        instanceMatches = JSON.stringify(target.props || {}) === serialized;
+      } catch (_) {
+        instanceMatches = false;
+      }
+    }
+    if (
+      attributeMatches &&
+      (instanceMatches ||
+        (typeof target._bind !== "function" && typeof target.render !== "function"))
+    ) {
+      return;
+    }
+    if (!attributeMatches) {
+      target.setAttribute("data-props", serialized);
+    }
     if (typeof target._bind === "function") {
       try {
         target._bind();
       } catch (_) {}
     } else if (typeof target.render === "function") {
       try {
+        // Some lightweight Web Components parse props only during connect and
+        // expose render() without observing data-props. Keep their instance
+        // state in sync when eval layers settle after the structure mount.
+        target.props = props || {};
         target.render();
       } catch (_) {}
     }
@@ -2186,6 +2207,56 @@
     if (tier === "t1") return 1000;
     if (tier === "t2") return 2000;
     return 0;
+  }
+
+  function normalizeStagePanelId(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("-", "_");
+  }
+
+  function stagePlanEntries() {
+    const tiers = global.__mei?.layer_plan?.tiers;
+    if (!tiers || typeof tiers !== "object") return [];
+    return Object.values(tiers)
+      .flatMap((entries) => (Array.isArray(entries) ? entries : []))
+      .filter((entry) => {
+        const stageKind = String(entry?.stageKind || entry?.stage_kind || "").trim();
+        const panelId = String(entry?.panelId || entry?.panel_id || "").trim();
+        return Boolean(stageKind && panelId);
+      })
+      .sort((left, right) => {
+        const leftId = normalizeStagePanelId(left?.panelId || left?.panel_id);
+        const rightId = normalizeStagePanelId(right?.panelId || right?.panel_id);
+        return rightId.length - leftId.length;
+      });
+  }
+
+  function applyStagePlanMetadata(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const entries = stagePlanEntries();
+    if (!entries.length) return;
+    root.querySelectorAll("[data-preview-scope]").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      const scope = normalizeStagePanelId(el.getAttribute("data-preview-scope"));
+      const panelId = normalizeStagePanelId(el.getAttribute("data-mei-panel-id"));
+      const label = normalizeStagePanelId(el.getAttribute("data-mei-structure-label"));
+      const candidates = [scope, panelId, label].filter(Boolean);
+      const entry = entries.find((item) => {
+        const id = normalizeStagePanelId(item?.panelId || item?.panel_id);
+        return id && candidates.some((candidate) => candidate.includes(id));
+      });
+      if (!entry) return;
+      const stageKind = String(entry.stageKind || entry.stage_kind || "").trim();
+      const viewFamily = String(entry.viewFamily || entry.view_family || "").trim();
+      if (stageKind) el.setAttribute("data-mei-stage-kind", stageKind);
+      if (viewFamily) el.setAttribute("data-mei-view-family", viewFamily);
+      el.setAttribute(
+        "data-mei-stage-panel-id",
+        String(entry.panelId || entry.panel_id || "").trim(),
+      );
+    });
   }
 
   function isLayoutUnit(el) {
@@ -3768,6 +3839,8 @@
 
   function finalizeClientPreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
+    applyRuntimePlans(layers["runtime.plans"]);
+    applyStagePlanMetadata(root);
     const projection = String(
       composeAxes?.review_projection || composeAxes?.reviewProjection || "",
     )
@@ -3850,6 +3923,7 @@
 
     cleanupComposeStructureArtifacts(root);
     buildStructureTree(root, structure, composeAxes || {});
+    applyStagePlanMetadata(root);
     applyComposeStructureLayout(root, structure);
     applyComposeThemeLayout(root);
 

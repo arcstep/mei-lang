@@ -105,7 +105,16 @@ struct MaterializeContext<'a> {
 
 fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     let app_root = resolve_app_root(workspace_root, app_id);
-    mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation
+    let mei_config = mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let data_gen =
+        mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
+    // Phase 6: include cockpit profile policy digest (ops + profile), not only data_generation.
+    let policy = mei_lang_kernel::profile_layout_policy_digest(
+        mei_lang_kernel::StageProfile::Cockpit,
+        mei_config.ops.strict_fill_down,
+        mei_config.ops.fill_down,
+    );
+    format!("{data_gen}|{policy}")
 }
 
 fn theme_digest_for_app(workspace_root: &Path, app_id: &str) -> String {

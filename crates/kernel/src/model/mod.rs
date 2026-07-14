@@ -1,12 +1,20 @@
+mod abi_project;
 mod build_node;
 mod build_view_index;
 mod compile_out;
+mod content_capability_abi;
 mod contract;
 mod dataset;
 mod diagnostic;
 mod layout;
+mod narration_abi;
 mod resource;
 mod review_modes;
+mod scene_slot_abi;
+mod stage_mdx_apply;
+mod profile_layout_policy;
+mod stage_program;
+mod stage_registry;
 mod ui;
 mod ui_layout_index;
 mod ui_node;
@@ -38,6 +46,31 @@ pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use review_modes::{
     ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
     SurfacePreviewPolicy,
+};
+pub use abi_project::{
+    bind_programs_to_abi, compute_narration_digest, compute_structure_digest,
+    diagnose_slot_missing, project_abi, validate_abi_against_programs, AbiProjection,
+    AbiProjectionInput,
+};
+pub use content_capability_abi::{ContentCapability, ContentCapabilityId, ContentCapabilityKind};
+pub use narration_abi::{
+    NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
+};
+pub use scene_slot_abi::{
+    SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality,
+};
+pub use stage_mdx_apply::{
+    apply_cockpit_stage_decl, CockpitFillDecl, CockpitStageDecl, CockpitStepDecl,
+};
+pub use stage_program::{
+    StageProgram, StageProgramIndex, StageProgramSummary, StageSlideInput, StageSurface, StageUnit,
+    StageUnitKind,
+};
+pub use profile_layout_policy::{
+    profile_layout_policy_digest, FillDownPolicy, ProfileLayoutPolicy, SizeAxisPolicy,
+};
+pub use stage_registry::{
+    is_stage_registry_candidate, StageDescriptor, StageId, StageProfile, StageRegistry, StageRoute,
 };
 pub use ui::{
     deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,

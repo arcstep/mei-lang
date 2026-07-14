@@ -15,6 +15,11 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
             title: "demo".to_string(),
             app_root: "/tmp/demo".to_string(),
             active_scene: Some(active_scene.to_string()),
+            stage_registry: Default::default(),
+            stage_programs: Default::default(),
+            scene_slot_modules: Default::default(),
+            content_capabilities: Default::default(),
+            narration_catalogs: Default::default(),
             active_target_file: active_target_file.to_string(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),

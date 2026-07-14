@@ -1,20 +1,58 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, Severity, UiNodeDecl, UiTreeNode};
+use crate::model::{
+    Diagnostic, ProfileLayoutPolicy, Severity, StageProfile, UiNodeDecl, UiTreeNode,
+};
 use crate::theme_tokens::is_literal_font_size;
 
 #[derive(Debug, Clone)]
 pub struct LayoutBudgetValidateOptions {
     pub strict_t1_fill_down: bool,
     pub strict_t2_fill_down: bool,
+    /// Owning StageProfile for profile-aware diagnostics (Phase 6).
+    pub profile: StageProfile,
+    /// When false (slides paged aperture), skip cockpit Fill-down body/content enforcement.
+    pub enforce_fill_down: bool,
 }
 
 impl Default for LayoutBudgetValidateOptions {
     fn default() -> Self {
+        Self::for_profile_and_ops(StageProfile::Cockpit, true, true)
+    }
+}
+
+impl LayoutBudgetValidateOptions {
+    /// Single source of truth for compile + enrich (0105 §11).
+    pub fn for_profile_and_ops(
+        profile: StageProfile,
+        strict_t1_fill_down: bool,
+        strict_t2_fill_down: bool,
+    ) -> Self {
+        let policy = ProfileLayoutPolicy::for_profile(profile);
+        let enforce = policy.fill_down.enforces_strict_fill_down();
         Self {
-            strict_t1_fill_down: true,
-            strict_t2_fill_down: true,
+            strict_t1_fill_down: if enforce {
+                strict_t1_fill_down
+            } else {
+                false
+            },
+            strict_t2_fill_down: if enforce {
+                strict_t2_fill_down
+            } else {
+                false
+            },
+            profile,
+            enforce_fill_down: enforce,
         }
+    }
+
+    /// Scene spatial modules always validate under cockpit policy (even when hosted by slides).
+    pub fn for_embedded_scene(strict_t1_fill_down: bool, strict_t2_fill_down: bool) -> Self {
+        Self::for_profile_and_ops(StageProfile::Cockpit, strict_t1_fill_down, strict_t2_fill_down)
+    }
+
+    fn profile_tag(&self) -> &'static str {
+        self.profile.as_str()
     }
 }
 
@@ -22,15 +60,6 @@ impl Default for LayoutBudgetValidateOptions {
 struct ValidateContext {
     tier: Option<String>,
     in_fill_down: bool,
-}
-
-pub fn emit_layout_budget_policy_diagnostics(
-    panels: &mut [UiNodeDecl],
-    diagnostics: &mut Vec<Diagnostic>,
-    source_path: &str,
-) {
-    validate_layout_budget_policy(panels, diagnostics, source_path);
-    materialize_layout_budget_px(panels, diagnostics, source_path);
 }
 
 /// Compile-time policy validation only (no px materialization).
@@ -43,12 +72,7 @@ pub fn validate_layout_budget_policy(
         panels,
         diagnostics,
         source_path,
-        &LayoutBudgetValidateOptions {
-            // Phase 3: T1 forbids __mei_content_budget / row_budgets px path.
-            strict_t1_fill_down: true,
-            // T2 defaults to the same policy; content-driven pages opt out in app config.
-            strict_t2_fill_down: true,
-        },
+        &LayoutBudgetValidateOptions::default(),
     )
 }
 
@@ -517,6 +541,21 @@ fn push_error(diagnostics: &mut Vec<Diagnostic>, code: &str, message: String, so
     });
 }
 
+fn push_policy_error(
+    diagnostics: &mut Vec<Diagnostic>,
+    code: &str,
+    message: String,
+    source_path: &str,
+    options: &LayoutBudgetValidateOptions,
+) {
+    push_error(
+        diagnostics,
+        code,
+        format!("{message} [profile={}]", options.profile_tag()),
+        source_path,
+    );
+}
+
 fn panel_tier(panel: &UiNodeDecl) -> Option<String> {
     panel
         .props
@@ -557,8 +596,8 @@ fn validate_panel(
     let tier = panel_tier(panel).or_else(|| ctx.tier.clone());
     let in_fill_down = ctx.in_fill_down;
 
-    if role == Some("section") && is_author_section_height(panel) {
-        push_error(
+    if role == Some("section") && is_author_section_height(panel) && options.enforce_fill_down {
+        push_policy_error(
             diagnostics,
             "layout_policy_section_height_forbidden",
             format!(
@@ -566,6 +605,7 @@ fn validate_panel(
                 panel.id
             ),
             source_path,
+            options,
         );
     }
 
@@ -589,7 +629,7 @@ fn validate_panel(
                 if let Some(rows) = panel.layout.as_ref().and_then(|l| l.rows.as_ref()) {
                     for row in rows {
                         if !track_is_fr_only(row) {
-                            push_error(
+                            push_policy_error(
                                 diagnostics,
                                 "layout_policy_region_px_track_forbidden",
                                 format!(
@@ -597,6 +637,7 @@ fn validate_panel(
                                     panel.id
                                 ),
                                 source_path,
+                                options,
                             );
                         }
                     }
@@ -606,7 +647,7 @@ fn validate_panel(
     }
 
     if is_forbidden_author_absolute(panel) {
-        push_error(
+        push_policy_error(
             diagnostics,
             "layout_policy_placement_absolute_forbidden",
             format!(
@@ -614,11 +655,12 @@ fn validate_panel(
                 panel.id
             ),
             source_path,
+            options,
         );
     }
 
     if content_budget_present(panel) {
-        push_error(
+        push_policy_error(
             diagnostics,
             "layout_policy_content_budget_px_forbidden",
             format!(
@@ -626,12 +668,14 @@ fn validate_panel(
                 panel.id
             ),
             source_path,
+            options,
         );
     }
-    let content_fill_required = !is_t2_tier(tier.as_deref()) || options.strict_t2_fill_down;
+    let content_fill_required = options.enforce_fill_down
+        && (!is_t2_tier(tier.as_deref()) || options.strict_t2_fill_down);
     if is_content_panel(panel) && content_fill_required {
         if !is_layout_fill_panel(panel) {
-            push_error(
+            push_policy_error(
                 diagnostics,
                 "layout_policy_body_not_fill",
                 format!(
@@ -639,12 +683,13 @@ fn validate_panel(
                     panel.id
                 ),
                 source_path,
+                options,
             );
         }
         if let Some(rows) = panel.layout.as_ref().and_then(|l| l.rows.as_ref()) {
             for row in rows {
                 if row.trim().eq_ignore_ascii_case("auto") {
-                    push_error(
+                    push_policy_error(
                         diagnostics,
                         "layout_policy_content_auto_row_forbidden",
                         format!(
@@ -652,6 +697,7 @@ fn validate_panel(
                             panel.id
                         ),
                         source_path,
+                        options,
                     );
                 }
             }
@@ -660,12 +706,13 @@ fn validate_panel(
 
     if role == Some("section") {
         validate_section_content_link(panel, panel_map, diagnostics, source_path);
-        let strict_fill_down = (is_t1_tier(tier.as_deref()) && options.strict_t1_fill_down)
-            || (is_t2_tier(tier.as_deref()) && options.strict_t2_fill_down);
+        let strict_fill_down = options.enforce_fill_down
+            && ((is_t1_tier(tier.as_deref()) && options.strict_t1_fill_down)
+                || (is_t2_tier(tier.as_deref()) && options.strict_t2_fill_down));
         if strict_fill_down {
             if let Some(body) = find_body_content_panel(panel, panel_map) {
                 if !is_layout_fill_panel(body) {
-                    push_error(
+                    push_policy_error(
                         diagnostics,
                         "layout_policy_body_not_fill",
                         format!(
@@ -673,6 +720,7 @@ fn validate_panel(
                             panel.id
                         ),
                         source_path,
+                        options,
                     );
                 }
             }
