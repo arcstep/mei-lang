@@ -3384,7 +3384,7 @@
       await requestJson(OPS_PREBUILD_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app_id: appId }),
+        body: JSON.stringify({ app_id: appId, config }),
       });
       announce(`正在编译 ${appId}…`, "neutral");
       await waitForOpsIdle();
@@ -15650,6 +15650,8 @@
   function isDedicatedExplainMetricId(metricId, { supportRole = "" } = {}) {
     const text = String(metricId || "").trim();
     if (!text || isScalarRowsetMetricId(text)) return false;
+    // `metric::detail` 不是服务端 dataframe；应回退为 `::__scalar_rowset__`。
+    if (text.endsWith("::detail")) return false;
     if (sceneQualifiedMetricHasExplainSuffix(text)) return true;
     if (text.includes("::")) return !text.includes(".mei::");
     const role = String(supportRole || "").trim().toLowerCase();
@@ -33872,6 +33874,19 @@
     const padLeft =
       Number.parseFloat(global.getComputedStyle?.(padHost)?.paddingLeft || "0") || 0;
     const iconReserved = padLeft >= 48;
+    const inlineAlign = String(
+      card.getAttribute("data-mei-metric-inline-align") ||
+        target.getAttribute("data-mei-metric-inline-align") ||
+        "compact",
+    )
+      .trim()
+      .toLowerCase();
+    const compactInline = inlineAlign !== "between" && inlineAlign !== "spread";
+    // 「20 项」：value 与 unit 同基线、约一字空格；between/spread 略松。
+    const valueUnitColGap = compactInline ? "0 0.3em" : "0 4px";
+    const PROGRESS_STACK_ROWS = "12px 20px 34px 10px 18px 10px";
+    const PROGRESS_STACK_AREAS =
+      '". ." "label label" "value unit" ". ." "desc desc" ". ."';
     if (template === "row") {
       style.gridTemplateColumns = "auto auto auto";
       style.gridTemplateRows = "1fr";
@@ -33879,7 +33894,8 @@
       style.alignItems = "center";
       style.justifyItems = iconReserved ? "start" : "center";
       style.justifyContent = iconReserved ? "start" : "center";
-      style.gap = "2px 3px";
+      style.gap = compactInline ? "0 0.3em" : "2px 4px";
+      card.setAttribute("data-mei-metric-value-unit-tight", compactInline ? "true" : "false");
       return;
     }
     if (template !== "stack" && template !== "stack_desc") return;
@@ -33887,8 +33903,48 @@
       card.getAttribute("data-mei-metric-title-ratio") || "2";
     const contentRatio =
       card.getAttribute("data-mei-metric-content-ratio") || "3";
-    style.gridTemplateColumns = "auto auto";
-    if (template === "stack_desc") {
+    const cardProps = parseHostProps(card);
+    const descMode = String(
+      card.getAttribute("data-mei-metric-desc-mode") ||
+        target.getAttribute("data-mei-metric-desc-mode") ||
+        cardProps.__mei_metric_desc_mode ||
+        cardProps.metric_desc_mode ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    const hasProgressDesc = !!card.querySelector(
+      "mei-cockpit-metric-progress, [data-mei-use-key='cockpit.metric-progress']",
+    );
+    const isProgressCard = descMode === "progress" || hasProgressDesc;
+    // Progress cards author fixed px tracks + spacer rows (e.g. clean SVG 104px shell).
+    // Collapsing them into 2fr/3fr/auto clips label/value under overflow:hidden.
+    const authoredRows = String(
+      target.dataset.manifestGridRows || target.style.gridTemplateRows || "",
+    ).trim();
+    const authoredCols = String(
+      target.dataset.manifestGridColumns || target.style.gridTemplateColumns || "",
+    ).trim();
+    const authoredTrackCount = authoredRows
+      ? authoredRows.split(/\s+/).filter(Boolean).length
+      : 0;
+    const preserveAuthoredProgress =
+      isProgressCard || (authoredTrackCount >= 5 && /\dpx/i.test(authoredRows));
+    if (isProgressCard) {
+      card.setAttribute("data-mei-metric-desc-mode", "progress");
+    }
+    style.gridTemplateColumns = authoredCols || "auto auto";
+    if (isProgressCard) {
+      // Always use canonical progress areas so desc cannot auto-place between label/value.
+      style.gridTemplateRows =
+        authoredTrackCount >= 5 && /\dpx/i.test(authoredRows)
+          ? authoredRows
+          : PROGRESS_STACK_ROWS;
+      style.gridTemplateAreas = PROGRESS_STACK_AREAS;
+    } else if (preserveAuthoredProgress) {
+      style.gridTemplateRows = authoredRows || PROGRESS_STACK_ROWS;
+      style.gridTemplateAreas = PROGRESS_STACK_AREAS;
+    } else if (template === "stack_desc") {
       // Keep desc on its own row so the badge does not overlap value/unit.
       style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)} auto`;
       style.gridTemplateAreas = '"label label" "value unit" "desc desc"';
@@ -33899,7 +33955,25 @@
     style.alignItems = "stretch";
     style.justifyItems = iconReserved ? "start" : "center";
     style.justifyContent = iconReserved ? "start" : "center";
-    style.gap = "0 4px";
+    // Progress keeps row gap 0; column gap still needs the one-space value|unit feel.
+    style.gap = isProgressCard || preserveAuthoredProgress ? "0 0.3em" : valueUnitColGap;
+    card.setAttribute("data-mei-metric-value-unit-tight", "true");
+  }
+
+  function pinMetricProgressToDescArea(bodyCell) {
+    if (!(bodyCell instanceof HTMLElement)) return;
+    const progress =
+      bodyCell.querySelector("mei-cockpit-metric-progress") ||
+      bodyCell.querySelector("[data-mei-use-key='cockpit.metric-progress']");
+    if (!(progress instanceof HTMLElement)) return;
+    const hostCard =
+      progress.closest(".component-card") ||
+      (progress.parentElement instanceof HTMLElement ? progress.parentElement : null);
+    const target = hostCard instanceof HTMLElement ? hostCard : progress;
+    target.style.gridArea = "desc";
+    target.style.minWidth = "0";
+    target.style.minHeight = "0";
+    target.setAttribute("data-metric-role", "desc");
   }
 
   function wrapMetricRoleNode(node, role) {
@@ -33913,6 +33987,8 @@
     card.style.gridArea = role;
     card.style.minWidth = "0";
     card.style.minHeight = "0";
+    if (role === "value") card.style.justifySelf = "end";
+    if (role === "unit") card.style.justifySelf = "start";
     const host = document.createElement("div");
     host.className = "component-host";
     node.replaceWith(card);
@@ -33940,6 +34016,7 @@
           return isMetricRole(role);
         });
     if (!roleNodes.length && bodyCell.querySelector(":scope > .component-card")) {
+      pinMetricProgressToDescArea(bodyCell);
       applyMetricStackGridLayout(bodyCell);
       return;
     }
@@ -33958,6 +34035,7 @@
         host.remove();
       }
     }
+    pinMetricProgressToDescArea(bodyCell);
     applyMetricStackGridLayout(bodyCell);
     section.setAttribute("data-mei-metric-card-normalized", "1");
   }
@@ -35056,6 +35134,16 @@
     if (props.__mei_metric_density != null) {
       el.setAttribute("data-mei-metric-density", String(props.__mei_metric_density));
     }
+    if (props.__mei_metric_inline_align != null) {
+      el.setAttribute(
+        "data-mei-metric-inline-align",
+        String(props.__mei_metric_inline_align),
+      );
+    }
+    const descModeRaw = props.__mei_metric_desc_mode ?? props.metric_desc_mode;
+    if (descModeRaw != null && String(descModeRaw).trim()) {
+      el.setAttribute("data-mei-metric-desc-mode", String(descModeRaw).trim());
+    }
     if (
       props.__mei_slot_frame_bg === true ||
       String(props.__mei_slot_frame_bg || "").trim() === "true" ||
@@ -35652,6 +35740,8 @@
         el.style.minHeight = "0";
         el.style.minWidth = "0";
         el.style.position = "relative";
+        // 底图链必须可点；勿沿用 T1 map_stage 的 pointer-events:none。
+        el.style.pointerEvents = "auto";
       },
     );
     const mapHost =
@@ -35666,6 +35756,7 @@
         el.style.height = "100%";
         el.style.minHeight = "0";
         el.style.minWidth = "0";
+        el.style.pointerEvents = "auto";
         if (el.classList.contains("component-host") || el.classList.contains("preview-card")) {
           el.style.position = "absolute";
           el.style.inset = "0";
@@ -35673,6 +35764,7 @@
       }
       el = el.parentElement;
     }
+    mapHost.style.pointerEvents = "auto";
   }
 
   function normalizeMapStageSection(section) {
@@ -35689,6 +35781,8 @@
   function normalizeMapOperationViewportSection(section) {
     if (!(section instanceof HTMLElement)) return;
     const scope = String(section.getAttribute("data-preview-scope") || "").toLowerCase();
+    // T0 底图 map_stage 不是观察窗叠层，不要写成 pointer-events:none。
+    if (scope === "t0" || scope.startsWith("t0/")) return;
     const isCenterRailViewport = scope.endsWith("/map_viewport");
     const isMapStageOverlay =
       scope.includes("map_stage_overlay") || scope.endsWith("/map_stage");
@@ -35764,21 +35858,14 @@
       el.style.height = "100%";
       el.style.width = "100%";
     });
-    const hintSlot = section.querySelector('[data-preview-scope$="/hint"]');
+    // 观察窗底部操作提示已移除；若遗留 hint 槽则隐藏，勿再注入兜底文案。
+    const hintSlot = section.querySelector(
+      '[data-preview-scope$="/hint"], [data-mei-panel-name="stage-aperture-hint"]',
+    );
     if (hintSlot instanceof HTMLElement) {
-      hintSlot.setAttribute("data-mei-panel-name", "stage-aperture-hint");
-      // mei-text 等 WC 的文案在 shadowRoot，host.textContent 常为空；勿再注入第二份 hint。
-      const hasAuthoredHint =
-        hintSlot.childElementCount > 0 ||
-        Boolean(hintSlot.querySelector("mei-text, .mei-map-viewport-hint"));
-      if (!hasAuthoredHint && !hintSlot.textContent?.trim()) {
-        const hint = document.createElement("div");
-        hint.className = "mei-map-viewport-hint";
-        hint.textContent = "拖动平移 · 滚轮缩放 · 地图工具仅出现在中心观察窗内";
-        hint.style.cssText =
-          "text-align:center;font-size:12px;color:#7dd3fc;padding:8px 16px;background:rgba(10,36,72,0.72);border:1px solid rgba(56,160,240,0.28);border-radius:4px;pointer-events:none;";
-        hintSlot.appendChild(hint);
-      }
+      hintSlot.style.display = "none";
+      hintSlot.setAttribute("aria-hidden", "true");
+      hintSlot.querySelectorAll(".mei-map-viewport-hint").forEach((node) => node.remove());
     }
   }
 
@@ -35914,6 +36001,10 @@
     normalizeSectionContentZonePlacement(root);
     normalizeT1InteractivePointerEvents(tree);
     normalizeMapViewportPointerEvents(tree);
+    // 指针规则之后再钉一次 T0，避免 map_stage 叠层逻辑误伤底图。
+    tree.querySelectorAll('[data-mei-ui-role="plane"], .mei-compose-plane').forEach((plane) => {
+      normalizeT0BasemapPlane(plane);
+    });
     hideLayoutDebugRegions(tree);
   }
 
@@ -36419,6 +36510,14 @@
         if (!(el instanceof HTMLElement)) return;
         const card = el.closest(".preview-card");
         if (!(card instanceof HTMLElement)) return;
+        // Progress bars mount inside metric cards; do not wipe SVG slot chrome
+        // (e.g. metric-bg-clean on 无违规) owned by the parent metric frame.
+        if (
+          card.getAttribute("data-mei-slot-frame-bg") === "true" ||
+          card.hasAttribute("data-mei-metric-card")
+        ) {
+          return;
+        }
         card.classList.add("preview-card-bare");
         card.style.padding = "0";
         card.style.gap = "0";
@@ -36649,6 +36748,9 @@
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
     normalizeMapViewportPointerEvents(root);
+    root.querySelectorAll('[data-mei-ui-role="plane"], .mei-compose-plane').forEach((plane) => {
+      normalizeT0BasemapPlane(plane);
+    });
     applyDevEvalPlaceholders(root);
     // mei.text connects before authored data-props settle; rebind after placeholders.
     rebindAuthoredComponentHosts(root);
@@ -36742,6 +36844,8 @@
   function isMapViewportPointerTransparentScope(scope) {
     const normalized = String(scope || "").trim().toLowerCase();
     if (!normalized) return false;
+    // T0 底图 map_stage 必须接收 pan/zoom；仅 T1 观察窗/叠层透传。
+    if (normalized === "t0" || normalized.startsWith("t0/")) return false;
     if (
       normalized.endsWith("/map_viewport") ||
       normalized.includes("/map_viewport/") ||
@@ -36778,11 +36882,27 @@
     const normalized = String(scope || "").trim().toLowerCase();
     if (!normalized || normalized.includes("layout_debug")) return false;
     if (isMapViewportPointerTransparentScope(normalized)) return false;
+    // center_rail 本体必须保持 none，否则子级 map_viewport(none) 上的点击会落在父级上，挡死 T0 底图。
+    if (
+      normalized === "t1/center_rail" ||
+      normalized.endsWith("/center_rail") ||
+      normalized.includes("center_rail/map")
+    ) {
+      return false;
+    }
+    // 中栏仅上下业务 section 可点；观察窗保持透传。
+    if (normalized.includes("center_rail")) {
+      return (
+        normalized.includes("indicator_system") ||
+        normalized.includes("realtime_table") ||
+        normalized.includes("realtime_warning") ||
+        normalized.includes("center_top")
+      );
+    }
     return (
       normalized.includes("right_rail") ||
       normalized.includes("left_rail") ||
       normalized.includes("header") ||
-      normalized.includes("center_rail") ||
       normalized.includes("center_top") ||
       normalized.includes("realtime_center")
     );
@@ -36796,13 +36916,33 @@
       )
       .forEach((plane) => {
         if (!(plane instanceof HTMLElement)) return;
-        plane.querySelectorAll(".mei-compose-section, .mei-compose-slot").forEach((el) => {
+        // T1 plane itself must not capture; only opted-in sections receive events.
+        plane.style.pointerEvents = "none";
+        plane.querySelectorAll(".mei-compose-section, .mei-compose-slot, .mei-compose-region").forEach((el) => {
           if (!(el instanceof HTMLElement)) return;
           const scope = el.getAttribute("data-preview-scope") || "";
-          if (shouldT1UnitReceivePointerEvents(scope)) {
-            el.style.pointerEvents = "auto";
+          if (isMapViewportPointerTransparentScope(scope)) {
+            el.style.pointerEvents = "none";
+            return;
           }
+          el.style.pointerEvents = shouldT1UnitReceivePointerEvents(scope) ? "auto" : "none";
         });
+        // 观察窗透传子树（含 aperture / interaction surface / frame）强制 none
+        plane
+          .querySelectorAll(
+            '[data-preview-scope*="map-interaction-surface"], [data-preview-scope*="map_interaction_surface"], [data-preview-scope*="stage-aperture"], [data-preview-scope*="stage_aperture"], [data-preview-scope*="viewport_frame"], [data-mei-panel-name="map-interaction-surface"], [data-mei-panel-name="stage-aperture-frame"]',
+          )
+          .forEach((el) => {
+            if (el instanceof HTMLElement) el.style.pointerEvents = "none";
+          });
+        // 工具挂点始终可点
+        plane
+          .querySelectorAll(
+            '[data-preview-scope*="map-tools"], [data-preview-scope*="map_tools"], [data-mei-panel-name="map-tools-slot"]',
+          )
+          .forEach((el) => {
+            if (el instanceof HTMLElement) el.style.pointerEvents = "auto";
+          });
       });
   }
 

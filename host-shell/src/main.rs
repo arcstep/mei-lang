@@ -35,6 +35,7 @@ mod landing;
 mod launch_targets;
 mod legacy_compat;
 mod light_pages;
+mod log_format;
 mod managed_plug;
 mod ops_api;
 mod ops_config_api;
@@ -88,10 +89,8 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
-        .with_ansi(true)
-        .with_target(false)
         .with_writer(std::io::stderr)
-        .compact()
+        .event_format(crate::log_format::ComposePrefixFormat::new())
         .init();
     if cli.print_version {
         return crate::build_info::print_cli_version(None, false);

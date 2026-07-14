@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::apply_profile::{
     prepare_profile_apply, run_build_request_sync, start_build_request_job, start_profile_apply,
@@ -27,6 +27,9 @@ pub async fn api_host_ops_status(State(state): State<SharedState>) -> impl IntoR
 pub struct OpsPrebuildBody {
     pub policy: Option<String>,
     pub app_id: Option<String>,
+    /// Launch config name (e.g. `data-full`). When set, prebuild uses that
+    /// launch's runtime profile + warmup scenes instead of a fixed policy.
+    pub config: Option<String>,
 }
 
 pub async fn api_host_ops_reload(State(state): State<SharedState>) -> Response {
@@ -82,9 +85,16 @@ pub async fn api_host_ops_reload(State(state): State<SharedState>) -> Response {
 }
 
 pub async fn api_host_ops_prebuild(
-    State(state): State<SharedState>,
+    State(http): State<HostHttpState>,
     Json(body): Json<OpsPrebuildBody>,
 ) -> Response {
+    let state = http.shell.clone();
+    let launch_config = body
+        .config
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let policy = body
         .policy
         .as_deref()
@@ -123,16 +133,47 @@ pub async fn api_host_ops_prebuild(
         .unwrap_or(default_app_id.as_str())
         .to_string();
 
+    let scenes = if let Some(config_name) = launch_config.as_deref() {
+        match mei_host_core::read_launch_config(workspace.as_path(), app_id.as_str(), config_name) {
+            Ok(launch) => {
+                crate::app_launch_api::apply_launch_runtime_profile(
+                    &http,
+                    workspace.as_path(),
+                    app_id.as_str(),
+                    &launch.config,
+                );
+                crate::app_launch_api::launch_warmup_scenes(
+                    workspace.as_path(),
+                    &launch.config,
+                    app_id.as_str(),
+                )
+            }
+            Err(error) => {
+                let mut guard = state.write().expect("state lock");
+                finish_ops_job_failure(
+                    &mut guard,
+                    format!("launch config `{config_name}`: {error}"),
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "accepted": false,
+                        "kind": "prebuild",
+                        "error": format!("launch config `{config_name}`: {error}"),
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        vec![policy.clone()]
+    };
+    let scenes_for_response = scenes.clone();
+
     let shell = state.clone();
-    let policy_for_response = policy.clone();
     tokio::spawn(async move {
-        let policy_for_task = policy;
         let result = tokio::task::spawn_blocking(move || {
-            prebuild_pipeline(
-                workspace.as_path(),
-                app_id.as_str(),
-                &[policy_for_task.clone()],
-            )
+            prebuild_pipeline(workspace.as_path(), app_id.as_str(), &scenes)
         })
         .await
         .map_err(|error| format!("prebuild task join failed: {error}"))
@@ -155,7 +196,13 @@ pub async fn api_host_ops_prebuild(
         Json(json!({
             "accepted": true,
             "kind": "prebuild",
-            "policy": policy_for_response,
+            "config": launch_config,
+            "scenes": scenes_for_response,
+            "policy": if launch_config.is_some() {
+                Value::Null
+            } else {
+                json!(policy)
+            },
         })),
     )
         .into_response()

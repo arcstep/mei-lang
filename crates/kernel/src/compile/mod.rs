@@ -66,7 +66,7 @@ pub use app_compile::{
     compile_app_from_root_with_options_and_revision, compile_app_with_options,
     compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
-    CompileAppArtifacts,
+    resolve_scene_ids_from_root, app_declares_scene_from_root, CompileAppArtifacts,
 };
 pub use build_experience::{
     backing_refs_from_block_props, block_instance_id, build_experience_path,

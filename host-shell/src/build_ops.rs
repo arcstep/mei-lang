@@ -235,8 +235,9 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
         .clone();
     let report = import_with_options(workspace.as_path(), app, None)?;
     // 日常改 .mei 的热重载闭环：import 会清 stale bootstrap，必须立刻 warmup 写回。
-    // 须用 home（与 prebuild / warmup_policy 对齐）；standard 无 workset → manifest_missing。
-    rewarm_after_import(workspace.as_path(), app, "home")?;
+    // 默认用 app default_scene（与 prebuild / hotScenes 对齐）；standard 无 workset → manifest_missing。
+    let policy = crate::shell_chrome::default_access_scene(workspace.as_path(), app);
+    rewarm_after_import(workspace.as_path(), app, policy.as_str())?;
     Ok(ReloadOutcome {
         accepted: true,
         blocks_changed: report.registry_revision != prev_revision,
@@ -258,6 +259,22 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, scenes: &[String]) -> anyh
     )?;
     let build_id = generation.env_version.clone();
     let config_digest = generation.config_digest.clone();
+
+    let prebuild_start_lines = [
+        format!("app={app}"),
+        format!("generation={build_id}"),
+        format!(
+            "scenes={}",
+            if scenes.is_empty() {
+                crate::shell_chrome::default_access_scene(workspace.as_path(), app)
+            } else {
+                scenes.join(",")
+            }
+        ),
+    ];
+    let prebuild_start_refs: Vec<&str> =
+        prebuild_start_lines.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_prebuild_start_banner(prebuild_start_refs.as_slice());
 
     let compile_phase = mei_host_core::ProcessPhaseTimer::start();
     crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
@@ -341,7 +358,7 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, scenes: &[String]) -> anyh
     );
 
     let policy_label = if scenes.is_empty() {
-        "home".to_string()
+        crate::shell_chrome::default_access_scene(workspace.as_path(), app)
     } else {
         scenes.join(",")
     };

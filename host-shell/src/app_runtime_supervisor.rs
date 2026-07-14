@@ -413,6 +413,15 @@ async fn spawn_managed_runtime(
     let binary = crate::tool_exec::resolve_mei_app_runtime(Some(workspace_root))?;
     let _ = mei_host_core::write_instance_spec(workspace_root, spec);
     let spec_path = mei_host_core::instance_spec_path(workspace_root, spec.app_id.as_str());
+    let listen_hint = format!("http://{MANAGED_APP_RUNTIME_HOST}:{reserved_port}");
+    let start_lines = [
+        format!("app={}", spec.app_id),
+        format!("generation={}", spec.bundle.generation),
+        format!("instance={}", spec.instance_id),
+        format!("listen={listen_hint}"),
+    ];
+    let start_refs: Vec<&str> = start_lines.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_app_start_banner(start_refs.as_slice());
     let mut cmd = Command::new(&binary);
     cmd.arg("serve")
         .arg("--workspace")
@@ -448,24 +457,35 @@ async fn spawn_managed_runtime(
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| anyhow::anyhow!("spawn {}: {error}", binary.display()))?;
 
+    if let Some(stderr) = child.stderr.take() {
+        let app_id = spec.app_id.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                crate::log_format::emit_prefixed_line(app_id.as_str(), line.as_str());
+            }
+        });
+    }
+
     let fallback_endpoint = format!("http://{MANAGED_APP_RUNTIME_HOST}:{reserved_port}");
     let listen_endpoint = if let Some(stdout) = child.stdout.take() {
+        let app_id = spec.app_id.clone();
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             let mut sender = Some(tx);
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(tx) = sender.take() {
-                    if let Some(endpoint) = parse_listen_line(line.as_str()) {
+                if let Some(endpoint) = parse_listen_line(line.as_str()) {
+                    if let Some(tx) = sender.take() {
                         let _ = tx.send(endpoint);
-                    } else {
-                        sender = Some(tx);
                     }
+                } else if !line.trim().is_empty() {
+                    crate::log_format::emit_prefixed_line(app_id.as_str(), line.as_str());
                 }
             }
         });
@@ -482,6 +502,15 @@ async fn spawn_managed_runtime(
         let _ = child.wait().await;
         return Err(error);
     }
+
+    let ready_lines = [
+        format!("app={}", spec.app_id),
+        format!("generation={}", spec.bundle.generation),
+        format!("instance={}", spec.instance_id),
+        format!("listen={listen_endpoint}"),
+    ];
+    let ready_refs: Vec<&str> = ready_lines.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_app_ready_banner(ready_refs.as_slice());
 
     Ok(ManagedRuntime {
         child,

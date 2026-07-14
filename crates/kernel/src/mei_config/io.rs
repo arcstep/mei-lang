@@ -38,7 +38,22 @@ pub fn resolve_app_entry_main(app_root: &Path) -> String {
 }
 
 pub fn resolve_app_main_path(app_root: &Path) -> PathBuf {
-    super::workspace_paths::resolve_app_src_root(app_root).join(resolve_app_entry_main(app_root))
+    let entry = resolve_app_entry_main(app_root);
+    let normalized = entry.trim().trim_start_matches("./").replace('\\', "/");
+    // `app.config.json` may use app-root-relative (`src/app.mei`) or src-relative (`app.mei` / `main.mei`).
+    let from_app_root = app_root.join(normalized.as_str());
+    if from_app_root.is_file() {
+        return from_app_root;
+    }
+    let under_src_rel = normalized
+        .strip_prefix("src/")
+        .unwrap_or(normalized.as_str());
+    let from_src = super::workspace_paths::resolve_app_src_root(app_root).join(under_src_rel);
+    if from_src.is_file() {
+        return from_src;
+    }
+    // Prefer the historical src-relative join when neither candidate exists yet.
+    from_src
 }
 
 pub fn write_mei_config(path: &Path, config: &MeiConfig) -> Result<()> {

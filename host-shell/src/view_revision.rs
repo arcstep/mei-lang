@@ -140,13 +140,21 @@ pub async fn api_host_view_revision(
         )
             .into_response();
     }
-    let scene_id = query
+    let scene_id = match query
         .scene
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("home")
-        .to_string();
+    {
+        Some(scene) => scene.to_string(),
+        None => {
+            let workspace = {
+                let guard = state.read().expect("state lock");
+                guard.ctx.workspace_root.clone()
+            };
+            crate::shell_chrome::default_access_scene(workspace.as_path(), app_id)
+        }
+    };
     let gate_started = Instant::now();
     {
         let mut guard = state.write().expect("state lock");
@@ -259,11 +267,15 @@ pub async fn api_host_view_revision(
     ) {
         Ok(value) => value,
         Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": err.to_string()})),
-            )
-                .into_response();
+            let message = err.to_string();
+            let status = if message.contains("assembly view not found")
+                || message.contains("scene not found")
+            {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            return (status, Json(json!({"error": message}))).into_response();
         }
     };
     let revision_ms = revision_started.elapsed().as_millis();

@@ -5071,10 +5071,57 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region {
   pointer-events: none;
 }
-.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-section,
-.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-section,
-.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-slot,
-.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-slot {
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-section:not([data-preview-scope*="center_rail"]),
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-section:not([data-preview-scope*="center_rail"]),
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-slot:not([data-preview-scope*="center_rail"]),
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-slot:not([data-preview-scope*="center_rail"]) {
+  pointer-events: auto;
+}
+/* T1 center_rail 本体 / map 观察窗保持 none；仅上下业务 section 可点 */
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"] {
+  pointer-events: none;
+}
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="realtime_table"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="realtime_table"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="realtime_warning"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="realtime_warning"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="realtime_table"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="realtime_table"] {
   pointer-events: auto;
 }
 /* T1 嵌套 region（如 t1/t1 > right_rail > warning）内的板块也需接收事件，避免点击穿透到 T0 地图 */
@@ -5098,12 +5145,6 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   .mei-compose-section[data-preview-scope*="header"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
-  .mei-compose-section[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
-.mei-compose-scene-root
-  .mei-compose-plane[data-mei-plane="t1"]
-  .mei-compose-section[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
-.mei-compose-scene-root
-  .mei-compose-plane[data-mei-plane="T1"]
   .mei-compose-slot[data-preview-scope*="right_rail"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
@@ -5119,19 +5160,17 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   .mei-compose-slot[data-preview-scope*="header"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
-  .mei-compose-slot[data-preview-scope*="header"],
-.mei-compose-scene-root
-  .mei-compose-plane[data-mei-plane="T1"]
-  .mei-compose-slot[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
-.mei-compose-scene-root
-  .mei-compose-plane[data-mei-plane="t1"]
-  .mei-compose-slot[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]) {
+  .mei-compose-slot[data-preview-scope*="header"] {
   pointer-events: auto;
 }
 /* T1 center-rail 地图观察窗：section 与 chrome 透传点击到 T0 底图，仅工具挂点接收事件 */
 .mei-compose-scene-root .mei-compose-section[data-preview-scope$="/map_viewport"],
 .mei-compose-scene-root .mei-compose-slot[data-preview-scope*="/map_viewport/"],
-.mei-compose-scene-root .mei-compose-content[data-preview-scope*="/map-viewport"] {
+.mei-compose-scene-root .mei-compose-content[data-preview-scope*="/map-viewport"],
+.mei-compose-scene-root [data-mei-panel-name="map-interaction-surface"],
+.mei-compose-scene-root [data-mei-panel-name="stage-aperture-frame"],
+.mei-compose-scene-root [data-preview-scope*="map-interaction-surface"],
+.mei-compose-scene-root [data-preview-scope*="stage-aperture"] {
   pointer-events: none;
 }
 .mei-compose-scene-root
@@ -5171,11 +5210,60 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   height: 100%;
   min-height: 0;
 }
-.mei-compose-scene-root .mei-compose-region[data-preview-scope*="map_stage"],
-.mei-compose-scene-root .mei-compose-section[data-preview-scope$="/map_stage"] {
+/* T1 叠层 map_stage 透传；T0 底图 map_stage 必须可点（pan/zoom） */
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope$="/map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope$="/map_stage"] {
   position: relative;
   overflow: hidden;
   pointer-events: none;
+  min-height: 0;
+  display: grid;
+  grid-template: "stack" 1fr / 1fr;
+  align-items: stretch;
+  justify-items: stretch;
+}
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T0"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t0"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T0"]
+  .mei-compose-section[data-preview-scope$="/map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t0"]
+  .mei-compose-section[data-preview-scope$="/map_stage"],
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] mei-map-maplibre,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] mei-map-maplibre,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] .component-host,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] .component-host {
+  pointer-events: auto;
+}
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T0"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t0"]
+  .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T0"]
+  .mei-compose-section[data-preview-scope$="/map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t0"]
+  .mei-compose-section[data-preview-scope$="/map_stage"] {
+  position: relative;
+  overflow: hidden;
   min-height: 0;
   display: grid;
   grid-template: "stack" 1fr / 1fr;
@@ -6458,6 +6546,40 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
 .preview-panel-body > .component-card.component-card--slot-v-end,
 .preview-card-bare .component-card.component-card--slot-v-end {
   justify-content: flex-end;
+}
+/* value|unit 紧邻同基线：value 右贴、unit 左贴，避免双列 auto+center 拉开 */
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[style*="grid-area: value"],
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[data-metric-role="value"],
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] [data-metric-role="value"] {
+  justify-self: end;
+}
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[style*="grid-area: unit"],
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[data-metric-role="unit"],
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] [data-metric-role="unit"] {
+  justify-self: start;
+  padding-inline-start: 0;
+}
+/* Prefer grid-area named children when component-card wraps the role host */
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] > .panel-body-cell .component-card {
+  min-width: 0;
+}
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card:has([data-metric-role="value"]),
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[style*="value"] {
+  justify-self: end;
+}
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card:has([data-metric-role="unit"]),
+[data-mei-metric-card][data-mei-metric-value-unit-tight="true"] .component-card[style*="unit"] {
+  justify-self: start;
+  padding-inline-start: 0;
+}
+/* Progress desc slot: keep % + bar in the bottom track, not overlapping value */
+[data-mei-metric-card][data-mei-metric-desc-mode="progress"] .component-card[style*="grid-area: desc"],
+[data-mei-metric-card][data-mei-metric-desc-mode="progress"] .component-card[data-metric-role="desc"] {
+  grid-area: desc;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  justify-self: stretch;
 }
 .preview-panel-body > .component-card > .component-host > mei-cockpit-metric-progress,
 .preview-card-bare .component-host > mei-cockpit-metric-progress,

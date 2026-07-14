@@ -568,7 +568,7 @@
       await requestJson(OPS_PREBUILD_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app_id: appId }),
+        body: JSON.stringify({ app_id: appId, config }),
       });
       announce(`正在编译 ${appId}…`, "neutral");
       await waitForOpsIdle();

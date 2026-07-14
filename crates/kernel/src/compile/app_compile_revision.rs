@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
 
 use crate::{
     eval::evaluate_mei_file,
@@ -29,21 +30,218 @@ use crate::compile::scene::{find_scene_route, resolve_scene_routes};
 
 pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
     let app_main = resolve_app_main_path(app_root);
-    let app_decls = evaluate_mei_file(&app_main)?;
-    let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
-    let app_decl =
-        app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
-    let route_registry = resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
-    Ok(route_registry
-        .default_scene_id
-        .or_else(|| {
-            route_registry
-                .routes
-                .first()
-                .map(|route| route.scene_id.clone())
-        })
-        .map(|scene_id| scene_id.trim().to_string())
-        .filter(|scene_id| !scene_id.is_empty()))
+    match evaluate_mei_file(&app_main) {
+        Ok(app_decls) => {
+            let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
+            if let Some(app_decl) = app_decl {
+                let route_registry =
+                    resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
+                return Ok(route_registry
+                    .default_scene_id
+                    .or_else(|| {
+                        route_registry
+                            .routes
+                            .first()
+                            .map(|route| route.scene_id.clone())
+                    })
+                    .map(|scene_id| scene_id.trim().to_string())
+                    .filter(|scene_id| !scene_id.is_empty()));
+            }
+            if let Some(scene_id) = default_scene_from_skeleton_or_navigation(&app_decls) {
+                return Ok(Some(scene_id));
+            }
+        }
+        Err(_) => {
+            // graph-native app.mei (app_skeleton) is not surface-evaluable; scan source instead.
+        }
+    }
+    Ok(scan_default_scene_from_app_source(app_root))
+}
+
+/// Scene ids declared by classic `app(...)` routes or graph-native `navigation(...)` / deck stages.
+pub fn resolve_scene_ids_from_root(app_root: &Path) -> Result<Vec<String>> {
+    let app_main = resolve_app_main_path(app_root);
+    let mut scenes = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut push = |scene: String| {
+        let trimmed = scene.trim().to_string();
+        if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+            return;
+        }
+        scenes.push(trimmed);
+    };
+    match evaluate_mei_file(&app_main) {
+        Ok(app_decls) => {
+            let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
+            if let Some(app_decl) = app_decl {
+                let route_registry =
+                    resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
+                for route in route_registry.routes {
+                    push(route.scene_id);
+                }
+                return Ok(scenes);
+            }
+            if let Some(values) = app_decls.as_array() {
+                for value in values {
+                    if value.get("kind").and_then(Value::as_str) != Some("navigation") {
+                        continue;
+                    }
+                    if let Some(scene) = value
+                        .get("scene")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        push(scene.to_string());
+                    }
+                }
+            }
+        }
+        Err(_) => {}
+    }
+    drop(push);
+    if scenes.is_empty() {
+        for scene in scan_navigation_scenes_from_app_source(app_root) {
+            let trimmed = scene.trim().to_string();
+            if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+                continue;
+            }
+            scenes.push(trimmed);
+        }
+    }
+    Ok(scenes)
+}
+
+pub fn app_declares_scene_from_root(app_root: &Path, scene_id: &str) -> bool {
+    let wanted = scene_id.trim();
+    if wanted.is_empty() {
+        return false;
+    }
+    resolve_scene_ids_from_root(app_root)
+        .ok()
+        .map(|scenes| scenes.iter().any(|scene| scene == wanted))
+        .unwrap_or(false)
+}
+
+fn default_scene_from_skeleton_or_navigation(raw: &Value) -> Option<String> {
+    let values = raw.as_array()?;
+    for value in values {
+        if value.get("kind").and_then(Value::as_str) != Some("app_skeleton") {
+            continue;
+        }
+        if let Some(scene) = value
+            .get("default_scene")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(scene.to_string());
+        }
+    }
+    for value in values {
+        if value.get("kind").and_then(Value::as_str) != Some("navigation") {
+            continue;
+        }
+        if let Some(scene) = value
+            .get("scene")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(scene.to_string());
+        }
+    }
+    None
+}
+
+fn scan_default_scene_from_app_source(app_root: &Path) -> Option<String> {
+    let app_main = resolve_app_main_path(app_root);
+    let source = std::fs::read_to_string(app_main).ok()?;
+    if let Some(scene) = first_quoted_assignment(source.as_str(), "default_scene") {
+        return Some(scene);
+    }
+    scan_navigation_scenes_from_source(source.as_str())
+        .into_iter()
+        .next()
+}
+
+fn scan_navigation_scenes_from_app_source(app_root: &Path) -> Vec<String> {
+    let app_main = resolve_app_main_path(app_root);
+    let Ok(source) = std::fs::read_to_string(app_main) else {
+        return Vec::new();
+    };
+    scan_navigation_scenes_from_source(source.as_str())
+}
+
+fn scan_navigation_scenes_from_source(source: &str) -> Vec<String> {
+    let mut scenes = Vec::new();
+    let mut seen = BTreeSet::new();
+    // Prefer `scene = "..."` assignments that appear after a `navigation(` opener.
+    let mut in_navigation = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("navigation(") || trimmed.contains("navigation(") {
+            in_navigation = true;
+        }
+        if in_navigation {
+            if let Some(scene) = first_quoted_assignment(trimmed, "scene") {
+                if seen.insert(scene.clone()) {
+                    scenes.push(scene);
+                }
+            }
+        }
+        if in_navigation && trimmed.contains(')') {
+            in_navigation = false;
+        }
+    }
+    if scenes.is_empty() {
+        // Fallback: any scene = "..." that is not default_scene.
+        for scene in all_quoted_assignments(source, "scene") {
+            if seen.insert(scene.clone()) {
+                scenes.push(scene);
+            }
+        }
+    }
+    scenes
+}
+
+fn first_quoted_assignment(source: &str, key: &str) -> Option<String> {
+    all_quoted_assignments(source, key).into_iter().next()
+}
+
+fn all_quoted_assignments(source: &str, key: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = source;
+    while let Some(idx) = rest.find(key) {
+        let after_key = &rest[idx + key.len()..];
+        let trimmed = after_key.trim_start();
+        let Some(after_eq) = trimmed.strip_prefix('=') else {
+            rest = &rest[idx + key.len()..];
+            continue;
+        };
+        let trimmed = after_eq.trim_start();
+        if let Some(value) = parse_double_quoted(trimmed) {
+            out.push(value);
+        }
+        rest = &rest[idx + key.len()..];
+    }
+    out
+}
+
+fn parse_double_quoted(input: &str) -> Option<String> {
+    let input = input.trim_start();
+    let mut chars = input.chars();
+    if chars.next()? != '"' {
+        return None;
+    }
+    let mut out = String::new();
+    for ch in chars {
+        if ch == '"' {
+            return Some(out);
+        }
+        out.push(ch);
+    }
+    None
 }
 
 pub fn compile_revision_plan_from_root_with_options(
@@ -362,5 +560,25 @@ mod tests {
         assert!(watched_paths.contains(expected_rel));
 
         let _ = fs::remove_dir_all(app_root);
+    }
+}
+
+
+#[cfg(test)]
+mod default_scene_v2_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mei_tutorial_resolves_intro_default_scene() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/ws-demo-v2/apps/mei-tutorial");
+        assert!(root.join("src/app.mei").is_file(), "missing {}", root.display());
+        let scene = resolve_default_scene_from_root(&root)
+            .expect("resolve")
+            .expect("default scene");
+        assert_eq!(scene, "intro");
+        assert!(app_declares_scene_from_root(&root, "intro"));
+        assert!(!app_declares_scene_from_root(&root, "home"));
     }
 }

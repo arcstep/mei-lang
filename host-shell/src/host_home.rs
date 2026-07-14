@@ -48,7 +48,8 @@ pub fn render_host_home_body_html(
             .map(|app| {
                 let access_ready = data_plane_enabled
                     && app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
-                let access_href = format!("/apps/{}/home", app.id);
+                let access_href =
+                    crate::shell_chrome::app_access_href(workspace_root, app.id.as_str());
                 let status = if access_ready { "ready" } else { "starting" };
                 let status_label = if access_ready {
                     "已启动"

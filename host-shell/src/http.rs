@@ -622,13 +622,13 @@ async fn api_datasets_query_inner(
 ) -> Response {
     let (ceiling_slug, plug_ds, runtime_identity) = {
         let guard = http.shell.read().expect("state lock");
-        if !guard.data_mode_ceiling.allows_eval_api() {
+        if !guard.data_mode_ceiling_for(app_id).allows_eval_api() {
             return (
                 StatusCode::FORBIDDEN,
                 Json(json!({
                     "error": format!(
                         "datasets eval API unavailable under data mode ceiling `{}`",
-                        guard.data_mode_ceiling.slug()
+                        guard.data_mode_ceiling_for(app_id).slug()
                     )
                 })),
             )
@@ -645,7 +645,7 @@ async fn api_datasets_query_inner(
             )
         });
         (
-            guard.data_mode_ceiling.slug().to_string(),
+            guard.data_mode_ceiling_for(app_id).slug().to_string(),
             plug_ds,
             runtime_identity,
         )
@@ -701,13 +701,13 @@ async fn api_datasets_metrics(
 ) -> Response {
     let (plug_ds, runtime_identity) = {
         let guard = http.shell.read().expect("state lock");
-        if !guard.data_mode_ceiling.allows_eval_api() {
+        if !guard.data_mode_ceiling_for(app_id.as_str()).allows_eval_api() {
             return (
                 StatusCode::FORBIDDEN,
                 Json(json!({
                     "error": format!(
                         "datasets metrics API unavailable under data mode ceiling `{}`",
-                        guard.data_mode_ceiling.slug()
+                        guard.data_mode_ceiling_for(app_id.as_str()).slug()
                     )
                 })),
             )
@@ -936,6 +936,7 @@ mod tests {
             startup_error: None,
             app_materialization: std::collections::BTreeMap::new(),
             data_mode_ceiling: mei_lang_kernel::DataModeCeiling::Eval,
+            data_mode_ceiling_by_app: std::collections::BTreeMap::new(),
         }));
         HostHttpState {
             shell,

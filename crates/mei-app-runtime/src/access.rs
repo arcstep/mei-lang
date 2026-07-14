@@ -6,7 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::resolve_default_scene_from_root;
@@ -254,20 +254,40 @@ pub async fn access_app_stage(
         )
             .into_response();
     }
-    let _chrome = query.chrome.as_deref();
     let route = UiRouteMode::from_slug(stage.as_str());
-    let scene_id = if matches!(
+    let is_surface_slug = matches!(
         stage.as_str(),
         "app" | "access" | "view" | "layout" | "prototype"
-    ) {
+    );
+    let scene_id = if is_surface_slug {
         resolve_default_scene(&state)
     } else {
         stage.clone()
     };
-    let surface = if matches!(
-        stage.as_str(),
-        "app" | "access" | "view" | "layout" | "prototype"
-    ) {
+    if !is_surface_slug {
+        let app_root = state.host.app_root();
+        let declared = mei_lang_kernel::resolve_scene_ids_from_root(app_root.as_path())
+            .ok()
+            .unwrap_or_default();
+        if !declared.is_empty() && !declared.iter().any(|scene| scene == scene_id.as_str()) {
+            let default_scene = resolve_default_scene(&state);
+            if default_scene != scene_id {
+                let mut location = format!("/apps/{}/{default_scene}", app_id);
+                if let Some(chrome) = query
+                    .chrome
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .filter(|value| *value != "full")
+                {
+                    location.push_str(&format!("?chrome={chrome}"));
+                }
+                return Redirect::temporary(location.as_str()).into_response();
+            }
+            return (StatusCode::NOT_FOUND, "scene not found").into_response();
+        }
+    }
+    let surface = if is_surface_slug {
         route.slug()
     } else {
         "app"

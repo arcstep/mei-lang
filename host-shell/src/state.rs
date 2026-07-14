@@ -98,8 +98,12 @@ pub struct ShellState {
     pub startup_detail: Option<String>,
     pub startup_error: Option<String>,
     pub app_materialization: BTreeMap<String, AppMaterializationState>,
-    /// Process-level max data capability (`eval` default).
+    /// Process-level default max data capability (`eval` default). Prefer
+    /// [`ShellState::data_mode_ceiling_for`] for app-scoped API checks.
     pub data_mode_ceiling: DataModeCeiling,
+    /// Per-app ceiling from the last launch applied to that app. Prevents a
+    /// static tutorial app from blocking eval APIs for hot data apps.
+    pub data_mode_ceiling_by_app: BTreeMap<String, DataModeCeiling>,
 }
 
 impl ShellState {
@@ -143,6 +147,28 @@ impl ShellState {
             startup_error: None,
             app_materialization: BTreeMap::new(),
             data_mode_ceiling: DataModeCeiling::Eval,
+            data_mode_ceiling_by_app: BTreeMap::new(),
+        }
+    }
+
+    /// Ceiling for an app's datasets/bootstrap APIs. Falls back to process default.
+    pub fn data_mode_ceiling_for(&self, app_id: &str) -> DataModeCeiling {
+        self.data_mode_ceiling_by_app
+            .get(app_id)
+            .copied()
+            .unwrap_or(self.data_mode_ceiling)
+    }
+
+    pub fn set_data_mode_ceiling_for(&mut self, app_id: &str, ceiling: DataModeCeiling) {
+        let app_id = app_id.trim();
+        if app_id.is_empty() {
+            self.data_mode_ceiling = ceiling;
+            return;
+        }
+        self.data_mode_ceiling_by_app
+            .insert(app_id.to_string(), ceiling);
+        if self.default_app() == Some(app_id) {
+            self.data_mode_ceiling = ceiling;
         }
     }
 

@@ -135,7 +135,7 @@ pub async fn start_app_with_launch(
         }
         Err(error) => return Err(StartStopError::BadRequest(error.to_string())),
     };
-    apply_launch_runtime_profile(http, workspace.as_path(), &launch.config);
+    apply_launch_runtime_profile(http, workspace.as_path(), app_id, &launch.config);
     prepare_current_launch(http, workspace.as_path(), app_id, &launch).await?;
 
     // Keep the active instance serving until prebuild succeeds, then enforce
@@ -259,7 +259,7 @@ async fn prepare_current_launch(
     }
     let workspace = workspace.to_path_buf();
     let app_id = app_id.to_string();
-    let scenes = launch_warmup_scenes(&launch.config, app_id.as_str());
+    let scenes = launch_warmup_scenes(workspace.as_path(), &launch.config, app_id.as_str());
     tokio::task::spawn_blocking(move || {
         crate::build_ops::prebuild_pipeline(workspace.as_path(), app_id.as_str(), &scenes)
     })
@@ -299,35 +299,40 @@ fn launch_runtime_plan(
     }
 }
 
-fn apply_launch_data_mode_ceiling(http: &HostHttpState, config: &AppLaunchConfig) {
-    let Some(raw) = config
+fn apply_launch_data_mode_ceiling(http: &HostHttpState, app_id: &str, config: &AppLaunchConfig) {
+    let ceiling = match config
         .data_mode_ceiling
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    else {
-        return;
-    };
-    let Some(ceiling) = mei_lang_kernel::DataModeCeiling::parse(raw) else {
-        tracing::warn!(
-            ceiling = %raw,
-            "launch config dataModeCeiling ignored: unknown value"
-        );
-        return;
+    {
+        None => mei_lang_kernel::DataModeCeiling::Eval,
+        Some(raw) => match mei_lang_kernel::DataModeCeiling::parse(raw) {
+            Some(ceiling) => ceiling,
+            None => {
+                tracing::warn!(
+                    ceiling = %raw,
+                    app_id = %app_id,
+                    "launch config dataModeCeiling ignored: unknown value"
+                );
+                mei_lang_kernel::DataModeCeiling::Eval
+            }
+        },
     };
     let mut guard = http.shell.write().expect("state lock");
-    guard.data_mode_ceiling = ceiling;
+    guard.set_data_mode_ceiling_for(app_id, ceiling);
 }
 
-fn apply_launch_runtime_profile(
+pub(crate) fn apply_launch_runtime_profile(
     http: &HostHttpState,
     workspace: &std::path::Path,
+    app_id: &str,
     config: &AppLaunchConfig,
 ) {
     let runtime_plan = launch_runtime_plan(workspace, config);
     sync_host_control_runtime_plan(workspace, &runtime_plan);
     crate::dev_eval_scope::install_runtime_plan(runtime_plan);
-    apply_launch_data_mode_ceiling(http, config);
+    apply_launch_data_mode_ceiling(http, app_id, config);
 }
 
 fn launch_warmup_enabled(config: &AppLaunchConfig) -> bool {
@@ -340,7 +345,12 @@ fn launch_warmup_enabled(config: &AppLaunchConfig) -> bool {
 }
 
 /// All `hotScenes` from launch warmup config (not just the first).
-fn launch_warmup_scenes(config: &AppLaunchConfig, app_id: &str) -> Vec<String> {
+/// When enabled but empty, fall back to the app's `default_scene` (not blind `home`).
+pub(crate) fn launch_warmup_scenes(
+    workspace: &std::path::Path,
+    config: &AppLaunchConfig,
+    app_id: &str,
+) -> Vec<String> {
     if !launch_warmup_enabled(config) {
         return Vec::new();
     }
@@ -362,7 +372,7 @@ fn launch_warmup_scenes(config: &AppLaunchConfig, app_id: &str) -> Vec<String> {
         })
         .unwrap_or_default();
     if scenes.is_empty() {
-        vec!["home".to_string()]
+        vec![crate::shell_chrome::default_access_scene(workspace, app_id)]
     } else {
         scenes
     }
@@ -405,6 +415,7 @@ pub async fn stop_app_runtime(
 
     {
         let mut guard = http.shell.write().expect("state lock");
+        let workspace = guard.ctx.workspace_root.clone();
         guard.unregister_app_runtime_endpoint(instance_id.as_str());
         let mut manifest = guard.launch_manifest.clone();
         if let Some(route) = manifest.routes.get_mut(app_id) {
@@ -420,16 +431,11 @@ pub async fn stop_app_runtime(
             json!({
                 "appId": app_id,
                 "instanceId": instance_id,
-                "href": crate::shell_chrome::app_access_href(app_id),
+                "href": crate::shell_chrome::app_access_href(workspace.as_path(), app_id),
             }),
         ));
+        let _ = mei_host_core::clear_app_ephemeral_runtime(workspace.as_path(), app_id);
     }
-
-    let workspace = {
-        let guard = http.shell.read().expect("state lock");
-        guard.ctx.workspace_root.clone()
-    };
-    let _ = mei_host_core::clear_app_ephemeral_runtime(workspace.as_path(), app_id);
 
     Ok(json!({
         "accepted": true,
@@ -507,6 +513,7 @@ pub async fn autostart_launch_targets(
 mod tests {
     use super::{launch_uses_current_generation, launch_warmup_scenes};
     use mei_host_core::AppLaunchConfig;
+    use std::path::Path;
 
     #[test]
     fn current_generation_launch_requires_prebuild() {
@@ -529,12 +536,14 @@ mod tests {
                 }
             }
         }));
+        let workspace = Path::new("/tmp/mei-missing-workspace");
         assert_eq!(
-            launch_warmup_scenes(&config, "pretty-panels"),
+            launch_warmup_scenes(workspace, &config, "pretty-panels"),
             vec!["home/t1".to_string(), "home".to_string()]
         );
+        // Missing hotScenes for this app → default_scene fallback (home when app.mei missing).
         assert_eq!(
-            launch_warmup_scenes(&config, "other-app"),
+            launch_warmup_scenes(workspace, &config, "other-app"),
             vec!["home".to_string()]
         );
     }
@@ -550,7 +559,7 @@ mod tests {
                 }
             }
         }));
-        assert!(launch_warmup_scenes(&config, "pretty-panels").is_empty());
+        assert!(launch_warmup_scenes(Path::new("/tmp"), &config, "pretty-panels").is_empty());
     }
 }
 

@@ -84,6 +84,18 @@ pub async fn app_stage_page(
     if stage.is_empty() {
         return (StatusCode::NOT_FOUND, "stage required").into_response();
     }
+    let workspace_root = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
+    };
+    if let Some(location) = crate::shell_chrome::redirect_unknown_access_stage(
+        workspace_root.as_path(),
+        app_id.as_str(),
+        stage,
+        uri.query(),
+    ) {
+        return Redirect::temporary(location.as_str()).into_response();
+    }
     match crate::app_runtime_proxy::access_get_gateway(
         &http,
         app_id.as_str(),
@@ -148,14 +160,24 @@ pub async fn app_root_page(
     {
         crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => return response,
         crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_) => {
+            let workspace_root = {
+                let guard = http.shell.read().expect("state lock");
+                guard.ctx.workspace_root.clone()
+            };
+            let default_scene =
+                crate::shell_chrome::default_access_scene(workspace_root.as_path(), app_id.as_str());
             tracing::info!(
                 target: "mei.startup",
                 app_id = %app_id,
-                scene_id = "home",
+                scene_id = %default_scene,
                 "app-runtime not reachable yet — redirecting access request to starting page"
             );
-            let location =
-                crate::startup::build_starting_location(&uri, app_id.as_str(), "home", "app");
+            let location = crate::startup::build_starting_location(
+                &uri,
+                app_id.as_str(),
+                default_scene.as_str(),
+                "app",
+            );
             return Redirect::temporary(location.as_str()).into_response();
         }
         crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {}
@@ -221,7 +243,14 @@ pub async fn app_page(
             .into_response();
     }
     if route_mode == UiRouteMode::App {
-        if let Some(target) = crate::app_surface::legacy_app_access_redirect(app_tail.as_str()) {
+        let workspace_root = {
+            let guard = state.read().expect("state lock");
+            guard.ctx.workspace_root.clone()
+        };
+        if let Some(target) = crate::app_surface::legacy_app_access_redirect(
+            workspace_root.as_path(),
+            app_tail.as_str(),
+        ) {
             return Redirect::permanent(target.as_str()).into_response();
         }
     }
@@ -1097,13 +1126,13 @@ pub async fn api_scene_bootstrap(
         .unwrap_or("home")
         .to_string();
     let guard = state.read().expect("state lock");
-    if !guard.data_mode_ceiling.allows_eval_api() {
+    if !guard.data_mode_ceiling_for(app_id).allows_eval_api() {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
                 "error": format!(
                     "scene bootstrap unavailable under data mode ceiling `{}`",
-                    guard.data_mode_ceiling.slug()
+                    guard.data_mode_ceiling_for(app_id).slug()
                 )
             })),
         )
@@ -1212,13 +1241,13 @@ pub async fn api_scene_eval_pack(
         .unwrap_or("home")
         .to_string();
     let guard = state.read().expect("state lock");
-    if !guard.data_mode_ceiling.allows_eval_api() {
+    if !guard.data_mode_ceiling_for(app_id).allows_eval_api() {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
                 "error": format!(
                     "scene eval pack unavailable under data mode ceiling `{}`",
-                    guard.data_mode_ceiling.slug()
+                    guard.data_mode_ceiling_for(app_id).slug()
                 )
             })),
         )

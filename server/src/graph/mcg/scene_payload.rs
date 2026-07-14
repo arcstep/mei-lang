@@ -195,6 +195,20 @@ pub fn scene_payload_is_assemblable(compiled: &CompiledApp) -> bool {
     {
         return true;
     }
+    if !compiled.component_assets.is_empty()
+        || !compiled.scene_local_nav_by_target.is_empty()
+        || !compiled.scene_examples_by_id.is_empty()
+    {
+        return true;
+    }
+    // Analytics / export boards often persist slim payloads without scene_contract.
+    if compiled
+        .active_target_file
+        .trim()
+        .ends_with(".board.mei")
+    {
+        return true;
+    }
     compiled.resources.iter().any(|resource| {
         resource
             .dataset

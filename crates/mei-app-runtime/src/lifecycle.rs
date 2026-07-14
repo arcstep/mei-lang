@@ -26,7 +26,8 @@ pub fn bootstrap_runtime(state: &AppRuntimeServeState) -> anyhow::Result<()> {
     state.set_revisions(revisions);
 
     let plan = &state.spec.config_snapshot.runtime_plan;
-    if runtime_plan_requires_warm(plan, state.app_id()) {
+    let warmup_enabled = launch_warmup_enabled(&state.spec.config_snapshot.warmup);
+    if runtime_plan_requires_warm(plan, state.app_id()) && warmup_enabled {
         state.set_phase(InstancePhase::Warming);
         match run_hot_warmup(state) {
             Ok(report) => {
@@ -172,6 +173,14 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
             .len(),
         elapsed_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+fn launch_warmup_enabled(warmup: &Option<Value>) -> bool {
+    warmup
+        .as_ref()
+        .and_then(|value| value.get("enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 fn launch_hot_scenes(warmup: &Option<Value>, app_id: &str) -> Vec<String> {

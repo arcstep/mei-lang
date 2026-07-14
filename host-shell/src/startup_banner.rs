@@ -50,6 +50,26 @@ pub(crate) fn emit_access_warmup_ready_banner(detail_lines: &[&str]) {
     );
 }
 
+/// About to spawn `mei-app-runtime` for an app instance.
+pub(crate) fn emit_app_start_banner(detail_lines: &[&str]) {
+    emit_banner("应用启动 · APP START", detail_lines, "1;35", "1;35;1");
+}
+
+/// App runtime listen/health succeeded.
+pub(crate) fn emit_app_ready_banner(detail_lines: &[&str]) {
+    emit_banner("应用就绪 · APP READY", detail_lines, "1;32", "1;32;1");
+}
+
+/// App compile/import/warmup pipeline is starting.
+pub(crate) fn emit_prebuild_start_banner(detail_lines: &[&str]) {
+    emit_banner(
+        "编译开始 · PREBUILD START",
+        detail_lines,
+        "1;33",
+        "1;33;1",
+    );
+}
+
 /// Workspace compile / import / plug-ds script finished (not the same as page ACCESS READY).
 pub(crate) fn emit_prebuild_pipeline_complete_banner(detail_lines: &[&str]) {
     emit_banner(

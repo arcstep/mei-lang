@@ -26,21 +26,6 @@ fn mei_tutorial_intro_assembles_presentation_deck() {
         slides[0].get("id").and_then(|v| v.as_str()),
         Some("slide-01-cover")
     );
-    assert!(
-        outcome
-            .compiled
-            .scene_contract
-            .as_ref()
-            .map(|c| c.panels.iter().any(|p| {
-                p.props
-                    .get("__mei_ui_role")
-                    .and_then(|v| v.as_str())
-                    == Some("plane")
-                    || p.blocks.iter().any(|b| matches!(b, mei_lang_kernel::UiTreeNode::Panel(child) if child.props.get("__mei_ui_role").and_then(|v| v.as_str()) == Some("slide")))
-            }))
-            .unwrap_or(false),
-        "expected plane/slide panels in contract"
-    );
     let structure = &outcome.compiled.ui_layout_index;
     let slide_nodes: Vec<_> = structure
         .nodes

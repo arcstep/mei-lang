@@ -1,5 +1,7 @@
 //! Access stage routes: `/apps/{id}/{stage}` (legacy view/layout redirects).
 
+use std::path::Path;
+
 use mei_lang_app::UiRouteMode;
 
 use crate::pages::AppQuery;
@@ -89,10 +91,10 @@ pub fn parse_app_surface_tail(
     (app_id, scene, None)
 }
 
-pub fn legacy_app_access_redirect(app_tail: &str) -> Option<String> {
+pub fn legacy_app_access_redirect(workspace: &Path, app_tail: &str) -> Option<String> {
     let parts: Vec<&str> = app_tail.split('/').filter(|p| !p.is_empty()).collect();
     if parts.len() >= 2 && parts[1] == "access" {
-        return Some(format!("/apps/{}/home", parts[0]));
+        return Some(crate::shell_chrome::app_access_href(workspace, parts[0]));
     }
     None
 }

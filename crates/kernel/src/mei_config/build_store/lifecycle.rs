@@ -160,9 +160,18 @@ pub fn begin_prebuild_generation_with_hint(
         let app_root = resolve_app_root(source_root, app_id);
         let previous_active = resolve_app_env_dir_following_current(app_root.as_path())
             .and_then(|env_dir| env_generation_from_env_dir(env_dir.as_path()));
+        // Same-day re-prebuild reuses env/{ver}: wipe would drop CAS blobs while MCG registry
+        // still points at their hashes → hydrate assemble fails. Snapshot content store first.
+        let same_gen_cas_backup = previous_active
+            .as_ref()
+            .filter(|active_ver| *active_ver == &env_version)
+            .and_then(|_| snapshot_build_content_store_aside(app_root.as_path(), env_version.as_str()));
         let (build_dir, _var_dir) =
             replace_env_generation(app_root.as_path(), env_version.as_str())?;
-        if let Some(ref active_ver) = previous_active {
+        if let Some(backup) = same_gen_cas_backup {
+            let _ = merge_build_content_store(backup.as_path(), build_dir.as_path());
+            let _ = fs::remove_dir_all(&backup);
+        } else if let Some(ref active_ver) = previous_active {
             if active_ver != &env_version {
                 let _ = seed_build_content_store_from_active(
                     app_root.as_path(),
@@ -181,6 +190,28 @@ pub fn begin_prebuild_generation_with_hint(
         config_digest,
         store_dirs,
     })
+}
+
+/// Copy `env/{ver}/build/store/content` to a sibling temp dir before same-gen wipe.
+fn snapshot_build_content_store_aside(app_root: &Path, env_version: &str) -> Option<PathBuf> {
+    let build_dir = app_env_build_dir(app_root, env_version);
+    let from = build_content_store_dir(&build_dir);
+    if !from.is_dir() {
+        return None;
+    }
+    let backup = app_root
+        .join("env")
+        .join(format!(".cas-backup-{env_version}-{}", std::process::id()));
+    let backup_content = backup.join("store").join("content");
+    if fs::create_dir_all(&backup_content).is_err() {
+        return None;
+    }
+    // Treat backup root as a fake build root for merge_build_content_store.
+    if merge_build_content_store(&build_dir, &backup).is_err() {
+        let _ = fs::remove_dir_all(&backup);
+        return None;
+    }
+    Some(backup)
 }
 
 fn workspace_config_digest(source_root: &Path) -> Option<String> {

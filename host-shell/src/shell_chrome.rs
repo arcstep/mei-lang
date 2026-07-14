@@ -15,8 +15,61 @@ use sha2::{Digest, Sha256};
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps, menu_label_for_app};
 use crate::state::{HostHttpState, ShellState};
 
-pub fn app_access_href(app_id: &str) -> String {
-    format!("/apps/{}/home", app_id.trim().trim_matches('/'))
+pub fn app_access_href(workspace: &Path, app_id: &str) -> String {
+    let app_id = app_id.trim().trim_matches('/');
+    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
+    let scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "home".to_string());
+    format!("/apps/{app_id}/{scene}")
+}
+
+pub fn default_access_scene(workspace: &Path, app_id: &str) -> String {
+    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id.trim());
+    mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "home".to_string())
+}
+
+/// Unknown stage → 302 to default_scene when the app declares scenes but not this one.
+pub fn redirect_unknown_access_stage(
+    workspace: &Path,
+    app_id: &str,
+    stage: &str,
+    query: Option<&str>,
+) -> Option<String> {
+    let stage = stage.trim();
+    if stage.is_empty() {
+        return None;
+    }
+    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id.trim());
+    let declared = mei_lang_kernel::resolve_scene_ids_from_root(app_root.as_path()).ok()?;
+    if declared.is_empty() || declared.iter().any(|scene| scene == stage) {
+        return None;
+    }
+    let default_scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
+        .ok()
+        .flatten()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| declared.first().cloned())
+        .unwrap_or_else(|| "home".to_string());
+    if default_scene == stage {
+        return None;
+    }
+    let mut location = format!(
+        "/apps/{}/{}",
+        app_id.trim().trim_matches('/'),
+        default_scene
+    );
+    if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
+        location.push('?');
+        location.push_str(query);
+    }
+    Some(location)
 }
 
 pub fn active_running_app_ids(manifest: &LaunchManifest) -> BTreeSet<String> {
@@ -115,7 +168,7 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
             json!({
                 "appId": app.id,
                 "displayName": app.title,
-                "href": app_access_href(app.id.as_str()),
+                "href": app_access_href(workspace.as_path(), app.id.as_str()),
                 "defaultLaunch": cfg.default_launch,
                 "launches": launches,
                 "generations": generations,
@@ -163,7 +216,7 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 "instanceId": instance_id,
                 "launchId": launch_id,
                 "displayName": display_name,
-                "href": app_access_href(app_id),
+                "href": app_access_href(workspace.as_path(), app_id),
                 "phase": phase,
                 "startedAtMs": started_at_ms,
             }))
@@ -213,7 +266,7 @@ pub fn running_event_payload_with_plan(
         "launchId": launch_id,
         "instanceId": instance_id,
         "displayName": display_name,
-        "href": app_access_href(app_id),
+        "href": app_access_href(workspace, app_id),
         "phase": "ready",
     });
     if let Some(plan) = runtime_plan {
@@ -392,4 +445,30 @@ pub fn render_shell_chrome_payload(
         "menuRevision": menu_revision_digest(workspace.as_path()),
         "runningAppIds": apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>(),
     }))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mei_tutorial_access_href_uses_intro() {
+        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../workspaces/ws-demo-v2");
+        assert_eq!(
+            app_access_href(workspace.as_path(), "mei-tutorial"),
+            "/apps/mei-tutorial/intro"
+        );
+        assert_eq!(
+            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "home", None)
+                .as_deref(),
+            Some("/apps/mei-tutorial/intro")
+        );
+        assert_eq!(
+            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "intro", None),
+            None
+        );
+    }
 }
