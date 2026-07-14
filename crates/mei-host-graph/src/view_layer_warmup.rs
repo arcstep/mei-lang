@@ -190,6 +190,7 @@ pub fn warm_manifest_index_for_scope(
         data_mode: Some(data_mode.slug().to_string()),
         focus: None,
         scope: None,
+        scope_target: None,
     };
     let surface_manifest = SceneViewManifest {
         schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),

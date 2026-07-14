@@ -13,7 +13,7 @@ fn compile_rejects_panel_ref_block_embed_with_area() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "embed-app", default_scene = "home")
+app(id = "embed-app", default_stage = "home")
 
 scene(id = "home", profile = "page")
 
@@ -57,7 +57,7 @@ fn compile_supports_panel_ref_in_frame_panels() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "embed-app", default_scene = "home")
+app(id = "embed-app", default_stage = "home")
 
 scene(id = "home", profile = "page")
 
@@ -105,7 +105,7 @@ fn compile_reports_top_level_panel_ref_embed() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "bad-embed", default_scene = "home")
+app(id = "bad-embed", default_stage = "home")
 
 scene(id = "home", profile = "page")
 
@@ -143,7 +143,7 @@ fn compile_reports_deprecated_panel_capsule_ref_block_kind() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "legacy-embed", default_scene = "home")
+app(id = "legacy-embed", default_stage = "home")
 
 scene(id = "home", profile = "page")
 

@@ -272,7 +272,7 @@ pub fn render_stock_catalog_main_mei(
     let cfg = stock_catalog_app_config(source_root);
     let app_id = cfg.id.trim();
     let title = cfg.title.trim();
-    let default_scene = routes
+    let default_stage = routes
         .first()
         .map(|route| route.route_id.as_str())
         .unwrap_or("home");
@@ -280,7 +280,7 @@ pub fn render_stock_catalog_main_mei(
         "# GENERATED — do not edit; run `mei-toolchain workspace stock catalog-app sync`\n\n",
     );
     out.push_str(&format!(
-        "app(\n    id = \"{app_id}\",\n    title = \"{title}\",\n    default_scene = \"{default_scene}\",\n)\n\n"
+        "app(\n    id = \"{app_id}\",\n    title = \"{title}\",\n    default_stage = \"{default_stage}\",\n)\n\n"
     ));
     for route in routes {
         out.push_str(&format!(

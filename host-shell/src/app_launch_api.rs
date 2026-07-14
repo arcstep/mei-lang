@@ -22,8 +22,13 @@ use crate::state::{HostEvent, HostHttpState};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartAppBody {
-    /// Launch config name or relative path under the app.
+    /// Launch config name or relative path under the app (Phase 8.5: only `launch.json`).
     pub config: Option<String>,
+    /// Unified runtime mode for this start (`hot` / `lazy` / `frozen`).
+    pub mode: Option<String>,
+    /// When true, clear ephemeral overlay and follow `launch.json` defaultMode.
+    #[serde(default)]
+    pub follow_git: bool,
 }
 
 pub async fn api_host_apps_overview(State(http): State<HostHttpState>) -> Response {
@@ -53,7 +58,15 @@ pub async fn api_host_app_start(
     AxumPath(app_id): AxumPath<String>,
     Json(body): Json<StartAppBody>,
 ) -> Response {
-    match start_app_with_launch(&http, app_id.as_str(), body.config.as_deref()).await {
+    match start_app_with_launch(
+        &http,
+        app_id.as_str(),
+        body.config.as_deref(),
+        body.mode.as_deref(),
+        body.follow_git,
+    )
+    .await
+    {
         Ok(payload) => Json(payload).into_response(),
         Err(error) => error_response(error),
     }
@@ -79,6 +92,93 @@ pub async fn api_host_app_ensure_default_launch(
     };
     match ensure_default_launch_config(workspace.as_path(), app_id.as_str()) {
         Ok(doc) => Json(json!({ "accepted": true, "launch": doc })).into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeOverlayBody {
+    pub overlay: mei_host_core::RuntimePolicyOverlay,
+    pub expected_revision: Option<String>,
+}
+
+pub async fn api_host_app_runtime_overlay_get(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+) -> Response {
+    let workspace = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
+    };
+    let overlay = mei_host_core::read_runtime_overlay(workspace.as_path(), app_id.as_str());
+    let base = read_launch_config(workspace.as_path(), app_id.as_str(), "launch")
+        .ok()
+        .map(|doc| doc.config);
+    let effective = base.as_ref().map(|config| {
+        launch_runtime_plan(workspace.as_path(), app_id.as_str(), config)
+    });
+    Json(json!({
+        "appId": app_id,
+        "overlay": overlay,
+        "effectiveRuntimePlan": effective,
+    }))
+    .into_response()
+}
+
+pub async fn api_host_app_runtime_overlay_put(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+    Json(body): Json<RuntimeOverlayBody>,
+) -> Response {
+    let workspace = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
+    };
+    match mei_host_core::write_runtime_overlay(
+        workspace.as_path(),
+        app_id.as_str(),
+        body.overlay,
+        body.expected_revision.as_deref(),
+    ) {
+        Ok(overlay) => {
+            if let Ok(launch) = read_launch_config(workspace.as_path(), app_id.as_str(), "launch") {
+                apply_launch_runtime_profile(&http, workspace.as_path(), app_id.as_str(), &launch.config);
+            }
+            Json(json!({ "accepted": true, "overlay": overlay })).into_response()
+        }
+        Err(mei_host_core::RuntimeOverlayError::Conflict(message)) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": message })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn api_host_app_runtime_overlay_reset(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+) -> Response {
+    let workspace = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
+    };
+    match mei_host_core::clear_runtime_overlay(workspace.as_path(), app_id.as_str()) {
+        Ok(()) => {
+            if let Ok(launch) = read_launch_config(workspace.as_path(), app_id.as_str(), "launch") {
+                apply_launch_runtime_profile(&http, workspace.as_path(), app_id.as_str(), &launch.config);
+            }
+            Json(json!({ "accepted": true, "overlay": serde_json::Value::Null })).into_response()
+        }
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": error.to_string() })),
@@ -121,19 +221,33 @@ pub async fn start_app_with_launch(
     http: &HostHttpState,
     app_id: &str,
     config: Option<&str>,
+    mode: Option<&str>,
+    follow_git: bool,
 ) -> Result<serde_json::Value, StartStopError> {
     let workspace = {
         let guard = http.shell.read().expect("state lock");
         guard.ctx.workspace_root.clone()
     };
-    let config_ref = config.unwrap_or("default");
-    let launch = match read_launch_config(workspace.as_path(), app_id, config_ref) {
+    apply_start_mode_policy(workspace.as_path(), app_id, mode, follow_git)?;
+    let config_ref = config.unwrap_or("launch").trim();
+    // Phase 8.5: each app binds solely to `apps/{app}/launch.json`. Temporary
+    // hot/lazy/frozen adjustments use ephemeral runtime overlay APIs instead.
+    let allowed = config_ref.is_empty()
+        || config_ref == "launch"
+        || config_ref == "default"
+        || config_ref == "launch.json"
+        || config_ref.ends_with("/launch.json");
+    if !allowed {
+        return Err(StartStopError::BadRequest(format!(
+            "Phase 8.5 single-launch policy: only apps/{{app}}/launch.json is allowed (got `{config_ref}`); use ephemeral runtime overlay for temporary policy"
+        )));
+    }
+    let launch = match read_launch_config(workspace.as_path(), app_id, "launch") {
         Ok(doc) => doc,
-        Err(_) if config_ref == "default" => {
+        Err(_) => {
             ensure_default_launch_config(workspace.as_path(), app_id)
                 .map_err(|e| StartStopError::BadRequest(e.to_string()))?
         }
-        Err(error) => return Err(StartStopError::BadRequest(error.to_string())),
     };
     apply_launch_runtime_profile(http, workspace.as_path(), app_id, &launch.config);
     prepare_current_launch(http, workspace.as_path(), app_id, &launch).await?;
@@ -155,6 +269,18 @@ pub async fn start_app_with_launch(
     }
     let spec = instance_spec_from_launch(workspace.as_path(), app_id, &launch)
         .map_err(|e| StartStopError::BadRequest(e.to_string()))?;
+    let effective_mode = match spec.config_snapshot.runtime_plan.default_mode {
+        mei_lang_kernel::RuntimeMode::Hot => "hot",
+        mei_lang_kernel::RuntimeMode::Lazy => "lazy",
+        mei_lang_kernel::RuntimeMode::Frozen => "frozen",
+    };
+    tracing::info!(
+        app = %app_id,
+        mode = %effective_mode,
+        follow_git = follow_git,
+        requested_mode = mode.unwrap_or(""),
+        "starting app with unified runtime mode"
+    );
     let token = generate_instance_token(spec.instance_id.as_str());
     let spec_for_state = spec.clone();
 
@@ -231,6 +357,7 @@ pub async fn start_app_with_launch(
         "accepted": true,
         "kind": "app-started",
         "appId": app_id,
+        "mode": effective_mode,
         "launch": launch,
         "instance": observed,
     }))
@@ -274,7 +401,7 @@ fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {
     generation.is_empty() || generation.eq_ignore_ascii_case("current")
 }
 
-fn launch_runtime_plan(
+pub(crate) fn base_launch_runtime_plan(
     workspace: &std::path::Path,
     config: &AppLaunchConfig,
 ) -> mei_lang_kernel::RuntimePlan {
@@ -297,6 +424,16 @@ fn launch_runtime_plan(
         default_mode: RuntimeMode::Lazy,
         apps: Default::default(),
     }
+}
+
+pub(crate) fn launch_runtime_plan(
+    workspace: &std::path::Path,
+    app_id: &str,
+    config: &AppLaunchConfig,
+) -> mei_lang_kernel::RuntimePlan {
+    let base = base_launch_runtime_plan(workspace, config);
+    let overlay = mei_host_core::read_runtime_overlay(workspace, app_id);
+    mei_host_core::effective_runtime_plan(&base, app_id, overlay.as_ref())
 }
 
 fn apply_launch_data_mode_ceiling(http: &HostHttpState, app_id: &str, config: &AppLaunchConfig) {
@@ -329,7 +466,7 @@ pub(crate) fn apply_launch_runtime_profile(
     app_id: &str,
     config: &AppLaunchConfig,
 ) {
-    let runtime_plan = launch_runtime_plan(workspace, config);
+    let runtime_plan = launch_runtime_plan(workspace, app_id, config);
     sync_host_control_runtime_plan(workspace, &runtime_plan);
     crate::dev_eval_scope::install_runtime_plan(runtime_plan);
     apply_launch_data_mode_ceiling(http, app_id, config);
@@ -434,6 +571,7 @@ pub async fn stop_app_runtime(
                 "href": crate::shell_chrome::app_access_href(workspace.as_path(), app_id),
             }),
         ));
+        let _ = mei_host_core::clear_runtime_overlay(workspace.as_path(), app_id);
         let _ = mei_host_core::clear_app_ephemeral_runtime(workspace.as_path(), app_id);
     }
 
@@ -477,6 +615,39 @@ fn sync_host_control_runtime_plan(
     }
 }
 
+fn apply_start_mode_policy(
+    workspace: &std::path::Path,
+    app_id: &str,
+    mode: Option<&str>,
+    follow_git: bool,
+) -> Result<(), StartStopError> {
+    if follow_git {
+        mei_host_core::clear_runtime_overlay(workspace, app_id)
+            .map_err(|e| StartStopError::BadRequest(e.to_string()))?;
+        return Ok(());
+    }
+    let Some(mode) = mode.map(str::trim).filter(|m| !m.is_empty()) else {
+        return Ok(());
+    };
+    let mode = mode.to_ascii_lowercase();
+    if !matches!(mode.as_str(), "hot" | "lazy" | "frozen") {
+        return Err(StartStopError::BadRequest(format!(
+            "invalid runtime mode `{mode}`; expected hot|lazy|frozen"
+        )));
+    }
+    let overlay = mei_host_core::RuntimePolicyOverlay {
+        schema_version: mei_host_core::SCHEMA_RUNTIME_OVERLAY_V1.to_string(),
+        app_id: app_id.to_string(),
+        default_mode: Some(mode),
+        targets: Vec::new(),
+        metric_overrides: Default::default(),
+        revision: String::new(),
+    };
+    mei_host_core::write_runtime_overlay(workspace, app_id, overlay, None)
+        .map_err(|e| StartStopError::BadRequest(e.to_string()))?;
+    Ok(())
+}
+
 /// Autostart targets collected at serve time.
 pub async fn autostart_launch_targets(
     http: &HostHttpState,
@@ -487,13 +658,16 @@ pub async fn autostart_launch_targets(
             http,
             target.app_id.as_str(),
             Some(target.document.id.as_str()),
+            target.mode_override.as_deref(),
+            target.clear_overlay,
         )
         .await
         {
             Ok(_) => tracing::info!(
                 app = %target.app_id,
                 launch = %target.document.id,
-                "autostarted app from launch config"
+                mode = target.mode_override.as_deref().unwrap_or("launch.json"),
+                "autostarted app"
             ),
             Err(error) => tracing::warn!(
                 app = %target.app_id,

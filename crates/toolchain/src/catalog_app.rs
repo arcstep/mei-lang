@@ -73,10 +73,10 @@ fn merge_catalog_warmup_manifest(
         .iter()
         .map(|route| route.route_id.clone())
         .collect::<Vec<_>>();
-    let default_scene = scene_ids.first().cloned();
+    let default_stage = scene_ids.first().cloned();
     let entry = RuntimeWarmupApp {
         app_id: app_id.clone(),
-        default_scene,
+        default_scene: default_stage,
         hot_scenes: scene_ids.clone(),
         scenes: scene_ids,
         focuses: Vec::new(),

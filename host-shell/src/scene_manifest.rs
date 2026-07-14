@@ -207,6 +207,7 @@ pub(crate) fn resolve_view_revision_for_surface(
     scene_id: &str,
     route_mode: UiRouteMode,
     data_mode: DataMode,
+    preview_scope: Option<&str>,
     client_manifest_digest: Option<String>,
     client_surface_digest: Option<String>,
     recover: bool,
@@ -221,6 +222,7 @@ pub(crate) fn resolve_view_revision_for_surface(
             scene_id,
             route_mode.slug(),
             data_mode,
+            preview_scope,
             client_manifest_digest,
             client_surface_digest,
             recover,
@@ -302,6 +304,7 @@ pub async fn api_host_scene_manifest(
         data_mode: Some(axes.data_mode.slug().to_string()),
         focus: None,
         scope: None,
+        scope_target: None,
     };
     let mut hits = ArtifactHitMatrix::default();
     let manifest = match build_scene_view_manifest(
@@ -386,6 +389,7 @@ pub async fn api_host_layer_batch(
         data_mode: Some(axes.data_mode.slug().to_string()),
         focus: None,
         scope: None,
+        scope_target: None,
     };
 
     let mut hits = ArtifactHitMatrix::default();
@@ -511,6 +515,7 @@ mod cross_surface_manifest_tests {
             data_mode: Some("static".to_string()),
             focus: None,
             scope: None,
+            scope_target: None,
         };
         let mut hits = ArtifactHitMatrix::default();
         let manifest = build_scene_view_manifest(
@@ -552,6 +557,7 @@ mod cross_surface_manifest_tests {
             data_mode: Some("static".to_string()),
             focus: None,
             scope: None,
+            scope_target: None,
         }
     }
 
@@ -607,6 +613,7 @@ mod cross_surface_manifest_tests {
             data_mode: Some("static".to_string()),
             focus: None,
             scope: None,
+            scope_target: None,
         };
         let manifest = build_scene_view_manifest(
             workspace_root.as_path(),

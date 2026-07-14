@@ -147,8 +147,38 @@ fn load_materialize_context<'a>(
     draft_digest: &'a str,
     draft: Option<Value>,
 ) -> Result<MaterializeContext<'a>> {
+    load_materialize_context_with_core(
+        workspace_root,
+        app_id,
+        scene_id,
+        data_mode,
+        route_mode,
+        tab,
+        chrome,
+        draft_session,
+        draft_digest,
+        draft,
+        None,
+    )
+}
+
+fn load_materialize_context_with_core<'a>(
+    workspace_root: &'a Path,
+    app_id: &'a str,
+    scene_id: &'a str,
+    data_mode: DataMode,
+    route_mode: &'a str,
+    tab: &'a str,
+    chrome: &'a str,
+    draft_session: &'a str,
+    draft_digest: &'a str,
+    draft: Option<Value>,
+    semantic_core: Option<SemanticCacheCore>,
+) -> Result<MaterializeContext<'a>> {
     let layout_rev = layout_policy_revision(workspace_root, app_id);
-    let semantic_core = build_semantic_core_for_scene(workspace_root, app_id, scene_id);
+    let semantic_core = semantic_core.unwrap_or_else(|| {
+        build_semantic_core_for_scene(workspace_root, app_id, scene_id)
+    });
     Ok(MaterializeContext {
         workspace_root,
         app_id,
@@ -207,18 +237,33 @@ fn materialize_structure(
         &ctx.semantic_core,
         ctx.layout_rev.as_str(),
     )?;
-    let document = crate::build_structure_full_document(compiled, structure_key.as_str());
+    let mut document = crate::build_structure_full_document(compiled, structure_key.as_str());
+    if let Some(scope) = ctx
+        .semantic_core
+        .preview_scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(sliced) = crate::closure_for_preview_scope(&document, scope)
+            .or_else(|| crate::closure_for_node_id(&document, scope))
+        {
+            document = sliced;
+        }
+    }
     let bytes = serde_json::to_vec(&document)?;
+    let hash = crate::content_hash_bytes(bytes.as_slice());
     crate::store_layer(
         structure_key.clone(),
         STRUCTURE_FULL_KIND,
-        pref.content_hash.as_str(),
+        hash.as_str(),
         bytes.as_slice(),
     );
+    let _ = pref;
     hits.structure_hit = false;
     Ok(LayerRef {
         artifact_id: structure_key,
-        content_hash: pref.content_hash,
+        content_hash: hash,
         bytes: Some(bytes.len() as u64),
         encoding: Some("json".to_string()),
     })
@@ -231,7 +276,20 @@ fn materialize_structure_document(ctx: &mut MaterializeContext<'_>) -> Option<Va
     }
     ensure_materialize_assembled(ctx).ok()?;
     let compiled = ctx.compiled.as_ref()?;
-    let document = crate::build_structure_full_document(compiled, structure_key.as_str());
+    let mut document = crate::build_structure_full_document(compiled, structure_key.as_str());
+    if let Some(scope) = ctx
+        .semantic_core
+        .preview_scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(sliced) = crate::closure_for_preview_scope(&document, scope)
+            .or_else(|| crate::closure_for_node_id(&document, scope))
+        {
+            document = sliced;
+        }
+    }
     Some(serde_json::to_value(document).unwrap_or(Value::Null))
 }
 
@@ -534,8 +592,55 @@ pub fn ensure_manifest_index(
     hits: &mut ArtifactHitMatrix,
     shell_chrome: Option<&ShellChromeRenderer<'_>>,
 ) -> Result<ManifestIndexDocument> {
+    ensure_manifest_index_scoped(
+        workspace_root,
+        app_id,
+        scene_id,
+        data_mode,
+        None,
+        hits,
+        shell_chrome,
+    )
+}
+
+/// Scoped variant: binds `preview_scope` into SemanticCacheCore so structure /
+/// eval / manifest cache keys isolate the target subtree closure.
+pub fn ensure_scoped_manifest_index(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    data_mode: DataMode,
+    preview_scope: &str,
+    hits: &mut ArtifactHitMatrix,
+    shell_chrome: Option<&ShellChromeRenderer<'_>>,
+) -> Result<ManifestIndexDocument> {
+    ensure_manifest_index_scoped(
+        workspace_root,
+        app_id,
+        scene_id,
+        data_mode,
+        Some(preview_scope),
+        hits,
+        shell_chrome,
+    )
+}
+
+fn ensure_manifest_index_scoped(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    data_mode: DataMode,
+    preview_scope: Option<&str>,
+    hits: &mut ArtifactHitMatrix,
+    shell_chrome: Option<&ShellChromeRenderer<'_>>,
+) -> Result<ManifestIndexDocument> {
     let layout_rev = layout_policy_revision(workspace_root, app_id);
-    let semantic_core = build_semantic_core_for_scene(workspace_root, app_id, scene_id);
+    let semantic_core = crate::view_artifact::build_semantic_core_for_scene_scoped(
+        workspace_root,
+        app_id,
+        scene_id,
+        preview_scope,
+    );
     let cache_key = manifest_index_cache_key(&semantic_core, layout_rev.as_str(), data_mode.slug());
     if let Some(index) = take_manifest_index(cache_key.as_str()) {
         let rebuild = shell_chrome.is_some() && manifest_index_needs_shell_rebuild(&index);
@@ -567,7 +672,7 @@ fn build_and_store_manifest_index(
     hits: &mut ArtifactHitMatrix,
     shell_chrome: Option<&ShellChromeRenderer<'_>>,
 ) -> Result<ManifestIndexDocument> {
-    let mut ctx = load_materialize_context(
+    let mut ctx = load_materialize_context_with_core(
         workspace_root,
         app_id,
         scene_id,
@@ -578,6 +683,7 @@ fn build_and_store_manifest_index(
         "",
         "",
         None,
+        Some(semantic_core.clone()),
     )?;
     ensure_materialize_assembled(&mut ctx)?;
 
@@ -636,7 +742,8 @@ fn build_and_store_manifest_index(
         review_projection: Some(review_projection.to_string()),
         data_mode: Some(data_mode.slug().to_string()),
         focus: None,
-        scope: None,
+        scope: semantic_core.preview_scope.clone(),
+        scope_target: None,
     };
     let shell_doc = materialize_shell(&mut ctx, hits, shell_chrome, None);
     let shell_layer_name = format!("shell.{route_slug}");
@@ -729,18 +836,38 @@ pub fn build_scene_view_manifest(
         .map(str::to_string)
         .unwrap_or_else(|| default_ssr_review_projection(data_mode).to_string());
     let review_projection = review_projection.as_str();
-    let index = ensure_manifest_index(
-        workspace_root,
-        app_id,
-        scene_id,
-        data_mode,
-        hits,
-        shell_chrome,
-    )?;
+    let scoped_preview = compose
+        .scope_target
+        .as_ref()
+        .map(|target| target.preview_scope.clone())
+        .or_else(|| compose.scope.clone())
+        .or_else(|| compose.focus.clone())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let index = if let Some(scope) = scoped_preview.as_deref() {
+        ensure_scoped_manifest_index(
+            workspace_root,
+            app_id,
+            scene_id,
+            data_mode,
+            scope,
+            hits,
+            shell_chrome,
+        )?
+    } else {
+        ensure_manifest_index(
+            workspace_root,
+            app_id,
+            scene_id,
+            data_mode,
+            hits,
+            shell_chrome,
+        )?
+    };
     let mut manifest = manifest_for_surface(&index, route_mode)
         .ok_or_else(|| anyhow::anyhow!("manifest surface missing for route `{route_mode}`"))?;
     let effective_draft_digest = String::new();
-    let mut ctx = load_materialize_context(
+    let mut ctx = load_materialize_context_with_core(
         workspace_root,
         app_id,
         scene_id,
@@ -751,7 +878,15 @@ pub fn build_scene_view_manifest(
         draft_session,
         effective_draft_digest.as_str(),
         None,
+        Some(index.semantic_core.clone()),
     )?;
+    // Local debug shell: scoped routes suppress full chrome so the slice remounts to viewport.
+    let chrome_for_shell = if scoped_preview.is_some() && chrome == "full" {
+        "none"
+    } else {
+        chrome
+    };
+    ctx.chrome = chrome_for_shell;
     let shell_doc = materialize_shell(&mut ctx, hits, shell_chrome, None);
     manifest
         .layers
@@ -759,11 +894,12 @@ pub fn build_scene_view_manifest(
     manifest.compose_defaults = Some(ComposeRequest {
         route_mode: Some(route_mode.to_string()),
         tab: Some(tab.to_string()),
-        chrome: Some(chrome.to_string()),
+        chrome: Some(chrome_for_shell.to_string()),
         review_projection: Some(review_projection.to_string()),
         data_mode: Some(data_mode.slug().to_string()),
         focus: compose.focus.clone(),
-        scope: compose.scope.clone(),
+        scope: scoped_preview.clone().or_else(|| compose.scope.clone()),
+        scope_target: compose.scope_target.clone(),
     });
     let digest = manifest_revision_digest(
         &manifest,
@@ -868,12 +1004,16 @@ pub fn materialize_layers_for_request(
 }
 
 /// Resolve view-revision from the shared manifest index (Host/Runtime parity).
+///
+/// When `preview_scope` is set (temporary Stage / debug closure), uses the same
+/// assemble path with scoped SemanticCacheCore — not a parallel materialize stack.
 pub fn resolve_view_revision_for_surface(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
     route_mode: &str,
     data_mode: DataMode,
+    preview_scope: Option<&str>,
     client_manifest_digest: Option<String>,
     client_surface_digest: Option<String>,
     recover: bool,
@@ -881,14 +1021,29 @@ pub fn resolve_view_revision_for_surface(
     hits: &mut ArtifactHitMatrix,
     shell_chrome: Option<&ShellChromeRenderer<'_>>,
 ) -> Result<ViewRevisionResponse> {
-    let index = ensure_manifest_index(
-        workspace_root,
-        app_id,
-        scene_id,
-        data_mode,
-        hits,
-        shell_chrome,
-    )?;
+    let scope = preview_scope
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let index = if let Some(scope) = scope {
+        ensure_scoped_manifest_index(
+            workspace_root,
+            app_id,
+            scene_id,
+            data_mode,
+            scope,
+            hits,
+            shell_chrome,
+        )?
+    } else {
+        ensure_manifest_index(
+            workspace_root,
+            app_id,
+            scene_id,
+            data_mode,
+            hits,
+            shell_chrome,
+        )?
+    };
     let manifest = manifest_for_surface(&index, route_mode)
         .ok_or_else(|| anyhow::anyhow!("manifest index missing surface {route_mode}"))?;
     let surface_digest = surface_revision_digest_from_manifest(&manifest);

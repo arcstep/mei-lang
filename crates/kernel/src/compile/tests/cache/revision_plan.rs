@@ -10,7 +10,7 @@ fn compile_revision_plan_watches_mei_config_but_theme_only_change_does_not_inval
         r#"
 app(
     id = "config-revision-test",
-    default_scene = "home",
+    default_stage = "home",
     scene = scene_ref(scene_file = "scenes/home.mei")
 )
 "#,
@@ -93,7 +93,7 @@ fn compile_revision_plan_invalidates_on_mei_config_params_change() {
         r#"
 app(
     id = "config-revision-test",
-    default_scene = "home",
+    default_stage = "home",
     scene = scene_ref(scene_file = "scenes/home.mei")
 )
 "#,
@@ -156,7 +156,7 @@ fn compile_revision_plan_watches_ops_source_files_and_invalidates_on_data_change
         r#"
 app(
     id = "source-revision-test",
-    default_scene = "home",
+    default_stage = "home",
     scene = scene_ref(scene_file = "scenes/home.mei")
 )
 "#,

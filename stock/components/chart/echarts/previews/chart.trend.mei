@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-trend",
     title = "Preview chart.trend",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

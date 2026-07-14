@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-donut",
     title = "Preview chart.donut",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

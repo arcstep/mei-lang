@@ -9,7 +9,7 @@ fn compile_refs_scenario4_panel_ref_with_world_ref_imports_external_panel() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "refs-04", default_scene = "home")
+app(id = "refs-04", default_stage = "home")
 scene(
     id = "home",
     profile = "page",
@@ -73,7 +73,7 @@ fn compile_refs_scenario5_local_panel_and_resource_override_external_ledger() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "refs-05", default_scene = "home")
+app(id = "refs-05", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "shared_doc", kind = "document", content = "host wins")])
 frame(
@@ -180,7 +180,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "clone-app", default_scene = "home")
+app(id = "clone-app", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "doc", kind = "document", content = "ok")])
 frame(
@@ -243,7 +243,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "grid-nested", default_scene = "home")
+app(id = "grid-nested", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(
@@ -288,7 +288,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "cmp-base", default_scene = "home")
+app(id = "cmp-base", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "doc", kind = "document", content = "x")])
 frame()
@@ -323,7 +323,7 @@ fn compile_metric_card_base_clones_shell_and_overrides_source() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-clone", default_scene = "home")
+app(id = "metric-card-clone", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(

@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-boxplot",
     title = "Preview chart.boxplot",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

@@ -1041,6 +1041,32 @@
     return section;
   }
 
+  function stampStructureIdentity(el, node) {
+    if (!(el instanceof HTMLElement) || !node) return el;
+    const nodeId = String(node.node_id || "").trim();
+    const scope = String(node.preview_scope || "").trim();
+    const role = String(node.ui_role || "").trim().toLowerCase();
+    if (nodeId) {
+      el.setAttribute("data-build-node", nodeId);
+      el.setAttribute("data-mei-node-id", nodeId);
+    }
+    if (scope && !el.getAttribute("data-preview-scope")) {
+      el.setAttribute("data-preview-scope", scope);
+    }
+    if (role && !el.getAttribute("data-mei-ui-role")) {
+      el.setAttribute("data-mei-ui-role", role);
+    }
+    if (node.panel_id && !el.getAttribute("data-mei-panel-id")) {
+      el.setAttribute("data-mei-panel-id", String(node.panel_id));
+    }
+    const planeCode = String(node.plane || "").trim();
+    if (planeCode) {
+      if (!el.getAttribute("data-mei-plane")) el.setAttribute("data-mei-plane", planeCode);
+      if (!el.getAttribute("data-mei-tier")) el.setAttribute("data-mei-tier", planeCode);
+    }
+    return el;
+  }
+
   function createNodeElement(node, structureDoc) {
     const role = String(node.ui_role || "").toLowerCase();
     const scope = String(node.preview_scope || "").trim();
@@ -1058,7 +1084,7 @@
       stageShell.appendChild(stage);
       section.appendChild(stageShell);
       section.__meiStageTarget = stage;
-      return section;
+      return stampStructureIdentity(section, node);
     }
 
     if (role === "content") {
@@ -1067,7 +1093,7 @@
         placeholder.className = "mei-compose-viewport-meta";
         placeholder.hidden = true;
         if (scope) placeholder.setAttribute("data-preview-scope", scope);
-        return placeholder;
+        return stampStructureIdentity(placeholder, node);
       }
       const contentKind = String(node.content_kind || "").trim().toLowerCase();
       if (contentKind === "compound-metric") {
@@ -1079,7 +1105,7 @@
         if (node.label) {
           compoundHost.setAttribute("data-mei-structure-label", String(node.label));
         }
-        return compoundHost;
+        return stampStructureIdentity(compoundHost, node);
       }
       // Container content (e.g. status-flow grid host) must keep children + layout;
       // do not collapse into leaf metric-card / content-group mounts.
@@ -1100,12 +1126,21 @@
             !scopeLower.endsWith("/map-viewport")
           ) {
             if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
-              return createBlockSection("mei.text", scope, node.ui_role);
+              return stampStructureIdentity(
+                createBlockSection("mei.text", scope, node.ui_role),
+                node,
+              );
             }
-            return createMetricCardSection(scope, node.ui_role, node.label);
+            return stampStructureIdentity(
+              createMetricCardSection(scope, node.ui_role, node.label),
+              node,
+            );
           }
           if (!isMetricTemplateKind(key)) {
-            return createBlockSection(key, scope, node.ui_role);
+            return stampStructureIdentity(
+              createBlockSection(key, scope, node.ui_role),
+              node,
+            );
           }
         }
         if (keys.length > 1) {
@@ -1114,7 +1149,7 @@
           if (scope) wrap.setAttribute("data-preview-scope", scope);
           if (node.label) wrap.setAttribute("data-mei-structure-label", String(node.label));
           keys.forEach((key) => wrap.appendChild(createBlockSection(key, scope, node.ui_role)));
-          return wrap;
+          return stampStructureIdentity(wrap, node);
         }
       }
     }
@@ -1152,7 +1187,7 @@
       el.setAttribute("data-mei-plane", planeCode);
       el.setAttribute("data-mei-tier", planeCode);
     }
-    return el;
+    return stampStructureIdentity(el, node);
   }
 
   function mountTargetForParent(parentEl) {
@@ -3963,6 +3998,8 @@
   function canSkipClientCompose(root, ctx) {
     if (!(root instanceof HTMLElement)) return false;
     if (isThinShellComposePlaceholder(root)) return false;
+    if (ctx?.temp_stage || ctx?.tempStage) return false;
+    if (String(ctx?.scope || "").trim()) return false;
     if (isClientLayerMaterialized(root)) return true;
     if (!hasMaterializedPreview(root)) return false;
     const targetApp = String(
@@ -3973,6 +4010,13 @@
       urlApp = String(global.location.pathname.match(/^\/apps\/([^/]+)/)?.[1] || "").trim();
     } catch (_) {}
     if (targetApp && urlApp && targetApp !== urlApp) return false;
+    const targetScene = String(ctx?.scene_id || ctx?.sceneId || "").trim();
+    const rootScene = String(
+      root.getAttribute("data-scene") ||
+        global.document?.body?.getAttribute("data-scene-id") ||
+        "",
+    ).trim();
+    if (targetScene && rootScene && targetScene !== rootScene) return false;
     const surface = String(ctx?.surface || ctx?.mode || "app")
       .trim()
       .toLowerCase();
@@ -3984,6 +4028,69 @@
       );
     }
     return true;
+  }
+
+  function readResidentStructureDocument() {
+    const store = boot.layerStore;
+    if (!store || typeof store.takeLayerByRef !== "function") return null;
+    try {
+      const byName =
+        typeof store.takeLayer === "function" ? store.takeLayer("structure.full") : null;
+      if (byName && typeof byName === "object") return byName;
+    } catch (_) {}
+    try {
+      const refs = boot.lastViewRevision?.assembly_plan?.layer_refs || {};
+      const pref = refs["structure.full"];
+      if (pref) {
+        const doc = store.takeLayerByRef(pref);
+        if (doc && typeof doc === "object") return doc;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function normalizePlaneToken(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("_", "-");
+  }
+
+  /**
+   * Enumerate structure nodes for the current/visible plane from resident structure.full.
+   * Scoped manifests only contain the slice — out-of-slice nodes are not invented.
+   */
+  function listStructureForPlane(planeId, options = {}) {
+    const doc = options.document || readResidentStructureDocument();
+    if (!doc || !Array.isArray(doc.nodes)) return [];
+    const want = normalizePlaneToken(planeId || options.plane || boot.activePlaneId || "t1");
+    const roles = new Set(
+      (options.roles || ["region", "section", "slot", "content", "plane"]).map((role) =>
+        String(role || "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    return doc.nodes
+      .filter((node) => {
+        const role = String(node.ui_role || "").trim().toLowerCase();
+        if (!roles.has(role)) return false;
+        const plane = normalizePlaneToken(node.plane || "");
+        if (!want || want === "all") return true;
+        if (plane && plane === want) return true;
+        const scope = normalizePlaneToken(node.preview_scope || "");
+        return scope.split("/").includes(want);
+      })
+      .map((node) => ({
+        node_id: String(node.node_id || "").trim(),
+        preview_scope: String(node.preview_scope || "").trim(),
+        ui_role: String(node.ui_role || "").trim().toLowerCase(),
+        label: String(node.label || "").trim(),
+        plane: String(node.plane || "").trim(),
+        panel_id: String(node.panel_id || node.preview_scope || "").trim(),
+        parent_id: String(node.parent_id || "").trim(),
+        children: Array.isArray(node.children) ? node.children.slice() : [],
+      }));
   }
 
   boot.previewMaterializer = {
@@ -4001,6 +4108,10 @@
     materializePlaceholderPreview,
     ensureBootstrapBeforeInject,
     refreshComposeMaps,
+    listStructureForPlane,
+    readResidentStructureDocument,
+    stampStructureIdentity,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
+  boot.listStructureForPlane = listStructureForPlane;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -9,7 +9,7 @@ fn compile_metric_card_base_inherits_template_slot_vertical_align_defaults() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-base-v-align", default_scene = "home")
+app(id = "metric-card-base-v-align", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(
@@ -118,7 +118,7 @@ fn compile_metric_card_base_prefers_template_block_vertical_align_over_props() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "t", default_scene = "home")
+app(id = "t", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(
@@ -206,7 +206,7 @@ fn compile_metric_card_base_preserves_background_when_height_overridden() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-base-bg", default_scene = "home")
+app(id = "metric-card-base-bg", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(
@@ -314,7 +314,7 @@ fn compile_metric_card_base_preserves_background_with_source_only() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-base-bg-source", default_scene = "home")
+app(id = "metric-card-base-bg-source", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(

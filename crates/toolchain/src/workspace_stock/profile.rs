@@ -98,7 +98,7 @@ pub fn create_app_skeleton(source_root: &Path, app_id: &str) -> Result<PathBuf> 
             r#"app(
     id = "{app_id}",
     title = "{app_id}",
-    default_scene = "home",
+    default_stage = "home",
     scene = scene_ref(scene_file = "scenes/home.mei"),
 )
 "#

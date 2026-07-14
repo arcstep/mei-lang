@@ -271,6 +271,27 @@ body {
   background: var(--mei-shell-color-nav-chip-bg);
   color: var(--mei-shell-color-text-primary);
 }
+.status-chip-debug-route {
+  cursor: pointer;
+  max-width: min(48vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78em;
+  border: 1px solid var(--mei-shell-color-nav-chip-active-border);
+  background: var(--mei-shell-color-nav-chip-bg);
+  color: var(--mei-shell-color-text-primary);
+}
+.status-chip-debug-route:hover,
+.status-chip-debug-route:focus-visible {
+  background: var(--mei-shell-color-nav-chip-active-bg);
+}
+.status-chip-debug-route[data-copied="1"] {
+  color: var(--mei-shell-color-text-primary);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
+  background: var(--mei-shell-color-nav-chip-active-bg);
+}
 .status-chip-visit-history:hover,
 .status-chip-visit-history:focus-visible {
   background: var(--mei-shell-color-nav-chip-active-bg);
@@ -7360,6 +7381,56 @@ body.build-view .preview-pane-scroll {
   outline-offset: -2px;
   box-shadow:
     inset 0 0 0 2px color-mix(in srgb, var(--mei-shell-color-status-warn) 45%, transparent);
+}
+
+.copilot-structure-picker {
+  position: fixed;
+  right: 72px;
+  bottom: 96px;
+  z-index: var(--mei-z-copilot-chrome);
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(420px, 60vh);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--mei-shell-color-nav-chip-active-border);
+  border-radius: 10px;
+  background: var(--mei-shell-color-nav-chip-bg);
+  color: var(--mei-shell-color-text-primary);
+}
+.copilot-structure-picker[hidden] {
+  display: none !important;
+}
+.copilot-structure-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.copilot-structure-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.copilot-structure-picker-list button {
+  width: 100%;
+  text-align: left;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.copilot-structure-picker-list button:hover,
+.copilot-structure-picker-list button:focus-visible {
+  background: var(--mei-shell-color-nav-chip-active-bg);
+}
+.copilot-structure-picker-list .role {
+  opacity: 0.7;
+  margin-right: 6px;
+  font-size: 0.85em;
 }
 
 .build-inspect-focus-selected {

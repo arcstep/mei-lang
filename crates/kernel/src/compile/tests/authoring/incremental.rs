@@ -11,7 +11,7 @@ fn compile_supports_inline_default_scene_authoring() {
         r#"
 app(
     id = "demo",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -128,7 +128,7 @@ fn compile_supports_world_metrics_as_independent_assets() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "demo", default_scene = "home")
+app(id = "demo", default_stage = "home")
 
 scene(id = "home", profile = "page")
 

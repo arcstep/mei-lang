@@ -127,9 +127,31 @@
     return value === "*" || /^[A-Za-z0-9_.-]+$/.test(value);
   }
 
-  function selectedLaunch(appId) {
-    const select = root.querySelector(`[data-runtime-launch-select][data-app="${appId}"]`);
-    return select?.value || "";
+  function selectedLaunch(_appId) {
+    return "launch";
+  }
+
+  function modeLabel(mode) {
+    const value = String(mode || "").trim().toLowerCase();
+    if (value === "hot") return "hot · 热加载";
+    if (value === "lazy") return "lazy · 按需";
+    if (value === "frozen") return "frozen · 冻结";
+    return value || "—";
+  }
+
+  function modeOptionsHtml(selected, gitDefault) {
+    const current = String(selected || "").trim().toLowerCase();
+    const git = String(gitDefault || "").trim().toLowerCase();
+    const modes = ["hot", "lazy", "frozen"];
+    const followSelected = !current || current === git;
+    const follow = `<option value=""${followSelected ? " selected" : ""}>跟随 launch.json（${escapeHtml(git || "lazy")}）</option>`;
+    const rest = modes
+      .map((mode) => {
+        const selectedAttr = current === mode && !followSelected ? " selected" : "";
+        return `<option value="${mode}"${selectedAttr}>${escapeHtml(modeLabel(mode))}</option>`;
+      })
+      .join("");
+    return follow + rest;
   }
 
   function setAppPending(appId, kind, label) {
@@ -199,9 +221,9 @@
         (node) => node.closest("[data-app-card]")?.getAttribute("data-app-card"),
       ).filter(Boolean),
     );
-    const launchSelections = {};
-    mount.querySelectorAll("[data-runtime-launch-select]").forEach((select) => {
-      launchSelections[select.getAttribute("data-app")] = select.value;
+    const modeSelections = {};
+    mount.querySelectorAll("[data-runtime-mode-select]").forEach((select) => {
+      modeSelections[select.getAttribute("data-app")] = select.value;
     });
     const apps = Array.isArray(state.appsOverview?.apps) ? state.appsOverview.apps : [];
     const running = Array.isArray(state.appsOverview?.running) ? state.appsOverview.running : [];
@@ -216,37 +238,21 @@
         const appId = app.appId || "—";
         const run = runningByApp[appId];
         const isRunning = Boolean(run);
-        const launches = Array.isArray(app.launches) ? app.launches : [];
-        const hasLaunches = launches.length > 0;
-        const preferred =
-          launchSelections[appId] ||
-          (isRunning && run.launchId) ||
-          app.defaultLaunch ||
-          launches.find((item) => item.isDefault)?.id ||
-          launches[0]?.id ||
-          "default";
-        const selected = hasLaunches
-          ? launches.some((item) => (item.id || "") === preferred)
-            ? preferred
-            : launches[0]?.id || "default"
-          : "default";
-        const options = hasLaunches
-          ? launches
-              .map((launch) => {
-                const id = launch.id || "";
-                const label = launch.displayName || id;
-                const mark = launch.isDefault ? " · default" : "";
-                return `<option value="${escapeHtml(id)}"${id === selected ? " selected" : ""}>${escapeHtml(label)}${mark}</option>`;
-              })
-              .join("")
-          : `<option value="default" selected>default（启动时自动创建）</option>`;
+        const hasLaunch = Boolean(app.hasLaunch);
+        const launchPath = app.launchPath || `apps/${appId}/launch.json`;
+        const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
+        const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
+        const effectiveMode = String(
+          app.effectiveDefaultMode || overlayMode || gitMode || "lazy",
+        )
+          .trim()
+          .toLowerCase();
+        const selectedMode =
+          modeSelections[appId] != null ? modeSelections[appId] : overlayMode;
         const generations = Array.isArray(app.generations) ? app.generations : [];
         const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
         const hasAnyBundle = generations.length > 0;
-        const canUseLaunch = Boolean(selected);
-        const canStartExisting = canUseLaunch && hasCurrentBundle;
-        const currentLaunchId = run?.launchId || "";
-        const launchChanged = isRunning && canUseLaunch && currentLaunchId && selected !== currentLaunchId;
+        const canStartExisting = hasLaunch && hasCurrentBundle;
         const pending = state.pendingByApp[appId] || null;
         const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
         const duration =
@@ -255,8 +261,11 @@
           ? pending.kind
           : run?.phase || (isRunning ? "ready" : "stopped");
         let stoppedDetail = "未载入";
-        if (!hasLaunches) stoppedDetail = "无 launch · 启动将创建 default";
+        if (!hasLaunch) stoppedDetail = "无 launch.json · 启动将自动创建";
         else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
+        const overlayHint = overlayMode
+          ? `临时 ${modeLabel(overlayMode)}`
+          : `Git ${modeLabel(gitMode)}`;
         const statusBlock = pending
           ? `<div class="mei-runtime-control__status-chip is-pending">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -272,7 +281,7 @@
              </div>
              <dl class="mei-runtime-control__status-meta">
                <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
-               <div><dt>Launch</dt><dd><code>${escapeHtml(run.launchId || selected || "—")}</code></dd></div>
+               <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
              </dl>`
           : `<div class="mei-runtime-control__status-chip">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -286,7 +295,7 @@
                   ? gen.protectedReasons
                   : [];
                 const isProtected = gen.isCurrent || protectedReasons.length > 0;
-                const loadLocked = isRunning || !canUseLaunch;
+                const loadLocked = isRunning;
                 return `<li class="mei-runtime-control__bundle-row${gen.isCurrent ? " is-current" : ""}">
                   <div class="mei-runtime-control__bundle-main">
                     <code>${escapeHtml(gen.id)}</code>
@@ -296,7 +305,7 @@
                   <div class="mei-runtime-control__bundle-meta">
                     <span>${escapeHtml(gen.createdAt || "—")}</span>
                     <span>${formatBytes(gen.bytes)}</span>
-                    <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? (isRunning ? "请先停止应用" : "需要可用的 launch 配置") : "切换到该 Bundle 并用所选 launch 启动"}">载入并启动</button>
+                    <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停止应用" : "切换到该 Bundle 并用 launch.json 启动"}">载入并启动</button>
                   </div>
                 </li>`;
               })
@@ -307,11 +316,10 @@
           ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" disabled data-runtime-locked>处理中…</button>`
           : isRunning
           ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停止</button>
-             <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch || launchChanged)} title="${launchChanged ? "当前所选与运行中 launch 不同，请用「按所选配置重启」" : "按所选 launch 停止后立刻再启动"}">重载</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch || !launchChanged)} title="${!launchChanged ? "所选 launch 与当前相同" : "停止后按所选 launch 重启"}">按所选配置重启</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch)} title="prebuild 后按所选 launch 重启">编译并重启</button>`
-          : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + 所选 launch 启动"}">启动</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch 将自动创建 default），再启动">编译并启动</button>`;
+             <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="按 launch.json 停止后立刻再启动">重载</button>
+             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后按 launch.json 重启">编译并重启</button>`
+          : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + launch.json 启动"}">启动</button>
+             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch.json 将自动创建），再启动">编译并启动</button>`;
         return `<article class="mei-runtime-control__app-card${isRunning ? " is-running" : ""}${pending ? " is-pending" : ""}" data-app-card="${escapeHtml(appId)}" role="listitem">
           <header class="mei-runtime-control__app-card-head">
             <div class="mei-runtime-control__app-card-identity">
@@ -325,10 +333,20 @@
             }
           </header>
           <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
-          <label class="mei-runtime-control__app-card-launch">
-            <span>启动配置</span>
-            <select data-runtime-launch-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} launch"${lockedAttr(Boolean(pending))}>${options}</select>
-          </label>
+          <div class="mei-runtime-control__app-card-launch">
+            <div class="mei-runtime-control__launch-meta">
+              <span>运行策略</span>
+              <code title="${escapeHtml(launchPath)}">${escapeHtml(launchPath)}</code>
+            </div>
+            <label class="mei-runtime-control__mode-field">
+              <span>整 app 统一模式（启动 / 重载 / 应用模式均读此处；默认「跟随」= launch.json 的 frozen）</span>
+              <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} runtime mode"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
+            </label>
+            <div class="mei-runtime-control__mode-actions">
+              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-apply data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending))} title="写入 overlay；若已在运行则立刻按该模式重启">应用模式</button>
+              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-reset data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending) || !overlayMode)} title="清除临时 overlay，恢复 launch.json 的 defaultMode">恢复 Git</button>
+            </div>
+          </div>
           <div class="mei-runtime-control__app-card-actions">${actions}</div>
           <details class="mei-runtime-control__bundles"${bundlesOpen}>
             <summary>
@@ -482,18 +500,41 @@
     throw new Error("等待编译超时");
   }
 
-  async function startAppWithLaunch(appId, configOverride) {
+  function selectedModeForApp(appId) {
+    const select = root.querySelector(`[data-runtime-mode-select][data-app="${appId}"]`);
+    return String(select?.value || "").trim().toLowerCase();
+  }
+
+  function startBodyForApp(appId) {
+    const mode = selectedModeForApp(appId);
+    if (mode === "hot" || mode === "lazy" || mode === "frozen") {
+      return { mode };
+    }
+    return { followGit: true };
+  }
+
+  function modeAnnounceLabel(body) {
+    if (body?.mode) return body.mode;
+    return "launch.json";
+  }
+
+  async function startAppWithLaunch(appId, _configOverride) {
     if (!appId) return;
-    const config = configOverride || selectedLaunch(appId) || "default";
-    setAppPending(appId, "starting", `正在启动（${config}）…`);
+    // Capture mode before pending re-render rebuilds the select.
+    const startBody = startBodyForApp(appId);
+    setAppPending(
+      appId,
+      "starting",
+      `正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+    );
     setBusy(true);
     try {
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已启动 ${appId}（${config}）`, "success");
+      announce(`已启动 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
       announce(`启动失败：${error.message}`, "error");
@@ -524,9 +565,15 @@
 
   async function reloadApp(appId) {
     if (!appId) return;
-    const config = selectedLaunch(appId) || "default";
-    if (!global.confirm(`确认重载 ${appId}（${config}）？`)) return;
-    setAppPending(appId, "reloading", `正在重载（${config}）…`);
+    const startBody = startBodyForApp(appId);
+    if (
+      !global.confirm(
+        `确认重载 ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
+      )
+    ) {
+      return;
+    }
+    setAppPending(appId, "reloading", `正在重载（mode=${modeAnnounceLabel(startBody)}）…`);
     setBusy(true);
     try {
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/stop`, {
@@ -537,9 +584,9 @@
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已重载 ${appId}`, "success");
+      announce(`已重载 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
       announce(`重载失败：${error.message}`, "error");
@@ -549,12 +596,97 @@
     }
   }
 
+  async function applyRuntimeMode(appId) {
+    if (!appId) return;
+    const mode = selectedModeForApp(appId);
+    const app = (state.appsOverview?.apps || []).find((row) => row.appId === appId);
+    const expectedRevision = app?.overlayRevision || undefined;
+    const running = Array.isArray(state.appsOverview?.running)
+      ? state.appsOverview.running.some((row) => row.appId === appId)
+      : false;
+    setBusy(true);
+    try {
+      if (!mode) {
+        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (running) {
+          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ followGit: true }),
+          });
+          announce(`${appId} 已恢复 launch.json 并重启`, "success");
+        } else {
+          announce(`${appId} 已恢复 launch.json 模式（下次启动生效）`, "success");
+        }
+      } else {
+        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            overlay: {
+              schemaVersion: "mei-runtime-overlay-v1",
+              appId,
+              defaultMode: mode,
+              targets: [],
+              metricOverrides: {},
+            },
+            expectedRevision,
+          }),
+        });
+        if (running) {
+          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          });
+          announce(`${appId} 已统一为 ${mode} 并重启`, "success");
+        } else {
+          announce(`${appId} 已统一为 ${mode}（下次启动生效）`, "success");
+        }
+      }
+      await loadApps();
+    } catch (error) {
+      announce(`应用模式失败：${error.message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetRuntimeMode(appId) {
+    if (!appId) return;
+    setBusy(true);
+    try {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      announce(`${appId} 已恢复 launch.json 模式`, "success");
+      await loadApps();
+    } catch (error) {
+      announce(`恢复失败：${error.message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function compileAndLoad(appId) {
     if (!appId) return;
-    const config = selectedLaunch(appId) || "default";
+    const config = "launch";
+    const startBody = startBodyForApp(appId);
     const running = (state.appsOverview?.running || []).some((row) => row.appId === appId);
     const actionLabel = running ? "编译并重启" : "编译并启动";
-    if (!global.confirm(`${actionLabel} ${appId}（launch=${config}）？`)) return;
+    if (
+      !global.confirm(
+        `${actionLabel} ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
+      )
+    ) {
+      return;
+    }
     setAppPending(appId, "compiling", `正在编译 ${appId}…`);
     setBusy(true);
     try {
@@ -572,13 +704,20 @@
       });
       announce(`正在编译 ${appId}…`, "neutral");
       await waitForOpsIdle();
-      setAppPending(appId, "starting", `编译完成，正在启动（${config}）…`);
+      setAppPending(
+        appId,
+        "starting",
+        `编译完成，正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+      );
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已${actionLabel} ${appId}`, "success");
+      announce(
+        `已${actionLabel} ${appId} · ${modeAnnounceLabel(startBody)}`,
+        "success",
+      );
       await loadApps();
     } catch (error) {
       announce(`${actionLabel}失败：${error.message}`, "error");
@@ -590,8 +729,14 @@
 
   async function loadGenerationAndStart(appId, generation) {
     if (!appId || !generation) return;
-    const config = selectedLaunch(appId) || "default";
-    if (!global.confirm(`将 ${appId} 切换到 ${generation} 并用 ${config} 启动？`)) return;
+    const startBody = startBodyForApp(appId);
+    if (
+      !global.confirm(
+        `将 ${appId} 切换到 ${generation} 并以模式 ${modeAnnounceLabel(startBody)} 启动？`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const url = `${ACTIVATE_ENV_API}?appId=${encodeURIComponent(appId)}&envVersion=${encodeURIComponent(generation)}`;
@@ -599,9 +744,12 @@
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已载入 ${generation} 并启动 ${appId}`, "success");
+      announce(
+        `已载入 ${generation} 并启动 ${appId} · ${modeAnnounceLabel(startBody)}`,
+        "success",
+      );
       await loadApps();
     } catch (error) {
       announce(`载入失败：${error.message}`, "error");
@@ -730,13 +878,16 @@
         void executeCleanup(appId);
       } else if (target.matches("[data-runtime-load-generation]")) {
         void loadGenerationAndStart(appId, target.getAttribute("data-generation"));
+      } else if (target.matches("[data-runtime-mode-apply]")) {
+        void applyRuntimeMode(appId);
+      } else if (target.matches("[data-runtime-mode-reset]")) {
+        void resetRuntimeMode(appId);
       }
     });
 
     root.addEventListener("change", (event) => {
       const target = event.target;
-      if (target.matches("[data-runtime-launch-select]")) {
-        renderAppCards();
+      if (target.matches("[data-runtime-mode-select]")) {
         return;
       }
       if (target.matches("[data-runtime-cleanup-confirm]")) {

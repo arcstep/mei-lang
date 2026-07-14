@@ -2,19 +2,24 @@ use std::path::{Path, PathBuf};
 
 use mei_lang_kernel::resolve_app_root;
 
-/// `{workspace}/apps/{app}/launch/`
+/// Phase 8.5: single launch file at `{workspace}/apps/{app}/launch.json`.
+pub fn launch_json_path(workspace: &Path, app_id: &str) -> PathBuf {
+    resolve_app_root(workspace, app_id).join("launch.json")
+}
+
+/// Legacy directory `{workspace}/apps/{app}/launch/` (migration / cleanup only).
 pub fn app_launch_dir(workspace: &Path, app_id: &str) -> PathBuf {
     resolve_app_root(workspace, app_id).join("launch")
 }
 
-/// `{workspace}/apps/{app}/launch/{name}.json`
-pub fn launch_config_path(workspace: &Path, app_id: &str, name: &str) -> PathBuf {
-    app_launch_dir(workspace, app_id).join(format!("{}.json", sanitize_name(name)))
+/// Compatibility alias — always the single `launch.json`.
+pub fn default_launch_path(workspace: &Path, app_id: &str) -> PathBuf {
+    launch_json_path(workspace, app_id)
 }
 
-/// `{workspace}/apps/{app}/launch/default.json`
-pub fn default_launch_path(workspace: &Path, app_id: &str) -> PathBuf {
-    launch_config_path(workspace, app_id, "default")
+/// Compatibility alias — always the single `launch.json` (name ignored).
+pub fn launch_config_path(workspace: &Path, app_id: &str, _name: &str) -> PathBuf {
+    launch_json_path(workspace, app_id)
 }
 
 /// Ephemeral runtime root for a single app (not multi-instance).
@@ -27,15 +32,19 @@ pub fn app_runtime_root(workspace: &Path, app_id: &str) -> PathBuf {
         .join(sanitize_name(app_id))
 }
 
+/// Ensure the app root exists (launch.json parent).
 pub fn ensure_app_launch_dir(workspace: &Path, app_id: &str) -> std::io::Result<PathBuf> {
-    let dir = app_launch_dir(workspace, app_id);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    let app_root = resolve_app_root(workspace, app_id);
+    std::fs::create_dir_all(&app_root)?;
+    Ok(app_root)
 }
 
-/// Resolve a launch path from either a workspace-relative file or a launch name.
+/// Resolve launch path: absolute/relative `.json` path, or the single `launch.json`.
 pub fn resolve_launch_path(workspace: &Path, app_id: &str, config: &str) -> PathBuf {
     let trimmed = config.trim();
+    if trimmed.is_empty() || trimmed == "default" || trimmed == "launch" {
+        return launch_json_path(workspace, app_id);
+    }
     let as_path = Path::new(trimmed);
     if as_path.extension().and_then(|e| e.to_str()) == Some("json")
         || trimmed.contains('/')
@@ -47,7 +56,8 @@ pub fn resolve_launch_path(workspace: &Path, app_id: &str, config: &str) -> Path
             workspace.join(as_path)
         }
     } else {
-        launch_config_path(workspace, app_id, trimmed)
+        // Named configs under launch/ are retired; always bind the single file.
+        launch_json_path(workspace, app_id)
     }
 }
 
@@ -66,15 +76,19 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn launch_paths_nest_under_app() {
+    fn launch_json_nests_under_app_root() {
         let ws = PathBuf::from("/tmp/ws");
         assert_eq!(
-            app_launch_dir(&ws, "mini-data"),
-            PathBuf::from("/tmp/ws/apps/mini-data/launch")
+            launch_json_path(&ws, "mini-data"),
+            PathBuf::from("/tmp/ws/apps/mini-data/launch.json")
         );
         assert_eq!(
-            launch_config_path(&ws, "mini-data", "scoped-rail"),
-            PathBuf::from("/tmp/ws/apps/mini-data/launch/scoped-rail.json")
+            resolve_launch_path(&ws, "mini-data", "default"),
+            PathBuf::from("/tmp/ws/apps/mini-data/launch.json")
+        );
+        assert_eq!(
+            resolve_launch_path(&ws, "mini-data", "scoped-rail"),
+            PathBuf::from("/tmp/ws/apps/mini-data/launch.json")
         );
         assert_eq!(
             app_runtime_root(&ws, "mini-data"),

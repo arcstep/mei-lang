@@ -100,7 +100,7 @@ fn app_skeleton_summary(blocks: &[GraphBlock]) -> Value {
                 "block_id": b.block_id,
                 "id": args.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                 "title": args.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                "default_scene": args.get("default_scene").and_then(|v| v.as_str()).unwrap_or(""),
+                "default_stage": args.get("default_stage").and_then(|v| v.as_str()).unwrap_or(""),
             })
         })
         .unwrap_or(Value::Null)
@@ -345,11 +345,11 @@ fn source_files(outcome: &CompileOutcome) -> Vec<String> {
 fn normalize_summary(outcome: &CompileOutcome) -> Value {
     let kinds = count_by_kind(&outcome.blocks);
     let skeleton = app_skeleton_summary(&outcome.blocks);
-    let default_scene = skeleton
-        .get("default_scene")
+    let default_stage = skeleton
+        .get("default_stage")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let registry = stage_registry_summary(&outcome.blocks, default_scene);
+    let registry = stage_registry_summary(&outcome.blocks, default_stage);
     let deck = deck_slide_summary(&outcome.blocks);
     // Enrich program source_anchor from registry stages when present in navigations.
     let mut programs = stage_programs_summary(&registry, &deck);
@@ -416,7 +416,7 @@ fn normalize_summary(outcome: &CompileOutcome) -> Value {
         }
     }
     json!({
-        "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+        "schema_version": "mei-stage-architecture-compiler-baseline-v2",
         "app_id": outcome.app_id,
         "syntax_version": outcome.syntax_version,
         "file_count": outcome.files.len(),

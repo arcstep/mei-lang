@@ -236,5 +236,48 @@ for (const rel of ASSEMBLY_LINE_COUNT_TARGETS) {
   assert.ok(lines <= 540, `${rel} must stay within ~500 lines (got ${lines})`);
 }
 
+const structureAnchor = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/structure-anchor.js"),
+  "utf8",
+);
+assert.match(structureAnchor, /data-mei-node-id/, "structure anchor must resolve mei node id");
+
+const previewMaterializer = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/preview-materializer.js"),
+  "utf8",
+);
+assert.match(
+  previewMaterializer,
+  /function listStructureForPlane/,
+  "preview materializer must expose listStructureForPlane",
+);
+assert.match(
+  previewMaterializer,
+  /data-build-node/,
+  "compose DOM must stamp data-build-node for FAB structure focus",
+);
+
+const focusController = await readFile(
+  path.join(assetsRoot, "spa-navigation/presentation/focus-controller.js"),
+  "utf8",
+);
+assert.match(focusController, /focus_structure/, "focus controller must handle focus_structure");
+assert.match(
+  focusController,
+  /mei:structure-focus/,
+  "focusStructure must dispatch mei:structure-focus",
+);
+
+const copilotToolbar = await readFile(
+  path.join(assetsRoot, "spa-navigation/presentation/copilot-toolbar.js"),
+  "utf8",
+);
+assert.match(
+  copilotToolbar,
+  /copilot-structure-picker/,
+  "FAB toolbar must provide structure picker UI",
+);
+
 console.log("spa-navigation static checks ok");
 console.log("view-assembly bundle checks ok");
+console.log("phase-8.5 structure focus static checks ok");

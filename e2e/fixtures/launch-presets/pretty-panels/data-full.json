@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "mei-app-launch-v1",
+  "appId": "pretty-panels",
+  "displayName": "Pretty Panels · 全量预热",
+  "generation": "current",
+  "dataModeCeiling": "eval",
+  "runtimePlan": {
+    "defaultMode": "hot",
+    "apps": {}
+  },
+  "warmup": {
+    "enabled": true,
+    "apps": {
+      "pretty-panels": {
+        "hotScenes": ["home"],
+        "compileScope": { "skipDiscover": true },
+        "focuses": [
+          "src/scene/home/t0/r-map-stage/gis-map/content.mei",
+          "src/scene/home/t1/r-center-rail/s-map-viewport/content.mei",
+          "src/scene/home/t1/r-left-rail/s-enforcement/content.mei",
+          "src/scene/home/t1/r-left-rail/s-inspection/content.mei",
+          "src/scene/home/t1/r-left-rail/s-penalty/content.mei",
+          "src/scene/home/t1/r-right-rail/s-warning/content.mei",
+          "src/scene/home/t1/r-center-rail/s-indicator-system/content.mei",
+          "src/scene/home/t1/r-center-rail/s-realtime-table/content.mei",
+          "src/scene/home/t1/r-right-rail/s-cases/content.mei",
+          "src/scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei",
+          "src/scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei",
+          "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei"
+        ],
+        "xlsxSources": [
+          { "path": "upload/9.监督事项清单.xlsx" },
+          { "path": "upload/10.预警模型清单.xlsx" },
+          { "path": "upload/11.预警清单、问题跟踪清单20260606.xlsx" },
+          { "path": "upload/企业服务_数据.xlsx" },
+          { "path": "upload/5.行政检查结果清单.xlsx" },
+          { "path": "upload/8.行政处罚结果清单.xlsx" }
+        ],
+        "datasets": [
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/supervision-warning.bundle.mei",
+            "metricIds": ["warnings_count", "supervision_items_count", "supervision_models_count"]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/enforcement-elements.bundle.mei",
+            "metricIds": [
+              "enforcement_units_count",
+              "enforcement_personnel_count",
+              "enforcement_items_count",
+              "enforcement_objects_count",
+              "park_count"
+            ]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/inspection-dashboard.bundle.mei",
+            "metricIds": [
+              "inspections_total_count",
+              "inspections_week_count",
+              "inspections_no_violation_count",
+              "inspections_no_violation_rate",
+              "enterprise_complaints_count"
+            ]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/penalty-dashboard.bundle.mei",
+            "metricIds": [
+              "penalties_total_count",
+              "penalties_week_count",
+              "administrative_reconsiderations_count"
+            ]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/realtime-warning.bundle.mei",
+            "metricIds": ["warnings_realtime_cockpit_table"]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/typical-cases.bundle.mei",
+            "metricIds": ["case_highlights"]
+          },
+          {
+            "sceneId": "home",
+            "datasetId": "metrics/map.bundle.mei",
+            "metricIds": [
+              "map_enterprise_poi_in_park_2025",
+              "map_enterprise_poi_scale_2025",
+              "map_enterprise_poi_all_2025",
+              "map_enterprise_poi_inspected_2025",
+              "map_enterprise_poi_penalized_2025",
+              "map_street_inspection_count_2025",
+              "map_street_penalty_count_2025",
+              "map_street_penalty_amount_2025",
+              "map_park_inspection_count_2025",
+              "map_park_penalty_count_2025",
+              "map_park_penalty_amount_2025"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "app_id": "pretty-panels",
+        "label": "Pretty Panels · 全量预热",
+        "order": 10
+      }
+    ]
+  }
+}

@@ -81,11 +81,11 @@ fn run_apps_list(args: AppsListArgs) -> anyhow::Result<()> {
     } else {
         for row in rows {
             let app_id = row.get("appId").and_then(|v| v.as_str()).unwrap_or("?");
-            let default = row
-                .get("defaultLaunch")
+            let path = row
+                .get("launchPath")
                 .and_then(|v| v.as_str())
-                .unwrap_or("-");
-            println!("{app_id}\tdefaultLaunch={default}");
+                .unwrap_or("apps/?/launch.json");
+            println!("{app_id}\tlaunch={path}");
             if let Some(launches) = row.get("launches").and_then(|v| v.as_array()) {
                 for launch in launches {
                     let id = launch.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -123,25 +123,38 @@ fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app = args.app.trim();
     anyhow::ensure!(!app.is_empty(), "--app is required");
-    let config = args
-        .config
+    if args.config.as_deref().is_some_and(|c| {
+        let c = c.trim();
+        !c.is_empty() && c != "default" && c != "launch" && c != "launch.json"
+    }) {
+        tracing::warn!(
+            config = ?args.config,
+            "apps start --config is ignored; only apps/{{app}}/launch.json is used"
+        );
+    }
+    // Ensure launch file exists locally before asking the running Host.
+    let _ = mei_host_core::read_launch_config(workspace.as_path(), app, "launch").or_else(|_| {
+        mei_host_core::ensure_default_launch_config(workspace.as_path(), app)
+    })?;
+    let mode = args
+        .mode
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("default");
-    // Ensure launch file exists locally before asking the running Host.
-    let _ = mei_host_core::read_launch_config(workspace.as_path(), app, config).or_else(|_| {
-        if config == "default" {
-            mei_host_core::ensure_default_launch_config(workspace.as_path(), app)
-        } else {
-            Err(mei_host_core::AppLaunchError::NotFound(format!(
-                "launch config `{config}` not found for app `{app}`"
-            )))
-        }
-    })?;
+        .map(|s| s.to_ascii_lowercase());
+    if let Some(mode) = mode.as_deref() {
+        anyhow::ensure!(
+            matches!(mode, "hot" | "lazy" | "frozen"),
+            "--mode must be hot|lazy|frozen"
+        );
+    }
     let base = default_control_url(args.control_url.as_deref());
     let url = format!("{base}/api/host/apps/{}/start", urlencoding_app(app));
-    let body = serde_json::json!({ "config": config });
+    let body = if let Some(mode) = mode {
+        serde_json::json!({ "mode": mode })
+    } else {
+        serde_json::json!({ "followGit": true })
+    };
     let response = ureq_or_reqwest_post_json(&url, &body)?;
     println!("{response}");
     Ok(())
@@ -533,7 +546,7 @@ fn create_v2_app_skeleton(workspace: &Path, app_id: &str) -> anyhow::Result<()> 
 app_skeleton(
     id = "{app_id}",
     title = "{app_id}",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 navigation(
@@ -651,10 +664,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     if args.workspace_config.is_some() {
         tracing::warn!(
             path = ?args.workspace_config,
-            "serve --workspace-config is legacy; prefer per-app launch files via --app-config / --launch (see 0537)"
+            "serve --workspace-config is legacy; prefer --app [--mode] or --launch (see 0539)"
         );
         if let Some(profile) = selected.as_ref() {
-            // Serve resolves the path once; compiler/plug-ds children consume the same path.
             std::env::set_var("MEI_WORKSPACE_CONFIG", profile.path.as_os_str());
         }
     } else if selected.as_ref().is_some_and(|profile| {
@@ -665,72 +677,55 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     }) {
         tracing::warn!(
             source = %selected.as_ref().map(|p| p.source.as_str()).unwrap_or("unknown"),
-            "workspace mega-config / last_successful profile is legacy for serve autostart; prefer --app-config or --launch defaults|all|none"
+            "workspace mega-config / last_successful profile is legacy for serve autostart; prefer --app [--mode] or --launch"
         );
     }
     let mut args = args;
     args.workspace = workspace.clone();
-    args.app = args
+    let app_id = args
         .app
         .take()
-        .map(|value| value.trim().to_string())
+        .map(|value| value.trim().trim_matches('/').to_string())
         .filter(|value| !value.is_empty());
+    let mode = args
+        .mode
+        .take()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+    if mode.is_some() && app_id.is_none() {
+        anyhow::bail!("--mode requires --app <app_id>");
+    }
+    if args.launch && app_id.is_some() {
+        anyhow::bail!("--launch and --app are mutually exclusive; use one");
+    }
 
-    let launch_mode = args.launch.unwrap_or(LaunchMode::None);
-    let launch_targets = crate::launch_targets::collect_serve_launch_targets(
+    let policy_mode = if args.launch {
+        LaunchMode::All
+    } else {
+        LaunchMode::None
+    };
+    let policy_targets = crate::launch_targets::collect_serve_launch_targets(
         workspace.as_path(),
-        launch_mode,
+        policy_mode,
         &args.app_config,
     )?;
-    // 0537: explicit --launch (including none) or --app-config → control plane; clear legacy --app.
-    if !args.app_config.is_empty() || args.launch.is_some() {
-        args.app = None;
-    }
-
-    if args.app.is_none()
-        && matches!(launch_mode, LaunchMode::None)
-        && args.app_config.is_empty()
-        && selected
-            .as_ref()
-            .is_some_and(|profile| profile.source == "last_successful")
-    {
-        let apps = crate::workspace_profile_api::last_successful_apps(workspace.as_path());
-        let preferred = selected
-            .as_ref()
-            .and_then(|profile| std::fs::read(&profile.path).ok())
-            .and_then(|bytes| {
-                serde_json::from_slice::<mei_lang_kernel::WorkspaceConfig>(&bytes).ok()
-            })
-            .and_then(|config| config.workspace.default_app)
-            .or_else(|| apps.first().cloned());
-        if let Some(app_id) = preferred {
-            let ctx = mei_host_core::HostContext::new(workspace.clone(), app_id.clone());
-            let has_startable_artifact =
-                crate::landing::app_has_prebuilt_access_entry(workspace.as_path(), app_id.as_str())
-                    || ctx.bundle_path().is_file();
-            if has_startable_artifact {
-                args.app = Some(app_id);
-            }
-        }
-    }
-    if args.app.is_none() {
-        return run_serve_control_plane(args, selected, launch_targets).await;
-    }
-    tracing::warn!(
-        app = %args.app.as_deref().unwrap_or(""),
-        "serve --app is a migration-period path; prefer --launch / --app-config (0537)"
-    );
-    let early_bind = std::env::var("MEI_SERVE_EARLY_BIND")
-        .map(|value| {
-            let trimmed = value.trim();
-            trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
-        })
-        .unwrap_or(false);
-    if early_bind {
-        run_serve_early_bind(args, selected).await
+    let cli_targets = if let Some(app_id) = app_id.as_deref() {
+        vec![crate::launch_targets::collect_single_app_target(
+            workspace.as_path(),
+            app_id,
+            mode.as_deref(),
+        )?]
     } else {
-        run_serve_blocking_init(args, selected).await
-    }
+        Vec::new()
+    };
+    let launch_targets =
+        crate::launch_targets::merge_launch_targets(policy_targets, cli_targets);
+
+    // Keep Option-shaped app for legacy in-process helpers (unused on product path).
+    args.app = app_id;
+    args.mode = mode;
+
+    run_serve_control_plane(args, selected, launch_targets).await
 }
 
 async fn run_serve_control_plane(
@@ -933,6 +928,7 @@ fn resolve_serve_data_mode_ceiling(
     Ok(ceiling)
 }
 
+#[allow(dead_code)] // retained for emergency MEI_SERVE_INPROCESS rewiring; product path is control-plane
 async fn run_serve_blocking_init(
     args: ServeArgs,
     selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
@@ -963,7 +959,10 @@ async fn run_serve_blocking_init(
             );
         }
     }
-    let default_app_id = args.app.clone().expect("serve app resolved");
+    let default_app_id = args
+        .app
+        .clone()
+        .expect("legacy in-process serve requires --app");
     let default_ctx = mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
     ensure_registry_materialized(&default_ctx)?;
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
@@ -1140,6 +1139,7 @@ async fn run_serve_blocking_init(
     serve_result
 }
 
+#[allow(dead_code)] // retained for emergency MEI_SERVE_INPROCESS rewiring; product path is control-plane
 async fn run_serve_early_bind(
     args: ServeArgs,
     selected: Option<crate::workspace_profile_api::ResolvedRuntimeProfile>,
@@ -1154,7 +1154,10 @@ async fn run_serve_early_bind(
     let package_root = resolve_package_root()?;
     let dev_eval = install_dev_eval_config(&args);
     let data_mode_ceiling = resolve_serve_data_mode_ceiling(&args, &dev_eval)?;
-    let default_app_id = args.app.clone().expect("serve app resolved");
+    let default_app_id = args
+        .app
+        .clone()
+        .expect("legacy in-process serve requires --app");
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
     let app_ids: Vec<String> = if discovered.is_empty() {
         vec![default_app_id.clone()]

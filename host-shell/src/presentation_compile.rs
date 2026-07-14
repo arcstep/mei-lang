@@ -12,7 +12,7 @@ use axum::{
 };
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
-    catalog_scene_routes_from_app_root, compile_app_from_root, resolve_app_root, UiNodeDecl,
+    catalog_scene_routes_from_app_root, resolve_app_root, UiNodeDecl,
     UiTreeNode,
 };
 use serde::{Deserialize, Serialize};
@@ -1176,15 +1176,9 @@ fn build_surface_index(
         }
         return Ok(surfaces);
     }
-    let compiled =
-        compile_app_from_root(workspace_root, app_root.as_path()).with_context(|| {
-            format!(
-            "failed to compile app `{app_id}` for presentation validation (no prebuilt registry)"
-        )
-        })?;
-    collect_pages_from_routes(&compiled.scene_routes, &mut surfaces);
-    collect_metric_ids_from_resources(&compiled.resources, &mut surfaces);
-    Ok(surfaces)
+    anyhow::bail!(
+        "presentation validation requires prebuilt assemble registry for app `{app_id}` stage `{scene_id}`; compile_app_from_root bypass removed in Phase 9"
+    )
 }
 
 fn diagnostic(

@@ -6,13 +6,18 @@ use crate::value::{clean_object, empty_object, optional, ObjectMap, Value};
 pub fn app(args: &CallArgs) -> Result<Value, String> {
     let mut map = keyword_map(args)?;
     let id = take_string(&mut map, "id").ok_or_else(|| "app requires `id`".to_string())?;
+    if map.contains_key("default_scene") {
+        return Err(
+            "app(`default_scene`) was removed in Phase 9; use `default_stage` instead".to_string(),
+        );
+    }
     Ok(Value::Object(clean_object(vec![
         ("kind", Value::string("app")),
         ("id", id),
         ("title", optional(take_string(&mut map, "title"))),
         (
-            "default_scene",
-            optional(take_string(&mut map, "default_scene")),
+            "default_stage",
+            optional(take_string(&mut map, "default_stage")),
         ),
         ("scene", optional(take_value(&mut map, "scene"))),
     ])))

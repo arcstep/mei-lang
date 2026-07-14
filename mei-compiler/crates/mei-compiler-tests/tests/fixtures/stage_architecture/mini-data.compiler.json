@@ -28,7 +28,7 @@
   "app_id": "mini-data",
   "app_skeleton": {
     "block_id": "app_skeleton:mini-data",
-    "default_scene": "home",
+    "default_stage": "home",
     "id": "mini-data",
     "title": "真实数据 · Mini Data"
   },
@@ -213,7 +213,7 @@
       "url": "/apps/mini-data/home"
     }
   ],
-  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
     "app.mei",
     "data/metrics/enforcement-objects.bundle.mei",
@@ -314,5 +314,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.7"
+  "syntax_version": "2.5.8"
 }

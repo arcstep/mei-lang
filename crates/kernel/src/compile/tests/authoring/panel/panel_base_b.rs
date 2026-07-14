@@ -9,7 +9,7 @@ fn compile_panel_base_imports_direct_world_metrics_from_multiple_sources() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "panel-ref-import-world-metrics", default_scene = "home")
+app(id = "panel-ref-import-world-metrics", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(
@@ -133,7 +133,7 @@ fn compile_nested_panel_refs_import_direct_world_metrics_from_grandchild_source(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "nested-panel-ref-import-world-metrics", default_scene = "home")
+app(id = "nested-panel-ref-import-world-metrics", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(
@@ -234,7 +234,7 @@ fn compile_metric_card_base_inherits_template_slot_vertical_align_defaults() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-base-v-align", default_scene = "home")
+app(id = "metric-card-base-v-align", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(

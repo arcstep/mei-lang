@@ -3,7 +3,7 @@
 app(
     id = "author-example-filter-reactivity",
     title = "Author Example Filter Reactivity",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

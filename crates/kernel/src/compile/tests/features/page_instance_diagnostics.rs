@@ -12,7 +12,7 @@ fn compile_page_instance_rejects_missing_data_table_zone() {
         r#"
 app(
     id = "demo",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(id = "home", profile = "page")
@@ -170,7 +170,7 @@ BAD = ds.composition(id = "c", by = "category", chart_kind = "bar")
 
 app(
     id = "demo",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

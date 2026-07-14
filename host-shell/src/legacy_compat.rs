@@ -1,8 +1,8 @@
-//! Migration-period compatibility helpers for Host → App Runtime cutover.
+//! Host → App Runtime cutover gates (Phase 9: fail-closed by default).
 //!
-//! Public URLs (`/apps/{app}/{stage}`, `/api/datasets/*`, `/api/host/view-revision`, …)
-//! stay stable. Prefer reachable `mei-app-runtime` reverse proxy; Host in-process /
-//! managed plug-ds remain as deprecated fallbacks unless `MEI_APP_RUNTIME_REQUIRED=1`.
+//! Public URLs (`/apps/{app}/{stage}`, `/api/datasets/*`, …) stay stable.
+//! Prefer reachable `mei-app-runtime` reverse proxy. Legacy Host in-process /
+//! managed plug-ds require explicit `MEI_APP_RUNTIME_ALLOW_LEGACY=1` (tests only).
 
 use std::collections::BTreeSet;
 
@@ -12,9 +12,9 @@ use axum::Json;
 use mei_host_core::{DesiredState, LaunchManifest};
 use serde_json::json;
 
-/// `MEI_APP_RUNTIME_REQUIRED=1|true|yes` forces Access/data APIs to require a reachable runtime.
-pub fn app_runtime_required() -> bool {
-    env_flag_truthy("MEI_APP_RUNTIME_REQUIRED")
+/// Legacy override: allow Host in-process / plug-ds when no runtime (non-product).
+pub fn app_runtime_allow_legacy() -> bool {
+    env_flag_truthy("MEI_APP_RUNTIME_ALLOW_LEGACY")
 }
 
 pub fn env_flag_truthy(name: &str) -> bool {
@@ -31,19 +31,19 @@ pub fn env_flag_truthy(name: &str) -> bool {
 pub enum DataPlaneGate {
     /// Active LaunchManifest route + reachable runtime → must proxy.
     PreferRuntime,
-    /// No runtime; Host in-process / plug-ds still allowed.
+    /// Explicit `MEI_APP_RUNTIME_ALLOW_LEGACY` and no runtime → Host fallback.
     AllowLegacyFallback,
-    /// `MEI_APP_RUNTIME_REQUIRED` set and no runtime → fail closed.
+    /// Default Phase 9: no runtime → fail closed.
     RuntimeRequired,
 }
 
 pub fn decide_data_plane_gate(has_reachable_runtime: bool) -> DataPlaneGate {
     if has_reachable_runtime {
         DataPlaneGate::PreferRuntime
-    } else if app_runtime_required() {
-        DataPlaneGate::RuntimeRequired
-    } else {
+    } else if app_runtime_allow_legacy() {
         DataPlaneGate::AllowLegacyFallback
+    } else {
+        DataPlaneGate::RuntimeRequired
     }
 }
 
@@ -54,7 +54,7 @@ pub fn runtime_required_unavailable_response(app_id: &str, surface: &str) -> Res
             "error": "app-runtime required but unavailable",
             "appId": app_id,
             "surface": surface,
-            "hint": "Ensure LaunchManifest has an active reachable mei-app-runtime, or unset MEI_APP_RUNTIME_REQUIRED",
+            "hint": "Start the app via Host LaunchManifest / --app, or set MEI_APP_RUNTIME_ALLOW_LEGACY=1 for non-product Host fallback",
         })),
     )
         .into_response()
@@ -116,21 +116,22 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn decide_gate_prefers_runtime_then_required_then_fallback() {
+    fn decide_gate_prefers_runtime_then_required_then_legacy_escape() {
         let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("MEI_APP_RUNTIME_ALLOW_LEGACY");
         std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
         assert_eq!(decide_data_plane_gate(true), DataPlaneGate::PreferRuntime);
-        assert_eq!(
-            decide_data_plane_gate(false),
-            DataPlaneGate::AllowLegacyFallback
-        );
-        std::env::set_var("MEI_APP_RUNTIME_REQUIRED", "1");
         assert_eq!(
             decide_data_plane_gate(false),
             DataPlaneGate::RuntimeRequired
         );
+        std::env::set_var("MEI_APP_RUNTIME_ALLOW_LEGACY", "1");
+        assert_eq!(
+            decide_data_plane_gate(false),
+            DataPlaneGate::AllowLegacyFallback
+        );
         assert_eq!(decide_data_plane_gate(true), DataPlaneGate::PreferRuntime);
-        std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
+        std::env::remove_var("MEI_APP_RUNTIME_ALLOW_LEGACY");
     }
 
     #[test]

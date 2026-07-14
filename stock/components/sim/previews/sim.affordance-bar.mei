@@ -1,4 +1,4 @@
-app(id="preview-sim-affordance-bar", title="Preview sim.affordance-bar", default_scene="home")
+app(id="preview-sim-affordance-bar", title="Preview sim.affordance-bar", default_stage="home")
 scene(id="home", world="home_world", frame="home_frame", profile="page", summary="Pack preview")
 world(id="home_world", resources=[])
 frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"),

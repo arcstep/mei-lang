@@ -389,6 +389,55 @@
     return true;
   }
 
+  function focusStructure(target) {
+    const nodeId = String(target?.node_id || target?.nodeId || "").trim();
+    const previewScope = String(
+      target?.preview_scope || target?.previewScope || "",
+    ).trim();
+    const uiRole = String(target?.ui_role || target?.uiRole || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeId && !previewScope) return false;
+    clearViewpointFocus();
+    let el = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      el = anchor?.element || null;
+      if (!(el instanceof HTMLElement) && typeof anchorApi.focusSelectorForAnchor === "function") {
+        const selector = anchorApi.focusSelectorForAnchor(anchor);
+        if (selector) el = document.querySelector(selector);
+      }
+    }
+    if (!(el instanceof HTMLElement) && nodeId) {
+      el =
+        document.querySelector(`[data-build-node="${CSS.escape(nodeId)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(nodeId)}"]`);
+    }
+    if (!(el instanceof HTMLElement) && previewScope) {
+      el = document.querySelector(`[data-preview-scope="${CSS.escape(previewScope)}"]`);
+    }
+    if (!(el instanceof HTMLElement)) return false;
+    el.classList.add("mei-structure-focus");
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:structure-focus", {
+          detail: {
+            node_id: nodeId || el.getAttribute("data-build-node") || "",
+            preview_scope: previewScope || el.getAttribute("data-preview-scope") || "",
+            ui_role: uiRole || el.getAttribute("data-mei-ui-role") || "",
+          },
+        }),
+      );
+    } catch (_) {}
+    return true;
+  }
+
+  function highlightStructureNode(nodeId, previewScope) {
+    return focusStructure({ node_id: nodeId, preview_scope: previewScope });
+  }
+
   function readPresentationDeck() {
     const map =
       (globalThis.__mei && globalThis.__mei.presentation_map) ||
@@ -543,6 +592,9 @@
         const dispatched = dispatchWorldTargetAction(action, entry);
         return focused || dispatched;
       }
+      case "focus_structure":
+      case "focusStructure":
+        return focusStructure(action);
       case "camera_move":
       case "cameraMove":
         return dispatchWorldTargetAction(
@@ -626,6 +678,8 @@
     const root = typeof globalThis !== "undefined" ? globalThis : window;
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
+    root.MeiPresentation.focusStructure = focusStructure;
+    root.MeiPresentation.highlightStructureNode = highlightStructureNode;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);

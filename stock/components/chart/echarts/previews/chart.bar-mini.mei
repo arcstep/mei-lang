@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-bar-mini",
     title = "Preview chart.bar-mini",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

@@ -20,7 +20,7 @@
   "app_id": "mei-tutorial",
   "app_skeleton": {
     "block_id": "app_skeleton:mei-tutorial",
-    "default_scene": "intro",
+    "default_stage": "intro",
     "id": "mei-tutorial",
     "title": "MeiLang 入门 · Tutorial"
   },
@@ -105,7 +105,7 @@
       "url": "/apps/mei-tutorial/intro"
     }
   ],
-  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
     "app.mei",
     "presentation/intro/intro.deck.mdx"
@@ -145,5 +145,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.7"
+  "syntax_version": "2.5.8"
 }

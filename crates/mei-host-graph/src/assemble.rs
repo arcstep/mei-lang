@@ -475,12 +475,13 @@ fn load_app_meta(
                     .and_then(|v| v.as_str())
                     .unwrap_or("App")
                     .to_string();
-                let default_scene = payload
-                    .get("default_scene")
+                let default_stage = payload
+                    .get("default_stage")
+                    .or_else(|| payload.get("default_scene"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("home")
                     .to_string();
-                return Ok((title, default_scene));
+                return Ok((title, default_stage));
             }
         }
     }
@@ -819,7 +820,11 @@ fn load_assembly_payload(
         .context("assembly view missing payload ref")?;
     let artifact = load_block_artifact(app_root, pref)?
         .with_context(|| format!("assembly artifact missing for {assembly_key}"))?;
-    Ok(artifact.get("payload").cloned().unwrap_or(json!({})))
+    Ok(artifact
+        .get("payload")
+        .cloned()
+        .filter(|v| !v.is_null())
+        .with_context(|| format!("assembly artifact has no payload for {assembly_key}"))?)
 }
 
 pub(crate) fn assembly_source_file_from_payload(payload: &Value) -> Option<String> {

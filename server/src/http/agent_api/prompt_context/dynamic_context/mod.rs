@@ -131,7 +131,7 @@ mod tests {
         fs::create_dir_all(&app_root).expect("create app root");
         fs::write(
             app_root.join("main.mei"),
-            "app(kind=\"app\", id=\"demo\", default_scene=\"s1\", scene=\"s1\")\nscene(id=\"s1\")\n",
+            "app(kind=\"app\", id=\"demo\", default_stage =\"s1\", scene=\"s1\")\nscene(id=\"s1\")\n",
         )
         .expect("write main.mei");
         (root, app_root)

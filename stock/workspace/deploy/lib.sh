@@ -448,8 +448,11 @@ run_workspace_serve() {
   fi
 
   DEPLOY_CONFIG_ARG="${MEI_WORKSPACE_CONFIG:-}"
-  DEPLOY_LAUNCH_MODE="${MEI_LAUNCH:-${DEPLOY_LAUNCH_MODE:-}}"
-  DEPLOY_APP_CONFIGS=("${DEPLOY_APP_CONFIGS[@]:-}")
+  DEPLOY_LAUNCH="${MEI_LAUNCH:-${DEPLOY_LAUNCH:-0}}"
+  DEPLOY_MODE="${MEI_MODE:-${DEPLOY_MODE:-}}"
+  # Do NOT use ("${arr[@]:-}") — when unset it becomes a one-element empty array
+  # and falsely trips "--launch and --app are mutually exclusive".
+  DEPLOY_APP_CONFIGS=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-prebuild) skip_prebuild=1; shift ;;
@@ -458,10 +461,37 @@ run_workspace_serve() {
       --auth) auth_flag="--auth"; shift ;;
       --app) app="$2"; shift 2 ;;
       --app=*) app="${1#*=}"; shift ;;
+      --mode) DEPLOY_MODE="$2"; shift 2 ;;
+      --mode=*) DEPLOY_MODE="${1#*=}"; shift ;;
       --config) DEPLOY_CONFIG_ARG="$2"; shift 2 ;;
       --config=*) DEPLOY_CONFIG_ARG="${1#*=}"; shift ;;
-      --launch) DEPLOY_LAUNCH_MODE="$2"; shift 2 ;;
-      --launch=*) DEPLOY_LAUNCH_MODE="${1#*=}"; shift ;;
+      --launch)
+        if [[ $# -gt 1 && "$2" != -* ]]; then
+          case "$2" in
+            none|0|false) DEPLOY_LAUNCH=0 ;;
+            all|1|true) DEPLOY_LAUNCH=1 ;;
+            *)
+              echo "error: unknown --launch value '$2' (use bare --launch, or all (or bare --launch))" >&2
+              return 1
+              ;;
+          esac
+          shift 2
+        else
+          DEPLOY_LAUNCH=1
+          shift
+        fi
+        ;;
+      --launch=*)
+        case "${1#*=}" in
+          none|0|false) DEPLOY_LAUNCH=0 ;;
+          all|1|true|"") DEPLOY_LAUNCH=1 ;;
+          *)
+            echo "error: unknown --launch value '${1#*=}'" >&2
+            return 1
+            ;;
+        esac
+        shift
+        ;;
       --app-config)
         DEPLOY_APP_CONFIGS+=("$2")
         shift 2
@@ -489,10 +519,22 @@ run_workspace_serve() {
   apply_runtime_env_from_flags
   export MEI_PROFILE="${PROFILE}" MEI_SOURCE="${SOURCE}" MEI_RUNTIME="${RUNTIME}"
 
-  if [[ -n "${app}" ]]; then
+  if [[ "${DEPLOY_LAUNCH}" == "1" || ${#DEPLOY_APP_CONFIGS[@]} -gt 0 ]]; then
+    if [[ -n "${app}" ]]; then
+      echo "error: --launch and --app are mutually exclusive" >&2
+      return 1
+    fi
+    unset MEI_APP
+    app=""
+  elif [[ -n "${app}" ]]; then
     export MEI_APP="${app}"
   else
     unset MEI_APP
+  fi
+
+  if [[ -n "${DEPLOY_MODE}" && -z "${app}" ]]; then
+    echo "error: --mode requires --app <app_id>" >&2
+    return 1
   fi
 
   ensure_runtime_binaries "${workspace_root}"
@@ -545,6 +587,12 @@ run_workspace_serve() {
   if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
     echo "Config:    ${DEPLOY_CONFIG_ARG}"
   fi
+  if [[ "${DEPLOY_LAUNCH}" == "1" ]]; then
+    echo "Launch:    all apps (launch.json defaultMode)"
+  fi
+  if [[ -n "${app}" ]]; then
+    echo "App:       ${app}${DEPLOY_MODE:+ (mode=${DEPLOY_MODE})}"
+  fi
   if [[ -n "${MEI_DEV_EVAL_PROFILE:-}" ]]; then
     echo "DevEval:   profile=${MEI_DEV_EVAL_PROFILE} eval=${MEI_EVAL_SCOPE:-} warmup=${MEI_WARMUP_SCOPE:-}"
   fi
@@ -565,12 +613,15 @@ run_workspace_serve() {
   local launch_args=()
   if [[ -n "${app}" ]]; then
     app_args+=(--app "${app}")
+    if [[ -n "${DEPLOY_MODE}" ]]; then
+      app_args+=(--mode "${DEPLOY_MODE}")
+    fi
   fi
   if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
     workspace_config_args+=(--workspace-config "${DEPLOY_CONFIG_ARG}")
   fi
-  if [[ -n "${DEPLOY_LAUNCH_MODE:-}" ]]; then
-    launch_args+=(--launch "${DEPLOY_LAUNCH_MODE}")
+  if [[ "${DEPLOY_LAUNCH}" == "1" ]]; then
+    launch_args+=(--launch)
   fi
   for cfg in "${DEPLOY_APP_CONFIGS[@]:-}"; do
     [[ -n "${cfg}" ]] || continue

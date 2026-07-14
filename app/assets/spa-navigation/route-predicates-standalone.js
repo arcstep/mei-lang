@@ -54,9 +54,40 @@
     "upload",
     "config",
     "runtime",
+    "~",
   ]);
 
+  function isTempStageRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return segments[0] === "apps" && segments.length >= 4 && segments[2] === "~";
+  }
+
+  function tempStageTargetFromPathname(pathname = global.location?.pathname) {
+    if (!isTempStageRoute(pathname)) return "";
+    const segments = pathSegments(pathname);
+    return segments
+      .slice(3)
+      .map((part) => {
+        try {
+          return decodeURIComponent(part);
+        } catch (_) {
+          return part;
+        }
+      })
+      .join("/");
+  }
+
+  function canonicalTempStagePath(appId, scopeOrNode) {
+    const app = String(appId || "").trim();
+    const target = String(scopeOrNode || "")
+      .trim()
+      .replace(/^\/+|\/+$/g, "");
+    if (!app || !target) return "";
+    return `/apps/${app}/~/${target}`;
+  }
+
   function isAccessStageRoute(pathname = global.location?.pathname) {
+    if (isTempStageRoute(pathname)) return true;
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 2) return false;
     if (segments.length === 2) return !RESERVED_STAGE_SEGMENTS.has(String(segments[1] || "").toLowerCase());
@@ -304,6 +335,21 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isTempStageRoute(pathname)) {
+      const target = tempStageTargetFromPathname(pathname);
+      if (target && !/^node\//i.test(target)) {
+        const head = String(target.split("/")[0] || "").trim();
+        if (head && !/^t[012]$/i.test(head) && head.toLowerCase() !== "p") {
+          return head;
+        }
+      }
+      try {
+        const params = new URLSearchParams(search || "");
+        const fromQuery = String(params.get("scene") || "").trim();
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+      return "home";
+    }
     if (isAccessStageRoute(pathname)) {
       const segments = pathSegments(pathname);
       if (segments.length >= 3) {
@@ -402,6 +448,9 @@
     LEGACY_REMOVED_ROUTE_SLUGS,
     RESERVED_STAGE_SEGMENTS,
     pathSegments,
+    isTempStageRoute,
+    tempStageTargetFromPathname,
+    canonicalTempStagePath,
     isAccessStageRoute,
     isUnifiedViewRoute,
     surfaceSlugFromViewUrl,
@@ -451,6 +500,10 @@
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
   global.isAccessStageRoute = isAccessStageRoute;
+  global.isTempStageRoute = isTempStageRoute;
+  global.tempStageTargetFromPathname = tempStageTargetFromPathname;
+  global.canonicalTempStagePath = canonicalTempStagePath;
+  global.sceneIdFromPathname = sceneIdFromPathname;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;

@@ -59,14 +59,14 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
     let mut warmup_apps = Vec::new();
     for app in apps {
         let app_root = resolve_app_root(source_root, &app.id);
-        let default_scene = resolve_default_scene_from_root(&app_root).ok().flatten();
+        let default_stage = resolve_default_scene_from_root(&app_root).ok().flatten();
         let app_config = workspace_config.warmup.apps.get(&app.id);
         let hot_scenes = normalize_hot_scenes(
             app_config
                 .map(|config| config.hot_scenes.as_slice())
                 .unwrap_or(&[]),
         );
-        let scenes = merge_warmup_scenes(default_scene.as_deref(), hot_scenes.as_slice());
+        let scenes = merge_warmup_scenes(default_stage.as_deref(), hot_scenes.as_slice());
         let mut focuses = normalize_focuses(
             app_config
                 .map(|config| config.focuses.as_slice())
@@ -93,7 +93,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
         );
         let mut warmup_app = RuntimeWarmupApp {
             app_id: app.id,
-            default_scene,
+            default_scene: default_stage,
             hot_scenes,
             scenes,
             focuses,

@@ -13,7 +13,7 @@ fn compile_rejects_panel_ref_block_embed_with_area() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "embed-app", default_scene = "home")
+app(id = "embed-app", default_stage = "home")
 
 scene(id = "home", profile = "page")
 
@@ -127,7 +127,7 @@ fn compile_metric_card_metric_ref_uses_mei_text_slots_instead_of_legacy_tile() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-runtime-ref", default_scene = "home")
+app(id = "metric-card-runtime-ref", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 world.add_metric(

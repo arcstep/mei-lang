@@ -14,7 +14,7 @@ fn compile_supports_preview_target_for_non_entry_mei_file() {
         r#"
 app(
     id = "preview-target",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -94,7 +94,7 @@ fn compile_world_only_rejects_top_level_dataset_decl() {
         r#"
 app(
     id = "world-only-top-level-dataset",
-    default_scene = "home",
+    default_stage = "home",
 )
 "#,
     );
@@ -155,7 +155,7 @@ fn compile_world_only_rejects_legacy_resource_ids_and_unknown_world_ref() {
         r#"
 app(
     id = "world-only-id-policy",
-    default_scene = "home",
+    default_stage = "home",
 )
 "#,
     );
@@ -220,7 +220,7 @@ fn compile_rejects_misused_world_ref_and_external_dataset_ref_in_props() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "typed-ref-props-policy", default_scene = "home")
+app(id = "typed-ref-props-policy", default_stage = "home")
 scene(id = "home")
 world(resources = [resource(id = "local_ds", kind = "dataset", source = ds.csv(path = "data/a.csv"))])
 frame()
@@ -274,7 +274,7 @@ fn compile_materializes_dataset_view_and_metrics() {
         r#"
 app(
     id = "analytics",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(

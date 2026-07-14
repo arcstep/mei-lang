@@ -21,15 +21,25 @@ pub(crate) fn statusbar_view(
                 <div class="statusbar-track statusbar-track-left min-w-0">
                     {if show_visit_history {
                         view! {
-                            <button
-                                type="button"
-                                id="mei-visit-history-trigger"
-                                class="status-chip status-chip-visit-history"
-                                data-tone="neutral"
-                                title="最近访问与加载耗时"
-                            >
-                                "访问历史"
-                            </button>
+                            <>
+                                <button
+                                    type="button"
+                                    id="mei-visit-history-trigger"
+                                    class="status-chip status-chip-visit-history"
+                                    data-tone="neutral"
+                                    title="最近访问与加载耗时"
+                                >
+                                    "访问历史"
+                                </button>
+                                <button
+                                    type="button"
+                                    id="mei-status-debug-route"
+                                    class="status-chip status-chip-debug-route"
+                                    data-tone="neutral"
+                                    hidden
+                                    title="点击复制调试路由"
+                                ></button>
+                            </>
                         }
                         .into_any()
                     } else if let Some(path) = left_path.as_deref() {

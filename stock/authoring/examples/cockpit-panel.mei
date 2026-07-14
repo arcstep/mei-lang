@@ -5,7 +5,7 @@ use template "cockpit/panel/shell-macros"
 app(
     id = "author-example-cockpit-panel",
     title = "Author Example Cockpit Panel",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

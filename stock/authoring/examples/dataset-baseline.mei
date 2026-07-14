@@ -3,7 +3,7 @@
 app(
     id = "author-example-dataset",
     title = "Author Example Dataset",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

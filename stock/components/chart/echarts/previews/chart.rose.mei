@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-rose",
     title = "Preview chart.rose",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

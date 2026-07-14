@@ -9,7 +9,7 @@ use serde_json::Value;
 pub struct AppConfig {
     #[serde(rename = "schemaVersion", default)]
     pub schema_version: u32,
-    /// Name of `launch/{name}.json` used by `--launch defaults`. `null` / missing = do not autostart.
+    /// DEPRECATED (Phase 8.5): ignored — each app has a single `launch.json`.
     #[serde(default, rename = "defaultLaunch")]
     pub default_launch: Option<String>,
     #[serde(default)]

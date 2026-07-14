@@ -13,7 +13,7 @@ fn compile_supports_scene_file_ref_authoring() {
         r#"
 app(
     id = "fire",
-    default_scene = "room_fire_click",
+    default_stage = "room_fire_click",
 )
 
 app.add_scene(
@@ -365,7 +365,7 @@ fn compile_supports_declarative_scene_frame_binding() {
         r#"
 app(
     id = "demo",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

@@ -188,45 +188,21 @@ test.describe("app launch config + single runtime (0537)", () => {
     await expect(top).toContainText(run.displayName, { timeout: 60_000 });
   });
 
-  test("switch launch config stops old process and starts new one", async ({ request }) => {
-    test.skip(!dualApply, "set MEI_E2E_DUAL_APPLY=1 to run launch config switch");
+  test("switch launch config is rejected under single-launch policy", async ({ request }) => {
+    test.skip(!dualApply, "set MEI_E2E_DUAL_APPLY=1 to run single-launch rejection");
 
     const startScoped = await request.post(
       `${base}/api/host/apps/${encodeURIComponent(appId)}/start`,
       { data: { config: "scoped-rail" } },
     );
-    expect([200, 202]).toContain(startScoped.status());
-    const apps1 = await json(await request.get(`${base}/api/host/apps`));
-    const run1 = (apps1.running || []).find((row) => row.appId === appId);
-    expect(run1?.instanceId).toBeTruthy();
-    expect(run1?.launchId).toBe("scoped-rail");
-    expect(String(run1?.displayName || "")).toMatch(/scoped/i);
+    expect(startScoped.status()).toBe(400);
+    const body = await startScoped.json();
+    expect(String(body.error || "")).toMatch(/single-launch|launch\.json|ephemeral/i);
 
-    const startFull = await request.post(
+    const startDefault = await request.post(
       `${base}/api/host/apps/${encodeURIComponent(appId)}/start`,
-      { data: { config: "full" } },
+      { data: { config: "launch" } },
     );
-    expect([200, 202]).toContain(startFull.status());
-    const apps2 = await json(await request.get(`${base}/api/host/apps`));
-    const run2 = (apps2.running || []).find((row) => row.appId === appId);
-    expect(run2?.instanceId).toBeTruthy();
-    expect(run2.instanceId).not.toBe(run1.instanceId);
-    expect(run2?.launchId).toBe("full");
-    expect(String(run2?.displayName || "")).not.toBe(String(run1?.displayName || ""));
-
-    const chrome = await json(
-      await request.get(
-        `${base}/api/host/shell-chrome?appId=${encodeURIComponent(appId)}&scene=home`,
-      ),
-    );
-    expect(chrome.topbarHtml).toContain(run2.displayName);
-
-    const stop = await request.post(
-      `${base}/api/host/apps/${encodeURIComponent(appId)}/stop`,
-      { data: {} },
-    );
-    expect([200, 202]).toContain(stop.status());
-    const apps3 = await json(await request.get(`${base}/api/host/apps`));
-    expect((apps3.running || []).find((row) => row.appId === appId)).toBeFalsy();
+    expect([200, 202]).toContain(startDefault.status());
   });
 });

@@ -94,6 +94,9 @@ pub struct ComposeRequest {
     pub focus: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Phase 8.5: unique structure target (additive dual-read with focus/scope).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_target: Option<crate::scope_target::ScopeTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -592,6 +595,7 @@ mod manifest_revision_tests {
                 data_mode: Some("eval".to_string()),
                 focus: None,
                 scope: None,
+                scope_target: None,
             }),
             surface_revision_digest: None,
         };
@@ -607,6 +611,7 @@ mod manifest_revision_tests {
             data_mode: Some("eval".to_string()),
             focus: None,
             scope: None,
+            scope_target: None,
         });
         let semantic_a = semantic_revision_digest(&base_manifest, None);
         let semantic_b = semantic_revision_digest(&shell_variant, None);
@@ -621,6 +626,17 @@ pub fn build_semantic_core_for_scene(
     workspace_root: &std::path::Path,
     app_id: &str,
     scene_id: &str,
+) -> SemanticCacheCore {
+    build_semantic_core_for_scene_scoped(workspace_root, app_id, scene_id, None)
+}
+
+/// Same as [`build_semantic_core_for_scene`], optionally binding `preview_scope`
+/// so scoped structure/eval/manifest cache keys diverge from full-stage keys.
+pub fn build_semantic_core_for_scene_scoped(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+    preview_scope: Option<&str>,
 ) -> SemanticCacheCore {
     let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, app_id);
     let registry_revision = registry.registry_revision.trim().to_string();
@@ -639,10 +655,14 @@ pub fn build_semantic_core_for_scene(
             .map(|manifest| manifest.workset_id)
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| client_revision.clone());
+    let scope = preview_scope
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
     build_semantic_cache_core(
         app_id,
         scene_id,
-        None,
+        scope,
         registry_revision,
         client_revision,
         data_generation,

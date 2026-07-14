@@ -1,12 +1,12 @@
-//! Resolve which app launch configs to start for `serve --launch` / `--app-config`.
+//! Resolve which apps to autostart for `serve --app` / `--mode` / `--launch`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use mei_host_core::{
-    ensure_default_launch_config, list_launch_configs, load_app_config, read_launch_config,
+    ensure_default_launch_config, launch_json_path, list_launch_configs, read_launch_config,
     resolve_default_launch, AppLaunchDocument, AppLaunchError,
 };
-use mei_lang_kernel::resolve_app_root;
 
 use crate::cli::LaunchMode;
 use crate::landing;
@@ -15,6 +15,55 @@ use crate::landing;
 pub struct LaunchTarget {
     pub app_id: String,
     pub document: AppLaunchDocument,
+    /// When set, write ephemeral overlay `defaultMode` before start (unified mode).
+    pub mode_override: Option<String>,
+    /// When true (plain `--app` / `--launch`), clear any stale overlay before start.
+    pub clear_overlay: bool,
+}
+
+/// Product CLI: one `--app` plus optional `--mode`.
+pub fn collect_single_app_target(
+    workspace: &Path,
+    app_id: &str,
+    mode: Option<&str>,
+) -> anyhow::Result<LaunchTarget> {
+    let app_id = normalize_app_id(app_id);
+    anyhow::ensure!(!app_id.is_empty(), "--app requires a non-empty app id");
+    let mode = mode
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_ascii_lowercase());
+    if let Some(mode) = mode.as_deref() {
+        anyhow::ensure!(
+            matches!(mode, "hot" | "lazy" | "frozen"),
+            "--mode must be hot|lazy|frozen"
+        );
+    }
+    let doc = load_or_ensure_launch(workspace, &app_id)?;
+    let (mode_override, clear_overlay) = match mode {
+        Some(mode) => (Some(mode), false),
+        None => (None, true),
+    };
+    Ok(LaunchTarget {
+        app_id,
+        document: doc,
+        mode_override,
+        clear_overlay,
+    })
+}
+
+fn normalize_app_id(raw: &str) -> String {
+    raw.trim().trim_matches('/').to_string()
+}
+
+fn load_or_ensure_launch(workspace: &Path, app_id: &str) -> anyhow::Result<AppLaunchDocument> {
+    match resolve_default_launch(workspace, app_id) {
+        Ok(doc) => Ok(doc),
+        Err(AppLaunchError::NotFound(_)) => {
+            ensure_default_launch_config(workspace, app_id).map_err(|e| anyhow::anyhow!("{e}"))
+        }
+        Err(error) => Err(anyhow::anyhow!("{error}")),
+    }
 }
 
 pub fn collect_serve_launch_targets(
@@ -23,6 +72,9 @@ pub fn collect_serve_launch_targets(
     app_configs: &[PathBuf],
 ) -> anyhow::Result<Vec<LaunchTarget>> {
     if !app_configs.is_empty() {
+        tracing::warn!(
+            "serve --app-config is legacy; prefer --app [--mode] or --launch (single launch.json)"
+        );
         let mut out = Vec::new();
         for path in app_configs {
             let abs = if path.is_absolute() {
@@ -40,6 +92,8 @@ pub fn collect_serve_launch_targets(
             out.push(LaunchTarget {
                 app_id,
                 document: doc,
+                mode_override: None,
+                clear_overlay: false,
             });
         }
         return Ok(dedupe_by_app(out));
@@ -47,47 +101,16 @@ pub fn collect_serve_launch_targets(
 
     match mode {
         LaunchMode::None => Ok(Vec::new()),
-        LaunchMode::Defaults => {
-            let apps = landing::discover_workspace_apps(workspace)?;
-            let mut out = Vec::new();
-            for app in apps {
-                let app_root = resolve_app_root(workspace, &app.id);
-                let cfg = load_app_config(&app_root).unwrap_or_default();
-                let Some(name) = cfg.default_launch.filter(|s| !s.trim().is_empty()) else {
-                    continue;
-                };
-                match read_launch_config(workspace, &app.id, name.trim()) {
-                    Ok(doc) => out.push(LaunchTarget {
-                        app_id: app.id,
-                        document: doc,
-                    }),
-                    Err(AppLaunchError::NotFound(_)) => {
-                        tracing::warn!(
-                            app = %app.id,
-                            launch = %name,
-                            "defaultLaunch points to missing file; skip"
-                        );
-                    }
-                    Err(error) => return Err(anyhow::anyhow!("{error}")),
-                }
-            }
-            Ok(out)
-        }
         LaunchMode::All => {
             let apps = landing::discover_workspace_apps(workspace)?;
             let mut out = Vec::new();
             for app in apps {
-                let doc = match resolve_default_launch(workspace, &app.id) {
-                    Ok(doc) => doc,
-                    Err(AppLaunchError::NotFound(_)) => {
-                        ensure_default_launch_config(workspace, &app.id)
-                            .map_err(|e| anyhow::anyhow!("{e}"))?
-                    }
-                    Err(error) => return Err(anyhow::anyhow!("{error}")),
-                };
+                let doc = load_or_ensure_launch(workspace, &app.id)?;
                 out.push(LaunchTarget {
                     app_id: app.id,
                     document: doc,
+                    mode_override: None,
+                    clear_overlay: true,
                 });
             }
             Ok(out)
@@ -95,16 +118,38 @@ pub fn collect_serve_launch_targets(
     }
 }
 
+/// Merge CLI `--app` target over `--launch` / `--app-config` (CLI wins per app).
+pub fn merge_launch_targets(
+    base: Vec<LaunchTarget>,
+    cli: Vec<LaunchTarget>,
+) -> Vec<LaunchTarget> {
+    if cli.is_empty() {
+        return dedupe_by_app(base);
+    }
+    if base.is_empty() {
+        return dedupe_by_app(cli);
+    }
+    let mut by_app: BTreeMap<String, LaunchTarget> = BTreeMap::new();
+    for target in base {
+        by_app.insert(target.app_id.clone(), target);
+    }
+    for target in cli {
+        by_app.insert(target.app_id.clone(), target);
+    }
+    by_app.into_values().collect()
+}
+
 pub fn list_app_launch_rows(workspace: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
     let apps = landing::discover_workspace_apps(workspace)?;
     let mut rows = Vec::new();
     for app in apps {
-        let app_root = resolve_app_root(workspace, &app.id);
-        let cfg = load_app_config(&app_root).unwrap_or_default();
         let launches = list_launch_configs(workspace, &app.id).unwrap_or_default();
         rows.push(serde_json::json!({
             "appId": app.id,
-            "defaultLaunch": cfg.default_launch,
+            "launchPath": launch_json_path(workspace, &app.id)
+                .strip_prefix(workspace)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| format!("apps/{}/launch.json", app.id)),
             "launches": launches,
         }));
     }
@@ -117,11 +162,12 @@ fn infer_app_id_from_launch_path(workspace: &Path, path: &Path) -> anyhow::Resul
         .components()
         .filter_map(|c| c.as_os_str().to_str().map(|s| s.to_string()))
         .collect();
-    // apps/{app}/launch/{name}.json
+    if parts.len() == 3 && parts[0] == "apps" && parts[2] == "launch.json" {
+        return Ok(parts[1].clone());
+    }
     if parts.len() >= 4 && parts[0] == "apps" && parts[2] == "launch" {
         return Ok(parts[1].clone());
     }
-    // Fallback: parse appId from JSON
     let raw = std::fs::read_to_string(path)?;
     let value: serde_json::Value = serde_json::from_str(&raw)?;
     value
@@ -140,9 +186,45 @@ fn dedupe_by_app(targets: Vec<LaunchTarget>) -> Vec<LaunchTarget> {
         } else {
             tracing::warn!(
                 app = %target.app_id,
-                "duplicate --app-config for same app; keeping first"
+                "duplicate autostart for same app; keeping first"
             );
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn single_app_mode_override() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path();
+        let app_root = workspace.join("apps/mini-data");
+        std::fs::create_dir_all(app_root.join("src")).unwrap();
+        std::fs::write(
+            app_root.join("app.config.json"),
+            r#"{"schemaVersion":"mei-app-config-v1","id":"mini-data"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            app_root.join("launch.json"),
+            r#"{
+              "schemaVersion":"mei-app-launch-v1",
+              "appId":"mini-data",
+              "runtimePlan":{"defaultMode":"frozen","apps":{}}
+            }"#,
+        )
+        .unwrap();
+
+        let follow = collect_single_app_target(workspace, "mini-data", None).unwrap();
+        assert!(follow.clear_overlay);
+        assert!(follow.mode_override.is_none());
+
+        let lazy = collect_single_app_target(workspace, "mini-data", Some("lazy")).unwrap();
+        assert_eq!(lazy.mode_override.as_deref(), Some("lazy"));
+        assert!(!lazy.clear_overlay);
+    }
 }

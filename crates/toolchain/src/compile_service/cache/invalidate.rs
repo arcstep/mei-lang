@@ -153,13 +153,13 @@ pub(crate) fn default_scene_alias_keys(
         .as_deref()
         .map(str::trim)
         .filter(|scene| !scene.is_empty());
-    let default_scene = compiled
+    let default_stage = compiled
         .scene_routes
         .iter()
         .find(|route| route.is_default)
         .map(|route| route.scene_id.trim())
         .filter(|scene| !scene.is_empty());
-    let (Some(active_scene), Some(default_scene)) = (active_scene, default_scene) else {
+    let (Some(active_scene), Some(default_scene)) = (active_scene, default_stage) else {
         return Vec::new();
     };
     if active_scene != default_scene {

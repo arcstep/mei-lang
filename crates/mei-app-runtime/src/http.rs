@@ -32,6 +32,14 @@ pub fn router(state: SharedRuntimeState) -> Router {
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
         .route("/api/datasets/fixture/:app_id", post(api_datasets_fixture))
         .route("/apps/:app_id", get(access_app_root))
+        .route(
+            "/apps/:app_id/~/*target_tail",
+            get(crate::access::access_app_temp_stage),
+        )
+        .route(
+            "/apps/:app_id/:stage/*scoped_tail",
+            get(crate::access::access_app_scoped_stage),
+        )
         .route("/apps/:app_id/:stage", get(access_app_stage))
         .with_state(state.clone());
 

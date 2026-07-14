@@ -3,7 +3,7 @@
 app(
     id = "author-example-chart-composition",
     title = "Author Example Chart Composition",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "mei-app-launch-v1",
+  "appId": "pretty-panels",
+  "displayName": "Pretty Panels · 静态布局",
+  "generation": "current",
+  "dataModeCeiling": "static",
+  "runtimePlan": {
+    "defaultMode": "frozen",
+    "apps": {
+      "pretty-panels": {
+        "targets": [
+          { "scope": "home", "mode": "frozen" }
+        ],
+        "metricOverrides": {}
+      }
+    }
+  },
+  "warmup": {
+    "enabled": false,
+    "apps": {}
+  },
+  "menu": {
+    "items": [
+      {
+        "app_id": "pretty-panels",
+        "label": "Pretty Panels · 静态布局",
+        "order": 30
+      }
+    ]
+  }
+}

@@ -3,7 +3,7 @@
 app(
     id = "author-example-chart-radar",
     title = "Author Example Chart Radar",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

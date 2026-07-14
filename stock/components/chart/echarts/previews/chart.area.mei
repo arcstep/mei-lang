@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-area",
     title = "Preview chart.area",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

@@ -3,7 +3,7 @@
 app(
     id = "author-example-template-clone",
     title = "Author Example Template Clone",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

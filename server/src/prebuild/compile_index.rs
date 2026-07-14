@@ -126,9 +126,14 @@ impl PrebuildDiagnostics {
     }
 }
 
+#[allow(dead_code)] // historical — Phase 9 only writes/loads v9
 pub(crate) const PREBUILD_COMPILE_INDEX_SCHEMA_V6: &str = "mei-prebuild-compile-index-v6";
+#[allow(dead_code)]
 pub(crate) const PREBUILD_COMPILE_INDEX_SCHEMA_V7: &str = "mei-prebuild-compile-index-v7";
+#[allow(dead_code)]
 pub(crate) const PREBUILD_COMPILE_INDEX_SCHEMA_V8: &str = "mei-prebuild-compile-index-v8";
+/// Phase 9: Stage wire uses `stage_id` / `default_stage`; old indexes invalidate.
+pub(crate) const PREBUILD_COMPILE_INDEX_SCHEMA_V9: &str = "mei-prebuild-compile-index-v9";
 
 pub(crate) fn default_observed_count() -> usize {
     1
@@ -198,7 +203,7 @@ pub(crate) fn write_prebuild_compile_index(
             .with_context(|| format!("create prebuild compile index dir {}", parent.display()))?;
     }
     let persisted = PersistedPrebuildCompileIndex {
-        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_V8.to_string(),
+        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_V9.to_string(),
         generated_at_ms: now_epoch_ms(),
         entries: index.entries_by_scope_key.values().cloned().collect(),
     };
@@ -219,10 +224,8 @@ pub(crate) fn load_prebuild_compile_index(app_root: &Path) -> Result<Option<Preb
         .with_context(|| format!("read prebuild compile index {}", path.display()))?;
     let persisted = serde_json::from_str::<PersistedPrebuildCompileIndex>(&raw)
         .with_context(|| format!("parse prebuild compile index {}", path.display()))?;
-    if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V6
-        && persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V7
-        && persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V8
-    {
+    if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V9 {
+        // Phase 9: refuse indexes from prior schemas (stage_id / default_stage wire change).
         return Ok(None);
     }
     Ok(Some(PrebuildCompileIndex {

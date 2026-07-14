@@ -23,7 +23,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "clone-app", default_scene = "home")
+app(id = "clone-app", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "doc", kind = "document", content = "ok")])
 frame(
@@ -86,7 +86,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "grid-nested", default_scene = "home")
+app(id = "grid-nested", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(
@@ -131,7 +131,7 @@ frame.add_panel(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "cmp-base", default_scene = "home")
+app(id = "cmp-base", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "doc", kind = "document", content = "x")])
 frame()
@@ -166,7 +166,7 @@ fn compile_panel_slot_syntax_maps_to_projection_props() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "panel-slot-syntax", default_scene = "home")
+app(id = "panel-slot-syntax", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [])
 frame()
@@ -225,7 +225,7 @@ fn compile_panel_base_rejects_wrong_ref_kind() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "bad-base", default_scene = "home")
+app(id = "bad-base", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(

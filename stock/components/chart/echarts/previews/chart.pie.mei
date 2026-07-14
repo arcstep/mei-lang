@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-pie",
     title = "Preview chart.pie",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

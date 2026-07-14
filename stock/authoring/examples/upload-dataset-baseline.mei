@@ -17,7 +17,7 @@
 app(
     id = "author-example-upload-dataset",
     title = "Author Example Upload Dataset",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

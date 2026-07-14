@@ -92,7 +92,8 @@ pub struct StageProgram {
     pub units: Vec<StageUnit>,
     pub state_namespace: String,
     pub source_anchor: String,
-    /// Legacy scene_id alias (same string as stage_id during Phase 2).
+    /// Legacy scene_id alias (same string as stage_id). Phase 9: not written to new artifacts.
+    #[serde(default, skip_serializing)]
     pub legacy_scene_id: String,
     /// Phase 3: NarrationCatalog key (`narration:{stage_id}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -278,6 +279,7 @@ pub struct StageProgramSummary {
     pub unit_count: usize,
     pub unit_ids: Vec<String>,
     pub state_namespace: String,
+    #[serde(default, skip_serializing)]
     pub legacy_scene_id: String,
 }
 

@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-scatter",
     title = "Preview chart.scatter",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

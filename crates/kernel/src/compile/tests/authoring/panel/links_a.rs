@@ -9,7 +9,7 @@ fn compile_link_params_passthrough() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "link-params-passthrough", default_scene = "home")
+app(id = "link-params-passthrough", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [])
 frame()
@@ -74,7 +74,7 @@ fn compile_generic_drilldown_link_rowset_contract() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "generic-drilldown-rowset", default_scene = "home")
+app(id = "generic-drilldown-rowset", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [])
 world.add_metric(
@@ -176,7 +176,7 @@ fn compile_generic_scene_link_without_tabs_uses_scene_params() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "generic-scene-link-without-tabs", default_scene = "home")
+app(id = "generic-scene-link-without-tabs", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [])
 world.add_metric(
@@ -278,7 +278,7 @@ fn compile_scene_link_reports_missing_required_param() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "scene-link-missing-required-param", default_scene = "home")
+app(id = "scene-link-missing-required-param", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [])
 frame()

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "mei-app-launch-v1",
+  "appId": "mini-data",
+  "displayName": "Mini Data · static ceiling（eval 403 样例）",
+  "generation": "current",
+  "dataModeCeiling": "static",
+  "runtimePlan": {
+    "defaultMode": "frozen",
+    "apps": {}
+  },
+  "warmup": {
+    "enabled": false,
+    "apps": {}
+  },
+  "menu": {
+    "items": [
+      {
+        "app_id": "mini-data",
+        "label": "Mini Data · static ceiling",
+        "order": 99
+      }
+    ]
+  }
+}

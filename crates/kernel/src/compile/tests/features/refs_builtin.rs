@@ -23,7 +23,7 @@ frame()
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "refs-03", default_scene = "home")
+app(id = "refs-03", default_stage = "home")
 scene(
     id = "home",
     profile = "page",
@@ -63,7 +63,7 @@ fn compile_builtin_text_shorthand() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "text-app", default_scene = "home")
+app(id = "text-app", default_stage = "home")
 
 scene(id = "home", profile = "page")
 

@@ -12,7 +12,7 @@ fn preview_fragment_without_scene_contract_skips_discovered_route() {
         r#"
 app(
     id = "frag-preview",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(
@@ -140,7 +140,7 @@ frame.add_panel(
         compiled
             .diagnostics
             .iter()
-            .any(|diag| diag.code == "implicit_default_scene"),
+            .any(|diag| diag.code == "implicit_default_stage"),
         "multi-scene app without default_scene should emit explicit warning: {:?}",
         compiled.diagnostics
     );
@@ -157,7 +157,7 @@ fn compile_warns_when_scene_route_is_redeclared() {
         r#"
 app(
     id = "duplicate-scene-route",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(

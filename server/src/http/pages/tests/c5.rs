@@ -40,7 +40,7 @@ fn seed_prebuilt_default_scope_artifact(source_root: &std::path::Path, app_id: &
 const VALID_APP_SOURCE: &str = r#"
 app(
     id = "good-app",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(
@@ -74,7 +74,7 @@ frame.add_panel(
 const MULTI_SCENE_APP_SOURCE: &str = r##"
 app(
     id = "multi-scene",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app_add_scene(scene = scene_ref(scene_file = "details.mei", scene_id = "details"))
@@ -141,7 +141,7 @@ frame.add_panel(
 const ACCESS_DISABLED_APP_SOURCE: &str = r##"
 app(
     id = "access-disabled",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(
@@ -379,7 +379,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
     fs::create_dir_all(&good_root).expect("create good app root");
     fs::write(
             broken_root.join("main.mei"),
-            "app(\n    id = \"011-bad\",\n    title = \"Broken\",\n    default_scene = \"home\",\n)\n\nscene(\n    id = \"home\",\n    summary = \"unterminated,\n)\n",
+            "app(\n    id = \"011-bad\",\n    title = \"Broken\",\n    default_stage = \"home\",\n)\n\nscene(\n    id = \"home\",\n    summary = \"unterminated,\n)\n",
         )
         .expect("write invalid mei file");
     fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");

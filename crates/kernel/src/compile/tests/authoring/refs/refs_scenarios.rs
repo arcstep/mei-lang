@@ -12,7 +12,7 @@ fn compile_collects_scene_accepts_and_capabilities_for_scene_contracts() {
     write_file(
         &app_root.join("src/main.mei"),
         r#"
-app(id = "params-app", default_scene = "home")
+app(id = "params-app", default_stage = "home")
 scene(
     id = "home",
     profile = "page",
@@ -165,7 +165,7 @@ fn compile_scene_file_ref_main_target_skips_scene_first_missing_diagnostics() {
         r#"
 app(
     id = "fire",
-    default_scene = "room_fire_click",
+    default_stage = "room_fire_click",
 )
 
 app.add_scene(
@@ -227,7 +227,7 @@ fn compile_refs_scenario1_local_resource_ref_in_props() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "refs-01", default_scene = "home")
+app(id = "refs-01", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "welcome_doc", kind = "document", content = "hello")])
 frame()
@@ -265,7 +265,7 @@ fn compile_refs_scenario2_world_metrics_from_local_dataset_view() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "refs-02", default_scene = "home")
+app(id = "refs-02", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [resource(id = "sales_data", kind = "dataset", source = ds.csv(path = "data/sales.csv"))])
 rows = ds.data_ref("sales_data")
@@ -334,7 +334,7 @@ world(resources = [resource(id = "doc", kind = "document", content = "base")])
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "res-base", default_scene = "home")
+app(id = "res-base", default_stage = "home")
 scene(id = "home", profile = "page")
 world(resources = [
     resource(

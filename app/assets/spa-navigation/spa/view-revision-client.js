@@ -385,6 +385,28 @@
     if (targetMode && bodySurface && targetMode !== bodySurface) {
       return true;
     }
+    const targetScene = String(ctx.scene_id || ctx.sceneId || "").trim();
+    const bodyScene = String(
+      global.document?.body?.getAttribute("data-scene-id") ||
+        shell?.getAttribute?.("data-scene") ||
+        shell?.querySelector?.("#mei-compose-root")?.getAttribute("data-scene") ||
+        "",
+    ).trim();
+    const previousScene = String(options.previousScene || options.previousSceneId || "").trim();
+    if (previousScene && targetScene && previousScene !== targetScene) {
+      return true;
+    }
+    if (targetScene && bodyScene && targetScene !== bodyScene) {
+      return true;
+    }
+    const targetScope = String(ctx.scope || "").trim();
+    const previousScope = String(options.previousScope || "").trim();
+    if (previousScope !== targetScope && (previousScope || targetScope)) {
+      return true;
+    }
+    if (ctx.temp_stage || ctx.tempStage) {
+      return true;
+    }
     return false;
   }
 
@@ -607,7 +629,6 @@
     const missing = assemble.missing || [];
     if (
       missing.length &&
-      plan?.manifest?.layers &&
       boot.sceneManifestLoader?.ensureLayers
     ) {
       await boot.sceneManifestLoader.ensureLayers(
@@ -659,7 +680,6 @@
       const recoverMissing = assemble.missing || [];
       if (
         recoverMissing.length &&
-        recoverPlan?.manifest?.layers &&
         boot.sceneManifestLoader?.ensureLayers
       ) {
         await boot.sceneManifestLoader.ensureLayers(

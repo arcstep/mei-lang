@@ -4,7 +4,7 @@
 app(
     id = "author-example-multi-scene",
     title = "Author Example Multi Scene",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app_add_scene(

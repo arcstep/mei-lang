@@ -135,7 +135,7 @@ pub async fn api_host_ops_prebuild(
 
     let scenes = if let Some(config_name) = launch_config.as_deref() {
         let launch_result = if config_name == "default" {
-            // 0537：`config=default` 缺失时物化 launch/default.json，与 apps start / --launch all 对齐
+            // 0537 / Phase 8.5：`launch.json` 缺失时物化，与 apps start / --launch all 对齐
             mei_host_core::ensure_default_launch_config(workspace.as_path(), app_id.as_str())
         } else {
             mei_host_core::read_launch_config(workspace.as_path(), app_id.as_str(), config_name)

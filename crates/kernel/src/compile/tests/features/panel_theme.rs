@@ -23,7 +23,7 @@ fn compile_supports_nested_panels() {
         r#"
 app(
     id = "nested",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -114,7 +114,7 @@ fn compile_supports_theme_declarations() {
         r##"
 app(
     id = "theme-app",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -201,7 +201,7 @@ fn compile_merges_theme_and_scene_shared_context() {
     write_file(
         &app_root.join("main.mei"),
         r##"
-app(id = "shared-app", default_scene = "home")
+app(id = "shared-app", default_stage = "home")
 
 scene(
     id = "home",
@@ -296,7 +296,7 @@ fn compile_rejects_non_object_or_ref_shared_context_values() {
     write_file(
         &app_root.join("main.mei"),
         r##"
-app(id = "invalid-shared-app", default_scene = "home")
+app(id = "invalid-shared-app", default_stage = "home")
 
 scene(
     id = "home",
@@ -338,7 +338,7 @@ fn compile_panel_normalizes_title_to_head_slot() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "head-app", default_scene = "home")
+app(id = "head-app", default_stage = "home")
 
 scene(id = "home", profile = "page")
 

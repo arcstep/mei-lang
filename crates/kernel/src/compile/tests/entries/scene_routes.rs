@@ -12,7 +12,7 @@ fn compile_declarative_main_preview_target_falls_back_to_default_scene_payload()
         r#"
 app(
     id = "declarative-preview",
-    default_scene = "room_fire_click",
+    default_stage = "room_fire_click",
 )
 app_add_scene(scene = scene_ref(scene_file = "home.mei", scene_id = "room_fire_click"))
 "#,
@@ -67,7 +67,7 @@ fn compile_reports_missing_scene_for_declarative_route_without_scene_decl() {
         r#"
 app(
     id = "missing-scene",
-    default_scene = "home",
+    default_stage = "home",
     scene = "home",
 )
 
@@ -108,7 +108,7 @@ fn compile_supports_nested_component_manifests() {
         r#"
 app(
     id = "nested-manifests",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -181,7 +181,7 @@ fn compile_collects_scene_route_registry() {
         r#"
 app(
     id = "registry",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(
@@ -267,7 +267,7 @@ fn compile_selects_requested_scene_from_registry() {
         r#"
 app(
     id = "scene-select",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(

@@ -102,6 +102,7 @@ fn compose_from_query(
         data_mode: query.data_mode.clone(),
         focus: query.focus.clone(),
         scope: query.scope.clone(),
+        scope_target: None,
     }
 }
 
@@ -212,16 +213,23 @@ pub async fn api_host_view_revision(
     };
     let workspace_root = workspace_root.as_path();
 
-    // Compose query is accepted for Host API parity; revision negotiation is index-driven.
+    // Compose axes drive scoped temporary-Stage revision (MCG closure via preview_scope).
     let fallback_compose = compose_from_query(&query, route_mode);
-    let mut _compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
-    normalize_compose_request(&mut _compose);
-    if _compose.data_mode.is_none() {
-        _compose.data_mode = Some(axes.data_mode.slug().to_string());
+    let mut compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
+    normalize_compose_request(&mut compose);
+    if compose.data_mode.is_none() {
+        compose.data_mode = Some(axes.data_mode.slug().to_string());
     }
-    if _compose.review_projection.is_none() {
-        _compose.review_projection = Some(axes.review_projection.slug().to_string());
+    if compose.review_projection.is_none() {
+        compose.review_projection = Some(axes.review_projection.slug().to_string());
     }
+    let preview_scope = compose
+        .scope_target
+        .as_ref()
+        .map(|t| t.preview_scope.clone())
+        .or_else(|| compose.scope.clone())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let client_manifest_digest = query
         .manifest_revision_digest
@@ -260,6 +268,7 @@ pub async fn api_host_view_revision(
         scene_id.as_str(),
         route_mode,
         axes.data_mode,
+        preview_scope.as_deref(),
         client_manifest_digest,
         client_surface_digest,
         recover,

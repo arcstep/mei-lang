@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, OriginalUri, Path, Query, State},
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri},
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
@@ -47,6 +47,22 @@ pub struct AppQuery {
     pub surface: Option<String>,
 }
 
+/// Access visit while App Runtime is not running: record INFO and send user to the
+/// friendly starting gate (`应用未启动`) instead of Host legacy assemble + client ERROR.
+fn redirect_access_app_not_running(uri: &Uri, app_id: &str, scene_id: &str) -> Response {
+    let scene = scene_id.trim();
+    let scene = if scene.is_empty() { "home" } else { scene };
+    tracing::info!(
+        target: "mei.startup",
+        app_id = %app_id,
+        scene_id = %scene,
+        path = %uri.path(),
+        "access visit while app runtime not running — redirecting to starting page"
+    );
+    let location = crate::startup::build_starting_location(uri, app_id, scene, "app");
+    Redirect::temporary(location.as_str()).into_response()
+}
+
 fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
     if let Some(node) = query
         .node
@@ -68,14 +84,14 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
         .map(|resolved| resolved.node.encode())
 }
 
-/// Access 规范：`/apps/{app_id}/{stage_id}` → 优先反代 app-runtime；无 runtime 时 fallback Host 本地 assemble（deprecated）。
+/// Access 规范：`/apps/{app_id}/{stage_id}` → 反代 app-runtime；未启动则引导到 starting 页。
 pub async fn app_stage_page(
     State(http): State<crate::state::HostHttpState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     Path((app_id, stage_id)): Path<(String, String)>,
-    Query(mut query): Query<AppQuery>,
+    Query(_query): Query<AppQuery>,
 ) -> Response {
     if crate::shell_redirects::is_reserved_stage_segment(stage_id.as_str()) {
         return (StatusCode::NOT_FOUND, "unknown app route").into_response();
@@ -108,43 +124,281 @@ pub async fn app_stage_page(
     )
     .await
     {
-        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => return response,
-        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_) => {
-            tracing::info!(
-                target: "mei.startup",
-                app_id = %app_id,
-                scene_id = %stage,
-                "app-runtime not reachable yet — redirecting access request to starting page"
-            );
-            let location =
-                crate::startup::build_starting_location(&uri, app_id.as_str(), stage, "app");
-            return Redirect::temporary(location.as_str()).into_response();
+        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => response,
+        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
+        | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
+            redirect_access_app_not_running(&uri, app_id.as_str(), stage)
         }
-        crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {}
     }
-    query.scene = Some(stage.to_string());
-    query.surface = Some(UiRouteMode::App.slug().to_string());
-    crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
-    app_page(
-        State(http.shell.clone()),
-        State(http.auth.clone()),
-        principal,
-        OriginalUri(uri),
-        headers,
-        Path(("app".to_string(), app_id)),
-        Query(query),
-    )
-    .await
 }
 
-/// Access 应用根：`/apps/{app_id}` → 优先反代；无 runtime 时 fallback Host 本地（deprecated）。
+/// Phase 8.5: `/apps/{app}/~/{scope_or_node}` temporary Stage Access routes.
+///
+/// Opens a full Access session whose assemble/view-revision closure is the MCG
+/// neighborhood of the target — not a carve of the "current" stage URL.
+pub async fn app_temp_stage_page(
+    State(http): State<crate::state::HostHttpState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path((app_id, target_tail)): Path<(String, String)>,
+    Query(mut query): Query<AppQuery>,
+) -> Response {
+    let target = target_tail.trim().trim_matches('/');
+    if target.is_empty() {
+        return (StatusCode::NOT_FOUND, "temporary stage target required").into_response();
+    }
+
+    let Some(hint) = mei_host_graph::parse_temp_stage_target(target) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("unrecognized temporary stage target: {target}"),
+        )
+            .into_response();
+    };
+
+    let stage_guess = mei_host_graph::infer_stage_from_temp_target(target);
+    let workspace_root = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
+    };
+    let mut hits = mei_host_graph::ArtifactHitMatrix::default();
+    let resolved = match mei_host_graph::ensure_manifest_index(
+        workspace_root.as_path(),
+        app_id.as_str(),
+        stage_guess.as_str(),
+        mei_lang_kernel::DataMode::Eval,
+        &mut hits,
+        None,
+    ) {
+        Ok(index) => {
+            let structure_key = index
+                .semantic_layer_refs
+                .get("structure.full")
+                .map(|layer| layer.artifact_id.clone());
+            let doc = structure_key
+                .as_deref()
+                .and_then(|key| mei_host_graph::take_layer(key))
+                .and_then(|bytes| {
+                    serde_json::from_slice::<mei_host_graph::StructureFullDocument>(bytes.as_slice())
+                        .ok()
+                });
+            match doc {
+                Some(document) => mei_host_graph::resolve_scope_target(&document, hint),
+                None => Err(mei_host_graph::ScopeTargetResolveError::NotFound(
+                    "structure.full unavailable for temporary stage resolve".to_string(),
+                )),
+            }
+        }
+        Err(error) => Err(mei_host_graph::ScopeTargetResolveError::NotFound(
+            error.to_string(),
+        )),
+    };
+
+    match resolved {
+        Ok(target_resolved) => {
+            let canonical = target_resolved.canonical_path(app_id.as_str());
+            let current_path = uri.path().trim_end_matches('/');
+            let canonical_trim = canonical.trim_end_matches('/');
+            if current_path != canonical_trim {
+                let location = match uri.query() {
+                    Some(q) if !q.is_empty() => format!("{canonical}?{q}"),
+                    _ => canonical,
+                };
+                return Redirect::temporary(location.as_str()).into_response();
+            }
+            query.scene = Some(target_resolved.stage_id.clone());
+            query.scope = Some(target_resolved.preview_scope.clone());
+            query.focus = Some(target_resolved.node_id.clone());
+            query.node = Some(target_resolved.node_id.clone());
+            query.surface = Some(UiRouteMode::App.slug().to_string());
+            query.chrome = Some("none".to_string());
+        }
+        Err(mei_host_graph::ScopeTargetResolveError::Ambiguous {
+            hint,
+            count,
+            candidates,
+        }) => {
+            return (
+                StatusCode::CONFLICT,
+                format!("ambiguous scope target `{hint}` matches {count} nodes: {candidates}"),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (StatusCode::NOT_FOUND, error.to_string()).into_response();
+        }
+    }
+
+    match crate::app_runtime_proxy::access_get_gateway(
+        &http,
+        app_id.as_str(),
+        uri.path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or(uri.path()),
+        &headers,
+        principal.as_ref().map(|ext| ext.0.clone()),
+        "access",
+    )
+    .await
+    {
+        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => response,
+        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
+        | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
+            redirect_access_app_not_running(
+                &uri,
+                app_id.as_str(),
+                query.scene.as_deref().unwrap_or(stage_guess.as_str()),
+            )
+        }
+    }
+}
+
+/// Legacy `/apps/{app}/{stage}/{tier…}` → redirect to `/apps/{app}/~/{scope}`.
+pub async fn app_scoped_stage_page(
+    State(http): State<crate::state::HostHttpState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path((app_id, stage_id, scoped_tail)): Path<(String, String, String)>,
+    Query(query): Query<AppQuery>,
+) -> Response {
+    if crate::shell_redirects::is_reserved_stage_segment(stage_id.as_str()) {
+        return (StatusCode::NOT_FOUND, "unknown app route").into_response();
+    }
+    if stage_id.trim() == "~" {
+        return app_temp_stage_page(
+            State(http),
+            principal,
+            OriginalUri(uri),
+            headers,
+            Path((app_id, scoped_tail)),
+            Query(query),
+        )
+        .await;
+    }
+    let stage = stage_id.trim();
+    let tail = scoped_tail.trim().trim_matches('/');
+    if stage.is_empty() || tail.is_empty() {
+        return (StatusCode::NOT_FOUND, "scoped stage path required").into_response();
+    }
+
+    let Some(parsed) = mei_host_graph::parse_scoped_route_tail(tail) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("unrecognized scoped route tail: {tail}"),
+        )
+            .into_response();
+    };
+
+    match parsed {
+        mei_host_graph::ScopedRouteParse::T2Page { page_scene_id } => {
+            // Keep T2 page under stage path (page scene assemble).
+            let mut q = query;
+            q.scene = Some(page_scene_id);
+            q.scope = Some(format!("{stage}/t2"));
+            q.surface = Some(UiRouteMode::App.slug().to_string());
+            match crate::app_runtime_proxy::access_get_gateway(
+                &http,
+                app_id.as_str(),
+                uri.path_and_query()
+                    .map(|pq| pq.as_str())
+                    .unwrap_or(uri.path()),
+                &headers,
+                principal.as_ref().map(|ext| ext.0.clone()),
+                "access",
+            )
+            .await
+            {
+                crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => response,
+                crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
+                | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
+                    redirect_access_app_not_running(
+                        &uri,
+                        app_id.as_str(),
+                        q.scene.as_deref().unwrap_or(stage),
+                    )
+                }
+            }
+        }
+        mei_host_graph::ScopedRouteParse::Structure { hint } => {
+            let workspace_root = {
+                let guard = http.shell.read().expect("state lock");
+                guard.ctx.workspace_root.clone()
+            };
+            let mut hits = mei_host_graph::ArtifactHitMatrix::default();
+            let resolved = match mei_host_graph::ensure_manifest_index(
+                workspace_root.as_path(),
+                app_id.as_str(),
+                stage,
+                mei_lang_kernel::DataMode::Eval,
+                &mut hits,
+                None,
+            ) {
+                Ok(index) => {
+                    let structure_key = index
+                        .semantic_layer_refs
+                        .get("structure.full")
+                        .map(|layer| layer.artifact_id.clone());
+                    let doc = structure_key
+                        .as_deref()
+                        .and_then(|key| mei_host_graph::take_layer(key))
+                        .and_then(|bytes| {
+                            serde_json::from_slice::<mei_host_graph::StructureFullDocument>(
+                                bytes.as_slice(),
+                            )
+                            .ok()
+                        });
+                    match doc {
+                        Some(document) => mei_host_graph::resolve_scope_target(&document, hint),
+                        None => Err(mei_host_graph::ScopeTargetResolveError::NotFound(
+                            "structure.full unavailable for scope resolve".to_string(),
+                        )),
+                    }
+                }
+                Err(error) => Err(mei_host_graph::ScopeTargetResolveError::NotFound(
+                    error.to_string(),
+                )),
+            };
+            match resolved {
+                Ok(target) => {
+                    let location = match uri.query() {
+                        Some(q) if !q.is_empty() => {
+                            format!("{}?{q}", target.canonical_path(app_id.as_str()))
+                        }
+                        _ => target.canonical_path(app_id.as_str()),
+                    };
+                    return Redirect::temporary(location.as_str()).into_response();
+                }
+                Err(mei_host_graph::ScopeTargetResolveError::Ambiguous {
+                    hint,
+                    count,
+                    candidates,
+                }) => {
+                    return (
+                        StatusCode::CONFLICT,
+                        format!(
+                            "ambiguous scope target `{hint}` matches {count} nodes: {candidates}"
+                        ),
+                    )
+                        .into_response();
+                }
+                Err(error) => {
+                    return (StatusCode::NOT_FOUND, error.to_string()).into_response();
+                }
+            }
+        }
+    }
+}
+
+/// Access 应用根：`/apps/{app_id}` → 反代；未启动则引导到 starting 页。
 pub async fn app_root_page(
     State(http): State<crate::state::HostHttpState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     Path(app_id): Path<String>,
-    Query(mut query): Query<AppQuery>,
+    Query(_query): Query<AppQuery>,
 ) -> Response {
     match crate::app_runtime_proxy::access_get_gateway(
         &http,
@@ -158,52 +412,18 @@ pub async fn app_root_page(
     )
     .await
     {
-        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => return response,
-        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_) => {
+        crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => response,
+        crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
+        | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
             let workspace_root = {
                 let guard = http.shell.read().expect("state lock");
                 guard.ctx.workspace_root.clone()
             };
             let default_scene =
                 crate::shell_chrome::default_access_scene(workspace_root.as_path(), app_id.as_str());
-            tracing::info!(
-                target: "mei.startup",
-                app_id = %app_id,
-                scene_id = %default_scene,
-                "app-runtime not reachable yet — redirecting access request to starting page"
-            );
-            let location = crate::startup::build_starting_location(
-                &uri,
-                app_id.as_str(),
-                default_scene.as_str(),
-                "app",
-            );
-            return Redirect::temporary(location.as_str()).into_response();
+            redirect_access_app_not_running(&uri, app_id.as_str(), default_scene.as_str())
         }
-        crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {}
     }
-    query.surface = Some(UiRouteMode::App.slug().to_string());
-    // 不强制 scene：走 __default_access__ 解析，仍 200
-    if query
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or("")
-        .is_empty()
-    {
-        query.scene = None;
-    }
-    crate::app_surface::merge_surface_query_defaults(&mut query, UiRouteMode::App);
-    app_page(
-        State(http.shell.clone()),
-        State(http.auth.clone()),
-        principal,
-        OriginalUri(uri),
-        headers,
-        Path(("app".to_string(), app_id)),
-        Query(query),
-    )
-    .await
 }
 
 pub async fn app_page(
@@ -1560,6 +1780,7 @@ fn compose_request_for_shell(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        scope_target: None,
     }
 }
 
@@ -2054,6 +2275,7 @@ mod inject_scene_manifest_tests {
             data_mode: Some(mei_lang_kernel::DataMode::Eval.slug().to_string()),
             focus: None,
             scope: None,
+            scope_target: None,
         };
         let html = "<html><head></head><body></body></html>".to_string();
         let out = inject_scene_manifest_refs_for_route(

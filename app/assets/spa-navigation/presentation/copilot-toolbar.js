@@ -10,6 +10,8 @@
     toolbarOpen: false,
     captionVisible: true,
     selectMode: false,
+    structurePanelOpen: false,
+    activePlane: "t1",
     drawerOpen: false,
     mounted: false,
   };
@@ -294,8 +296,14 @@
       toolbarGlyphButton({
         dataset: { key: "copilot-select-toggle" },
         glyph: "点",
-        label: "组件选择",
-        title: "点选场景组件",
+        label: "结构选择",
+        title: "点选结构节点并高亮（不触发 eval）",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-structure-panel" },
+        glyph: "树",
+        label: "结构树",
+        title: "枚举当前 plane 结构并聚焦",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-tts" },
@@ -483,6 +491,12 @@
       target.classList.toggle("is-active", uiState.selectMode);
       return;
     }
+    if (target.dataset.copilotStructurePanel === "true") {
+      uiState.structurePanelOpen = !uiState.structurePanelOpen;
+      target.classList.toggle("is-active", uiState.structurePanelOpen);
+      renderStructurePicker();
+      return;
+    }
     if (target.dataset.copilotTts === "true") {
       const tts = ttsApi();
       const step = eng ? eng.currentStep() : null;
@@ -605,6 +619,7 @@
     refreshFabChrome();
     renderCaption();
     renderDrawer();
+    renderStructurePicker();
   }
 
   function renderAll() {
@@ -644,10 +659,50 @@
     document.addEventListener(
       "click",
       (event) => {
-        const eng = engine();
-        if (!uiState.selectMode || !(eng && eng.isActive())) return;
+        if (!uiState.selectMode) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if (target.closest("#copilot-toolbar, #copilot-structure-picker, .access-chat-fab")) {
+          return;
+        }
+        const structureHost = target.closest(
+          "[data-build-node], [data-mei-node-id], [data-preview-scope]",
+        );
+        if (structureHost instanceof HTMLElement) {
+          const nodeId = String(
+            structureHost.getAttribute("data-build-node") ||
+              structureHost.getAttribute("data-mei-node-id") ||
+              "",
+          ).trim();
+          const previewScope = String(
+            structureHost.getAttribute("data-preview-scope") || "",
+          ).trim();
+          const uiRole = String(
+            structureHost.getAttribute("data-mei-ui-role") || "",
+          ).trim();
+          if (nodeId || previewScope) {
+            event.preventDefault();
+            event.stopPropagation();
+            const presentation = window.MeiPresentation;
+            if (presentation?.focusStructure) {
+              presentation.focusStructure({
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            } else if (presentation?.dispatch) {
+              presentation.dispatch({
+                type: "focus_structure",
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            }
+            return;
+          }
+        }
+        const eng = engine();
+        if (!(eng && eng.isActive())) return;
         const host = target.closest("[data-mei-viewpoint]");
         if (!(host instanceof HTMLElement)) return;
         const viewpointId = String(host.dataset.meiViewpoint || "").trim();
@@ -658,6 +713,105 @@
       },
       true,
     );
+  }
+
+  function ensureStructurePicker() {
+    let panel = document.getElementById("copilot-structure-picker");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "copilot-structure-picker";
+    panel.className = "copilot-structure-picker";
+    panel.setAttribute("hidden", "hidden");
+    panel.innerHTML =
+      '<div class="copilot-structure-picker-head">' +
+      '<label>Plane <select data-structure-plane>' +
+      '<option value="t0">T0</option><option value="t1" selected>T1</option><option value="t2">T2</option>' +
+      "</select></label>" +
+      '<button type="button" data-structure-close>关闭</button></div>' +
+      '<ul class="copilot-structure-picker-list" data-structure-list></ul>';
+    mountCopilotNode(panel);
+    panel.addEventListener("change", (event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement) || !select.hasAttribute("data-structure-plane")) {
+        return;
+      }
+      uiState.activePlane = String(select.value || "t1");
+      renderStructurePicker();
+      try {
+        document.dispatchEvent(
+          new CustomEvent("mei:plane-context", {
+            detail: { plane_id: uiState.activePlane },
+          }),
+        );
+      } catch (_) {}
+    });
+    panel.addEventListener("click", (event) => {
+      const btn = event.target;
+      if (!(btn instanceof Element)) return;
+      if (btn.closest("[data-structure-close]")) {
+        uiState.structurePanelOpen = false;
+        renderStructurePicker();
+        return;
+      }
+      const item = btn.closest("[data-structure-node]");
+      if (!(item instanceof HTMLElement)) return;
+      const presentation = window.MeiPresentation;
+      presentation?.focusStructure?.({
+        node_id: item.getAttribute("data-structure-node") || "",
+        preview_scope: item.getAttribute("data-structure-scope") || "",
+        ui_role: item.getAttribute("data-structure-role") || "",
+      });
+    });
+    return panel;
+  }
+
+  function renderStructurePicker() {
+    const panel = ensureStructurePicker();
+    const list = panel.querySelector("[data-structure-list]");
+    const select = panel.querySelector("[data-structure-plane]");
+    if (select instanceof HTMLSelectElement) {
+      select.value = uiState.activePlane || "t1";
+    }
+    if (!uiState.structurePanelOpen) {
+      panel.setAttribute("hidden", "hidden");
+      return;
+    }
+    panel.removeAttribute("hidden");
+    const nodes =
+      typeof boot.listStructureForPlane === "function"
+        ? boot.listStructureForPlane(uiState.activePlane)
+        : boot.previewMaterializer?.listStructureForPlane?.(uiState.activePlane) || [];
+    if (!(list instanceof HTMLElement)) return;
+    if (!nodes.length) {
+      list.innerHTML = "<li class='is-empty'>当前 slice/plane 无结构节点</li>";
+      return;
+    }
+    list.innerHTML = nodes
+      .map((node) => {
+        const label = node.label || node.preview_scope || node.node_id;
+        return (
+          `<li><button type="button" data-structure-node="${escapeAttr(node.node_id)}" ` +
+          `data-structure-scope="${escapeAttr(node.preview_scope)}" ` +
+          `data-structure-role="${escapeAttr(node.ui_role)}">` +
+          `<span class="role">${escapeHtml(node.ui_role)}</span> ${escapeHtml(label)}` +
+          `</button></li>`
+        );
+      })
+      .join("");
+  }
+
+  function escapeAttr(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;");
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
   function shouldMount() {

@@ -3,7 +3,7 @@
 app(
     id = "author-example-map",
     title = "Author Example Map",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

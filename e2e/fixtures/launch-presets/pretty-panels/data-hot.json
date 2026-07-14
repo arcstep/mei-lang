@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "mei-app-launch-v1",
+  "appId": "pretty-panels",
+  "displayName": "Pretty Panels · 全量不预热",
+  "generation": "current",
+  "dataModeCeiling": "eval",
+  "runtimePlan": {
+    "defaultMode": "hot",
+    "apps": {}
+  },
+  "warmup": {
+    "enabled": false,
+    "apps": {}
+  },
+  "menu": {
+    "items": [
+      {
+        "app_id": "pretty-panels",
+        "label": "Pretty Panels · 全量不预热",
+        "order": 20
+      }
+    ]
+  }
+}

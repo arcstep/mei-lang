@@ -6,7 +6,9 @@ WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 # shellcheck source=lib.sh
 source "${DEPLOY_DIR}/lib.sh"
 
-APP="${MEI_APP:-data-demo}"
+# When caller pinned an app (`start.sh --app` → MEI_APP), only prebuild that app.
+# Capture before apply_workspace_deploy_env, which may default MEI_APP for other tools.
+PINNED_APP="${MEI_APP:-}"
 POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
 
@@ -20,9 +22,14 @@ if [[ "${SOURCE}" == "lang" ]]; then
   ensure_runtime_binaries "${WORKSPACE_ROOT}"
 fi
 
-mapfile -t APP_IDS < <(discovered_app_ids "${WORKSPACE_ROOT}" || true)
-if [[ ${#APP_IDS[@]} -eq 0 ]]; then
-  APP_IDS=("${APP}")
+if [[ -n "${PINNED_APP}" ]]; then
+  APP_IDS=("${PINNED_APP}")
+else
+  mapfile -t APP_IDS < <(discovered_app_ids "${WORKSPACE_ROOT}" || true)
+  if [[ ${#APP_IDS[@]} -eq 0 ]]; then
+    echo "error: no apps discovered and MEI_APP unset; pass MEI_APP=<id> or start with --app" >&2
+    exit 1
+  fi
 fi
 
 ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP_IDS[0]}"

@@ -70,6 +70,10 @@ pub struct ViewRevisionQuery {
     pub tab: Option<String>,
     #[serde(default)]
     pub review_projection: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub focus: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -340,7 +344,13 @@ pub async fn api_host_view_revision(
     );
     let workspace_root = state.host.workspace_root.as_path();
     let (topbar_menu, apps) = apps_for_runtime_shell_chrome(workspace_root, app_id.as_str());
-    // Host API parity: accept compose axes on the query even though revision is index-driven.
+    // Host API parity: compose.scope selects temporary-Stage MCG closure.
+    let preview_scope = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
     let _compose = ComposeRequest {
         route_mode: Some(route_mode.slug().to_string()),
         tab: query.tab.clone(),
@@ -350,8 +360,9 @@ pub async fn api_host_view_revision(
             .clone()
             .or_else(|| Some(default_review_projection(data_mode).to_string())),
         data_mode: Some(data_mode.slug().to_string()),
-        focus: None,
-        scope: None,
+        focus: query.focus.clone(),
+        scope: preview_scope.clone(),
+        scope_target: None,
     };
     let render = |args: ShellChromeRenderArgs<'_>| {
         render_runtime_shell_chrome(apps.as_slice(), &topbar_menu, args)
@@ -363,6 +374,7 @@ pub async fn api_host_view_revision(
         scene_id.as_str(),
         route_mode.slug(),
         data_mode,
+        preview_scope.as_deref(),
         query
             .manifest_revision_digest
             .as_deref()
@@ -433,6 +445,7 @@ pub async fn api_host_scene_manifest(
         data_mode: Some(data_mode.slug().to_string()),
         focus: None,
         scope: None,
+        scope_target: None,
     };
     let workspace_root = state.host.workspace_root.as_path();
     let (topbar_menu, apps) = apps_for_runtime_shell_chrome(workspace_root, app_id.as_str());
@@ -504,6 +517,7 @@ pub async fn api_host_layer_batch(
         data_mode: Some(data_mode.slug().to_string()),
         focus: None,
         scope: None,
+        scope_target: None,
     };
     let layer_names = body.layers.clone().unwrap_or_default();
     let workspace_root = state.host.workspace_root.as_path();

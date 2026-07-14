@@ -26,6 +26,7 @@ mod presentation_map;
 mod projection_normalize;
 mod runtime_plans;
 mod scene_materialize;
+mod scope_target;
 mod semantic_cache;
 mod semantic_scene;
 mod shell_layer;
@@ -129,9 +130,15 @@ pub use runtime_plans::{
     RuntimePlansDocument, RUNTIME_PLANS_KIND, RUNTIME_PLANS_SCHEMA,
 };
 pub use scene_materialize::{
-    build_scene_view_manifest, ensure_manifest_index, manifest_for_surface,
-    materialize_layers_for_request, resolve_view_revision_for_surface, ArtifactHitMatrix,
-    ShellChromeRenderArgs, ShellChromeRenderer,
+    build_scene_view_manifest, ensure_manifest_index, ensure_scoped_manifest_index,
+    manifest_for_surface, materialize_layers_for_request, resolve_view_revision_for_surface,
+    ArtifactHitMatrix, ShellChromeRenderArgs, ShellChromeRenderer,
+};
+pub use scope_target::{
+    canonical_scoped_path, canonical_t2_page_path, canonical_temp_stage_path,
+    infer_stage_from_temp_target, parse_scoped_route_tail, parse_temp_stage_target,
+    resolve_scope_target, ScopeTarget, ScopeTargetHint, ScopeTargetResolveError, ScopedRouteParse,
+    SCOPED_ROUTE_ROLES,
 };
 pub use semantic_cache::{
     build_page_render_view_axes, build_semantic_cache_core, page_render_view_signature,
@@ -151,9 +158,9 @@ pub use shell_layer::{
     ShellLayerDocument, SHELL_LAYER_SCHEMA,
 };
 pub use structure_full::{
-    build_structure_full_document, build_structure_index_document, nodes_within_projection,
-    persist_structure_full, slot_group_id_for_node, structure_full_from_compiled,
-    ui_role_depth_rank,
+    build_structure_full_document, build_structure_index_document, closure_for_node_id,
+    closure_for_preview_scope, nodes_within_projection, persist_structure_full,
+    slot_group_id_for_node, structure_full_from_compiled, ui_role_depth_rank,
 };
 pub use surface::{
     apply_surface_to_props, normalize_surface, surface_chrome_props, surface_field_layout_call,
@@ -167,10 +174,10 @@ pub use tier::{
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 pub use view_artifact::{
-    build_semantic_core_for_scene, collect_manifest_layer_refs, eval_slot_group_cache_key,
-    layer_ref_from_manifest_entry, layout_overlay_persisted_cache_key,
-    layout_overlay_session_cache_key, manifest_revision_digest, resolve_view_revision,
-    semantic_revision_digest, shell_cache_key, structure_full_cache_key,
+    build_semantic_core_for_scene, build_semantic_core_for_scene_scoped,
+    collect_manifest_layer_refs, eval_slot_group_cache_key, layer_ref_from_manifest_entry,
+    layout_overlay_persisted_cache_key, layout_overlay_session_cache_key, manifest_revision_digest,
+    resolve_view_revision, semantic_revision_digest, shell_cache_key, structure_full_cache_key,
     surface_revision_digest_from_manifest, theme_tokens_cache_key, AssemblyPlan,
     ClientLayerHolding, ComposeRequest, FrameViewportMeta, LayerRef, SceneViewManifest,
     StructureFullDocument, StructureFullNode, ViewRevisionInput, ViewRevisionResponse,

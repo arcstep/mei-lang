@@ -253,6 +253,108 @@ pub fn nodes_within_projection<'a>(
         .collect()
 }
 
+/// Target subtree closure: ancestor chain + full descendants of `target_node_id`.
+///
+/// Full-stage `structure.full` remains the L2 true source; this projection is used
+/// for scoped manifests so clients never receive out-of-scope structure nodes.
+pub fn closure_for_node_id(
+    document: &StructureFullDocument,
+    target_node_id: &str,
+) -> Option<StructureFullDocument> {
+    let target_id = target_node_id.trim();
+    if target_id.is_empty() {
+        return None;
+    }
+    let by_id: BTreeMap<&str, &StructureFullNode> = document
+        .nodes
+        .iter()
+        .map(|node| (node.node_id.as_str(), node))
+        .collect();
+    let target = by_id.get(target_id)?;
+
+    let mut keep = BTreeSet::new();
+    keep.insert(target.node_id.clone());
+
+    // Ancestors (layout chain required for remount / debug shell).
+    let mut cursor = target.parent_id.clone();
+    while let Some(parent_id) = cursor {
+        if !keep.insert(parent_id.clone()) {
+            break;
+        }
+        cursor = by_id
+            .get(parent_id.as_str())
+            .and_then(|node| node.parent_id.clone());
+    }
+
+    // Full subtree under target.
+    let mut stack: Vec<String> = target.children.clone();
+    while let Some(child_id) = stack.pop() {
+        if !keep.insert(child_id.clone()) {
+            continue;
+        }
+        if let Some(child) = by_id.get(child_id.as_str()) {
+            stack.extend(child.children.iter().cloned());
+        }
+    }
+
+    let mut nodes: Vec<StructureFullNode> = document
+        .nodes
+        .iter()
+        .filter(|node| keep.contains(node.node_id.as_str()))
+        .cloned()
+        .map(|mut node| {
+            node.children
+                .retain(|child_id| keep.contains(child_id.as_str()));
+            if node
+                .parent_id
+                .as_ref()
+                .map(|id| !keep.contains(id.as_str()))
+                .unwrap_or(false)
+            {
+                node.parent_id = None;
+            }
+            node
+        })
+        .collect();
+    nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+
+    let scene_roots: Vec<String> = nodes
+        .iter()
+        .filter(|node| {
+            node.parent_id
+                .as_ref()
+                .map(|id| !keep.contains(id.as_str()))
+                .unwrap_or(true)
+        })
+        .map(|node| node.node_id.clone())
+        .collect();
+
+    Some(StructureFullDocument {
+        schema_version: document.schema_version.clone(),
+        app_id: document.app_id.clone(),
+        scene_id: document.scene_id.clone(),
+        semantic_revision: document.semantic_revision.clone(),
+        scene_roots,
+        nodes,
+        frame_viewport: document.frame_viewport.clone(),
+    })
+}
+
+/// Convenience: resolve by exact `preview_scope` then close subtree.
+pub fn closure_for_preview_scope(
+    document: &StructureFullDocument,
+    preview_scope: &str,
+) -> Option<StructureFullDocument> {
+    let needle = preview_scope.trim().trim_matches('/');
+    if needle.is_empty() {
+        return None;
+    }
+    let target = document.nodes.iter().find(|node| {
+        node.preview_scope.trim().trim_matches('/') == needle
+    })?;
+    closure_for_node_id(document, target.node_id.as_str())
+}
+
 pub fn slot_group_id_for_node(node: &StructureFullNode) -> String {
     if node.ui_role == UiScopeRole::Content.slug() {
         return format!("content:{}", node.preview_scope);
@@ -459,5 +561,17 @@ mod tests {
             .expect("slot node");
         assert_eq!(slot.panel_id.as_deref(), Some("home/T0/panel:left"));
         assert!(slot.use_keys.iter().any(|key| key == "metric-card"));
+    }
+
+    #[test]
+    fn closure_for_node_keeps_ancestors_and_subtree_only() {
+        let full = build_structure_full_document(&sample_compiled_with_content(), "rev");
+        let sliced =
+            closure_for_node_id(&full, "ui-scope:home/home/T0/panel:left").expect("closure");
+        let ids: BTreeSet<_> = sliced.nodes.iter().map(|n| n.node_id.as_str()).collect();
+        assert!(ids.contains("ui-scope:home/home/T0/panel:left"));
+        assert!(ids.contains("ui-scope:home/home/T0/panel:left/content:metric"));
+        let by_scope = closure_for_preview_scope(&full, "home/T0/panel:left").expect("scope");
+        assert_eq!(by_scope.nodes.len(), sliced.nodes.len());
     }
 }

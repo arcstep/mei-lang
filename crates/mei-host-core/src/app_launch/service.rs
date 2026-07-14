@@ -2,12 +2,8 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use super::paths::{
-    app_launch_dir, default_launch_path, ensure_app_launch_dir, launch_config_path,
-    resolve_launch_path,
-};
+use super::paths::{ensure_app_launch_dir, launch_json_path, resolve_launch_path};
 use super::types::{AppLaunchConfig, AppLaunchDocument, AppLaunchSummary};
-use crate::config::load_app_config;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppLaunchError {
@@ -21,49 +17,30 @@ pub enum AppLaunchError {
     Invalid(String),
 }
 
+/// Phase 8.5: at most one launch document per app (`launch.json`).
 pub fn list_launch_configs(
     workspace: &Path,
     app_id: &str,
 ) -> Result<Vec<AppLaunchSummary>, AppLaunchError> {
-    let dir = app_launch_dir(workspace, app_id);
-    let default_id = load_default_launch_id(workspace, app_id);
-    let mut out = Vec::new();
-    if !dir.is_dir() {
-        return Ok(out);
+    let path = launch_json_path(workspace, app_id);
+    if !path.is_file() {
+        // One-shot migrate from legacy launch/default.json if present.
+        migrate_legacy_launch_if_needed(workspace, app_id)?;
     }
-    let entries = std::fs::read_dir(&dir).map_err(|e| AppLaunchError::Io(e.to_string()))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| AppLaunchError::Io(e.to_string()))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let id = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
-        if id.is_empty() || !valid_launch_id(&id) {
-            continue;
-        }
-        let raw = std::fs::read_to_string(&path).map_err(|e| AppLaunchError::Io(e.to_string()))?;
-        let revision = revision_hash(&raw);
-        let display_name = serde_json::from_str::<AppLaunchConfig>(&raw)
-            .ok()
-            .and_then(|c| c.display_name);
-        out.push(AppLaunchSummary {
-            id: id.clone(),
-            path: rel_display(workspace, &path),
-            revision,
-            display_name,
-            is_default: default_id.as_deref() == Some(id.as_str()),
-        });
+    if !path.is_file() {
+        return Ok(Vec::new());
     }
-    out.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(out)
+    let raw = std::fs::read_to_string(&path).map_err(|e| AppLaunchError::Io(e.to_string()))?;
+    let display_name = serde_json::from_str::<AppLaunchConfig>(&raw)
+        .ok()
+        .and_then(|c| c.display_name);
+    Ok(vec![AppLaunchSummary {
+        id: "launch".to_string(),
+        path: rel_display(workspace, &path),
+        revision: revision_hash(&raw),
+        display_name,
+        is_default: true,
+    }])
 }
 
 pub fn read_launch_config(
@@ -71,12 +48,28 @@ pub fn read_launch_config(
     app_id: &str,
     config_ref: &str,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
+    migrate_legacy_launch_if_needed(workspace, app_id)?;
     let path = resolve_launch_path(workspace, app_id, config_ref);
     if !path.is_file() {
         return Err(AppLaunchError::NotFound(format!(
             "launch config not found: {}",
             path.display()
         )));
+    }
+    // Reject attempts to start a non-canonical named config that still exists as a file.
+    let canonical = launch_json_path(workspace, app_id);
+    if path != canonical {
+        let trimmed = config_ref.trim();
+        if !trimmed.is_empty()
+            && trimmed != "default"
+            && trimmed != "launch"
+            && !trimmed.contains('/')
+            && !trimmed.ends_with(".json")
+        {
+            return Err(AppLaunchError::Invalid(format!(
+                "Phase 8.5: only apps/{{app}}/launch.json is allowed (got `{trimmed}`)"
+            )));
+        }
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| AppLaunchError::Io(e.to_string()))?;
     let mut config: AppLaunchConfig =
@@ -89,89 +82,84 @@ pub fn read_launch_config(
             config.app_id, app_id
         )));
     }
-    let id = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("default")
-        .to_string();
     Ok(AppLaunchDocument {
-        id,
+        id: "launch".to_string(),
         path: rel_display(workspace, &path),
         revision: revision_hash(&raw),
         config,
     })
 }
 
-/// Resolve the launch document used when starting without an explicit `--config`.
+/// Resolve the sole launch document (create `launch.json` if missing).
 pub fn resolve_default_launch(
     workspace: &Path,
     app_id: &str,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
-    if let Some(id) = load_default_launch_id(workspace, app_id) {
-        return read_launch_config(workspace, app_id, &id);
-    }
     ensure_default_launch_config(workspace, app_id)
 }
 
-/// Materialize `launch/default.json` if missing, then read it.
+/// Materialize `launch.json` if missing (migrating from `launch/default.json` when present).
 pub fn ensure_default_launch_config(
     workspace: &Path,
     app_id: &str,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
     ensure_app_launch_dir(workspace, app_id).map_err(|e| AppLaunchError::Io(e.to_string()))?;
-    let path = default_launch_path(workspace, app_id);
+    migrate_legacy_launch_if_needed(workspace, app_id)?;
+    let path = launch_json_path(workspace, app_id);
     if !path.is_file() {
         let cfg = AppLaunchConfig::default_for_app(app_id);
-        write_launch_config(workspace, app_id, "default", &cfg)?;
+        write_launch_config(workspace, app_id, "launch", &cfg)?;
     }
-    read_launch_config(workspace, app_id, "default")
+    read_launch_config(workspace, app_id, "launch")
 }
 
 pub fn write_launch_config(
     workspace: &Path,
     app_id: &str,
-    name: &str,
+    _name: &str,
     config: &AppLaunchConfig,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
-    if !valid_launch_id(name) {
-        return Err(AppLaunchError::Invalid(format!(
-            "invalid launch config name: {name}"
-        )));
-    }
     if config.app_id != app_id {
         return Err(AppLaunchError::Invalid(
             "launch config appId must match app directory".to_string(),
         ));
     }
     ensure_app_launch_dir(workspace, app_id).map_err(|e| AppLaunchError::Io(e.to_string()))?;
-    let path = launch_config_path(workspace, app_id, name);
+    let path = launch_json_path(workspace, app_id);
     let raw = serde_json::to_string_pretty(config)
         .map_err(|e| AppLaunchError::InvalidJson(e.to_string()))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &raw).map_err(|e| AppLaunchError::Io(e.to_string()))?;
     std::fs::rename(&tmp, &path).map_err(|e| AppLaunchError::Io(e.to_string()))?;
     Ok(AppLaunchDocument {
-        id: name.to_string(),
+        id: "launch".to_string(),
         path: rel_display(workspace, &path),
         revision: revision_hash(&raw),
         config: config.clone(),
     })
 }
 
-fn load_default_launch_id(workspace: &Path, app_id: &str) -> Option<String> {
-    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
-    let cfg = load_app_config(&app_root).ok()?;
-    cfg.default_launch
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| s.trim().to_string())
+fn migrate_legacy_launch_if_needed(
+    workspace: &Path,
+    app_id: &str,
+) -> Result<(), AppLaunchError> {
+    let canonical = launch_json_path(workspace, app_id);
+    if canonical.is_file() {
+        return Ok(());
+    }
+    let legacy_default = resolve_app_root(workspace, app_id)
+        .join("launch")
+        .join("default.json");
+    if !legacy_default.is_file() {
+        return Ok(());
+    }
+    ensure_app_launch_dir(workspace, app_id).map_err(|e| AppLaunchError::Io(e.to_string()))?;
+    std::fs::copy(&legacy_default, &canonical).map_err(|e| AppLaunchError::Io(e.to_string()))?;
+    Ok(())
 }
 
-fn valid_launch_id(id: &str) -> bool {
-    let trimmed = id.trim();
-    !trimmed.is_empty()
-        && trimmed
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+fn resolve_app_root(workspace: &Path, app_id: &str) -> std::path::PathBuf {
+    mei_lang_kernel::resolve_app_root(workspace, app_id)
 }
 
 fn revision_hash(raw: &str) -> String {
@@ -191,20 +179,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ensure_and_list_default_launch() {
+    fn ensure_and_list_single_launch_json() {
         let tmp = tempfile::tempdir().expect("tmp");
         let ws = tmp.path();
         std::fs::create_dir_all(ws.join("apps/demo")).expect("app");
         std::fs::write(
             ws.join("apps/demo/app.config.json"),
-            r#"{"schemaVersion":1,"defaultLaunch":"default"}"#,
+            r#"{"schemaVersion":1}"#,
         )
         .expect("cfg");
-        let doc = ensure_default_launch_config(ws, "demo").expect("default");
-        assert_eq!(doc.id, "default");
+        let doc = ensure_default_launch_config(ws, "demo").expect("launch");
+        assert_eq!(doc.id, "launch");
         assert_eq!(doc.config.app_id, "demo");
+        assert!(doc.path.ends_with("apps/demo/launch.json"));
         let list = list_launch_configs(ws, "demo").expect("list");
         assert_eq!(list.len(), 1);
         assert!(list[0].is_default);
+    }
+
+    #[test]
+    fn migrates_legacy_launch_default_json() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let ws = tmp.path();
+        let app = ws.join("apps/demo");
+        std::fs::create_dir_all(app.join("launch")).expect("dir");
+        let cfg = AppLaunchConfig::default_for_app("demo");
+        std::fs::write(
+            app.join("launch/default.json"),
+            serde_json::to_string_pretty(&cfg).unwrap(),
+        )
+        .expect("legacy");
+        let doc = ensure_default_launch_config(ws, "demo").expect("migrate");
+        assert!(app.join("launch.json").is_file());
+        assert_eq!(doc.config.app_id, "demo");
     }
 }

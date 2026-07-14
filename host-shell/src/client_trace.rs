@@ -373,14 +373,19 @@ fn log_client_error(ctx: &ClientCommandContext, detail: Option<&serde_json::Valu
         && status.parse::<u16>().unwrap_or(0) == 0
         && message.to_ascii_lowercase().contains("failed to fetch")
         && page_url.contains("/runtime");
-    if benign_runtime_restart_fetch {
-        tracing::debug!(
+    let benign_access_app_not_running = error_kind == "unhandled_rejection"
+        && status.parse::<u16>().unwrap_or(0) == 0
+        && message.to_ascii_lowercase().contains("failed to fetch")
+        && page_url.contains("/apps/");
+    if benign_runtime_restart_fetch || benign_access_app_not_running {
+        tracing::info!(
             target: "mei_client_error",
             client_error_id = %ctx.id,
             client_error_kind = %error_kind,
+            app_id = %app_id,
             page_url = %page_url,
             occurrence_count = %occurrence_count,
-            "suppressed runtime-console fetch failure during Host restart"
+            "access/runtime fetch failed while app may not be running — recorded without ERROR"
         );
         return;
     }

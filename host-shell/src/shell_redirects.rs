@@ -1,12 +1,14 @@
-//! Permanent redirects from legacy host-shell routes to Access stage paths.
+//! Permanent redirects for Host chrome paths; legacy Scene-as-route surfaces return 410.
 //!
-//! Canonical Access URL: `/apps/{app_id}/{stage_id}` (default stage `home`).
+//! Canonical Access URL: `/apps/{app_id}/{stage_id}` (default stage from app.mei `default_stage`).
 
 use axum::{
     extract::{OriginalUri, Path},
-    http::Uri,
+    http::{StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
+    Json,
 };
+use serde_json::json;
 
 fn encode_query_component(value: &str) -> String {
     value
@@ -135,99 +137,76 @@ fn from_hex(b: u8) -> Option<u8> {
     }
 }
 
-fn append_chrome_query(target: &mut String, uri: &Uri) {
-    if let Some(chrome) = query_param(uri, "chrome") {
-        if chrome != "full" {
-            if target.contains('?') {
-                target.push('&');
-            } else {
-                target.push('?');
-            }
-            target.push_str("chrome=");
-            target.push_str(&encode_query_component(&chrome));
-        }
-    }
-}
-
-fn redirect_to_stage(app_id: &str, stage: &str, uri: &Uri) -> Response {
-    let mut target = access_stage_path(app_id, stage);
-    append_chrome_query(&mut target, uri);
-    Redirect::permanent(target.as_str()).into_response()
+fn gone_legacy_surface(app_id: &str, surface: &str, hinted_stage: &str) -> Response {
+    let canonical = access_stage_path(app_id, hinted_stage);
+    (
+        StatusCode::GONE,
+        Json(json!({
+            "error": "legacy app surface removed",
+            "code": "legacy_surface_gone",
+            "appId": app_id,
+            "surface": surface,
+            "hint": format!(
+                "Use canonical Access Stage URL `{canonical}` (Phase 9 removed /apps/{{app}}/{surface} redirects)"
+            ),
+            "canonical": canonical,
+        })),
+    )
+        .into_response()
 }
 
 pub async fn redirect_apps_access(Path(app_id): Path<String>) -> Response {
-    Redirect::permanent(access_stage_path(app_id.trim(), "home").as_str()).into_response()
+    gone_legacy_surface(app_id.trim(), "access", "home")
 }
 
-/// `/apps/{id}/view?surface=*&scene=*` → `/apps/{id}/{stage}`
-/// layout/prototype surfaces seal to Access default stage.
+/// `/apps/{id}/view?...` — Phase 9: 410 Gone (no silent Stage rewrite).
 pub async fn redirect_apps_view_to_stage(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
-    let surface = query_param(&uri.0, "surface")
-        .unwrap_or_else(|| "app".to_string())
-        .to_ascii_lowercase();
     let scene = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
-    // 布局/原型产品面已封口：一律落到 Access 舞台
-    let stage = if matches!(
-        surface.as_str(),
-        "layout" | "prototype" | "build" | "manage"
-    ) {
-        "home"
-    } else {
-        scene.as_str()
-    };
-    // view/scene/{id} path tail
-    let path = uri.0.path();
-    let stage = path
-        .strip_prefix(&format!("/apps/{}/view/scene/", app_id.trim()))
-        .map(|rest| rest.split('/').next().unwrap_or(stage))
-        .unwrap_or(stage);
-    redirect_to_stage(app_id.trim(), stage, &uri.0)
+    gone_legacy_surface(app_id.trim(), "view", scene.as_str())
 }
 
 pub async fn redirect_apps_app_to_stage(Path(app_id): Path<String>, uri: OriginalUri) -> Response {
     let stage = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
-    redirect_to_stage(app_id.trim(), &stage, &uri.0)
+    gone_legacy_surface(app_id.trim(), "app", stage.as_str())
 }
 
 pub async fn redirect_apps_app_scene(
     Path((app_id, scene)): Path<(String, String)>,
-    uri: OriginalUri,
+    _uri: OriginalUri,
 ) -> Response {
-    // `/apps/{id}/app/scene/{scene}` or catch-all tail — Path may be (app, rest)
     let stage = if scene == "scene" {
-        // unlikely; handled by *tail route
-        query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string())
+        "home".to_string()
     } else if let Some(rest) = scene.strip_prefix("scene/") {
         rest.split('/').next().unwrap_or("home").to_string()
     } else {
         scene
     };
-    redirect_to_stage(app_id.trim(), stage.trim(), &uri.0)
+    gone_legacy_surface(app_id.trim(), "app/scene", stage.trim())
 }
 
 /// Dedicated handler for `/apps/:app_id/app/scene/:scene`.
 pub async fn redirect_apps_app_scene_id(
     Path((app_id, scene)): Path<(String, String)>,
-    uri: OriginalUri,
+    _uri: OriginalUri,
 ) -> Response {
-    redirect_to_stage(app_id.trim(), scene.trim(), &uri.0)
+    gone_legacy_surface(app_id.trim(), "app/scene", scene.trim())
 }
 
-/// Mode-first legacy: `/apps/app/{app_id}` → `/apps/{app_id}/{stage}`
+/// Mode-first legacy: `/apps/app/{app_id}`
 pub async fn redirect_mode_first_app_root(
     Path(app_id): Path<String>,
     uri: OriginalUri,
 ) -> Response {
     let stage = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
-    redirect_to_stage(app_id.trim(), &stage, &uri.0)
+    gone_legacy_surface(app_id.trim(), "apps/app", stage.as_str())
 }
 
 /// Mode-first legacy: `/apps/app/{app_id}/scene/{scene}`
 pub async fn redirect_mode_first_app_scene(
     Path((app_id, scene)): Path<(String, String)>,
-    uri: OriginalUri,
+    _uri: OriginalUri,
 ) -> Response {
-    redirect_to_stage(app_id.trim(), scene.trim(), &uri.0)
+    gone_legacy_surface(app_id.trim(), "apps/app/scene", scene.trim())
 }
 
 /// Mode-first legacy: `/apps/app/{app_id}/*tail`
@@ -240,7 +219,7 @@ pub async fn redirect_mode_first_app_tail(
     } else {
         query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string())
     };
-    redirect_to_stage(app_id.trim(), stage.trim(), &uri.0)
+    gone_legacy_surface(app_id.trim(), "apps/app/*", stage.trim())
 }
 
 pub async fn redirect_apps_layout_to_stage(
@@ -248,7 +227,7 @@ pub async fn redirect_apps_layout_to_stage(
     uri: OriginalUri,
 ) -> Response {
     let stage = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
-    redirect_to_stage(app_id.trim(), &stage, &uri.0)
+    gone_legacy_surface(app_id.trim(), "layout", stage.as_str())
 }
 
 pub async fn redirect_apps_prototype_to_stage(
@@ -256,7 +235,7 @@ pub async fn redirect_apps_prototype_to_stage(
     uri: OriginalUri,
 ) -> Response {
     let stage = query_param(&uri.0, "scene").unwrap_or_else(|| "home".to_string());
-    redirect_to_stage(app_id.trim(), &stage, &uri.0)
+    gone_legacy_surface(app_id.trim(), "prototype", stage.as_str())
 }
 
 /// Reserved second-path segments that are not Access stages.
@@ -280,5 +259,6 @@ pub fn is_reserved_stage_segment(segment: &str) -> bool {
             | "upload"
             | "config"
             | "runtime"
+            | "~"
     )
 }

@@ -3,7 +3,7 @@
 app(
     id = "author-example-sim",
     title = "Author Example Sim",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

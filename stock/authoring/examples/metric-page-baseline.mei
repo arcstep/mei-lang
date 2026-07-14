@@ -3,7 +3,7 @@
 app(
     id = "author-example-metric-page",
     title = "Author Example Metric Page",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

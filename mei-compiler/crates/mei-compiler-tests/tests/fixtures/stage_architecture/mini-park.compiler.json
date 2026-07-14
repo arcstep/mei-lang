@@ -25,7 +25,7 @@
   "app_id": "mini-park",
   "app_skeleton": {
     "block_id": "app_skeleton:mini-park",
-    "default_scene": "home",
+    "default_stage": "home",
     "id": "mini-park",
     "title": "迷你公园 · Mini Park"
   },
@@ -305,7 +305,7 @@
       "url": "/apps/copilot/mini-park/presentation/intro"
     }
   ],
-  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
     "app.mei",
     "data/metrics/park-map.bundle.mei",
@@ -402,5 +402,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.7"
+  "syntax_version": "2.5.8"
 }

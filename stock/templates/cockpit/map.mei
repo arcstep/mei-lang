@@ -3,7 +3,7 @@
 app(
     id = "cockpit-templates",
     title = "Cockpit 模板预览",
-    default_scene = "map",
+    default_stage = "map",
 )
 
 scene(

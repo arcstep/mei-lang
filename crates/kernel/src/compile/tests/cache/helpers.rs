@@ -29,7 +29,7 @@ pub(super) fn write_spbjw_like_app(root: &Path) {
     fs::create_dir_all(root.join("data")).unwrap();
     fs::write(
         root.join("src/main.mei"),
-        r#"app(id = "cache-test", default_scene = "left", scene = scene_ref(scene_file = "scenes/layouts/left.mei"))"#,
+        r#"app(id = "cache-test", default_stage = "left", scene = scene_ref(scene_file = "scenes/layouts/left.mei"))"#,
     )
     .unwrap();
     fs::write(
@@ -70,7 +70,7 @@ pub(super) fn write_multi_route_app(root: &Path) {
         r#"
 app(
     id = "revision-test",
-    default_scene = "left",
+    default_stage = "left",
     scene = scene_ref(scene_file = "scenes/left.mei")
 )
 app.add_scene(scene_ref(id = "right", scene_file = "scenes/right.mei"))

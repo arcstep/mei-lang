@@ -25,7 +25,7 @@ fn deprecated_app_scene_string_diagnostic(source_path: Option<String>) -> Diagno
     Diagnostic {
         severity: Severity::Warning,
         code: "deprecated_app_scene_string".to_string(),
-        message: "app.scene = \"...\" is deprecated; migrate to default_scene + scene(...) or app_add_scene(scene = scene_ref(...))".to_string(),
+        message: "app.scene = \"...\" is deprecated; migrate to default_stage + scene(...) or app_add_scene(scene = scene_ref(...))".to_string(),
         source_path,
     }
 }
@@ -41,9 +41,9 @@ fn implicit_default_scene_diagnostic(
         .join(", ");
     Diagnostic {
         severity: Severity::Warning,
-        code: "implicit_default_scene".to_string(),
+        code: "implicit_default_stage".to_string(),
         message: format!(
-            "app(...) binds multiple scenes [{scene_ids}] without default_scene; migrate to an explicit default_scene"
+            "app(...) binds multiple scenes [{scene_ids}] without default_stage; migrate to an explicit default_stage"
         ),
         source_path,
     }
@@ -89,13 +89,13 @@ pub(super) fn resolve_scene_routes(
         });
     }
 
-    if let Some(default_scene) = app_decl.default_scene.as_deref() {
+    if let Some(default_scene) = app_decl.default_stage.as_deref() {
         if !routes.is_empty() && !routes.iter().any(|r| r.scene_id == default_scene) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "missing_default_scene".to_string(),
+                code: "missing_default_stage".to_string(),
                 message: format!(
-                    "default_scene `{default_scene}` did not match an inline scene or scene_ref route"
+                    "default_stage `{default_scene}` did not match an inline scene or scene_ref route"
                 ),
                 source_path: Some(app_main.to_string_lossy().to_string()),
             });
@@ -392,7 +392,7 @@ fn upsert_route(
 }
 
 fn resolve_default_scene_id(app_decl: &AppDecl, routes: &[CompiledSceneRoute]) -> Option<String> {
-    if let Some(default_scene) = app_decl.default_scene.as_deref() {
+    if let Some(default_scene) = app_decl.default_stage.as_deref() {
         if let Some(route) = routes.iter().find(|route| route.scene_id == default_scene) {
             return Some(route.scene_id.clone());
         }

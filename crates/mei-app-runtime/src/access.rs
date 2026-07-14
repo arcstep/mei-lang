@@ -6,7 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Response},
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::resolve_default_scene_from_root;
@@ -185,6 +185,14 @@ pub struct AccessQuery {
     /// Reserved for host chrome injection (`none` | `full`); Access thin shell ignores for now.
     #[serde(default)]
     pub chrome: Option<String>,
+    #[serde(default)]
+    pub scene: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub focus: Option<String>,
+    #[serde(default)]
+    pub node: Option<String>,
 }
 
 pub fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
@@ -270,21 +278,15 @@ pub async fn access_app_stage(
             .ok()
             .unwrap_or_default();
         if !declared.is_empty() && !declared.iter().any(|scene| scene == scene_id.as_str()) {
-            let default_scene = resolve_default_scene(&state);
-            if default_scene != scene_id {
-                let mut location = format!("/apps/{}/{default_scene}", app_id);
-                if let Some(chrome) = query
-                    .chrome
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .filter(|value| *value != "full")
-                {
-                    location.push_str(&format!("?chrome={chrome}"));
-                }
-                return Redirect::temporary(location.as_str()).into_response();
-            }
-            return (StatusCode::NOT_FOUND, "scene not found").into_response();
+            // Phase 9: no silent redirect to default_stage.
+            return (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "stage `{scene_id}` not found; use a declared stage (default: {})",
+                    resolve_default_scene(&state)
+                ),
+            )
+                .into_response();
         }
     }
     let surface = if is_surface_slug {
@@ -292,8 +294,86 @@ pub async fn access_app_stage(
     } else {
         "app"
     };
-    let html = finalize_access_html(&state, app_id.as_str(), scene_id.as_str(), surface);
+    let mut html = finalize_access_html(&state, app_id.as_str(), scene_id.as_str(), surface);
+    html = stamp_temp_stage_axes(html, &query);
     html_response(html)
+}
+
+fn stamp_temp_stage_axes(html: String, query: &AccessQuery) -> String {
+    let mut attrs = String::new();
+    if let Some(scope) = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        attrs.push_str(&format!(
+            " data-mei-scope=\"{}\"",
+            html_escape_attr(scope)
+        ));
+    }
+    if let Some(focus) = query
+        .focus
+        .as_deref()
+        .or(query.node.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        attrs.push_str(&format!(
+            " data-mei-focus=\"{}\"",
+            html_escape_attr(focus)
+        ));
+    }
+    if attrs.is_empty() {
+        return html;
+    }
+    if let Some(idx) = html.find("<body ") {
+        let mut out = String::with_capacity(html.len() + attrs.len());
+        out.push_str(&html[..idx + 6]);
+        out.push_str(attrs.trim_start());
+        out.push(' ');
+        out.push_str(&html[idx + 6..]);
+        return out;
+    }
+    html
+}
+
+/// Phase 8.5: `/apps/{app}/~/{scope_or_node}` temporary Stage thin shell.
+/// Host resolves ScopeTarget and forwards `?scene=&scope=&focus=`; closure applies
+/// via view-revision compose axes (same pipeline as full stage).
+pub async fn access_app_temp_stage(
+    State(state): State<SharedRuntimeState>,
+    Path((app_id, target_tail)): Path<(String, String)>,
+    Query(query): Query<AccessQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let stage = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| mei_host_graph::infer_stage_from_temp_target(target_tail.as_str()));
+    access_app_stage(State(state), Path((app_id, stage)), Query(query), headers).await
+}
+
+/// Legacy `/apps/{app}/{stage}/{tier…}` — serve stage shell (Host redirects to `~/`).
+pub async fn access_app_scoped_stage(
+    State(state): State<SharedRuntimeState>,
+    Path((app_id, stage, _scoped_tail)): Path<(String, String, String)>,
+    Query(query): Query<AccessQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if stage.trim() == "~" {
+        return access_app_temp_stage(
+            State(state),
+            Path((app_id, _scoped_tail)),
+            Query(query),
+            headers,
+        )
+        .await;
+    }
+    access_app_stage(State(state), Path((app_id, stage)), Query(query), headers).await
 }
 
 #[cfg(test)]

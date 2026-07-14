@@ -75,6 +75,25 @@
       const chrome = String(url.searchParams.get("chrome") || "").trim().toLowerCase();
       const tab = String(url.searchParams.get("tab") || "").trim().toLowerCase();
       const node = resolveBuildNodeFromUrl(url);
+      const tempStage =
+        typeof isTempStageRoute === "function" ? isTempStageRoute(pathname) : false;
+      const tempTarget =
+        tempStage && typeof tempStageTargetFromPathname === "function"
+          ? tempStageTargetFromPathname(pathname)
+          : "";
+      const scopeFromPath =
+        tempTarget && !/^node\//i.test(tempTarget)
+          ? tempTarget
+          : tempTarget.replace(/^node\//i, "");
+      const scope =
+        String(url.searchParams.get("scope") || "").trim() ||
+        (tempStage ? scopeFromPath : "");
+      const focus =
+        String(url.searchParams.get("focus") || "").trim() ||
+        (tempStage && /^node\//i.test(tempTarget)
+          ? tempTarget.replace(/^node\//i, "")
+          : "") ||
+        node;
       return {
         app_id: appId,
         appId,
@@ -82,15 +101,21 @@
         sceneId,
         surface,
         mode: surface,
-        node,
+        node: node || focus,
         data_mode: dataMode,
         dataMode,
         review_projection: reviewProjection,
         reviewProjection,
-        chrome,
+        chrome: chrome || (tempStage ? "none" : ""),
         tab,
-        focus: String(url.searchParams.get("focus") || "").trim(),
-        scope: String(url.searchParams.get("scope") || "").trim(),
+        focus,
+        scope,
+        temp_stage: tempStage,
+        tempStage,
+        temp_stage_path:
+          tempStage && typeof canonicalTempStagePath === "function"
+            ? canonicalTempStagePath(appId, tempTarget || scope || focus)
+            : "",
         url: url.href,
       };
     } catch (_) {

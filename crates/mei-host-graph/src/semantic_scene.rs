@@ -85,7 +85,11 @@ pub fn assemble_semantic_scene(
                 .and_then(|key| key.split('@').next())
                 .map(str::to_string)
         })
-        .unwrap_or_else(|| "home".to_string());
+        .filter(|id| !id.trim().is_empty())
+        .with_context(|| {
+            "semantic scene payload missing id/key; Phase 9 forbids implicit default stage `home`"
+                .to_string()
+        })?;
     let mut panel_payloads = BTreeMap::new();
     let mut panels = Vec::new();
     let mut tier_counters = BTreeMap::<String, u8>::new();

@@ -483,7 +483,7 @@ metric_card(id = "demo", surface = "solid", source = {"label": "A", "value": "1"
 app_skeleton(
     id = "data-demo",
     title = "Data Demo",
-    default_scene = "home",
+    default_stage = "home",
 )
 "#;
         let file = parse_v2_source(source).expect("parse");

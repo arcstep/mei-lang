@@ -57,9 +57,40 @@
     "upload",
     "config",
     "runtime",
+    "~",
   ]);
 
+  function isTempStageRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return segments[0] === "apps" && segments.length >= 4 && segments[2] === "~";
+  }
+
+  function tempStageTargetFromPathname(pathname = global.location?.pathname) {
+    if (!isTempStageRoute(pathname)) return "";
+    const segments = pathSegments(pathname);
+    return segments
+      .slice(3)
+      .map((part) => {
+        try {
+          return decodeURIComponent(part);
+        } catch (_) {
+          return part;
+        }
+      })
+      .join("/");
+  }
+
+  function canonicalTempStagePath(appId, scopeOrNode) {
+    const app = String(appId || "").trim();
+    const target = String(scopeOrNode || "")
+      .trim()
+      .replace(/^\/+|\/+$/g, "");
+    if (!app || !target) return "";
+    return `/apps/${app}/~/${target}`;
+  }
+
   function isAccessStageRoute(pathname = global.location?.pathname) {
+    if (isTempStageRoute(pathname)) return true;
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 2) return false;
     if (segments.length === 2) return !RESERVED_STAGE_SEGMENTS.has(String(segments[1] || "").toLowerCase());
@@ -307,6 +338,21 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isTempStageRoute(pathname)) {
+      const target = tempStageTargetFromPathname(pathname);
+      if (target && !/^node\//i.test(target)) {
+        const head = String(target.split("/")[0] || "").trim();
+        if (head && !/^t[012]$/i.test(head) && head.toLowerCase() !== "p") {
+          return head;
+        }
+      }
+      try {
+        const params = new URLSearchParams(search || "");
+        const fromQuery = String(params.get("scene") || "").trim();
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+      return "home";
+    }
     if (isAccessStageRoute(pathname)) {
       const segments = pathSegments(pathname);
       if (segments.length >= 3) {
@@ -405,6 +451,9 @@
     LEGACY_REMOVED_ROUTE_SLUGS,
     RESERVED_STAGE_SEGMENTS,
     pathSegments,
+    isTempStageRoute,
+    tempStageTargetFromPathname,
+    canonicalTempStagePath,
     isAccessStageRoute,
     isUnifiedViewRoute,
     surfaceSlugFromViewUrl,
@@ -454,6 +503,10 @@
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
   global.isAccessStageRoute = isAccessStageRoute;
+  global.isTempStageRoute = isTempStageRoute;
+  global.tempStageTargetFromPathname = tempStageTargetFromPathname;
+  global.canonicalTempStagePath = canonicalTempStagePath;
+  global.sceneIdFromPathname = sceneIdFromPathname;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
@@ -2943,9 +2996,31 @@
     return value === "*" || /^[A-Za-z0-9_.-]+$/.test(value);
   }
 
-  function selectedLaunch(appId) {
-    const select = root.querySelector(`[data-runtime-launch-select][data-app="${appId}"]`);
-    return select?.value || "";
+  function selectedLaunch(_appId) {
+    return "launch";
+  }
+
+  function modeLabel(mode) {
+    const value = String(mode || "").trim().toLowerCase();
+    if (value === "hot") return "hot · 热加载";
+    if (value === "lazy") return "lazy · 按需";
+    if (value === "frozen") return "frozen · 冻结";
+    return value || "—";
+  }
+
+  function modeOptionsHtml(selected, gitDefault) {
+    const current = String(selected || "").trim().toLowerCase();
+    const git = String(gitDefault || "").trim().toLowerCase();
+    const modes = ["hot", "lazy", "frozen"];
+    const followSelected = !current || current === git;
+    const follow = `<option value=""${followSelected ? " selected" : ""}>跟随 launch.json（${escapeHtml(git || "lazy")}）</option>`;
+    const rest = modes
+      .map((mode) => {
+        const selectedAttr = current === mode && !followSelected ? " selected" : "";
+        return `<option value="${mode}"${selectedAttr}>${escapeHtml(modeLabel(mode))}</option>`;
+      })
+      .join("");
+    return follow + rest;
   }
 
   function setAppPending(appId, kind, label) {
@@ -3015,9 +3090,9 @@
         (node) => node.closest("[data-app-card]")?.getAttribute("data-app-card"),
       ).filter(Boolean),
     );
-    const launchSelections = {};
-    mount.querySelectorAll("[data-runtime-launch-select]").forEach((select) => {
-      launchSelections[select.getAttribute("data-app")] = select.value;
+    const modeSelections = {};
+    mount.querySelectorAll("[data-runtime-mode-select]").forEach((select) => {
+      modeSelections[select.getAttribute("data-app")] = select.value;
     });
     const apps = Array.isArray(state.appsOverview?.apps) ? state.appsOverview.apps : [];
     const running = Array.isArray(state.appsOverview?.running) ? state.appsOverview.running : [];
@@ -3032,37 +3107,21 @@
         const appId = app.appId || "—";
         const run = runningByApp[appId];
         const isRunning = Boolean(run);
-        const launches = Array.isArray(app.launches) ? app.launches : [];
-        const hasLaunches = launches.length > 0;
-        const preferred =
-          launchSelections[appId] ||
-          (isRunning && run.launchId) ||
-          app.defaultLaunch ||
-          launches.find((item) => item.isDefault)?.id ||
-          launches[0]?.id ||
-          "default";
-        const selected = hasLaunches
-          ? launches.some((item) => (item.id || "") === preferred)
-            ? preferred
-            : launches[0]?.id || "default"
-          : "default";
-        const options = hasLaunches
-          ? launches
-              .map((launch) => {
-                const id = launch.id || "";
-                const label = launch.displayName || id;
-                const mark = launch.isDefault ? " · default" : "";
-                return `<option value="${escapeHtml(id)}"${id === selected ? " selected" : ""}>${escapeHtml(label)}${mark}</option>`;
-              })
-              .join("")
-          : `<option value="default" selected>default（启动时自动创建）</option>`;
+        const hasLaunch = Boolean(app.hasLaunch);
+        const launchPath = app.launchPath || `apps/${appId}/launch.json`;
+        const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
+        const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
+        const effectiveMode = String(
+          app.effectiveDefaultMode || overlayMode || gitMode || "lazy",
+        )
+          .trim()
+          .toLowerCase();
+        const selectedMode =
+          modeSelections[appId] != null ? modeSelections[appId] : overlayMode;
         const generations = Array.isArray(app.generations) ? app.generations : [];
         const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
         const hasAnyBundle = generations.length > 0;
-        const canUseLaunch = Boolean(selected);
-        const canStartExisting = canUseLaunch && hasCurrentBundle;
-        const currentLaunchId = run?.launchId || "";
-        const launchChanged = isRunning && canUseLaunch && currentLaunchId && selected !== currentLaunchId;
+        const canStartExisting = hasLaunch && hasCurrentBundle;
         const pending = state.pendingByApp[appId] || null;
         const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
         const duration =
@@ -3071,8 +3130,11 @@
           ? pending.kind
           : run?.phase || (isRunning ? "ready" : "stopped");
         let stoppedDetail = "未载入";
-        if (!hasLaunches) stoppedDetail = "无 launch · 启动将创建 default";
+        if (!hasLaunch) stoppedDetail = "无 launch.json · 启动将自动创建";
         else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
+        const overlayHint = overlayMode
+          ? `临时 ${modeLabel(overlayMode)}`
+          : `Git ${modeLabel(gitMode)}`;
         const statusBlock = pending
           ? `<div class="mei-runtime-control__status-chip is-pending">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -3088,7 +3150,7 @@
              </div>
              <dl class="mei-runtime-control__status-meta">
                <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
-               <div><dt>Launch</dt><dd><code>${escapeHtml(run.launchId || selected || "—")}</code></dd></div>
+               <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
              </dl>`
           : `<div class="mei-runtime-control__status-chip">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -3102,7 +3164,7 @@
                   ? gen.protectedReasons
                   : [];
                 const isProtected = gen.isCurrent || protectedReasons.length > 0;
-                const loadLocked = isRunning || !canUseLaunch;
+                const loadLocked = isRunning;
                 return `<li class="mei-runtime-control__bundle-row${gen.isCurrent ? " is-current" : ""}">
                   <div class="mei-runtime-control__bundle-main">
                     <code>${escapeHtml(gen.id)}</code>
@@ -3112,7 +3174,7 @@
                   <div class="mei-runtime-control__bundle-meta">
                     <span>${escapeHtml(gen.createdAt || "—")}</span>
                     <span>${formatBytes(gen.bytes)}</span>
-                    <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? (isRunning ? "请先停止应用" : "需要可用的 launch 配置") : "切换到该 Bundle 并用所选 launch 启动"}">载入并启动</button>
+                    <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停止应用" : "切换到该 Bundle 并用 launch.json 启动"}">载入并启动</button>
                   </div>
                 </li>`;
               })
@@ -3123,11 +3185,10 @@
           ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" disabled data-runtime-locked>处理中…</button>`
           : isRunning
           ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停止</button>
-             <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch || launchChanged)} title="${launchChanged ? "当前所选与运行中 launch 不同，请用「按所选配置重启」" : "按所选 launch 停止后立刻再启动"}">重载</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch || !launchChanged)} title="${!launchChanged ? "所选 launch 与当前相同" : "停止后按所选 launch 重启"}">按所选配置重启</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}"${lockedAttr(!canUseLaunch)} title="prebuild 后按所选 launch 重启">编译并重启</button>`
-          : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + 所选 launch 启动"}">启动</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch 将自动创建 default），再启动">编译并启动</button>`;
+             <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="按 launch.json 停止后立刻再启动">重载</button>
+             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后按 launch.json 重启">编译并重启</button>`
+          : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + launch.json 启动"}">启动</button>
+             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch.json 将自动创建），再启动">编译并启动</button>`;
         return `<article class="mei-runtime-control__app-card${isRunning ? " is-running" : ""}${pending ? " is-pending" : ""}" data-app-card="${escapeHtml(appId)}" role="listitem">
           <header class="mei-runtime-control__app-card-head">
             <div class="mei-runtime-control__app-card-identity">
@@ -3141,10 +3202,20 @@
             }
           </header>
           <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
-          <label class="mei-runtime-control__app-card-launch">
-            <span>启动配置</span>
-            <select data-runtime-launch-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} launch"${lockedAttr(Boolean(pending))}>${options}</select>
-          </label>
+          <div class="mei-runtime-control__app-card-launch">
+            <div class="mei-runtime-control__launch-meta">
+              <span>运行策略</span>
+              <code title="${escapeHtml(launchPath)}">${escapeHtml(launchPath)}</code>
+            </div>
+            <label class="mei-runtime-control__mode-field">
+              <span>整 app 统一模式（启动 / 重载 / 应用模式均读此处；默认「跟随」= launch.json 的 frozen）</span>
+              <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} runtime mode"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
+            </label>
+            <div class="mei-runtime-control__mode-actions">
+              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-apply data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending))} title="写入 overlay；若已在运行则立刻按该模式重启">应用模式</button>
+              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-reset data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending) || !overlayMode)} title="清除临时 overlay，恢复 launch.json 的 defaultMode">恢复 Git</button>
+            </div>
+          </div>
           <div class="mei-runtime-control__app-card-actions">${actions}</div>
           <details class="mei-runtime-control__bundles"${bundlesOpen}>
             <summary>
@@ -3298,18 +3369,41 @@
     throw new Error("等待编译超时");
   }
 
-  async function startAppWithLaunch(appId, configOverride) {
+  function selectedModeForApp(appId) {
+    const select = root.querySelector(`[data-runtime-mode-select][data-app="${appId}"]`);
+    return String(select?.value || "").trim().toLowerCase();
+  }
+
+  function startBodyForApp(appId) {
+    const mode = selectedModeForApp(appId);
+    if (mode === "hot" || mode === "lazy" || mode === "frozen") {
+      return { mode };
+    }
+    return { followGit: true };
+  }
+
+  function modeAnnounceLabel(body) {
+    if (body?.mode) return body.mode;
+    return "launch.json";
+  }
+
+  async function startAppWithLaunch(appId, _configOverride) {
     if (!appId) return;
-    const config = configOverride || selectedLaunch(appId) || "default";
-    setAppPending(appId, "starting", `正在启动（${config}）…`);
+    // Capture mode before pending re-render rebuilds the select.
+    const startBody = startBodyForApp(appId);
+    setAppPending(
+      appId,
+      "starting",
+      `正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+    );
     setBusy(true);
     try {
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已启动 ${appId}（${config}）`, "success");
+      announce(`已启动 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
       announce(`启动失败：${error.message}`, "error");
@@ -3340,9 +3434,15 @@
 
   async function reloadApp(appId) {
     if (!appId) return;
-    const config = selectedLaunch(appId) || "default";
-    if (!global.confirm(`确认重载 ${appId}（${config}）？`)) return;
-    setAppPending(appId, "reloading", `正在重载（${config}）…`);
+    const startBody = startBodyForApp(appId);
+    if (
+      !global.confirm(
+        `确认重载 ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
+      )
+    ) {
+      return;
+    }
+    setAppPending(appId, "reloading", `正在重载（mode=${modeAnnounceLabel(startBody)}）…`);
     setBusy(true);
     try {
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/stop`, {
@@ -3353,9 +3453,9 @@
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已重载 ${appId}`, "success");
+      announce(`已重载 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
       announce(`重载失败：${error.message}`, "error");
@@ -3365,12 +3465,97 @@
     }
   }
 
+  async function applyRuntimeMode(appId) {
+    if (!appId) return;
+    const mode = selectedModeForApp(appId);
+    const app = (state.appsOverview?.apps || []).find((row) => row.appId === appId);
+    const expectedRevision = app?.overlayRevision || undefined;
+    const running = Array.isArray(state.appsOverview?.running)
+      ? state.appsOverview.running.some((row) => row.appId === appId)
+      : false;
+    setBusy(true);
+    try {
+      if (!mode) {
+        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (running) {
+          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ followGit: true }),
+          });
+          announce(`${appId} 已恢复 launch.json 并重启`, "success");
+        } else {
+          announce(`${appId} 已恢复 launch.json 模式（下次启动生效）`, "success");
+        }
+      } else {
+        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            overlay: {
+              schemaVersion: "mei-runtime-overlay-v1",
+              appId,
+              defaultMode: mode,
+              targets: [],
+              metricOverrides: {},
+            },
+            expectedRevision,
+          }),
+        });
+        if (running) {
+          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          });
+          announce(`${appId} 已统一为 ${mode} 并重启`, "success");
+        } else {
+          announce(`${appId} 已统一为 ${mode}（下次启动生效）`, "success");
+        }
+      }
+      await loadApps();
+    } catch (error) {
+      announce(`应用模式失败：${error.message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetRuntimeMode(appId) {
+    if (!appId) return;
+    setBusy(true);
+    try {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      announce(`${appId} 已恢复 launch.json 模式`, "success");
+      await loadApps();
+    } catch (error) {
+      announce(`恢复失败：${error.message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function compileAndLoad(appId) {
     if (!appId) return;
-    const config = selectedLaunch(appId) || "default";
+    const config = "launch";
+    const startBody = startBodyForApp(appId);
     const running = (state.appsOverview?.running || []).some((row) => row.appId === appId);
     const actionLabel = running ? "编译并重启" : "编译并启动";
-    if (!global.confirm(`${actionLabel} ${appId}（launch=${config}）？`)) return;
+    if (
+      !global.confirm(
+        `${actionLabel} ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
+      )
+    ) {
+      return;
+    }
     setAppPending(appId, "compiling", `正在编译 ${appId}…`);
     setBusy(true);
     try {
@@ -3388,13 +3573,20 @@
       });
       announce(`正在编译 ${appId}…`, "neutral");
       await waitForOpsIdle();
-      setAppPending(appId, "starting", `编译完成，正在启动（${config}）…`);
+      setAppPending(
+        appId,
+        "starting",
+        `编译完成，正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+      );
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已${actionLabel} ${appId}`, "success");
+      announce(
+        `已${actionLabel} ${appId} · ${modeAnnounceLabel(startBody)}`,
+        "success",
+      );
       await loadApps();
     } catch (error) {
       announce(`${actionLabel}失败：${error.message}`, "error");
@@ -3406,8 +3598,14 @@
 
   async function loadGenerationAndStart(appId, generation) {
     if (!appId || !generation) return;
-    const config = selectedLaunch(appId) || "default";
-    if (!global.confirm(`将 ${appId} 切换到 ${generation} 并用 ${config} 启动？`)) return;
+    const startBody = startBodyForApp(appId);
+    if (
+      !global.confirm(
+        `将 ${appId} 切换到 ${generation} 并以模式 ${modeAnnounceLabel(startBody)} 启动？`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const url = `${ACTIVATE_ENV_API}?appId=${encodeURIComponent(appId)}&envVersion=${encodeURIComponent(generation)}`;
@@ -3415,9 +3613,12 @@
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(startBody),
       });
-      announce(`已载入 ${generation} 并启动 ${appId}`, "success");
+      announce(
+        `已载入 ${generation} 并启动 ${appId} · ${modeAnnounceLabel(startBody)}`,
+        "success",
+      );
       await loadApps();
     } catch (error) {
       announce(`载入失败：${error.message}`, "error");
@@ -3546,13 +3747,16 @@
         void executeCleanup(appId);
       } else if (target.matches("[data-runtime-load-generation]")) {
         void loadGenerationAndStart(appId, target.getAttribute("data-generation"));
+      } else if (target.matches("[data-runtime-mode-apply]")) {
+        void applyRuntimeMode(appId);
+      } else if (target.matches("[data-runtime-mode-reset]")) {
+        void resetRuntimeMode(appId);
       }
     });
 
     root.addEventListener("change", (event) => {
       const target = event.target;
-      if (target.matches("[data-runtime-launch-select]")) {
-        renderAppCards();
+      if (target.matches("[data-runtime-mode-select]")) {
         return;
       }
       if (target.matches("[data-runtime-cleanup-confirm]")) {
@@ -22998,6 +23202,55 @@
     return true;
   }
 
+  function focusStructure(target) {
+    const nodeId = String(target?.node_id || target?.nodeId || "").trim();
+    const previewScope = String(
+      target?.preview_scope || target?.previewScope || "",
+    ).trim();
+    const uiRole = String(target?.ui_role || target?.uiRole || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeId && !previewScope) return false;
+    clearViewpointFocus();
+    let el = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      el = anchor?.element || null;
+      if (!(el instanceof HTMLElement) && typeof anchorApi.focusSelectorForAnchor === "function") {
+        const selector = anchorApi.focusSelectorForAnchor(anchor);
+        if (selector) el = document.querySelector(selector);
+      }
+    }
+    if (!(el instanceof HTMLElement) && nodeId) {
+      el =
+        document.querySelector(`[data-build-node="${CSS.escape(nodeId)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(nodeId)}"]`);
+    }
+    if (!(el instanceof HTMLElement) && previewScope) {
+      el = document.querySelector(`[data-preview-scope="${CSS.escape(previewScope)}"]`);
+    }
+    if (!(el instanceof HTMLElement)) return false;
+    el.classList.add("mei-structure-focus");
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:structure-focus", {
+          detail: {
+            node_id: nodeId || el.getAttribute("data-build-node") || "",
+            preview_scope: previewScope || el.getAttribute("data-preview-scope") || "",
+            ui_role: uiRole || el.getAttribute("data-mei-ui-role") || "",
+          },
+        }),
+      );
+    } catch (_) {}
+    return true;
+  }
+
+  function highlightStructureNode(nodeId, previewScope) {
+    return focusStructure({ node_id: nodeId, preview_scope: previewScope });
+  }
+
   function readPresentationDeck() {
     const map =
       (globalThis.__mei && globalThis.__mei.presentation_map) ||
@@ -23152,6 +23405,9 @@
         const dispatched = dispatchWorldTargetAction(action, entry);
         return focused || dispatched;
       }
+      case "focus_structure":
+      case "focusStructure":
+        return focusStructure(action);
       case "camera_move":
       case "cameraMove":
         return dispatchWorldTargetAction(
@@ -23235,6 +23491,8 @@
     const root = typeof globalThis !== "undefined" ? globalThis : window;
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
+    root.MeiPresentation.focusStructure = focusStructure;
+    root.MeiPresentation.highlightStructureNode = highlightStructureNode;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
@@ -26247,6 +26505,8 @@
     toolbarOpen: false,
     captionVisible: true,
     selectMode: false,
+    structurePanelOpen: false,
+    activePlane: "t1",
     drawerOpen: false,
     mounted: false,
   };
@@ -26531,8 +26791,14 @@
       toolbarGlyphButton({
         dataset: { key: "copilot-select-toggle" },
         glyph: "点",
-        label: "组件选择",
-        title: "点选场景组件",
+        label: "结构选择",
+        title: "点选结构节点并高亮（不触发 eval）",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-structure-panel" },
+        glyph: "树",
+        label: "结构树",
+        title: "枚举当前 plane 结构并聚焦",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-tts" },
@@ -26720,6 +26986,12 @@
       target.classList.toggle("is-active", uiState.selectMode);
       return;
     }
+    if (target.dataset.copilotStructurePanel === "true") {
+      uiState.structurePanelOpen = !uiState.structurePanelOpen;
+      target.classList.toggle("is-active", uiState.structurePanelOpen);
+      renderStructurePicker();
+      return;
+    }
     if (target.dataset.copilotTts === "true") {
       const tts = ttsApi();
       const step = eng ? eng.currentStep() : null;
@@ -26842,6 +27114,7 @@
     refreshFabChrome();
     renderCaption();
     renderDrawer();
+    renderStructurePicker();
   }
 
   function renderAll() {
@@ -26881,10 +27154,50 @@
     document.addEventListener(
       "click",
       (event) => {
-        const eng = engine();
-        if (!uiState.selectMode || !(eng && eng.isActive())) return;
+        if (!uiState.selectMode) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if (target.closest("#copilot-toolbar, #copilot-structure-picker, .access-chat-fab")) {
+          return;
+        }
+        const structureHost = target.closest(
+          "[data-build-node], [data-mei-node-id], [data-preview-scope]",
+        );
+        if (structureHost instanceof HTMLElement) {
+          const nodeId = String(
+            structureHost.getAttribute("data-build-node") ||
+              structureHost.getAttribute("data-mei-node-id") ||
+              "",
+          ).trim();
+          const previewScope = String(
+            structureHost.getAttribute("data-preview-scope") || "",
+          ).trim();
+          const uiRole = String(
+            structureHost.getAttribute("data-mei-ui-role") || "",
+          ).trim();
+          if (nodeId || previewScope) {
+            event.preventDefault();
+            event.stopPropagation();
+            const presentation = window.MeiPresentation;
+            if (presentation?.focusStructure) {
+              presentation.focusStructure({
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            } else if (presentation?.dispatch) {
+              presentation.dispatch({
+                type: "focus_structure",
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            }
+            return;
+          }
+        }
+        const eng = engine();
+        if (!(eng && eng.isActive())) return;
         const host = target.closest("[data-mei-viewpoint]");
         if (!(host instanceof HTMLElement)) return;
         const viewpointId = String(host.dataset.meiViewpoint || "").trim();
@@ -26895,6 +27208,105 @@
       },
       true,
     );
+  }
+
+  function ensureStructurePicker() {
+    let panel = document.getElementById("copilot-structure-picker");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "copilot-structure-picker";
+    panel.className = "copilot-structure-picker";
+    panel.setAttribute("hidden", "hidden");
+    panel.innerHTML =
+      '<div class="copilot-structure-picker-head">' +
+      '<label>Plane <select data-structure-plane>' +
+      '<option value="t0">T0</option><option value="t1" selected>T1</option><option value="t2">T2</option>' +
+      "</select></label>" +
+      '<button type="button" data-structure-close>关闭</button></div>' +
+      '<ul class="copilot-structure-picker-list" data-structure-list></ul>';
+    mountCopilotNode(panel);
+    panel.addEventListener("change", (event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement) || !select.hasAttribute("data-structure-plane")) {
+        return;
+      }
+      uiState.activePlane = String(select.value || "t1");
+      renderStructurePicker();
+      try {
+        document.dispatchEvent(
+          new CustomEvent("mei:plane-context", {
+            detail: { plane_id: uiState.activePlane },
+          }),
+        );
+      } catch (_) {}
+    });
+    panel.addEventListener("click", (event) => {
+      const btn = event.target;
+      if (!(btn instanceof Element)) return;
+      if (btn.closest("[data-structure-close]")) {
+        uiState.structurePanelOpen = false;
+        renderStructurePicker();
+        return;
+      }
+      const item = btn.closest("[data-structure-node]");
+      if (!(item instanceof HTMLElement)) return;
+      const presentation = window.MeiPresentation;
+      presentation?.focusStructure?.({
+        node_id: item.getAttribute("data-structure-node") || "",
+        preview_scope: item.getAttribute("data-structure-scope") || "",
+        ui_role: item.getAttribute("data-structure-role") || "",
+      });
+    });
+    return panel;
+  }
+
+  function renderStructurePicker() {
+    const panel = ensureStructurePicker();
+    const list = panel.querySelector("[data-structure-list]");
+    const select = panel.querySelector("[data-structure-plane]");
+    if (select instanceof HTMLSelectElement) {
+      select.value = uiState.activePlane || "t1";
+    }
+    if (!uiState.structurePanelOpen) {
+      panel.setAttribute("hidden", "hidden");
+      return;
+    }
+    panel.removeAttribute("hidden");
+    const nodes =
+      typeof boot.listStructureForPlane === "function"
+        ? boot.listStructureForPlane(uiState.activePlane)
+        : boot.previewMaterializer?.listStructureForPlane?.(uiState.activePlane) || [];
+    if (!(list instanceof HTMLElement)) return;
+    if (!nodes.length) {
+      list.innerHTML = "<li class='is-empty'>当前 slice/plane 无结构节点</li>";
+      return;
+    }
+    list.innerHTML = nodes
+      .map((node) => {
+        const label = node.label || node.preview_scope || node.node_id;
+        return (
+          `<li><button type="button" data-structure-node="${escapeAttr(node.node_id)}" ` +
+          `data-structure-scope="${escapeAttr(node.preview_scope)}" ` +
+          `data-structure-role="${escapeAttr(node.ui_role)}">` +
+          `<span class="role">${escapeHtml(node.ui_role)}</span> ${escapeHtml(label)}` +
+          `</button></li>`
+        );
+      })
+      .join("");
+  }
+
+  function escapeAttr(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;");
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
   function shouldMount() {
@@ -30126,6 +30538,25 @@
       const chrome = String(url.searchParams.get("chrome") || "").trim().toLowerCase();
       const tab = String(url.searchParams.get("tab") || "").trim().toLowerCase();
       const node = resolveBuildNodeFromUrl(url);
+      const tempStage =
+        typeof isTempStageRoute === "function" ? isTempStageRoute(pathname) : false;
+      const tempTarget =
+        tempStage && typeof tempStageTargetFromPathname === "function"
+          ? tempStageTargetFromPathname(pathname)
+          : "";
+      const scopeFromPath =
+        tempTarget && !/^node\//i.test(tempTarget)
+          ? tempTarget
+          : tempTarget.replace(/^node\//i, "");
+      const scope =
+        String(url.searchParams.get("scope") || "").trim() ||
+        (tempStage ? scopeFromPath : "");
+      const focus =
+        String(url.searchParams.get("focus") || "").trim() ||
+        (tempStage && /^node\//i.test(tempTarget)
+          ? tempTarget.replace(/^node\//i, "")
+          : "") ||
+        node;
       return {
         app_id: appId,
         appId,
@@ -30133,15 +30564,21 @@
         sceneId,
         surface,
         mode: surface,
-        node,
+        node: node || focus,
         data_mode: dataMode,
         dataMode,
         review_projection: reviewProjection,
         reviewProjection,
-        chrome,
+        chrome: chrome || (tempStage ? "none" : ""),
         tab,
-        focus: String(url.searchParams.get("focus") || "").trim(),
-        scope: String(url.searchParams.get("scope") || "").trim(),
+        focus,
+        scope,
+        temp_stage: tempStage,
+        tempStage,
+        temp_stage_path:
+          tempStage && typeof canonicalTempStagePath === "function"
+            ? canonicalTempStagePath(appId, tempTarget || scope || focus)
+            : "",
         url: url.href,
       };
     } catch (_) {
@@ -32040,12 +32477,19 @@
     if (!entry) return null;
     const unit = String(entry.unit || "").trim();
     const value = entry.value;
+    const label = String(entry.label || "").trim();
+    // Keep value/unit separate so mei-text metric_role slots render correctly
+    // (string content like "23项" would be duplicated into every slot).
     const text = unit ? `${value}${unit}` : String(value ?? "--");
     return {
-      content: text,
+      content: {
+        label,
+        value,
+        unit,
+      },
       text,
-      value: entry.value,
-      label: entry.label || text,
+      value,
+      label: label || text,
       unit,
     };
   }
@@ -32103,7 +32547,11 @@
       return { "data-mei-dev-eval-placeholder": "1" };
     }
     return {
-      content: "--",
+      content: {
+        label: "--",
+        value: "--",
+        unit: "",
+      },
       text: "--",
       value: "--",
       label: "--",
@@ -32560,6 +33008,28 @@
     if (targetMode && bodySurface && targetMode !== bodySurface) {
       return true;
     }
+    const targetScene = String(ctx.scene_id || ctx.sceneId || "").trim();
+    const bodyScene = String(
+      global.document?.body?.getAttribute("data-scene-id") ||
+        shell?.getAttribute?.("data-scene") ||
+        shell?.querySelector?.("#mei-compose-root")?.getAttribute("data-scene") ||
+        "",
+    ).trim();
+    const previousScene = String(options.previousScene || options.previousSceneId || "").trim();
+    if (previousScene && targetScene && previousScene !== targetScene) {
+      return true;
+    }
+    if (targetScene && bodyScene && targetScene !== bodyScene) {
+      return true;
+    }
+    const targetScope = String(ctx.scope || "").trim();
+    const previousScope = String(options.previousScope || "").trim();
+    if (previousScope !== targetScope && (previousScope || targetScope)) {
+      return true;
+    }
+    if (ctx.temp_stage || ctx.tempStage) {
+      return true;
+    }
     return false;
   }
 
@@ -32782,7 +33252,6 @@
     const missing = assemble.missing || [];
     if (
       missing.length &&
-      plan?.manifest?.layers &&
       boot.sceneManifestLoader?.ensureLayers
     ) {
       await boot.sceneManifestLoader.ensureLayers(
@@ -32834,7 +33303,6 @@
       const recoverMissing = assemble.missing || [];
       if (
         recoverMissing.length &&
-        recoverPlan?.manifest?.layers &&
         boot.sceneManifestLoader?.ensureLayers
       ) {
         await boot.sceneManifestLoader.ensureLayers(
@@ -34843,6 +35311,32 @@
     return section;
   }
 
+  function stampStructureIdentity(el, node) {
+    if (!(el instanceof HTMLElement) || !node) return el;
+    const nodeId = String(node.node_id || "").trim();
+    const scope = String(node.preview_scope || "").trim();
+    const role = String(node.ui_role || "").trim().toLowerCase();
+    if (nodeId) {
+      el.setAttribute("data-build-node", nodeId);
+      el.setAttribute("data-mei-node-id", nodeId);
+    }
+    if (scope && !el.getAttribute("data-preview-scope")) {
+      el.setAttribute("data-preview-scope", scope);
+    }
+    if (role && !el.getAttribute("data-mei-ui-role")) {
+      el.setAttribute("data-mei-ui-role", role);
+    }
+    if (node.panel_id && !el.getAttribute("data-mei-panel-id")) {
+      el.setAttribute("data-mei-panel-id", String(node.panel_id));
+    }
+    const planeCode = String(node.plane || "").trim();
+    if (planeCode) {
+      if (!el.getAttribute("data-mei-plane")) el.setAttribute("data-mei-plane", planeCode);
+      if (!el.getAttribute("data-mei-tier")) el.setAttribute("data-mei-tier", planeCode);
+    }
+    return el;
+  }
+
   function createNodeElement(node, structureDoc) {
     const role = String(node.ui_role || "").toLowerCase();
     const scope = String(node.preview_scope || "").trim();
@@ -34860,7 +35354,7 @@
       stageShell.appendChild(stage);
       section.appendChild(stageShell);
       section.__meiStageTarget = stage;
-      return section;
+      return stampStructureIdentity(section, node);
     }
 
     if (role === "content") {
@@ -34869,7 +35363,7 @@
         placeholder.className = "mei-compose-viewport-meta";
         placeholder.hidden = true;
         if (scope) placeholder.setAttribute("data-preview-scope", scope);
-        return placeholder;
+        return stampStructureIdentity(placeholder, node);
       }
       const contentKind = String(node.content_kind || "").trim().toLowerCase();
       if (contentKind === "compound-metric") {
@@ -34881,7 +35375,7 @@
         if (node.label) {
           compoundHost.setAttribute("data-mei-structure-label", String(node.label));
         }
-        return compoundHost;
+        return stampStructureIdentity(compoundHost, node);
       }
       // Container content (e.g. status-flow grid host) must keep children + layout;
       // do not collapse into leaf metric-card / content-group mounts.
@@ -34902,12 +35396,21 @@
             !scopeLower.endsWith("/map-viewport")
           ) {
             if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
-              return createBlockSection("mei.text", scope, node.ui_role);
+              return stampStructureIdentity(
+                createBlockSection("mei.text", scope, node.ui_role),
+                node,
+              );
             }
-            return createMetricCardSection(scope, node.ui_role, node.label);
+            return stampStructureIdentity(
+              createMetricCardSection(scope, node.ui_role, node.label),
+              node,
+            );
           }
           if (!isMetricTemplateKind(key)) {
-            return createBlockSection(key, scope, node.ui_role);
+            return stampStructureIdentity(
+              createBlockSection(key, scope, node.ui_role),
+              node,
+            );
           }
         }
         if (keys.length > 1) {
@@ -34916,7 +35419,7 @@
           if (scope) wrap.setAttribute("data-preview-scope", scope);
           if (node.label) wrap.setAttribute("data-mei-structure-label", String(node.label));
           keys.forEach((key) => wrap.appendChild(createBlockSection(key, scope, node.ui_role)));
-          return wrap;
+          return stampStructureIdentity(wrap, node);
         }
       }
     }
@@ -34954,7 +35457,7 @@
       el.setAttribute("data-mei-plane", planeCode);
       el.setAttribute("data-mei-tier", planeCode);
     }
-    return el;
+    return stampStructureIdentity(el, node);
   }
 
   function mountTargetForParent(parentEl) {
@@ -37765,6 +38268,8 @@
   function canSkipClientCompose(root, ctx) {
     if (!(root instanceof HTMLElement)) return false;
     if (isThinShellComposePlaceholder(root)) return false;
+    if (ctx?.temp_stage || ctx?.tempStage) return false;
+    if (String(ctx?.scope || "").trim()) return false;
     if (isClientLayerMaterialized(root)) return true;
     if (!hasMaterializedPreview(root)) return false;
     const targetApp = String(
@@ -37775,6 +38280,13 @@
       urlApp = String(global.location.pathname.match(/^\/apps\/([^/]+)/)?.[1] || "").trim();
     } catch (_) {}
     if (targetApp && urlApp && targetApp !== urlApp) return false;
+    const targetScene = String(ctx?.scene_id || ctx?.sceneId || "").trim();
+    const rootScene = String(
+      root.getAttribute("data-scene") ||
+        global.document?.body?.getAttribute("data-scene-id") ||
+        "",
+    ).trim();
+    if (targetScene && rootScene && targetScene !== rootScene) return false;
     const surface = String(ctx?.surface || ctx?.mode || "app")
       .trim()
       .toLowerCase();
@@ -37786,6 +38298,69 @@
       );
     }
     return true;
+  }
+
+  function readResidentStructureDocument() {
+    const store = boot.layerStore;
+    if (!store || typeof store.takeLayerByRef !== "function") return null;
+    try {
+      const byName =
+        typeof store.takeLayer === "function" ? store.takeLayer("structure.full") : null;
+      if (byName && typeof byName === "object") return byName;
+    } catch (_) {}
+    try {
+      const refs = boot.lastViewRevision?.assembly_plan?.layer_refs || {};
+      const pref = refs["structure.full"];
+      if (pref) {
+        const doc = store.takeLayerByRef(pref);
+        if (doc && typeof doc === "object") return doc;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function normalizePlaneToken(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("_", "-");
+  }
+
+  /**
+   * Enumerate structure nodes for the current/visible plane from resident structure.full.
+   * Scoped manifests only contain the slice — out-of-slice nodes are not invented.
+   */
+  function listStructureForPlane(planeId, options = {}) {
+    const doc = options.document || readResidentStructureDocument();
+    if (!doc || !Array.isArray(doc.nodes)) return [];
+    const want = normalizePlaneToken(planeId || options.plane || boot.activePlaneId || "t1");
+    const roles = new Set(
+      (options.roles || ["region", "section", "slot", "content", "plane"]).map((role) =>
+        String(role || "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    return doc.nodes
+      .filter((node) => {
+        const role = String(node.ui_role || "").trim().toLowerCase();
+        if (!roles.has(role)) return false;
+        const plane = normalizePlaneToken(node.plane || "");
+        if (!want || want === "all") return true;
+        if (plane && plane === want) return true;
+        const scope = normalizePlaneToken(node.preview_scope || "");
+        return scope.split("/").includes(want);
+      })
+      .map((node) => ({
+        node_id: String(node.node_id || "").trim(),
+        preview_scope: String(node.preview_scope || "").trim(),
+        ui_role: String(node.ui_role || "").trim().toLowerCase(),
+        label: String(node.label || "").trim(),
+        plane: String(node.plane || "").trim(),
+        panel_id: String(node.panel_id || node.preview_scope || "").trim(),
+        parent_id: String(node.parent_id || "").trim(),
+        children: Array.isArray(node.children) ? node.children.slice() : [],
+      }));
   }
 
   boot.previewMaterializer = {
@@ -37803,8 +38378,12 @@
     materializePlaceholderPreview,
     ensureBootstrapBeforeInject,
     refreshComposeMaps,
+    listStructureForPlane,
+    readResidentStructureDocument,
+    stampStructureIdentity,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
+  boot.listStructureForPlane = listStructureForPlane;
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -40495,7 +41074,10 @@
   function readAnchorFromElement(el) {
     if (!(el instanceof HTMLElement)) return null;
     const nodeId = String(
-      el.getAttribute("data-build-node") || el.getAttribute("data-build-focus") || "",
+      el.getAttribute("data-build-node") ||
+        el.getAttribute("data-mei-node-id") ||
+        el.getAttribute("data-build-focus") ||
+        "",
     ).trim();
     const previewScope = String(
       el.getAttribute("data-preview-scope") ||
@@ -40519,7 +41101,9 @@
     const id = String(nodeId || "").trim();
     const scope = String(previewScope || "").trim();
     if (id) {
-      const byNode = document.querySelector(`[data-build-node="${CSS.escape(id)}"]`);
+      const byNode =
+        document.querySelector(`[data-build-node="${CSS.escape(id)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(id)}"]`);
       const anchor = readAnchorFromElement(byNode);
       if (anchor) return anchor;
       const byFocus = document.querySelector(`[data-build-focus="${CSS.escape(id)}"]`);
@@ -40595,6 +41179,125 @@
     REVIEW_ROLE_DEPTH,
   };
 })(window);
+
+
+/* ===== spa-navigation/spa/structure-debug-route-status.js ===== */
+/**
+ * Phase 8.5: FAB structure focus → host statusbar debug route (click to copy).
+ */
+(function initStructureDebugRouteStatus(global) {
+  "use strict";
+
+  const COPIED_MS = 1600;
+
+  function debugRouteChip() {
+    return global.document?.getElementById?.("mei-status-debug-route") || null;
+  }
+
+  function buildTempStageRoute(detail) {
+    const appId =
+      String(global.document?.body?.getAttribute("data-app-id") || "").trim() ||
+      (typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(global.location?.pathname)
+        : "");
+    const scope = String(detail?.preview_scope || "").trim().replace(/^\/+|\/+$/g, "");
+    const nodeId = String(detail?.node_id || "").trim();
+    const target = scope || (nodeId ? `node/${nodeId}` : "");
+    if (!appId || !target) return "";
+    if (typeof canonicalTempStagePath === "function") {
+      return canonicalTempStagePath(appId, target);
+    }
+    return `/apps/${appId}/~/${target}`;
+  }
+
+  function setChipRoute(route) {
+    const chip = debugRouteChip();
+    if (!(chip instanceof HTMLElement)) return;
+    const value = String(route || "").trim();
+    if (!value) {
+      chip.hidden = true;
+      chip.textContent = "";
+      chip.removeAttribute("data-route");
+      chip.removeAttribute("data-copied");
+      return;
+    }
+    chip.hidden = false;
+    chip.setAttribute("data-route", value);
+    chip.removeAttribute("data-copied");
+    chip.textContent = value;
+    chip.title = "点击复制调试路由";
+  }
+
+  async function copyRoute(route) {
+    const text = String(route || "").trim();
+    if (!text) return false;
+    try {
+      if (global.navigator?.clipboard?.writeText) {
+        await global.navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = global.document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      global.document.body.appendChild(ta);
+      ta.select();
+      const ok = global.document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function flashCopied(chip) {
+    if (!(chip instanceof HTMLElement)) return;
+    chip.setAttribute("data-copied", "1");
+    chip.textContent = "已复制";
+    chip.title = "已复制到剪贴板";
+    global.setTimeout(() => {
+      const route = chip.getAttribute("data-route") || "";
+      chip.removeAttribute("data-copied");
+      chip.textContent = route;
+      chip.title = "点击复制调试路由";
+    }, COPIED_MS);
+  }
+
+  function onStructureFocus(event) {
+    const route = buildTempStageRoute(event?.detail || {});
+    setChipRoute(route);
+  }
+
+  function onChipClick(event) {
+    const chip = event?.currentTarget;
+    if (!(chip instanceof HTMLElement)) return;
+    const route = chip.getAttribute("data-route") || chip.textContent || "";
+    copyRoute(route).then((ok) => {
+      if (ok) flashCopied(chip);
+    });
+  }
+
+  function bind() {
+    const chip = debugRouteChip();
+    if (chip instanceof HTMLElement && chip.dataset.bound !== "1") {
+      chip.dataset.bound = "1";
+      chip.addEventListener("click", onChipClick);
+    }
+  }
+
+  global.document?.addEventListener?.("mei:structure-focus", onStructureFocus);
+  if (global.document?.readyState === "loading") {
+    global.document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+  // Thin-shell chrome may inject statusbar later.
+  global.document?.addEventListener?.("mei:shell-chrome-ready", bind);
+  global.setInterval(bind, 2000);
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== spa-navigation/spa/projection-depth.js ===== */

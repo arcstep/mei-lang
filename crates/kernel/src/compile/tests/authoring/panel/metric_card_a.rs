@@ -9,7 +9,7 @@ fn compile_metric_card_base_clones_shell_and_overrides_source() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-clone", default_scene = "home")
+app(id = "metric-card-clone", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 frame(
@@ -119,7 +119,7 @@ fn compile_metric_card_metric_ref_uses_mei_text_slots_instead_of_legacy_tile() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "metric-card-runtime-ref", default_scene = "home")
+app(id = "metric-card-runtime-ref", default_stage = "home")
 scene(id = "home", profile = "cockpit", theme = "cockpit")
 world(resources = [])
 world.add_metric(
@@ -216,7 +216,7 @@ fn compile_panel_base_imports_direct_world_metrics_from_multiple_sources() {
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "panel-ref-import-world-metrics", default_scene = "home")
+app(id = "panel-ref-import-world-metrics", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(
@@ -340,7 +340,7 @@ fn compile_nested_panel_refs_import_direct_world_metrics_from_grandchild_source(
     write_file(
         &app_root.join("main.mei"),
         r#"
-app(id = "nested-panel-ref-import-world-metrics", default_scene = "home")
+app(id = "nested-panel-ref-import-world-metrics", default_stage = "home")
 scene(id = "home", profile = "page")
 world()
 frame(

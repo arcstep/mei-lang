@@ -57,9 +57,40 @@
     "upload",
     "config",
     "runtime",
+    "~",
   ]);
 
+  function isTempStageRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return segments[0] === "apps" && segments.length >= 4 && segments[2] === "~";
+  }
+
+  function tempStageTargetFromPathname(pathname = global.location?.pathname) {
+    if (!isTempStageRoute(pathname)) return "";
+    const segments = pathSegments(pathname);
+    return segments
+      .slice(3)
+      .map((part) => {
+        try {
+          return decodeURIComponent(part);
+        } catch (_) {
+          return part;
+        }
+      })
+      .join("/");
+  }
+
+  function canonicalTempStagePath(appId, scopeOrNode) {
+    const app = String(appId || "").trim();
+    const target = String(scopeOrNode || "")
+      .trim()
+      .replace(/^\/+|\/+$/g, "");
+    if (!app || !target) return "";
+    return `/apps/${app}/~/${target}`;
+  }
+
   function isAccessStageRoute(pathname = global.location?.pathname) {
+    if (isTempStageRoute(pathname)) return true;
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 2) return false;
     if (segments.length === 2) return !RESERVED_STAGE_SEGMENTS.has(String(segments[1] || "").toLowerCase());
@@ -307,6 +338,21 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isTempStageRoute(pathname)) {
+      const target = tempStageTargetFromPathname(pathname);
+      if (target && !/^node\//i.test(target)) {
+        const head = String(target.split("/")[0] || "").trim();
+        if (head && !/^t[012]$/i.test(head) && head.toLowerCase() !== "p") {
+          return head;
+        }
+      }
+      try {
+        const params = new URLSearchParams(search || "");
+        const fromQuery = String(params.get("scene") || "").trim();
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+      return "home";
+    }
     if (isAccessStageRoute(pathname)) {
       const segments = pathSegments(pathname);
       if (segments.length >= 3) {
@@ -405,6 +451,9 @@
     LEGACY_REMOVED_ROUTE_SLUGS,
     RESERVED_STAGE_SEGMENTS,
     pathSegments,
+    isTempStageRoute,
+    tempStageTargetFromPathname,
+    canonicalTempStagePath,
     isAccessStageRoute,
     isUnifiedViewRoute,
     surfaceSlugFromViewUrl,
@@ -454,6 +503,10 @@
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
   global.isAccessStageRoute = isAccessStageRoute;
+  global.isTempStageRoute = isTempStageRoute;
+  global.tempStageTargetFromPathname = tempStageTargetFromPathname;
+  global.canonicalTempStagePath = canonicalTempStagePath;
+  global.sceneIdFromPathname = sceneIdFromPathname;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
@@ -25115,6 +25168,55 @@
     return true;
   }
 
+  function focusStructure(target) {
+    const nodeId = String(target?.node_id || target?.nodeId || "").trim();
+    const previewScope = String(
+      target?.preview_scope || target?.previewScope || "",
+    ).trim();
+    const uiRole = String(target?.ui_role || target?.uiRole || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeId && !previewScope) return false;
+    clearViewpointFocus();
+    let el = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      el = anchor?.element || null;
+      if (!(el instanceof HTMLElement) && typeof anchorApi.focusSelectorForAnchor === "function") {
+        const selector = anchorApi.focusSelectorForAnchor(anchor);
+        if (selector) el = document.querySelector(selector);
+      }
+    }
+    if (!(el instanceof HTMLElement) && nodeId) {
+      el =
+        document.querySelector(`[data-build-node="${CSS.escape(nodeId)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(nodeId)}"]`);
+    }
+    if (!(el instanceof HTMLElement) && previewScope) {
+      el = document.querySelector(`[data-preview-scope="${CSS.escape(previewScope)}"]`);
+    }
+    if (!(el instanceof HTMLElement)) return false;
+    el.classList.add("mei-structure-focus");
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:structure-focus", {
+          detail: {
+            node_id: nodeId || el.getAttribute("data-build-node") || "",
+            preview_scope: previewScope || el.getAttribute("data-preview-scope") || "",
+            ui_role: uiRole || el.getAttribute("data-mei-ui-role") || "",
+          },
+        }),
+      );
+    } catch (_) {}
+    return true;
+  }
+
+  function highlightStructureNode(nodeId, previewScope) {
+    return focusStructure({ node_id: nodeId, preview_scope: previewScope });
+  }
+
   function readPresentationDeck() {
     const map =
       (globalThis.__mei && globalThis.__mei.presentation_map) ||
@@ -25269,6 +25371,9 @@
         const dispatched = dispatchWorldTargetAction(action, entry);
         return focused || dispatched;
       }
+      case "focus_structure":
+      case "focusStructure":
+        return focusStructure(action);
       case "camera_move":
       case "cameraMove":
         return dispatchWorldTargetAction(
@@ -25352,6 +25457,8 @@
     const root = typeof globalThis !== "undefined" ? globalThis : window;
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
+    root.MeiPresentation.focusStructure = focusStructure;
+    root.MeiPresentation.highlightStructureNode = highlightStructureNode;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
@@ -28364,6 +28471,8 @@
     toolbarOpen: false,
     captionVisible: true,
     selectMode: false,
+    structurePanelOpen: false,
+    activePlane: "t1",
     drawerOpen: false,
     mounted: false,
   };
@@ -28648,8 +28757,14 @@
       toolbarGlyphButton({
         dataset: { key: "copilot-select-toggle" },
         glyph: "点",
-        label: "组件选择",
-        title: "点选场景组件",
+        label: "结构选择",
+        title: "点选结构节点并高亮（不触发 eval）",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-structure-panel" },
+        glyph: "树",
+        label: "结构树",
+        title: "枚举当前 plane 结构并聚焦",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-tts" },
@@ -28837,6 +28952,12 @@
       target.classList.toggle("is-active", uiState.selectMode);
       return;
     }
+    if (target.dataset.copilotStructurePanel === "true") {
+      uiState.structurePanelOpen = !uiState.structurePanelOpen;
+      target.classList.toggle("is-active", uiState.structurePanelOpen);
+      renderStructurePicker();
+      return;
+    }
     if (target.dataset.copilotTts === "true") {
       const tts = ttsApi();
       const step = eng ? eng.currentStep() : null;
@@ -28959,6 +29080,7 @@
     refreshFabChrome();
     renderCaption();
     renderDrawer();
+    renderStructurePicker();
   }
 
   function renderAll() {
@@ -28998,10 +29120,50 @@
     document.addEventListener(
       "click",
       (event) => {
-        const eng = engine();
-        if (!uiState.selectMode || !(eng && eng.isActive())) return;
+        if (!uiState.selectMode) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if (target.closest("#copilot-toolbar, #copilot-structure-picker, .access-chat-fab")) {
+          return;
+        }
+        const structureHost = target.closest(
+          "[data-build-node], [data-mei-node-id], [data-preview-scope]",
+        );
+        if (structureHost instanceof HTMLElement) {
+          const nodeId = String(
+            structureHost.getAttribute("data-build-node") ||
+              structureHost.getAttribute("data-mei-node-id") ||
+              "",
+          ).trim();
+          const previewScope = String(
+            structureHost.getAttribute("data-preview-scope") || "",
+          ).trim();
+          const uiRole = String(
+            structureHost.getAttribute("data-mei-ui-role") || "",
+          ).trim();
+          if (nodeId || previewScope) {
+            event.preventDefault();
+            event.stopPropagation();
+            const presentation = window.MeiPresentation;
+            if (presentation?.focusStructure) {
+              presentation.focusStructure({
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            } else if (presentation?.dispatch) {
+              presentation.dispatch({
+                type: "focus_structure",
+                node_id: nodeId,
+                preview_scope: previewScope,
+                ui_role: uiRole,
+              });
+            }
+            return;
+          }
+        }
+        const eng = engine();
+        if (!(eng && eng.isActive())) return;
         const host = target.closest("[data-mei-viewpoint]");
         if (!(host instanceof HTMLElement)) return;
         const viewpointId = String(host.dataset.meiViewpoint || "").trim();
@@ -29012,6 +29174,105 @@
       },
       true,
     );
+  }
+
+  function ensureStructurePicker() {
+    let panel = document.getElementById("copilot-structure-picker");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "copilot-structure-picker";
+    panel.className = "copilot-structure-picker";
+    panel.setAttribute("hidden", "hidden");
+    panel.innerHTML =
+      '<div class="copilot-structure-picker-head">' +
+      '<label>Plane <select data-structure-plane>' +
+      '<option value="t0">T0</option><option value="t1" selected>T1</option><option value="t2">T2</option>' +
+      "</select></label>" +
+      '<button type="button" data-structure-close>关闭</button></div>' +
+      '<ul class="copilot-structure-picker-list" data-structure-list></ul>';
+    mountCopilotNode(panel);
+    panel.addEventListener("change", (event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement) || !select.hasAttribute("data-structure-plane")) {
+        return;
+      }
+      uiState.activePlane = String(select.value || "t1");
+      renderStructurePicker();
+      try {
+        document.dispatchEvent(
+          new CustomEvent("mei:plane-context", {
+            detail: { plane_id: uiState.activePlane },
+          }),
+        );
+      } catch (_) {}
+    });
+    panel.addEventListener("click", (event) => {
+      const btn = event.target;
+      if (!(btn instanceof Element)) return;
+      if (btn.closest("[data-structure-close]")) {
+        uiState.structurePanelOpen = false;
+        renderStructurePicker();
+        return;
+      }
+      const item = btn.closest("[data-structure-node]");
+      if (!(item instanceof HTMLElement)) return;
+      const presentation = window.MeiPresentation;
+      presentation?.focusStructure?.({
+        node_id: item.getAttribute("data-structure-node") || "",
+        preview_scope: item.getAttribute("data-structure-scope") || "",
+        ui_role: item.getAttribute("data-structure-role") || "",
+      });
+    });
+    return panel;
+  }
+
+  function renderStructurePicker() {
+    const panel = ensureStructurePicker();
+    const list = panel.querySelector("[data-structure-list]");
+    const select = panel.querySelector("[data-structure-plane]");
+    if (select instanceof HTMLSelectElement) {
+      select.value = uiState.activePlane || "t1";
+    }
+    if (!uiState.structurePanelOpen) {
+      panel.setAttribute("hidden", "hidden");
+      return;
+    }
+    panel.removeAttribute("hidden");
+    const nodes =
+      typeof boot.listStructureForPlane === "function"
+        ? boot.listStructureForPlane(uiState.activePlane)
+        : boot.previewMaterializer?.listStructureForPlane?.(uiState.activePlane) || [];
+    if (!(list instanceof HTMLElement)) return;
+    if (!nodes.length) {
+      list.innerHTML = "<li class='is-empty'>当前 slice/plane 无结构节点</li>";
+      return;
+    }
+    list.innerHTML = nodes
+      .map((node) => {
+        const label = node.label || node.preview_scope || node.node_id;
+        return (
+          `<li><button type="button" data-structure-node="${escapeAttr(node.node_id)}" ` +
+          `data-structure-scope="${escapeAttr(node.preview_scope)}" ` +
+          `data-structure-role="${escapeAttr(node.ui_role)}">` +
+          `<span class="role">${escapeHtml(node.ui_role)}</span> ${escapeHtml(label)}` +
+          `</button></li>`
+        );
+      })
+      .join("");
+  }
+
+  function escapeAttr(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;");
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
   function shouldMount() {
@@ -32184,6 +32445,25 @@
       const chrome = String(url.searchParams.get("chrome") || "").trim().toLowerCase();
       const tab = String(url.searchParams.get("tab") || "").trim().toLowerCase();
       const node = resolveBuildNodeFromUrl(url);
+      const tempStage =
+        typeof isTempStageRoute === "function" ? isTempStageRoute(pathname) : false;
+      const tempTarget =
+        tempStage && typeof tempStageTargetFromPathname === "function"
+          ? tempStageTargetFromPathname(pathname)
+          : "";
+      const scopeFromPath =
+        tempTarget && !/^node\//i.test(tempTarget)
+          ? tempTarget
+          : tempTarget.replace(/^node\//i, "");
+      const scope =
+        String(url.searchParams.get("scope") || "").trim() ||
+        (tempStage ? scopeFromPath : "");
+      const focus =
+        String(url.searchParams.get("focus") || "").trim() ||
+        (tempStage && /^node\//i.test(tempTarget)
+          ? tempTarget.replace(/^node\//i, "")
+          : "") ||
+        node;
       return {
         app_id: appId,
         appId,
@@ -32191,15 +32471,21 @@
         sceneId,
         surface,
         mode: surface,
-        node,
+        node: node || focus,
         data_mode: dataMode,
         dataMode,
         review_projection: reviewProjection,
         reviewProjection,
-        chrome,
+        chrome: chrome || (tempStage ? "none" : ""),
         tab,
-        focus: String(url.searchParams.get("focus") || "").trim(),
-        scope: String(url.searchParams.get("scope") || "").trim(),
+        focus,
+        scope,
+        temp_stage: tempStage,
+        tempStage,
+        temp_stage_path:
+          tempStage && typeof canonicalTempStagePath === "function"
+            ? canonicalTempStagePath(appId, tempTarget || scope || focus)
+            : "",
         url: url.href,
       };
     } catch (_) {
@@ -34098,12 +34384,19 @@
     if (!entry) return null;
     const unit = String(entry.unit || "").trim();
     const value = entry.value;
+    const label = String(entry.label || "").trim();
+    // Keep value/unit separate so mei-text metric_role slots render correctly
+    // (string content like "23项" would be duplicated into every slot).
     const text = unit ? `${value}${unit}` : String(value ?? "--");
     return {
-      content: text,
+      content: {
+        label,
+        value,
+        unit,
+      },
       text,
-      value: entry.value,
-      label: entry.label || text,
+      value,
+      label: label || text,
       unit,
     };
   }
@@ -34161,7 +34454,11 @@
       return { "data-mei-dev-eval-placeholder": "1" };
     }
     return {
-      content: "--",
+      content: {
+        label: "--",
+        value: "--",
+        unit: "",
+      },
       text: "--",
       value: "--",
       label: "--",
@@ -34618,6 +34915,28 @@
     if (targetMode && bodySurface && targetMode !== bodySurface) {
       return true;
     }
+    const targetScene = String(ctx.scene_id || ctx.sceneId || "").trim();
+    const bodyScene = String(
+      global.document?.body?.getAttribute("data-scene-id") ||
+        shell?.getAttribute?.("data-scene") ||
+        shell?.querySelector?.("#mei-compose-root")?.getAttribute("data-scene") ||
+        "",
+    ).trim();
+    const previousScene = String(options.previousScene || options.previousSceneId || "").trim();
+    if (previousScene && targetScene && previousScene !== targetScene) {
+      return true;
+    }
+    if (targetScene && bodyScene && targetScene !== bodyScene) {
+      return true;
+    }
+    const targetScope = String(ctx.scope || "").trim();
+    const previousScope = String(options.previousScope || "").trim();
+    if (previousScope !== targetScope && (previousScope || targetScope)) {
+      return true;
+    }
+    if (ctx.temp_stage || ctx.tempStage) {
+      return true;
+    }
     return false;
   }
 
@@ -34840,7 +35159,6 @@
     const missing = assemble.missing || [];
     if (
       missing.length &&
-      plan?.manifest?.layers &&
       boot.sceneManifestLoader?.ensureLayers
     ) {
       await boot.sceneManifestLoader.ensureLayers(
@@ -34892,7 +35210,6 @@
       const recoverMissing = assemble.missing || [];
       if (
         recoverMissing.length &&
-        recoverPlan?.manifest?.layers &&
         boot.sceneManifestLoader?.ensureLayers
       ) {
         await boot.sceneManifestLoader.ensureLayers(
@@ -36901,6 +37218,32 @@
     return section;
   }
 
+  function stampStructureIdentity(el, node) {
+    if (!(el instanceof HTMLElement) || !node) return el;
+    const nodeId = String(node.node_id || "").trim();
+    const scope = String(node.preview_scope || "").trim();
+    const role = String(node.ui_role || "").trim().toLowerCase();
+    if (nodeId) {
+      el.setAttribute("data-build-node", nodeId);
+      el.setAttribute("data-mei-node-id", nodeId);
+    }
+    if (scope && !el.getAttribute("data-preview-scope")) {
+      el.setAttribute("data-preview-scope", scope);
+    }
+    if (role && !el.getAttribute("data-mei-ui-role")) {
+      el.setAttribute("data-mei-ui-role", role);
+    }
+    if (node.panel_id && !el.getAttribute("data-mei-panel-id")) {
+      el.setAttribute("data-mei-panel-id", String(node.panel_id));
+    }
+    const planeCode = String(node.plane || "").trim();
+    if (planeCode) {
+      if (!el.getAttribute("data-mei-plane")) el.setAttribute("data-mei-plane", planeCode);
+      if (!el.getAttribute("data-mei-tier")) el.setAttribute("data-mei-tier", planeCode);
+    }
+    return el;
+  }
+
   function createNodeElement(node, structureDoc) {
     const role = String(node.ui_role || "").toLowerCase();
     const scope = String(node.preview_scope || "").trim();
@@ -36918,7 +37261,7 @@
       stageShell.appendChild(stage);
       section.appendChild(stageShell);
       section.__meiStageTarget = stage;
-      return section;
+      return stampStructureIdentity(section, node);
     }
 
     if (role === "content") {
@@ -36927,7 +37270,7 @@
         placeholder.className = "mei-compose-viewport-meta";
         placeholder.hidden = true;
         if (scope) placeholder.setAttribute("data-preview-scope", scope);
-        return placeholder;
+        return stampStructureIdentity(placeholder, node);
       }
       const contentKind = String(node.content_kind || "").trim().toLowerCase();
       if (contentKind === "compound-metric") {
@@ -36939,7 +37282,7 @@
         if (node.label) {
           compoundHost.setAttribute("data-mei-structure-label", String(node.label));
         }
-        return compoundHost;
+        return stampStructureIdentity(compoundHost, node);
       }
       // Container content (e.g. status-flow grid host) must keep children + layout;
       // do not collapse into leaf metric-card / content-group mounts.
@@ -36960,12 +37303,21 @@
             !scopeLower.endsWith("/map-viewport")
           ) {
             if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
-              return createBlockSection("mei.text", scope, node.ui_role);
+              return stampStructureIdentity(
+                createBlockSection("mei.text", scope, node.ui_role),
+                node,
+              );
             }
-            return createMetricCardSection(scope, node.ui_role, node.label);
+            return stampStructureIdentity(
+              createMetricCardSection(scope, node.ui_role, node.label),
+              node,
+            );
           }
           if (!isMetricTemplateKind(key)) {
-            return createBlockSection(key, scope, node.ui_role);
+            return stampStructureIdentity(
+              createBlockSection(key, scope, node.ui_role),
+              node,
+            );
           }
         }
         if (keys.length > 1) {
@@ -36974,7 +37326,7 @@
           if (scope) wrap.setAttribute("data-preview-scope", scope);
           if (node.label) wrap.setAttribute("data-mei-structure-label", String(node.label));
           keys.forEach((key) => wrap.appendChild(createBlockSection(key, scope, node.ui_role)));
-          return wrap;
+          return stampStructureIdentity(wrap, node);
         }
       }
     }
@@ -37012,7 +37364,7 @@
       el.setAttribute("data-mei-plane", planeCode);
       el.setAttribute("data-mei-tier", planeCode);
     }
-    return el;
+    return stampStructureIdentity(el, node);
   }
 
   function mountTargetForParent(parentEl) {
@@ -39823,6 +40175,8 @@
   function canSkipClientCompose(root, ctx) {
     if (!(root instanceof HTMLElement)) return false;
     if (isThinShellComposePlaceholder(root)) return false;
+    if (ctx?.temp_stage || ctx?.tempStage) return false;
+    if (String(ctx?.scope || "").trim()) return false;
     if (isClientLayerMaterialized(root)) return true;
     if (!hasMaterializedPreview(root)) return false;
     const targetApp = String(
@@ -39833,6 +40187,13 @@
       urlApp = String(global.location.pathname.match(/^\/apps\/([^/]+)/)?.[1] || "").trim();
     } catch (_) {}
     if (targetApp && urlApp && targetApp !== urlApp) return false;
+    const targetScene = String(ctx?.scene_id || ctx?.sceneId || "").trim();
+    const rootScene = String(
+      root.getAttribute("data-scene") ||
+        global.document?.body?.getAttribute("data-scene-id") ||
+        "",
+    ).trim();
+    if (targetScene && rootScene && targetScene !== rootScene) return false;
     const surface = String(ctx?.surface || ctx?.mode || "app")
       .trim()
       .toLowerCase();
@@ -39844,6 +40205,69 @@
       );
     }
     return true;
+  }
+
+  function readResidentStructureDocument() {
+    const store = boot.layerStore;
+    if (!store || typeof store.takeLayerByRef !== "function") return null;
+    try {
+      const byName =
+        typeof store.takeLayer === "function" ? store.takeLayer("structure.full") : null;
+      if (byName && typeof byName === "object") return byName;
+    } catch (_) {}
+    try {
+      const refs = boot.lastViewRevision?.assembly_plan?.layer_refs || {};
+      const pref = refs["structure.full"];
+      if (pref) {
+        const doc = store.takeLayerByRef(pref);
+        if (doc && typeof doc === "object") return doc;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function normalizePlaneToken(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("_", "-");
+  }
+
+  /**
+   * Enumerate structure nodes for the current/visible plane from resident structure.full.
+   * Scoped manifests only contain the slice — out-of-slice nodes are not invented.
+   */
+  function listStructureForPlane(planeId, options = {}) {
+    const doc = options.document || readResidentStructureDocument();
+    if (!doc || !Array.isArray(doc.nodes)) return [];
+    const want = normalizePlaneToken(planeId || options.plane || boot.activePlaneId || "t1");
+    const roles = new Set(
+      (options.roles || ["region", "section", "slot", "content", "plane"]).map((role) =>
+        String(role || "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    return doc.nodes
+      .filter((node) => {
+        const role = String(node.ui_role || "").trim().toLowerCase();
+        if (!roles.has(role)) return false;
+        const plane = normalizePlaneToken(node.plane || "");
+        if (!want || want === "all") return true;
+        if (plane && plane === want) return true;
+        const scope = normalizePlaneToken(node.preview_scope || "");
+        return scope.split("/").includes(want);
+      })
+      .map((node) => ({
+        node_id: String(node.node_id || "").trim(),
+        preview_scope: String(node.preview_scope || "").trim(),
+        ui_role: String(node.ui_role || "").trim().toLowerCase(),
+        label: String(node.label || "").trim(),
+        plane: String(node.plane || "").trim(),
+        panel_id: String(node.panel_id || node.preview_scope || "").trim(),
+        parent_id: String(node.parent_id || "").trim(),
+        children: Array.isArray(node.children) ? node.children.slice() : [],
+      }));
   }
 
   boot.previewMaterializer = {
@@ -39861,8 +40285,12 @@
     materializePlaceholderPreview,
     ensureBootstrapBeforeInject,
     refreshComposeMaps,
+    listStructureForPlane,
+    readResidentStructureDocument,
+    stampStructureIdentity,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
+  boot.listStructureForPlane = listStructureForPlane;
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -40135,7 +40563,10 @@
   function readAnchorFromElement(el) {
     if (!(el instanceof HTMLElement)) return null;
     const nodeId = String(
-      el.getAttribute("data-build-node") || el.getAttribute("data-build-focus") || "",
+      el.getAttribute("data-build-node") ||
+        el.getAttribute("data-mei-node-id") ||
+        el.getAttribute("data-build-focus") ||
+        "",
     ).trim();
     const previewScope = String(
       el.getAttribute("data-preview-scope") ||
@@ -40159,7 +40590,9 @@
     const id = String(nodeId || "").trim();
     const scope = String(previewScope || "").trim();
     if (id) {
-      const byNode = document.querySelector(`[data-build-node="${CSS.escape(id)}"]`);
+      const byNode =
+        document.querySelector(`[data-build-node="${CSS.escape(id)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(id)}"]`);
       const anchor = readAnchorFromElement(byNode);
       if (anchor) return anchor;
       const byFocus = document.querySelector(`[data-build-focus="${CSS.escape(id)}"]`);
@@ -40235,6 +40668,125 @@
     REVIEW_ROLE_DEPTH,
   };
 })(window);
+
+
+/* ===== spa-navigation/spa/structure-debug-route-status.js ===== */
+/**
+ * Phase 8.5: FAB structure focus → host statusbar debug route (click to copy).
+ */
+(function initStructureDebugRouteStatus(global) {
+  "use strict";
+
+  const COPIED_MS = 1600;
+
+  function debugRouteChip() {
+    return global.document?.getElementById?.("mei-status-debug-route") || null;
+  }
+
+  function buildTempStageRoute(detail) {
+    const appId =
+      String(global.document?.body?.getAttribute("data-app-id") || "").trim() ||
+      (typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(global.location?.pathname)
+        : "");
+    const scope = String(detail?.preview_scope || "").trim().replace(/^\/+|\/+$/g, "");
+    const nodeId = String(detail?.node_id || "").trim();
+    const target = scope || (nodeId ? `node/${nodeId}` : "");
+    if (!appId || !target) return "";
+    if (typeof canonicalTempStagePath === "function") {
+      return canonicalTempStagePath(appId, target);
+    }
+    return `/apps/${appId}/~/${target}`;
+  }
+
+  function setChipRoute(route) {
+    const chip = debugRouteChip();
+    if (!(chip instanceof HTMLElement)) return;
+    const value = String(route || "").trim();
+    if (!value) {
+      chip.hidden = true;
+      chip.textContent = "";
+      chip.removeAttribute("data-route");
+      chip.removeAttribute("data-copied");
+      return;
+    }
+    chip.hidden = false;
+    chip.setAttribute("data-route", value);
+    chip.removeAttribute("data-copied");
+    chip.textContent = value;
+    chip.title = "点击复制调试路由";
+  }
+
+  async function copyRoute(route) {
+    const text = String(route || "").trim();
+    if (!text) return false;
+    try {
+      if (global.navigator?.clipboard?.writeText) {
+        await global.navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = global.document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      global.document.body.appendChild(ta);
+      ta.select();
+      const ok = global.document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function flashCopied(chip) {
+    if (!(chip instanceof HTMLElement)) return;
+    chip.setAttribute("data-copied", "1");
+    chip.textContent = "已复制";
+    chip.title = "已复制到剪贴板";
+    global.setTimeout(() => {
+      const route = chip.getAttribute("data-route") || "";
+      chip.removeAttribute("data-copied");
+      chip.textContent = route;
+      chip.title = "点击复制调试路由";
+    }, COPIED_MS);
+  }
+
+  function onStructureFocus(event) {
+    const route = buildTempStageRoute(event?.detail || {});
+    setChipRoute(route);
+  }
+
+  function onChipClick(event) {
+    const chip = event?.currentTarget;
+    if (!(chip instanceof HTMLElement)) return;
+    const route = chip.getAttribute("data-route") || chip.textContent || "";
+    copyRoute(route).then((ok) => {
+      if (ok) flashCopied(chip);
+    });
+  }
+
+  function bind() {
+    const chip = debugRouteChip();
+    if (chip instanceof HTMLElement && chip.dataset.bound !== "1") {
+      chip.dataset.bound = "1";
+      chip.addEventListener("click", onChipClick);
+    }
+  }
+
+  global.document?.addEventListener?.("mei:structure-focus", onStructureFocus);
+  if (global.document?.readyState === "loading") {
+    global.document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+  // Thin-shell chrome may inject statusbar later.
+  global.document?.addEventListener?.("mei:shell-chrome-ready", bind);
+  global.setInterval(bind, 2000);
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== spa-navigation/spa/projection-depth.js ===== */

@@ -58,7 +58,7 @@ pub(super) fn build_regression_workspace_root() -> PathBuf {
                 r#"
 app(
     id = "{app_id}",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app.add_scene(

@@ -46,7 +46,7 @@ fn build_filter_never_returns_none_and_expands_panel_ref() {
     fs::create_dir_all(root.join("scenes/layouts")).unwrap();
     fs::write(
         root.join("main.mei"),
-        r#"app(id = "t", default_scene = "left", scene = scene_ref(scene_file = "scenes/layouts/left.mei"))"#,
+        r#"app(id = "t", default_stage = "left", scene = scene_ref(scene_file = "scenes/layouts/left.mei"))"#,
     )
     .unwrap();
     fs::write(

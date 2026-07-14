@@ -39,7 +39,10 @@
   function readAnchorFromElement(el) {
     if (!(el instanceof HTMLElement)) return null;
     const nodeId = String(
-      el.getAttribute("data-build-node") || el.getAttribute("data-build-focus") || "",
+      el.getAttribute("data-build-node") ||
+        el.getAttribute("data-mei-node-id") ||
+        el.getAttribute("data-build-focus") ||
+        "",
     ).trim();
     const previewScope = String(
       el.getAttribute("data-preview-scope") ||
@@ -63,7 +66,9 @@
     const id = String(nodeId || "").trim();
     const scope = String(previewScope || "").trim();
     if (id) {
-      const byNode = document.querySelector(`[data-build-node="${CSS.escape(id)}"]`);
+      const byNode =
+        document.querySelector(`[data-build-node="${CSS.escape(id)}"]`) ||
+        document.querySelector(`[data-mei-node-id="${CSS.escape(id)}"]`);
       const anchor = readAnchorFromElement(byNode);
       if (anchor) return anchor;
       const byFocus = document.querySelector(`[data-build-focus="${CSS.escape(id)}"]`);

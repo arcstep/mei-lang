@@ -2,6 +2,7 @@
 
 mod build_protocol;
 mod cache_partition;
+mod ephemeral_overlay;
 mod host_control;
 mod instance_spec;
 mod instance_store;
@@ -15,6 +16,10 @@ pub use build_protocol::{
     SCHEMA_BUILD_RESULT_V1,
 };
 pub use cache_partition::{partition_cache_key, CachePartitionKey};
+pub use ephemeral_overlay::{
+    clear_runtime_overlay, effective_runtime_plan, read_runtime_overlay, write_runtime_overlay,
+    RuntimeOverlayError, RuntimeOverlayTarget, RuntimePolicyOverlay, SCHEMA_RUNTIME_OVERLAY_V1,
+};
 pub use host_control::{
     host_control_path, read_host_control_state, write_host_control_state,
     write_if_revision_matches, ActiveProfileRef, HostControlConflict, HostControlState,

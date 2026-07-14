@@ -251,7 +251,7 @@ mod tests {
         fs::create_dir_all(ws.join("apps/demo/src/scenes")).expect("mkdir app");
         fs::write(
             ws.join("apps/demo/src/main.mei"),
-            r#"app(id=demo, default_scene=home)
+            r#"app(id=demo, default_stage =home)
 app_add_scene(scene=scene_ref(id="home", scene_file="scenes/home.mei"))"#,
         )
         .expect("write main");
@@ -280,7 +280,7 @@ app_add_scene(scene=scene_ref(id="home", scene_file="scenes/home.mei"))"#,
         fs::create_dir_all(ws.join("apps/catalog/src")).expect("mkdir app");
         fs::write(
             ws.join("apps/catalog/src/main.mei"),
-            r#"app(id=catalog, default_scene=analytics-drilldown-board)
+            r#"app(id=catalog, default_stage =analytics-drilldown-board)
 app_add_scene(scene=scene_ref(id="analytics-drilldown-board", scene_file="../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"))
 app_add_scene(scene=scene_ref(id="chart.rose", scene_file="../../stock/components/chart/echarts/previews/chart.rose.mei"))"#,
         )

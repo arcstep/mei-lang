@@ -1,4 +1,4 @@
-app(id="preview-dataset-filter-bar", title="Preview dataset.filter-bar", default_scene="home")
+app(id="preview-dataset-filter-bar", title="Preview dataset.filter-bar", default_stage="home")
 scene(id="home", world="home_world", frame="home_frame", profile="page", summary="Pack preview")
 world(id="home_world", resources=[
     resource(id="sales_data", kind="dataset", title="Sales", source=ds.csv(path="../../stock/authoring/examples/data/sales.csv")),

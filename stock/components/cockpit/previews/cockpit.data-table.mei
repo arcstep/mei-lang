@@ -1,4 +1,4 @@
-app(id="preview-cockpit-data-table", title="Preview cockpit.data-table", default_scene="home")
+app(id="preview-cockpit-data-table", title="Preview cockpit.data-table", default_stage="home")
 scene(id="home", world="home_world", frame="home_frame", profile="cockpit", theme="cockpit", summary="Pack preview")
 world(id="home_world", resources=[resource(id="sales_data", kind="dataset", title="Sales", source=ds.csv(path="../../stock/authoring/examples/data/sales.csv")),])
 frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"),

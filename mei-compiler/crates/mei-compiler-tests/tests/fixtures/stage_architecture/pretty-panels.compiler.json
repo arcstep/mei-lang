@@ -25,7 +25,7 @@
   "app_id": "pretty-panels",
   "app_skeleton": {
     "block_id": "app_skeleton:pretty-panels",
-    "default_scene": "home",
+    "default_stage": "home",
     "id": "pretty-panels",
     "title": "面板调试 · Pretty Panels"
   },
@@ -212,7 +212,7 @@
       "url": "/apps/pretty-panels/home"
     }
   ],
-  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
     "app.mei",
     "data/metrics/effectiveness.bundle.mei",
@@ -476,5 +476,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.7"
+  "syntax_version": "2.5.8"
 }

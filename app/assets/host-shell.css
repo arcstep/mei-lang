@@ -961,9 +961,33 @@
 
 .mei-runtime-control__app-card-launch {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   font-size: var(--mei-shell-font-1);
   color: var(--mei-shell-color-text-muted);
+}
+
+.mei-runtime-control__launch-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.mei-runtime-control__launch-meta code {
+  color: var(--mei-shell-color-text-primary);
+  font-size: 0.92em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mei-runtime-control__mode-field {
+  display: grid;
+  gap: 6px;
+}
+
+.mei-runtime-control__mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .mei-runtime-control__app-card-launch select {

@@ -401,6 +401,7 @@ mod tests {
     fn datasets_proxy_prefers_runtime_then_plug_ds() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
+        std::env::set_var("MEI_APP_RUNTIME_ALLOW_LEGACY", "1");
         let identity = sample_identity();
         match resolve_datasets_proxy_target(
             "mini-data",
@@ -420,17 +421,17 @@ mod tests {
             resolve_datasets_proxy_target("mini-data", None, None),
             DatasetsProxyTarget::None
         ));
+        std::env::remove_var("MEI_APP_RUNTIME_ALLOW_LEGACY");
     }
 
     #[test]
     fn datasets_proxy_required_without_runtime() {
         let _guard = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var("MEI_APP_RUNTIME_REQUIRED", "1");
+        std::env::remove_var("MEI_APP_RUNTIME_ALLOW_LEGACY");
         assert!(matches!(
             resolve_datasets_proxy_target("mini-data", None, Some("http://127.0.0.1:1")),
             DatasetsProxyTarget::RuntimeRequired
         ));
-        std::env::remove_var("MEI_APP_RUNTIME_REQUIRED");
     }
 
     #[test]

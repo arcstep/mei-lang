@@ -3,7 +3,7 @@
 app(
     id = "preview-chart-ranking",
     title = "Preview chart.ranking",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(

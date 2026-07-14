@@ -152,6 +152,116 @@ test.describe("view-revision assemble", () => {
     expect(stageState.worldVisibility).toBe("hidden");
     expect(stageState.opinionBody.length).toBeGreaterThan(0);
     expect(stageState.actionCount).toBeGreaterThan(0);
+
+    await page.evaluate(() => {
+      document
+        .querySelector("mei-cockpit-opinion-panel")
+        ?.shadowRoot?.querySelector(".action")
+        ?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const mount = document.querySelector(
+          "[data-layer2-tab-panel].is-active .access-drilldown-frame-board-mount",
+        );
+        const narrative = mount?.querySelector("mei-cockpit-opinion-panel");
+        return (
+          mount &&
+          narrative?.shadowRoot?.querySelector(".body")?.textContent?.trim()?.length > 40
+        );
+      },
+      { timeout: 60000 },
+    );
+    const t2Detail = await page.evaluate(() => {
+      const panel = document.querySelector("[data-layer2-tab-panel].is-active");
+      const mount = panel?.querySelector(".access-drilldown-frame-board-mount");
+      const narrative = mount?.querySelector("mei-cockpit-opinion-panel");
+      const visibleError = Array.from(
+        panel?.querySelectorAll('[data-drilldown-status="error"]') || [],
+      ).some((node) => !node.hidden && getComputedStyle(node).display !== "none");
+      return {
+        sceneId:
+          mount?.querySelector("[data-scene-id]")?.getAttribute("data-scene-id") || "",
+        narrative:
+          narrative?.shadowRoot?.querySelector(".body")?.textContent?.trim() || "",
+        visibleError,
+      };
+    });
+    expect(t2Detail.sceneId).toMatch(/^park_point_[1-4]_page$/);
+    expect(t2Detail.narrative.length).toBeGreaterThan(40);
+    expect(t2Detail.visibleError).toBe(false);
+
+    await page.evaluate(() => {
+      window.__meiLangBoot?.closeLayer2Stack?.();
+      const actionBar = document.querySelector("mei-cockpit-scene-action-bar");
+      Array.from(actionBar?.shadowRoot?.querySelectorAll(".action-btn") || [])
+        .find((button) => button.textContent?.includes("3D"))
+        ?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const world = document.querySelector("mei-world-stage");
+        return (
+          document.documentElement.classList.contains("mei-world-stage-active") &&
+          world?.shadowRoot?.querySelector("canvas")
+        );
+      },
+      { timeout: 60000 },
+    );
+    const worldState = await page.evaluate(() => {
+      const world = document.querySelector("mei-world-stage");
+      const stage = world?.closest("[data-mei-stage-kind]");
+      return {
+        active: document.documentElement.classList.contains("mei-world-stage-active"),
+        visibility: stage ? getComputedStyle(stage).visibility : "",
+        canvasCount: world?.shadowRoot?.querySelectorAll("canvas").length || 0,
+        error: world?.shadowRoot?.querySelector('[data-role="error"]')?.textContent || "",
+      };
+    });
+    expect(worldState.active).toBe(true);
+    expect(worldState.visibility).toBe("visible");
+    expect(worldState.canvasCount).toBeGreaterThan(0);
+    expect(worldState.error).toBe("");
+  });
+
+  test("mini-park home_2d keeps SVG basemap and T1 content", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    await page.goto(`${base}/apps/mini-park/home_2d`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForFunction(
+      () => {
+        const basemap = document.querySelector("mei-cockpit-basemap-stage");
+        const opinion = document.querySelector("mei-cockpit-opinion-panel");
+        return (
+          document.body?.getAttribute("data-scene-id") === "home_2d" &&
+          basemap?.shadowRoot?.querySelector("svg") &&
+          opinion?.shadowRoot?.querySelector(".body")?.textContent?.trim()?.length > 0
+        );
+      },
+      { timeout: 60000 },
+    );
+    const state = await page.evaluate(() => {
+      const basemap = document.querySelector("mei-cockpit-basemap-stage");
+      const opinions = Array.from(document.querySelectorAll("mei-cockpit-opinion-panel"));
+      return {
+        sceneId: document.body?.getAttribute("data-scene-id") || "",
+        svgCount: basemap?.shadowRoot?.querySelectorAll("svg").length || 0,
+        opinionBodies: opinions.map(
+          (panel) => panel.shadowRoot?.querySelector(".body")?.textContent?.trim() || "",
+        ),
+        actionCount:
+          document
+            .querySelector("mei-cockpit-scene-action-bar")
+            ?.shadowRoot?.querySelectorAll(".action-btn").length || 0,
+      };
+    });
+    expect(state.sceneId).toBe("home_2d");
+    expect(state.svgCount).toBeGreaterThan(0);
+    expect(state.opinionBodies).toHaveLength(4);
+    expect(state.opinionBodies.every((body) => body.length > 0)).toBe(true);
+    expect(state.actionCount).toBeGreaterThan(0);
   });
 
   test("data-demo app surface materializes preview without html fragment", async ({ page }) => {

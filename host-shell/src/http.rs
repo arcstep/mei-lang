@@ -37,8 +37,8 @@ use crate::ops_api::{
 use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap,
-    api_scene_drilldown_context, api_scene_eval_pack, app_root_page, app_stage_page,
-    host_starting_page,
+    api_scene_drilldown_context, api_scene_eval_pack, app_root_page, app_scoped_stage_page,
+    app_stage_page, app_temp_stage_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -128,6 +128,15 @@ pub fn router(state: HostHttpState) -> Router {
         .route(
             "/api/host/apps/:app_id/launch-configs/default",
             post(crate::app_launch_api::api_host_app_ensure_default_launch),
+        )
+        .route(
+            "/api/host/apps/:app_id/runtime-overlay",
+            get(crate::app_launch_api::api_host_app_runtime_overlay_get)
+                .put(crate::app_launch_api::api_host_app_runtime_overlay_put),
+        )
+        .route(
+            "/api/host/apps/:app_id/runtime-overlay/reset",
+            post(crate::app_launch_api::api_host_app_runtime_overlay_reset),
         )
         .route(
             "/api/host/apps/:app_id/launch-configs/:name",
@@ -325,6 +334,16 @@ pub fn router(state: HostHttpState) -> Router {
         .route(
             "/apps/:app_id/prototype/*tail",
             get(redirect_apps_prototype_to_stage),
+        )
+        // Phase 8.5 temporary Stage MUST register before bare `/:stage_id`.
+        .route(
+            "/apps/:app_id/~/*target_tail",
+            get(app_temp_stage_page),
+        )
+        // Legacy deep scoped tails redirect to `/apps/{app}/~/…`.
+        .route(
+            "/apps/:app_id/:stage_id/*scoped_tail",
+            get(app_scoped_stage_page),
         )
         .route("/apps/:app_id/:stage_id", get(app_stage_page))
         .route("/apps/:app_id", get(app_root_page))

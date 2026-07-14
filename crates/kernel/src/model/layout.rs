@@ -6,8 +6,9 @@ pub struct AppDecl {
     pub kind: String,
     pub id: String,
     pub title: Option<String>,
-    #[serde(default)]
-    pub default_scene: Option<String>,
+    /// Default product Stage id (Phase 9: replaces `default_scene`).
+    #[serde(default, alias = "default_scene")]
+    pub default_stage: Option<String>,
     #[serde(default)]
     pub scene: Option<Value>,
 }

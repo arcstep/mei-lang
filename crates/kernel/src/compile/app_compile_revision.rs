@@ -130,7 +130,8 @@ fn default_scene_from_skeleton_or_navigation(raw: &Value) -> Option<String> {
             continue;
         }
         if let Some(scene) = value
-            .get("default_scene")
+            .get("default_stage")
+            .or_else(|| value.get("default_scene"))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -157,6 +158,10 @@ fn default_scene_from_skeleton_or_navigation(raw: &Value) -> Option<String> {
 fn scan_default_scene_from_app_source(app_root: &Path) -> Option<String> {
     let app_main = resolve_app_main_path(app_root);
     let source = std::fs::read_to_string(app_main).ok()?;
+    if let Some(scene) = first_quoted_assignment(source.as_str(), "default_stage") {
+        return Some(scene);
+    }
+    // Phase 9: temporary read of removed authoring field (no silent home fallback).
     if let Some(scene) = first_quoted_assignment(source.as_str(), "default_scene") {
         return Some(scene);
     }

@@ -322,6 +322,8 @@ pub fn instance_spec_from_launch(
             apps: Default::default(),
         })
     };
+    let overlay = mei_host_core::read_runtime_overlay(workspace, app_id);
+    let runtime_plan = mei_host_core::effective_runtime_plan(&runtime_plan, app_id, overlay.as_ref());
     let instance_id = format!(
         "{app_id}@{}@{}",
         generation,
@@ -414,8 +416,14 @@ async fn spawn_managed_runtime(
     let _ = mei_host_core::write_instance_spec(workspace_root, spec);
     let spec_path = mei_host_core::instance_spec_path(workspace_root, spec.app_id.as_str());
     let listen_hint = format!("http://{MANAGED_APP_RUNTIME_HOST}:{reserved_port}");
+    let mode_label = match spec.config_snapshot.runtime_plan.default_mode {
+        mei_lang_kernel::RuntimeMode::Hot => "hot",
+        mei_lang_kernel::RuntimeMode::Lazy => "lazy",
+        mei_lang_kernel::RuntimeMode::Frozen => "frozen",
+    };
     let start_lines = [
         format!("app={}", spec.app_id),
+        format!("mode={mode_label}"),
         format!("generation={}", spec.bundle.generation),
         format!("instance={}", spec.instance_id),
         format!("listen={listen_hint}"),

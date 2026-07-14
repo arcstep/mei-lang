@@ -21,6 +21,8 @@ fn default_access_export() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompiledSceneRoute {
+    /// Product Stage id (wire: `stage_id`; Phase 9 still accepts legacy `scene_id` on read).
+    #[serde(rename = "stage_id", alias = "scene_id")]
     pub scene_id: String,
     #[serde(default)]
     pub frame_id: Option<String>,

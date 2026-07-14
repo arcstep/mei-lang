@@ -92,7 +92,8 @@ pub struct StageDescriptor {
     pub source_anchor: String,
     #[serde(default)]
     pub is_default: bool,
-    /// Legacy scene_id alias (same string as `id` during Phase 1).
+    /// Legacy scene_id alias (same string as `id`). Phase 9: not written to new artifacts.
+    #[serde(default, skip_serializing)]
     pub legacy_scene_id: String,
 }
 
@@ -106,7 +107,8 @@ pub struct StageRoute {
     pub title: Option<String>,
     #[serde(default)]
     pub is_default: bool,
-    /// Legacy scene_id for URL / artifact compatibility.
+    /// Legacy scene_id for URL / artifact compatibility. Phase 9: not written.
+    #[serde(default, skip_serializing)]
     pub legacy_scene_id: String,
 }
 

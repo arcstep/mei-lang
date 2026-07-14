@@ -57,7 +57,7 @@ mod tests {
 app(
     id = "minimal-app",
     title = "Minimal App",
-    default_scene = "home",
+    default_stage = "home",
     scene = scene_ref(scene_file = "scenes/home.mei"),
 )
 "#;
@@ -73,7 +73,7 @@ app(
             Some("minimal-app")
         );
         assert_eq!(
-            exports[0].get("default_scene").and_then(JsonValue::as_str),
+            exports[0].get("default_stage").and_then(JsonValue::as_str),
             Some("home")
         );
     }

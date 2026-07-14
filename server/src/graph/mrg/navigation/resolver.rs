@@ -404,7 +404,7 @@ mod tests {
         .expect("write skeleton");
         fs::write(
             ws.join("apps/demo/src/main.mei"),
-            r#"app(id=demo, default_scene=home, scene=scene_ref(scene_file="scenes/home.mei"))"#,
+            r#"app(id=demo, default_stage = "home", scene=scene_ref(scene_file="scenes/home.mei"))"#,
         )
         .expect("write main");
         let query = AppQuery {
@@ -454,7 +454,7 @@ mod tests {
         fs::create_dir_all(ws.join("apps/catalog/src")).expect("mkdir app");
         fs::write(
             ws.join("apps/catalog/src/main.mei"),
-            r#"app(id=catalog, default_scene=analytics-drilldown-board)
+            r#"app(id=catalog, default_stage = "analytics-drilldown-board")
 app_add_scene(scene=scene_ref(id="analytics-drilldown-board", scene_file="../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"))"#,
         )
         .expect("write main");

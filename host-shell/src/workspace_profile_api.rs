@@ -169,17 +169,6 @@ pub fn last_successful_profile_id(workspace: &FsPath) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn last_successful_apps(workspace: &FsPath) -> Vec<String> {
-    read_host_control_state(workspace)
-        .and_then(|value| value.get("lastSuccessfulApply").cloned())
-        .and_then(|value| value.get("apps").cloned())
-        .and_then(|value| value.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|value| value.as_str().map(str::to_string))
-        .collect()
-}
-
 pub fn read_host_control_state(workspace: &FsPath) -> Option<Value> {
     let state = mei_host_core::read_host_control_state(workspace)?;
     serde_json::to_value(state).ok()

@@ -20,7 +20,7 @@
   "app_id": "mini-grid",
   "app_skeleton": {
     "block_id": "app_skeleton:mini-grid",
-    "default_scene": "home",
+    "default_stage": "home",
     "id": "mini-grid",
     "title": "最简 Grid · Mini Grid"
   },
@@ -101,7 +101,7 @@
       "url": "/apps/build/mini-grid"
     }
   ],
-  "schema_version": "mei-stage-architecture-compiler-baseline-v1",
+  "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
     "app.mei",
     "scene/home.mei",
@@ -138,5 +138,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.7"
+  "syntax_version": "2.5.8"
 }

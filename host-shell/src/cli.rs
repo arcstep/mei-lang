@@ -46,7 +46,11 @@ pub struct AppsStartArgs {
     pub workspace: PathBuf,
     #[arg(long)]
     pub app: String,
-    /// Launch config name under apps/{app}/launch/ or path to a .json file.
+    /// Unified runtime mode for this start (`hot` / `lazy` / `frozen`).
+    /// When omitted, follow `launch.json` `defaultMode` (and clear ephemeral overlay).
+    #[arg(long = "mode", value_name = "MODE")]
+    pub mode: Option<String>,
+    /// Legacy: launch config name/path (ignored — only `launch.json` is used).
     #[arg(long = "config", value_name = "NAME_OR_PATH")]
     pub config: Option<String>,
     /// Control plane URL of a running host (default http://127.0.0.1:9527).
@@ -64,15 +68,13 @@ pub struct AppsStopArgs {
     pub control_url: Option<String>,
 }
 
-/// How serve chooses which apps to autostart (0537).
+/// How serve chooses which apps to autostart (internal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Default)]
 pub enum LaunchMode {
     /// Only bind control plane; start no app runtimes.
     #[default]
     None,
-    /// Start apps whose app.config.json has defaultLaunch set.
-    Defaults,
-    /// Start every discovered app (missing launch → generate default.json).
+    /// Start every discovered app (missing launch → generate launch.json).
     All,
 }
 
@@ -218,16 +220,20 @@ pub struct ReloadArgs {
 pub struct ServeArgs {
     #[arg(long)]
     pub workspace: PathBuf,
-    #[arg(long)]
+    /// Autostart one app (follows `launch.json` defaultMode unless `--mode` is set).
+    #[arg(long = "app", value_name = "APP_ID")]
     pub app: Option<String>,
+    /// Unified runtime mode for `--app` (`hot` / `lazy` / `frozen`).
+    #[arg(long = "mode", value_name = "MODE")]
+    pub mode: Option<String>,
+    /// Autostart **all** discovered apps with each `launch.json` defaultMode.
+    /// Bare `serve` (no `--launch` / `--app`) starts no apps.
+    #[arg(long = "launch", action = clap::ArgAction::SetTrue)]
+    pub launch: bool,
     /// 声明式 workspace profile 路径（迁移遗留）；相对路径按 workspace 根解析
     #[arg(long = "workspace-config", value_name = "PATH")]
     pub workspace_config: Option<PathBuf>,
-    /// Autostart policy (0537). When omitted, no launch autostart; legacy `--app` still works.
-    /// When passed explicitly (including `none`), control-plane launch path wins over `--app`.
-    #[arg(long = "launch", value_enum)]
-    pub launch: Option<LaunchMode>,
-    /// Explicit app launch config file(s). Overrides `--launch` when present.
+    /// Legacy: explicit launch JSON path(s). Prefer `--app` / `--launch`.
     #[arg(long = "app-config", value_name = "PATH")]
     pub app_config: Vec<PathBuf>,
     #[arg(long, default_value = "127.0.0.1")]

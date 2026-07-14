@@ -3,7 +3,7 @@
 app(
     id = "cockpit-templates",
     title = "Cockpit 模板预览",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 app_add_scene(scene = scene_ref(scene_file = "metric-card.mei", scene_id = "metric"))

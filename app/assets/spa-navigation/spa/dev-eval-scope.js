@@ -233,12 +233,19 @@
     if (!entry) return null;
     const unit = String(entry.unit || "").trim();
     const value = entry.value;
+    const label = String(entry.label || "").trim();
+    // Keep value/unit separate so mei-text metric_role slots render correctly
+    // (string content like "23项" would be duplicated into every slot).
     const text = unit ? `${value}${unit}` : String(value ?? "--");
     return {
-      content: text,
+      content: {
+        label,
+        value,
+        unit,
+      },
       text,
-      value: entry.value,
-      label: entry.label || text,
+      value,
+      label: label || text,
       unit,
     };
   }
@@ -296,7 +303,11 @@
       return { "data-mei-dev-eval-placeholder": "1" };
     }
     return {
-      content: "--",
+      content: {
+        label: "--",
+        value: "--",
+        unit: "",
+      },
       text: "--",
       value: "--",
       label: "--",

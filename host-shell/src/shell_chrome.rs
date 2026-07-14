@@ -35,41 +35,14 @@ pub fn default_access_scene(workspace: &Path, app_id: &str) -> String {
         .unwrap_or_else(|| "home".to_string())
 }
 
-/// Unknown stage → 302 to default_scene when the app declares scenes but not this one.
+/// Unknown stage → Phase 9: no silent redirect to default_stage (callers must 404/diagnose).
 pub fn redirect_unknown_access_stage(
-    workspace: &Path,
-    app_id: &str,
-    stage: &str,
-    query: Option<&str>,
+    _workspace: &Path,
+    _app_id: &str,
+    _stage: &str,
+    _query: Option<&str>,
 ) -> Option<String> {
-    let stage = stage.trim();
-    if stage.is_empty() {
-        return None;
-    }
-    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id.trim());
-    let declared = mei_lang_kernel::resolve_scene_ids_from_root(app_root.as_path()).ok()?;
-    if declared.is_empty() || declared.iter().any(|scene| scene == stage) {
-        return None;
-    }
-    let default_scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
-        .ok()
-        .flatten()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| declared.first().cloned())
-        .unwrap_or_else(|| "home".to_string());
-    if default_scene == stage {
-        return None;
-    }
-    let mut location = format!(
-        "/apps/{}/{}",
-        app_id.trim().trim_matches('/'),
-        default_scene
-    );
-    if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
-        location.push('?');
-        location.push_str(query);
-    }
-    Some(location)
+    None
 }
 
 pub fn active_running_app_ids(manifest: &LaunchManifest) -> BTreeSet<String> {
@@ -156,11 +129,27 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
         .map(|app| {
             let launches = mei_host_core::list_launch_configs(workspace.as_path(), app.id.as_str())
                 .unwrap_or_default();
-            let cfg = mei_host_core::load_app_config(&mei_lang_kernel::resolve_app_root(
-                workspace.as_path(),
-                app.id.as_str(),
-            ))
-            .unwrap_or_default();
+            let launch_doc =
+                mei_host_core::read_launch_config(workspace.as_path(), app.id.as_str(), "launch")
+                    .ok();
+            let overlay =
+                mei_host_core::read_runtime_overlay(workspace.as_path(), app.id.as_str());
+            let (git_default_mode, effective_default_mode) = match launch_doc.as_ref() {
+                Some(doc) => {
+                    let base = crate::app_launch_api::base_launch_runtime_plan(
+                        workspace.as_path(),
+                        &doc.config,
+                    );
+                    let git_mode = base.default_mode.slug().to_string();
+                    let effective = mei_host_core::effective_runtime_plan(
+                        &base,
+                        app.id.as_str(),
+                        overlay.as_ref(),
+                    );
+                    (Some(git_mode), Some(effective.default_mode.slug().to_string()))
+                }
+                None => (None, None),
+            };
             let generations = crate::generation_lifecycle::app_generation_summaries(
                 workspace.as_path(),
                 app.id.as_str(),
@@ -169,7 +158,13 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 "appId": app.id,
                 "displayName": app.title,
                 "href": app_access_href(workspace.as_path(), app.id.as_str()),
-                "defaultLaunch": cfg.default_launch,
+                "launchPath": format!("apps/{}/launch.json", app.id),
+                "hasLaunch": launch_doc.is_some(),
+                "launchDisplayName": launch_doc.as_ref().and_then(|d| d.config.display_name.clone()),
+                "gitDefaultMode": git_default_mode,
+                "overlayDefaultMode": overlay.as_ref().and_then(|o| o.default_mode.clone()),
+                "effectiveDefaultMode": effective_default_mode,
+                "overlayRevision": overlay.as_ref().map(|o| o.revision.clone()),
                 "launches": launches,
                 "generations": generations,
             })
@@ -467,9 +462,8 @@ mod tests {
             "/apps/mei-tutorial/intro"
         );
         assert_eq!(
-            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "home", None)
-                .as_deref(),
-            Some("/apps/mei-tutorial/intro")
+            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "home", None),
+            None
         );
         assert_eq!(
             redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "intro", None),

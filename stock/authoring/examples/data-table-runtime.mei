@@ -3,7 +3,7 @@
 app(
     id = "author-example-data-table-runtime",
     title = "Author Example Data Table Runtime",
-    default_scene = "home",
+    default_stage = "home",
 )
 
 scene(
