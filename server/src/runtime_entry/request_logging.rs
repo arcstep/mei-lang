@@ -56,6 +56,40 @@ pub(crate) async fn log_request(request: Request<Body>, next: Next) -> Response 
     let started_at = Instant::now();
     let mut response = next.run(request).instrument(span).await;
     let status = response.status();
+    let latency_ms = started_at.elapsed().as_millis();
+    let path = uri.path();
+    let is_event_stream = path.ends_with("/events")
+        || response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|content_type| {
+                content_type
+                    .split(';')
+                    .next()
+                    .map(str::trim)
+                    .is_some_and(|mime| mime.eq_ignore_ascii_case("text/event-stream"))
+            });
+    // Open-ended SSE must not be buffered — collect() never completes and clients hang pending.
+    if is_event_stream {
+        if let Ok(value) = HeaderValue::from_str(&request_id) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static("x-mei-request-id"), value);
+        }
+        tracing::debug!(
+            request_id = %request_id,
+            route_kind = %route_kind,
+            app_id = %app_id,
+            status = %status,
+            latency_ms,
+            method = %method,
+            uri = %uri,
+            "streaming response opened (body not collected)"
+        );
+        return response;
+    }
+
     let (parts, body) = response.into_parts();
     let body_bytes = match body.collect().await {
         Ok(buffer) => buffer.to_bytes(),
@@ -70,7 +104,6 @@ pub(crate) async fn log_request(request: Request<Body>, next: Next) -> Response 
     };
     let response_bytes = body_bytes.len() as u64;
     response = Response::from_parts(parts, Body::from(body_bytes));
-    let latency_ms = started_at.elapsed().as_millis();
     if let Ok(value) = HeaderValue::from_str(&request_id) {
         response
             .headers_mut()

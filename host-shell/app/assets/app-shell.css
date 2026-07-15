@@ -50,6 +50,8 @@
   --mei-z-cockpit-text-popover: 2350;
   /* Host chrome (topbar/statusbar): above scene cockpit tiers so app-group menus paint over boards. */
   --mei-z-host-chrome: 1400;
+  /* Portaled topbar menus: above scene/drilldown/presentation/copilot; below host modal overlays. */
+  --mei-z-host-chrome-menu: 5700;
   --mei-z-presentation-slide: 5000;
   --mei-z-presentation-caption: 5100;
   --mei-z-spa-loading: 5050;
@@ -1563,7 +1565,7 @@ a.status-chip-link:focus-visible {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  /* Prefer fixed via topbar-app-group-menu.js so overflow-x:auto ancestors cannot clip. */
+  /* Open state is portaled to body by topbar-app-group-menu.js (fixed + --mei-z-host-chrome-menu). */
   z-index: 2;
   min-width: 240px;
   max-width: min(520px, 70vw);
@@ -1578,6 +1580,9 @@ a.status-chip-link:focus-visible {
 }
 .app-group-dropdown[open] > .app-group-menu {
   display: flex;
+}
+.app-group-menu[data-mei-agm-portaled] {
+  display: flex !important;
 }
 /* Legacy Shoelace path (if any remain): undeclared custom elements must not expand the topbar. */
 sl-dropdown:not(:defined) {

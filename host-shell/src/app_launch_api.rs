@@ -391,10 +391,14 @@ async fn prepare_current_launch(
     // `start.sh --app` runs deploy/prebuild.sh in the background while host
     // autostarts. Both used to call prepare→replace_env_generation and race on
     // env/{ver} (macOS ENOTEMPTY / "Directory not empty"). When defer is on,
-    // wait for that background job instead of wiping again.
+    // wait for that background job for apps it covers; if the job finished
+    // without this app (or the app is already imported), fall through to inline
+    // prebuild instead of spinning on a shared prebuild.pid.
     if crate::startup::defer_warmup_to_prebuild() {
-        wait_for_deferred_app_prebuild(workspace, app_id).await?;
-        return Ok(());
+        match wait_for_deferred_app_prebuild(workspace, app_id).await? {
+            DeferredPrebuildWait::Ready => return Ok(()),
+            DeferredPrebuildWait::RunInline => {}
+        }
     }
     let workspace = workspace.to_path_buf();
     let app_id = app_id.to_string();
@@ -408,10 +412,25 @@ async fn prepare_current_launch(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeferredPrebuildWait {
+    Ready,
+    RunInline,
+}
+
 async fn wait_for_deferred_app_prebuild(
     workspace: &std::path::Path,
     app_id: &str,
-) -> Result<(), StartStopError> {
+) -> Result<DeferredPrebuildWait, StartStopError> {
+    // Already imported: do not block on another app's background prebuild PID.
+    if crate::landing::app_has_prebuilt_access_entry(workspace, app_id) {
+        tracing::info!(
+            app = %app_id,
+            "deferred prebuild skip — app already imported"
+        );
+        return Ok(DeferredPrebuildWait::Ready);
+    }
+
     const POLL: std::time::Duration = std::time::Duration::from_millis(500);
     const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
     let started = std::time::Instant::now();
@@ -419,15 +438,22 @@ async fn wait_for_deferred_app_prebuild(
     loop {
         polls = polls.saturating_add(1);
         let pid_alive = deferred_prebuild_pid_alive(workspace);
-        let imported =
-            crate::landing::app_has_prebuilt_access_entry(workspace, app_id);
-        if !pid_alive && imported {
+        let imported = crate::landing::app_has_prebuilt_access_entry(workspace, app_id);
+        if imported {
             tracing::info!(
                 app = %app_id,
                 waited_ms = started.elapsed().as_millis() as u64,
                 "deferred prebuild ready for autostart"
             );
-            return Ok(());
+            return Ok(DeferredPrebuildWait::Ready);
+        }
+        if !pid_alive {
+            tracing::warn!(
+                app = %app_id,
+                waited_ms = started.elapsed().as_millis() as u64,
+                "deferred prebuild ended without this app — falling back to inline prebuild"
+            );
+            return Ok(DeferredPrebuildWait::RunInline);
         }
         if started.elapsed() > MAX_WAIT {
             return Err(StartStopError::Unavailable(format!(
@@ -452,18 +478,26 @@ fn deferred_prebuild_pid_alive(workspace: &std::path::Path) -> bool {
         return false;
     };
     let Ok(pid) = raw.trim().parse::<i32>() else {
+        let _ = std::fs::remove_file(&pid_path);
         return false;
     };
     if pid <= 0 {
+        let _ = std::fs::remove_file(&pid_path);
         return false;
     }
-    std::process::Command::new("kill")
+    let alive = std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .map(|status| status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    if !alive {
+        // Stale pid left after background prebuild exits — clear so later
+        // starts do not treat a recycled PID as "still compiling".
+        let _ = std::fs::remove_file(&pid_path);
+    }
+    alive
 }
 
 fn launch_uses_current_generation(config: &AppLaunchConfig) -> bool {

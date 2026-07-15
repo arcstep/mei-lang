@@ -155,8 +155,19 @@ pub async fn gis_proxy(
         .get(target.as_str())
         .send()
         .await
-        .with_context(|| format!("failed to proxy GIS request to {target}"))
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        .map_err(|error| {
+            tracing::warn!(
+                target = %target,
+                error = %error,
+                "GIS upstream unreachable (Martin / MEI_GIS_PROXY_UPSTREAM)"
+            );
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!(
+                    "GIS upstream unreachable at {target} — start Martin (deploy GIS) or set MEI_GIS_PROXY_UPSTREAM. Detail: {error}"
+                ),
+            )
+        })?;
     let status = StatusCode::from_u16(upstream.status().as_u16())
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let headers = upstream.headers().clone();

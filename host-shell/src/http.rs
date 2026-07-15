@@ -1716,6 +1716,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn host_events_through_request_logging_returns_headers_without_buffering() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = test_state(tmp.path().to_path_buf());
+        let app = router(state).layer(axum::middleware::from_fn(
+            crate::request_logging::log_request,
+        ));
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/host/events")
+                    .body(Body::empty())
+                    .expect("request"),
+            ),
+        )
+        .await
+        .expect("request-logging must not buffer SSE forever")
+        .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+    }
+
+    #[tokio::test]
     async fn build_context_export_route_is_registered() {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::write(

@@ -132,6 +132,11 @@
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
     boot._spaInFlight = spaNavigationInFlight;
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:spa-navigation-start", { detail: { url, navigationId } }),
+      );
+    } catch (_) {}
     requestRuntimeAbort("spa_navigation", { clearCaches: false });
     closeDrilldownOverlay();
     let currentUrl = null;

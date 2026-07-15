@@ -59,6 +59,23 @@ fn is_background_poll_request(method: &Method, path: &str) -> bool {
         || path.starts_with("/gis/")
 }
 
+/// Open-ended streams must not be buffered — `BodyExt::collect` never completes for SSE.
+fn is_streaming_response(path: &str, headers: &axum::http::HeaderMap) -> bool {
+    if path == "/api/host/events" || path.ends_with("/events") {
+        return true;
+    }
+    headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|content_type| {
+            content_type
+                .split(';')
+                .next()
+                .map(str::trim)
+                .is_some_and(|mime| mime.eq_ignore_ascii_case("text/event-stream"))
+        })
+}
+
 fn classify_route(path: &str) -> (&'static str, String) {
     if path.starts_with("/api/datasets/") {
         return ("api", "datasets".to_string());
@@ -121,6 +138,24 @@ pub async fn log_request(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let status = response.status();
     let latency_ms = started_at.elapsed().as_millis() as u64;
+    let uri_text = uri.to_string();
+
+    // SSE / long-lived streams: pass body through. Collecting would hang forever and
+    // the client would never even receive response headers (DevTools stays "pending").
+    if is_streaming_response(path.as_str(), response.headers()) {
+        tracing::debug!(
+            request_id = %request_id,
+            route_kind = %route_kind,
+            app_id = %app_id,
+            status = %status,
+            latency_ms,
+            method = %method,
+            uri = %uri,
+            "streaming response opened (body not collected)"
+        );
+        return response;
+    }
+
     let (parts, body) = response.into_parts();
     let body_bytes = match body.collect().await {
         Ok(buffer) => buffer.to_bytes(),
@@ -135,7 +170,6 @@ pub async fn log_request(request: Request, next: Next) -> Response {
     };
     let response_bytes = body_bytes.len() as u64;
     response = Response::from_parts(parts, Body::from(body_bytes));
-    let uri_text = uri.to_string();
     let page_obs = crate::client_trace::parse_page_observability_from_headers(response.headers());
 
     if status.is_server_error() {
