@@ -96,11 +96,16 @@ sidecar 收集与 `scripts/build.sh` 一样会做 **cargo target hygiene**（超
 
 ## 快照（GUI 与 CLI）
 
-启动器：打开工作区后选 app →「导出快照…」；对方「导入快照…」即可。
+启动器：打开工作区后**多选** app →「导出快照…」（默认打 **portable v2**：含可移植配置、parquet、assets、csv/json，视频/底图外置）；对方「导入快照…」即可。  
+导入后若有外置资源，用「待补齐资源」面板选择文件自动落位。
 
 无 GUI 时：
 
 ```bash
+# v2 portable（推荐）
+mei-snapshot pack --workspace ../workspaces/ws-demo-v2 --app mini-data --app zhifa --portable \
+  --out /tmp/demo.mei-snapshot.zip
+# v1 兼容
 mei-snapshot pack --workspace ../workspaces/ws-demo-v2 --app mini-data --out /tmp/mini-data.mei-snapshot.zip --include-data
-mei-snapshot unpack --archive /tmp/mini-data.mei-snapshot.zip --into /tmp/snap-out
+mei-snapshot unpack --archive /tmp/demo.mei-snapshot.zip --into /tmp/snap-out
 ```

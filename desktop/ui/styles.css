@@ -75,7 +75,9 @@ h1 {
 .status,
 .recent,
 .actions,
-.logs {
+.logs,
+.martin,
+.resources {
   background: color-mix(in srgb, var(--panel) 92%, black);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -101,7 +103,8 @@ h1 {
 
 .logs h2,
 .recent h2,
-.martin h2 {
+.martin h2,
+.resources h2 {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
@@ -110,7 +113,8 @@ h1 {
   letter-spacing: 0.06em;
 }
 
-.martin.panel {
+.martin.panel,
+.resources.panel {
   margin: 1.25rem 0;
   padding: 1rem 1.1rem;
   border-radius: 10px;
@@ -118,10 +122,47 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.martin .sub-inline {
+.martin .sub-inline,
+.resources .sub-inline {
   margin: 0.35rem 0 0.85rem;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.resources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.88rem;
+}
+
+.resource-row {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b1016;
+}
+
+.resource-meta code {
+  font-size: 0.78rem;
+  color: #9ec1ff;
+}
+
+.resource-meta .muted {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.resource-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .martin-actions {

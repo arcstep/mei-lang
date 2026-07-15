@@ -142,15 +142,24 @@ if [[ -d "${ASSETS_SRC}" ]]; then
     "${ASSETS_SRC}/" "${OUT_DIR}/app/assets/"
 fi
 
-# Stock components are resolved via MEI_PACKAGE_ROOT/stock when workspace has no override.
-STOCK_SRC="${MEI_LANG_ROOT}/stock/components"
-if [[ -d "${STOCK_SRC}" ]]; then
+# Stock components + templates are resolved via MEI_PACKAGE_ROOT/stock when workspace has no override.
+STOCK_COMPONENTS="${MEI_LANG_ROOT}/stock/components"
+if [[ -d "${STOCK_COMPONENTS}" ]]; then
   mkdir -p "${OUT_DIR}/stock"
   rsync -a --delete \
     --exclude 'node_modules' \
     --exclude '.git' \
-    "${STOCK_SRC}/" "${OUT_DIR}/stock/components/"
+    "${STOCK_COMPONENTS}/" "${OUT_DIR}/stock/components/"
   echo "  + stock/components"
+fi
+STOCK_TEMPLATES="${MEI_LANG_ROOT}/stock/templates"
+if [[ -d "${STOCK_TEMPLATES}" ]]; then
+  mkdir -p "${OUT_DIR}/stock"
+  rsync -a --delete \
+    --exclude 'node_modules' \
+    --exclude '.git' \
+    "${STOCK_TEMPLATES}/" "${OUT_DIR}/stock/templates/"
+  echo "  + stock/templates"
 fi
 
 export OUT_DIR PROFILE

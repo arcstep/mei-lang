@@ -152,7 +152,7 @@ fn list_workspace_apps(state: State<'_, AppState>) -> Result<Vec<String>, String
 
 #[tauri::command]
 fn export_snapshot(
-    app_id: String,
+    app_ids: Vec<String>,
     out_path: String,
     include_data: bool,
     state: State<'_, AppState>,
@@ -164,15 +164,20 @@ fn export_snapshot(
         .to_path_buf();
     drop(host);
 
-    let app_id = app_id.trim().to_string();
-    if app_id.is_empty() {
-        return Err("appId 不能为空".into());
+    let mut ids: Vec<String> = app_ids
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return Err("请至少选择一个 app".into());
     }
     let mut out = PathBuf::from(&out_path);
     if out.as_os_str().is_empty() {
         return Err("输出路径不能为空".into());
     }
-    // Ensure recognizable snapshot extension (save dialog may omit it).
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
@@ -185,32 +190,52 @@ fn export_snapshot(
         out.set_file_name(format!("{stem}.mei-snapshot.zip"));
     }
 
-    // Preflight: clearer error when bundle missing.
-    match mei_snapshot::resolve_app_env_root(&workspace, &app_id)
-        .and_then(|env| mei_snapshot::resolve_bundle_path(&env, &app_id))
-    {
-        Ok(_) => {}
-        Err(err) => {
-            return Err(format!(
-                "无法导出 {app_id}：{err}（请先 compile，或在宿主 /runtime 执行 reload）"
-            ));
+    for app_id in &ids {
+        match mei_snapshot::resolve_app_env_root(&workspace, app_id)
+            .and_then(|env| mei_snapshot::resolve_bundle_path(&env, app_id))
+        {
+            Ok(_) => {}
+            Err(err) => {
+                return Err(format!(
+                    "无法导出 {app_id}：{err}（请先 compile，或在宿主 /runtime 执行 reload）"
+                ));
+            }
         }
     }
 
-    let manifest = mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
-        workspace,
-        app_id: app_id.clone(),
-        out: out.clone(),
-        include_data,
-        include_cache: false,
-        default_scene: None,
-        compiler_version: None,
-    })
-    .map_err(|e| e.to_string())?;
+    let package_root = std::env::var_os("MEI_PACKAGE_ROOT").map(PathBuf::from);
+
+    // Prefer portable v2 whenever possible (multi-app or single with data closure).
+    let use_portable = ids.len() > 1 || include_data;
+    let manifest = if use_portable {
+        mei_snapshot::pack_portable_snapshot(&mei_snapshot::PortablePackOptions {
+            workspace,
+            app_ids: ids.clone(),
+            out: out.clone(),
+            default_scene: None,
+            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            workspace_label: None,
+            package_root,
+            include_media: false,
+        })
+        .map_err(|e| e.to_string())?
+    } else {
+        mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
+            workspace,
+            app_id: ids[0].clone(),
+            out: out.clone(),
+            include_data: false,
+            include_cache: false,
+            default_scene: None,
+            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        })
+        .map_err(|e| e.to_string())?
+    };
 
     Ok(format!(
-        "已导出 {} → {}（files={}, dataHint={}）",
-        app_id,
+        "已导出 v{} [{}] → {}（files={}, dataHint={}）",
+        manifest.format_version,
+        ids.join(", "),
         out.display(),
         manifest.files.len(),
         manifest.data_mode_hint.as_str()
@@ -283,23 +308,42 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
     let unpacked =
         mei_snapshot::unpack_snapshot(&archive_path, &dest).map_err(|e| e.to_string())?;
 
-    // Materialize a minimal workspace pointing at the unpacked bundle via a staging ws.
-    let ws = paths::snapshot_workspace_dir(&unpacked.manifest.app_id)
-        .map_err(|e| e.to_string())?;
+    let ws_key = if unpacked.app_bundle_paths.len() > 1 {
+        format!("multi-{}", unpacked.manifest.app_id)
+    } else {
+        unpacked.manifest.app_id.clone()
+    };
+    let ws = paths::snapshot_workspace_dir(&ws_key).map_err(|e| e.to_string())?;
     materialize_snapshot_workspace(&ws, &unpacked).map_err(|e| e.to_string())?;
 
     let data_ceiling = unpacked.manifest.data_mode_hint.as_str().to_string();
+    let app_ids: Vec<String> = unpacked
+        .app_bundle_paths
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+    let primary = app_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| unpacked.manifest.app_id.clone());
     {
         let gis = martin_gis_env(&state);
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
-        // Prefer explicit import before serve so registry exists for --app autostart.
-        host.import_bundle(&ws, &unpacked.manifest.app_id, &unpacked.bundle_path)
-            .map_err(|e| e.to_string())?;
+        for (app_id, bundle_path) in &unpacked.app_bundle_paths {
+            host.import_bundle(&ws, app_id, bundle_path)
+                .map_err(|e| e.to_string())?;
+        }
+        // Multi-app: --launch; single-app: --app
+        let launch_all = app_ids.len() > 1;
         host.start_workspace(
             &ws,
-            Some(unpacked.manifest.app_id.clone()),
+            if launch_all {
+                None
+            } else {
+                Some(primary.clone())
+            },
             Some(data_ceiling),
-            false, // --app already selects the snapshot app
+            launch_all,
             gis,
         )
         .map_err(|e| e.to_string())?;
@@ -313,43 +357,133 @@ fn materialize_snapshot_workspace(
     ws: &PathBuf,
     unpacked: &mei_snapshot::UnpackResult,
 ) -> anyhow::Result<()> {
-    let app_id = &unpacked.manifest.app_id;
-    let app_root = ws.join("apps").join(app_id);
-    let env_root = app_root.join("env");
-    // Host expects env/current → WS-yyyymmdd.n (symlink on Unix; marker file on Windows).
-    // Wipe prior env so re-import does not leave a real `current/` directory (Unix rejects that).
-    if env_root.exists() {
-        std::fs::remove_dir_all(&env_root)?;
+    // Wipe prior apps so re-import is clean.
+    let apps_root = ws.join("apps");
+    if apps_root.exists() {
+        std::fs::remove_dir_all(&apps_root)?;
     }
-    let generation = snapshot_generation_id();
-    let gen_dir = env_root.join(&generation);
-    let exchange = gen_dir.join("build").join("exchange");
-    std::fs::create_dir_all(&exchange)?;
-    let bundle_name = format!("{app_id}.meibundle");
-    std::fs::copy(&unpacked.bundle_path, exchange.join(&bundle_name))?;
-    if unpacked.dest.join("data-snapshots").is_dir() {
-        let var_ds = gen_dir.join("var").join("data-snapshots");
-        copy_dir(&unpacked.dest.join("data-snapshots"), &var_ds)?;
+    if ws.join("stock").exists() {
+        let _ = std::fs::remove_dir_all(ws.join("stock"));
     }
-    link_env_current(&env_root, &generation)?;
 
-    if !ws.join("workspace.json").exists() {
-        std::fs::write(
-            ws.join("workspace.json"),
-            serde_json::json!({
-                "id": format!("snapshot-{app_id}"),
-                "label": format!("Snapshot {app_id}"),
-                "schemaVersion": 2,
-            })
-            .to_string(),
-        )?;
+    let is_v2 = unpacked.manifest.is_v2();
+    let generation = snapshot_generation_id();
+
+    if is_v2 {
+        for (app_id, bundle_path) in &unpacked.app_bundle_paths {
+            let app_pack = unpacked.dest.join("apps").join(app_id);
+            let app_root = ws.join("apps").join(app_id);
+            let env_root = app_root.join("env");
+            let gen_dir = env_root.join(&generation);
+            let exchange = gen_dir.join("build").join("exchange");
+            std::fs::create_dir_all(&exchange)?;
+            let bundle_name = format!("{app_id}.meibundle");
+            std::fs::copy(bundle_path, exchange.join(&bundle_name))?;
+
+            let ds_src = app_pack.join("data-snapshots");
+            if ds_src.is_dir() {
+                let var_ds = gen_dir.join("var").join("data-snapshots");
+                copy_dir(&ds_src, &var_ds)?;
+                // Sealed marker next to parquet store
+                std::fs::write(
+                    var_ds.join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER),
+                    b"1\n",
+                )?;
+            }
+            link_env_current(&env_root, &generation)?;
+
+            // Portable runtime config
+            let runtime_toml = app_pack.join("runtime").join("app.toml");
+            if runtime_toml.is_file() {
+                std::fs::create_dir_all(&app_root)?;
+                std::fs::copy(&runtime_toml, app_root.join("app.toml"))?;
+            } else if !app_root.join("app.toml").exists() {
+                std::fs::create_dir_all(&app_root)?;
+                std::fs::write(
+                    app_root.join("app.toml"),
+                    format!("id = \"{app_id}\"\nlabel = \"{app_id}\"\n"),
+                )?;
+            }
+            std::fs::write(
+                app_root.join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER),
+                b"1\n",
+            )?;
+
+            // Assets
+            let assets_src = app_pack.join("assets");
+            if assets_src.is_dir() {
+                copy_dir(&assets_src, &app_root.join("assets"))?;
+            }
+            let proto_src = app_pack.join("prototype");
+            if proto_src.is_dir() {
+                copy_dir(&proto_src, &app_root.join("prototype"))?;
+            }
+            // Structured / optional media data → upload/
+            let portable_data = app_pack.join("portable-data");
+            if portable_data.is_dir() {
+                copy_dir(&portable_data, &app_root)?;
+            }
+        }
+
+        // Stock overlay
+        let overlay = unpacked.dest.join("stock-overlay");
+        if overlay.is_dir() {
+            copy_dir(&overlay, &ws.join("stock"))?;
+        }
+
+        // resources.json at workspace root for Viewer replenish UI
+        let resources_src = unpacked.dest.join("resources.json");
+        if resources_src.is_file() {
+            std::fs::copy(&resources_src, ws.join("resources.json"))?;
+        }
+        let readme = unpacked.dest.join("README.txt");
+        if readme.is_file() {
+            let _ = std::fs::copy(&readme, ws.join("SNAPSHOT-README.txt"));
+        }
+    } else {
+        // v1 legacy layout
+        let app_id = &unpacked.manifest.app_id;
+        let app_root = ws.join("apps").join(app_id);
+        let env_root = app_root.join("env");
+        if env_root.exists() {
+            std::fs::remove_dir_all(&env_root)?;
+        }
+        let gen_dir = env_root.join(&generation);
+        let exchange = gen_dir.join("build").join("exchange");
+        std::fs::create_dir_all(&exchange)?;
+        let bundle_name = format!("{app_id}.meibundle");
+        std::fs::copy(&unpacked.bundle_path, exchange.join(&bundle_name))?;
+        if unpacked.dest.join("data-snapshots").is_dir() {
+            let var_ds = gen_dir.join("var").join("data-snapshots");
+            copy_dir(&unpacked.dest.join("data-snapshots"), &var_ds)?;
+        }
+        link_env_current(&env_root, &generation)?;
+        if !app_root.join("app.toml").exists() {
+            std::fs::create_dir_all(&app_root)?;
+            std::fs::write(
+                app_root.join("app.toml"),
+                format!("id = \"{app_id}\"\nlabel = \"{app_id}\"\n"),
+            )?;
+        }
     }
-    if !app_root.join("app.toml").exists() {
-        std::fs::write(
-            app_root.join("app.toml"),
-            format!("id = \"{app_id}\"\nlabel = \"{app_id}\"\n"),
-        )?;
-    }
+
+    let label = unpacked
+        .manifest
+        .workspace_label
+        .clone()
+        .unwrap_or_else(|| format!("Snapshot {}", unpacked.manifest.app_id));
+    std::fs::write(
+        ws.join("workspace.json"),
+        serde_json::json!({
+            "id": format!("snapshot-{}", unpacked.manifest.app_id),
+            "label": label,
+            "schemaVersion": 2,
+            "workspace": {
+                "defaultApp": unpacked.manifest.app_id,
+            }
+        })
+        .to_string(),
+    )?;
     Ok(())
 }
 
@@ -600,6 +734,163 @@ fn martin_open_catalog(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn list_snapshot_resources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let host = state.host.lock().map_err(|e| e.to_string())?;
+    let workspace = host
+        .workspace()
+        .ok_or_else(|| "未打开工作区".to_string())?
+        .to_path_buf();
+    drop(host);
+    let path = workspace.join("resources.json");
+    if !path.is_file() {
+        return Ok(serde_json::json!({
+            "schemaVersion": "mei-snapshot-resources-v1",
+            "resources": [],
+            "workspace": workspace.display().to_string(),
+        }));
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut doc: mei_snapshot::ResourcesDocument =
+        serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    for entry in &mut doc.resources {
+        let target = workspace.join(&entry.target_path);
+        if target.is_file() || target.is_dir() {
+            if entry.state == mei_snapshot::ResourceState::External
+                || entry.state == mei_snapshot::ResourceState::Missing
+            {
+                entry.state = mei_snapshot::ResourceState::Bundled;
+                entry.hint = Some("已在工作区就位".into());
+            }
+        }
+    }
+    Ok(serde_json::json!({
+        "schemaVersion": doc.schema_version,
+        "resources": doc.resources,
+        "workspace": workspace.display().to_string(),
+    }))
+}
+
+#[tauri::command]
+fn replenish_snapshot_resource(
+    resource_id: String,
+    source_file: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let host = state.host.lock().map_err(|e| e.to_string())?;
+    let workspace = host
+        .workspace()
+        .ok_or_else(|| "未打开工作区".to_string())?
+        .to_path_buf();
+    drop(host);
+    let resources_path = workspace.join("resources.json");
+    if !resources_path.is_file() {
+        return Err("当前工作区没有 resources.json（非 portable snapshot）".into());
+    }
+    let text = std::fs::read_to_string(&resources_path).map_err(|e| e.to_string())?;
+    let mut doc: mei_snapshot::ResourcesDocument =
+        serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let entry = doc
+        .resources
+        .iter_mut()
+        .find(|r| r.id == resource_id)
+        .ok_or_else(|| format!("未知资源 id: {resource_id}"))?;
+    let src = PathBuf::from(&source_file);
+    if !src.is_file() {
+        return Err(format!("源文件不存在: {source_file}"));
+    }
+    let mut hash_note = String::new();
+    if let Some(expected) = entry.sha256.as_ref() {
+        if let Ok(actual) = sha256_path(&src) {
+            if &actual != expected {
+                hash_note = format!("（校验与导出时不一致，仍已放入）");
+            }
+        }
+    }
+    let dest = workspace.join(&entry.target_path);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    entry.state = mei_snapshot::ResourceState::Bundled;
+    entry.bytes = std::fs::metadata(&dest).ok().map(|m| m.len());
+    entry.sha256 = sha256_path(&dest).ok();
+    entry.hint = Some(format!("已通过 Viewer 补齐{hash_note}"));
+    std::fs::write(
+        &resources_path,
+        serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "已补齐 {} → {}{hash_note}",
+        resource_id,
+        dest.display()
+    ))
+}
+
+#[tauri::command]
+fn reveal_snapshot_resource_dir(
+    resource_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let host = state.host.lock().map_err(|e| e.to_string())?;
+    let workspace = host
+        .workspace()
+        .ok_or_else(|| "未打开工作区".to_string())?
+        .to_path_buf();
+    drop(host);
+    let resources_path = workspace.join("resources.json");
+    let text = std::fs::read_to_string(&resources_path).map_err(|e| e.to_string())?;
+    let doc: mei_snapshot::ResourcesDocument =
+        serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let entry = doc
+        .resources
+        .iter()
+        .find(|r| r.id == resource_id)
+        .ok_or_else(|| format!("未知资源 id: {resource_id}"))?;
+    let dest = workspace.join(&entry.target_path);
+    let dir = dest.parent().unwrap_or(workspace.as_path()).to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(dir.display().to_string())
+}
+
+fn sha256_path(path: &std::path::Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[tauri::command]
 fn open_host_ui(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let mut host = state.host.lock().map_err(|e| e.to_string())?;
     let port = host
@@ -770,6 +1061,9 @@ pub fn run() {
             export_snapshot,
             start_workspace,
             import_snapshot,
+            list_snapshot_resources,
+            replenish_snapshot_resource,
+            reveal_snapshot_resource_dir,
             stop_host,
             open_host_ui,
             host_log_tail,

@@ -30,19 +30,26 @@
         <button type="button" id="btn-import-snapshot">导入快照…</button>
         <div class="export-row">
           <label class="export-app">
-            <span>导出 app</span>
-            <select id="export-app" disabled>
+            <span>导出 apps（可多选）</span>
+            <select id="export-app" multiple size="4" disabled>
               <option value="">（未打开工作区）</option>
             </select>
           </label>
           <label class="follow">
             <input type="checkbox" id="export-include-data" checked />
-            含 data-snapshots
+            可移植包（含数据/配置，推荐）
           </label>
         </div>
         <button type="button" id="btn-export-snapshot" disabled>导出快照…</button>
         <button type="button" id="btn-open-host" disabled>在浏览器打开宿主</button>
         <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
+      </section>
+
+      <section class="resources panel" id="resources-panel">
+        <h2>待补齐资源</h2>
+        <p class="sub-inline">portable snapshot 外置的视频/底图等；选择文件后自动放到正确路径。</p>
+        <div id="resources-list" class="resources-list">（打开 snapshot 工作区后显示）</div>
+        <button type="button" id="btn-refresh-resources" class="secondary">重新检测</button>
       </section>
 
       <section class="martin panel">

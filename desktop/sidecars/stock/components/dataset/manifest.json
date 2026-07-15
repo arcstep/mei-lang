@@ -1,0 +1,16 @@
+{
+  "components": {
+    "dataset.table": {
+      "tag": "mei-dataset-table",
+      "script": "table.js"
+    },
+    "dataset.filter-bar": {
+      "tag": "mei-dataset-filter-bar",
+      "script": "filter-bar.js"
+    },
+    "dataset.summary-cards": {
+      "tag": "mei-dataset-summary-cards",
+      "script": "summary-cards.js"
+    }
+  }
+}

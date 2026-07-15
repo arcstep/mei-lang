@@ -23,6 +23,8 @@ const el = {
   exportIncludeData: document.getElementById("export-include-data"),
   openHost: document.getElementById("btn-open-host"),
   stop: document.getElementById("btn-stop"),
+  resourcesList: document.getElementById("resources-list"),
+  refreshResources: document.getElementById("btn-refresh-resources"),
   martinStatus: document.getElementById("martin-status"),
   martinVersion: document.getElementById("martin-version"),
   martinMbtiles: document.getElementById("martin-mbtiles"),
@@ -103,15 +105,20 @@ async function refreshLogs({ force = false } = {}) {
 
 let lastWorkspaceForApps = null;
 
+function selectedExportApps() {
+  return Array.from(el.exportApp.selectedOptions || [])
+    .map((o) => o.value)
+    .filter(Boolean);
+}
+
 async function refreshExportApps(workspace) {
   const hasWorkspace = Boolean(workspace);
   if (workspace === lastWorkspaceForApps && hasWorkspace) {
-    // Keep current select; only re-enable if needed.
-    el.exportSnap.disabled = el.exportApp.disabled || !el.exportApp.value;
+    el.exportSnap.disabled = el.exportApp.disabled || selectedExportApps().length === 0;
     return;
   }
   lastWorkspaceForApps = workspace;
-  const prev = el.exportApp.value;
+  const prev = selectedExportApps();
   el.exportApp.innerHTML = "";
   if (!hasWorkspace) {
     const opt = document.createElement("option");
@@ -137,13 +144,13 @@ async function refreshExportApps(workspace) {
       const opt = document.createElement("option");
       opt.value = id;
       opt.textContent = id;
+      if (prev.includes(id) || (prev.length === 0 && apps.length === 1)) {
+        opt.selected = true;
+      }
       el.exportApp.appendChild(opt);
     }
-    if (prev && apps.includes(prev)) {
-      el.exportApp.value = prev;
-    }
     el.exportApp.disabled = false;
-    el.exportSnap.disabled = false;
+    el.exportSnap.disabled = selectedExportApps().length === 0;
   } catch (e) {
     const opt = document.createElement("option");
     opt.value = "";
@@ -152,6 +159,72 @@ async function refreshExportApps(workspace) {
     el.exportApp.disabled = true;
     el.exportSnap.disabled = true;
     setHint(String(e), true);
+  }
+}
+
+async function refreshResources() {
+  if (!el.resourcesList) return;
+  try {
+    const doc = await invoke("list_snapshot_resources");
+    const resources = Array.isArray(doc.resources) ? doc.resources : [];
+    const pending = resources.filter(
+      (r) => r.state === "external" || r.state === "missing",
+    );
+    if (!resources.length) {
+      el.resourcesList.textContent = "当前工作区无 resources.json（打开普通工作区或 v1 快照时正常）。";
+      return;
+    }
+    if (!pending.length) {
+      el.resourcesList.textContent = `全部 ${resources.length} 项资源已就绪。`;
+      return;
+    }
+    el.resourcesList.innerHTML = "";
+    for (const r of pending) {
+      const row = document.createElement("div");
+      row.className = "resource-row";
+      const meta = document.createElement("div");
+      meta.className = "resource-meta";
+      meta.innerHTML = `<strong>${r.kind}</strong> · ${r.id}<br/><code>${r.targetPath || ""}</code><br/><span class="muted">${r.hint || ""}</span>`;
+      const actions = document.createElement("div");
+      actions.className = "resource-actions";
+      const pick = document.createElement("button");
+      pick.type = "button";
+      pick.textContent = "选择文件…";
+      pick.addEventListener("click", async () => {
+        try {
+          let selected = await open({ multiple: false });
+          if (!selected) return;
+          if (Array.isArray(selected)) selected = selected[0];
+          const msg = await invoke("replenish_snapshot_resource", {
+            resourceId: r.id,
+            sourceFile: String(selected),
+          });
+          setHint(msg);
+          await refreshResources();
+        } catch (e) {
+          setHint(String(e), true);
+        }
+      });
+      const reveal = document.createElement("button");
+      reveal.type = "button";
+      reveal.className = "secondary compact";
+      reveal.textContent = "打开目录";
+      reveal.addEventListener("click", async () => {
+        try {
+          const dir = await invoke("reveal_snapshot_resource_dir", { resourceId: r.id });
+          setHint(`已打开：${dir}`);
+        } catch (e) {
+          setHint(String(e), true);
+        }
+      });
+      actions.appendChild(pick);
+      actions.appendChild(reveal);
+      row.appendChild(meta);
+      row.appendChild(actions);
+      el.resourcesList.appendChild(row);
+    }
+  } catch (_) {
+    el.resourcesList.textContent = "（无法读取资源清单）";
   }
 }
 
@@ -175,6 +248,7 @@ async function refreshStatus() {
   el.stop.disabled = !s.running;
   if (s.viewerVersion) applyViewerVersion(s.viewerVersion);
   await refreshExportApps(s.workspace || null);
+  await refreshResources();
   if (s.autoOpened && ready) {
     setHint(
       "已从当前工作区自动启动（含 --launch）。菜单「查看 → 显示启动器与运行日志」或 ⌘/Ctrl+L 可回看日志。"
@@ -293,9 +367,9 @@ el.importSnap.addEventListener("click", async () => {
 
 el.exportSnap.addEventListener("click", async () => {
   setHint("");
-  const appId = el.exportApp.value;
-  if (!appId) {
-    setHint("请先选择要导出的 app。", true);
+  const appIds = selectedExportApps();
+  if (!appIds.length) {
+    setHint("请先选择要导出的 app（可多选）。", true);
     return;
   }
   if (typeof save !== "function") {
@@ -303,17 +377,19 @@ el.exportSnap.addEventListener("click", async () => {
     return;
   }
   try {
+    const defaultName =
+      appIds.length === 1 ? `${appIds[0]}.mei-snapshot.zip` : `multi-${appIds[0]}.mei-snapshot.zip`;
     let outPath = await save({
-      defaultPath: `${appId}.mei-snapshot.zip`,
+      defaultPath: defaultName,
       filters: [{ name: "Mei Snapshot", extensions: ["zip"] }],
     });
     if (!outPath) return;
     if (typeof outPath !== "string") {
       outPath = String(outPath);
     }
-    setHint(`正在导出 ${appId}…`);
+    setHint(`正在导出 ${appIds.join(", ")}…`);
     const msg = await invoke("export_snapshot", {
-      appId,
+      appIds,
       outPath,
       includeData: Boolean(el.exportIncludeData.checked),
     });
@@ -324,7 +400,12 @@ el.exportSnap.addEventListener("click", async () => {
 });
 
 el.exportApp.addEventListener("change", () => {
-  el.exportSnap.disabled = el.exportApp.disabled || !el.exportApp.value;
+  el.exportSnap.disabled = el.exportApp.disabled || selectedExportApps().length === 0;
+});
+
+el.refreshResources?.addEventListener("click", async () => {
+  await refreshResources();
+  setHint("已重新检测资源清单。");
 });
 
 el.openHost.addEventListener("click", async () => {

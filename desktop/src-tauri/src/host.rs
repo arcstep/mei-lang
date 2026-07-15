@@ -127,6 +127,9 @@ impl HostHandle {
             cmd.arg("--data-mode-ceiling").arg(ceiling);
         }
         apply_sidecar_env(&mut cmd)?;
+        if workspace_has_portable_snapshot(workspace) {
+            cmd.env("MEI_SNAPSHOT_SEALED_DATA", "1");
+        }
         if let Some((upstream, tiles_json)) = gis_env {
             cmd.env("MEI_GIS_PROXY_UPSTREAM", &upstream);
             cmd.env("MEI_TILES_JSON_PATH", &tiles_json);
@@ -237,6 +240,23 @@ impl HostHandle {
         }
         Ok(())
     }
+}
+
+fn workspace_has_portable_snapshot(workspace: &Path) -> bool {
+    let apps = workspace.join("apps");
+    let Ok(entries) = std::fs::read_dir(&apps) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER)
+            .is_file()
+        {
+            return true;
+        }
+    }
+    workspace.join("resources.json").is_file()
 }
 
 fn apply_sidecar_env(cmd: &mut Command) -> anyhow::Result<()> {

@@ -1,0 +1,8 @@
+{
+  "components": {
+    "mei.text": {
+      "tag": "mei-text",
+      "script": "text.js"
+    }
+  }
+}
