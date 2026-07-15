@@ -1,6 +1,6 @@
 # 分析型 / 详情 T2 page frame 模板宏（原 cockpit/frames/*，迁入 drilldown）。
-# 0335：布局真源改为 plane 母版（plane-macros.mei）；本文件的 analytics_frame 等
-# 仍供 page_instance.frame 兼容，新稿优先 analytics_t2_plane / case_detail_t2_plane。
+# 0335：标准 analytics 页可由编译器从 plane/bindings 推导 frame（省略本宏）；
+# `analytics_frame` 仍供过渡兼容与特殊页显式 override（case / mechanism / AI）。
 # 间距对齐 0332 space_1（单位「1」= 4px）。
 
 use template "cockpit/layout-defaults" as ui

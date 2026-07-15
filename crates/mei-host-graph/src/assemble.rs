@@ -390,7 +390,11 @@ fn assemble_scope_from_registry_uncached(
     ));
     let world_exchange =
         build_world_exchange(app_root.as_path(), &registry, app_id).unwrap_or_default();
-    let component_assets = collect_component_assets_for_panels(source_root, &panels)?;
+    let (component_assets, component_diagnostics) =
+        collect_component_assets_for_panels(source_root, &panels)?;
+    panel_diagnostics.extend(component_diagnostics);
+    panel_diagnostics.extend(crate::v2_lower::take_panel_lower_diagnostics());
+    panel_diagnostics.extend(collect_unresolved_link_diagnostics(&panels));
     if !scene_contract_local_nav_is_empty(&scene_local_nav) {
         scene_local_nav_by_target.insert(active_target.clone(), scene_local_nav.clone());
     }
@@ -1234,6 +1238,7 @@ fn load_panels_for_assembly(
     assembly_payload: &Value,
     scene_id: &str,
 ) -> (Vec<mei_lang_kernel::UiNodeDecl>, BTreeMap<String, Value>) {
+    let _ = crate::v2_lower::take_panel_lower_diagnostics();
     let lower_ctx = PanelLowerContext {
         app_root,
         app_id,
@@ -1354,16 +1359,117 @@ fn extract_assembly_ref(payload: &Value) -> Option<String> {
 fn collect_component_assets_for_panels(
     source_root: &Path,
     panels: &[UiNodeDecl],
-) -> Result<Vec<ComponentAsset>> {
+) -> Result<(Vec<ComponentAsset>, Vec<Diagnostic>)> {
     let asset_map = load_component_assets(source_root)?;
     let mut asset_keys = BTreeSet::new();
     for panel in panels {
         collect_asset_keys_from_panel(panel, &mut asset_keys);
     }
-    Ok(asset_keys
-        .into_iter()
-        .filter_map(|key| asset_map.get(&key).cloned())
-        .collect())
+    let mut diagnostics = Vec::new();
+    let mut assets = Vec::new();
+    for key in asset_keys {
+        if let Some(asset) = asset_map.get(&key).cloned() {
+            assets.push(asset);
+        } else if !key.trim().is_empty() {
+            diagnostics.push(Diagnostic {
+                severity: mei_lang_kernel::Severity::Error,
+                code: "unknown_component".to_string(),
+                message: format!(
+                    "component `{key}` is not registered in stock/components manifests"
+                ),
+                source_path: None,
+            });
+        }
+    }
+    Ok((assets, diagnostics))
+}
+
+fn collect_unresolved_link_diagnostics(panels: &[UiNodeDecl]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+    for panel in panels {
+        collect_unresolved_link_diagnostics_from_panel(panel, &mut diagnostics, &mut seen);
+    }
+    diagnostics
+}
+
+fn collect_unresolved_link_diagnostics_from_panel(
+    panel: &UiNodeDecl,
+    diagnostics: &mut Vec<Diagnostic>,
+    seen: &mut BTreeSet<String>,
+) {
+    collect_unresolved_link_diagnostics_from_nodes(&panel.blocks, diagnostics, seen);
+    if let Some(head) = panel.head.as_ref() {
+        collect_unresolved_link_diagnostics_from_nodes(
+            std::slice::from_ref(head.as_ref()),
+            diagnostics,
+            seen,
+        );
+    }
+    scan_value_for_unresolved_link(&panel.props, diagnostics, seen);
+}
+
+fn collect_unresolved_link_diagnostics_from_nodes(
+    nodes: &[UiTreeNode],
+    diagnostics: &mut Vec<Diagnostic>,
+    seen: &mut BTreeSet<String>,
+) {
+    for node in nodes {
+        match node {
+            UiTreeNode::Panel(panel) => {
+                collect_unresolved_link_diagnostics_from_panel(panel, diagnostics, seen)
+            }
+            UiTreeNode::Block(block) => {
+                scan_value_for_unresolved_link(&block.props, diagnostics, seen);
+            }
+            UiTreeNode::PanelRefEmbed(_) => {}
+        }
+    }
+}
+
+fn scan_value_for_unresolved_link(
+    value: &Value,
+    diagnostics: &mut Vec<Diagnostic>,
+    seen: &mut BTreeSet<String>,
+) {
+    match value {
+        Value::Object(map) => {
+            if map.get("kind").and_then(Value::as_str) == Some("unresolved_link_ref") {
+                let key = map
+                    .get("link_key")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let code = map
+                    .get("__mei_diagnostic_code")
+                    .and_then(Value::as_str)
+                    .unwrap_or("link_decl_target_missing")
+                    .to_string();
+                let message = map
+                    .get("__mei_diagnostic_message")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("unresolved link_ref `{key}`"));
+                if seen.insert(format!("{code}:{key}")) {
+                    diagnostics.push(Diagnostic {
+                        severity: mei_lang_kernel::Severity::Error,
+                        code,
+                        message,
+                        source_path: None,
+                    });
+                }
+            }
+            for child in map.values() {
+                scan_value_for_unresolved_link(child, diagnostics, seen);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                scan_value_for_unresolved_link(item, diagnostics, seen);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_asset_keys_from_panel(panel: &UiNodeDecl, asset_keys: &mut BTreeSet<String>) {

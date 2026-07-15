@@ -247,11 +247,126 @@ pub fn normalize_page_instance_payload(mut payload: Value) -> Value {
     let Some(map) = payload.as_object_mut() else {
         return payload;
     };
+    maybe_derive_standard_analytics_frame(map);
     unwrap_frame_export(map);
     if let Some(shell_contract) = build_shell_contract(map) {
         map.insert("shell_contract".to_string(), shell_contract);
     }
     Value::Object(std::mem::take(map))
+}
+
+/// 0335：标准 analytics T2（bindings 含 filter_schema + chart + detail）在省略
+/// `frame = frame_ref(template = analytics_frame())` 时可机械推导壳布局。
+/// 特殊页（case / AI / mechanism 等）继续显式 `frame`，不走本推导。
+fn maybe_derive_standard_analytics_frame(map: &mut Map<String, Value>) {
+    if !is_standard_analytics_bindings(map) {
+        return;
+    }
+    if let Some(frame) = map.get("frame") {
+        if is_default_analytics_frame_ref(frame) {
+            // 显式 dual-write 与推导结果一致：保留，由 unwrap_frame_export 展开。
+            return;
+        }
+        // 非默认 frame：作者 override，不覆盖。
+        return;
+    }
+    map.insert("frame".to_string(), derived_analytics_frame_export());
+}
+
+fn is_standard_analytics_bindings(map: &Map<String, Value>) -> bool {
+    let Some(bindings) = map.get("bindings").and_then(Value::as_object) else {
+        return false;
+    };
+    bindings.contains_key("filter_schema")
+        && bindings.contains_key("chart")
+        && bindings.contains_key("detail")
+}
+
+fn is_default_analytics_frame_ref(frame: &Value) -> bool {
+    if v2_call_name(frame) != Some("frame_ref") {
+        return false;
+    }
+    let Some(template) = v2_call_args(frame).and_then(|args| args.get("template")) else {
+        return false;
+    };
+    matches!(
+        v2_call_name(template),
+        Some("analytics_frame") | Some("frame_export")
+    ) || template
+        .get("__template")
+        .and_then(Value::as_str)
+        .is_some_and(|name| name == "analytics_frame")
+}
+
+fn derived_analytics_frame_export() -> Value {
+    // 与 stock `analytics_frame()` 展开同构：filter | main(chart/detail)。
+    json!({
+        "__call": "frame_export",
+        "__args": {
+            "layout": {
+                "__call": "grid",
+                "__args": {
+                    "columns": ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+                    "rows": ["minmax(0, 1fr)"],
+                    "areas": [["filter", "main"]],
+                    "gap": "1",
+                    "padding": "1",
+                }
+            },
+            "panels": [
+                {
+                    "__call": "panel",
+                    "__args": {
+                        "id": "filter",
+                        "area": "filter",
+                        "slot": { "kind": "filter", "source": "filter_schema" },
+                        "blocks": []
+                    }
+                },
+                {
+                    "__call": "panel",
+                    "__args": {
+                        "id": "main",
+                        "area": "main",
+                        "layout": {
+                            "__call": "grid",
+                            "__args": {
+                                "columns": ["1fr"],
+                                "rows": ["minmax(0, 2fr)", "minmax(0, 3fr)"],
+                                "areas": [["chart"], ["detail"]],
+                                "gap": "1"
+                            }
+                        },
+                        "slot": { "kind": "container" },
+                        "blocks": [
+                            {
+                                "__call": "panel",
+                                "__args": {
+                                    "id": "chart",
+                                    "area": "chart",
+                                    "slot": { "kind": "slots", "accepts": ["chart"], "max": 3 },
+                                    "blocks": []
+                                }
+                            },
+                            {
+                                "__call": "panel",
+                                "__args": {
+                                    "id": "detail",
+                                    "area": "detail",
+                                    "slot": {
+                                        "kind": "slots",
+                                        "accepts": ["data_table"],
+                                        "required": true
+                                    },
+                                    "blocks": []
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    })
 }
 
 #[cfg(test)]
@@ -285,5 +400,24 @@ mod tests {
         assert!(zones
             .iter()
             .any(|zone| zone.get("role") == Some(&json!("slots"))));
+    }
+
+    #[test]
+    fn derives_analytics_frame_when_standard_bindings_omit_frame() {
+        let payload = json!({
+            "scene": "warnings_analytics_page",
+            "bindings": {
+                "filter_schema": { "fields": [] },
+                "chart": [],
+                "detail": { "kind": "table" }
+            }
+        });
+        let normalized = normalize_page_instance_payload(payload);
+        let shell = normalized.get("shell_contract").expect("shell_contract");
+        assert_eq!(
+            shell.get("layout_mode").and_then(Value::as_str),
+            Some("analytics")
+        );
+        assert!(normalized.get("layout").is_some());
     }
 }

@@ -1,0 +1,24 @@
+# T2 page_instance local_nav 窄模板（跨应用共享）
+# 应用侧只保留域 filter/row_spec/popup；勿把整页 plane+page+link 收成黑盒。
+# 注意：应用 `shared/drilldown-local-nav` 若需同名 API，请内联同构字典，
+# 不要 `t2_nav.analytics_drilldown_nav*` 同名转发（宏会解析成自身并栈溢出）。
+
+template analytics_drilldown_nav(scene_id):
+    {
+        "kind": "analytics_drilldown_page",
+        "scene_id": scene_id,
+        "host_mode": "scene_page",
+        "max_charts": 3,
+        "overlay_size": "large",
+    }
+
+template analytics_drilldown_nav_with_row(scene_id, row_popup, row_spec):
+    {
+        "kind": "analytics_drilldown_page",
+        "scene_id": scene_id,
+        "host_mode": "scene_page",
+        "max_charts": 3,
+        "overlay_size": "large",
+        "row_drilldown_popup": row_popup,
+        "row_drilldown": row_spec,
+    }

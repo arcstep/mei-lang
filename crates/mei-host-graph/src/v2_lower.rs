@@ -7,8 +7,8 @@ use mei_graph::{
     collect_template_imports, try_expand_artifact_macro_call, MacroRegistry, TemplateRoots,
 };
 use mei_lang_kernel::{
-    decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, FrameDecl,
-    LayoutDecl, UiNodeDecl, UiTreeNode,
+    decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, Diagnostic,
+    FrameDecl, LayoutDecl, Severity, UiNodeDecl, UiTreeNode,
 };
 use serde_json::{json, Map, Value};
 
@@ -34,6 +34,25 @@ pub struct PanelLowerContext<'a> {
     pub panel_constants: BTreeMap<String, Value>,
     /// Assembly `panels` list order within the same tier (0-based).
     pub assembly_stack_order: Option<u8>,
+}
+
+thread_local! {
+    static PANEL_LOWER_DIAGNOSTICS: Mutex<Vec<Diagnostic>> = Mutex::new(Vec::new());
+}
+
+pub fn take_panel_lower_diagnostics() -> Vec<Diagnostic> {
+    PANEL_LOWER_DIAGNOSTICS.with(|slot| std::mem::take(&mut *slot.lock().expect("diagnostics")))
+}
+
+fn push_panel_lower_diagnostic(code: &str, message: impl Into<String>) {
+    PANEL_LOWER_DIAGNOSTICS.with(|slot| {
+        slot.lock().expect("diagnostics").push(Diagnostic {
+            severity: Severity::Error,
+            code: code.to_string(),
+            message: message.into(),
+            source_path: None,
+        });
+    });
 }
 
 impl<'a> PanelLowerContext<'a> {
@@ -1214,7 +1233,8 @@ pub(crate) fn lower_layout(value: &Value) -> Option<LayoutDecl> {
 }
 
 fn lower_layout_with_ctx(value: &Value, ctx: &PanelLowerContext<'_>) -> Option<LayoutDecl> {
-    lower_layout_inner(value, Some(ctx.app_root))
+    let resolved = resolve_panel_constant_exprs(value, ctx);
+    lower_layout_inner(&resolved, Some(ctx.app_root))
 }
 
 fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDecl> {
@@ -1231,18 +1251,14 @@ fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDe
             .get("direction")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        columns: obj.get("columns").and_then(|v| v.as_array()).map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        }),
-        rows: obj.get("rows").and_then(|v| v.as_array()).map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        }),
+        columns: obj
+            .get("columns")
+            .and_then(|v| v.as_array())
+            .map(|items| resolve_layout_track_list(items)),
+        rows: obj
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .map(|items| resolve_layout_track_list(items)),
         areas: obj.get("areas").and_then(|v| v.as_array()).map(|rows| {
             rows.iter()
                 .filter_map(|row| {
@@ -1269,6 +1285,41 @@ fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDe
             .and_then(|v| v.as_str())
             .map(str::to_string),
     })
+}
+
+/// Resolve grid track items to CSS track strings.
+/// Unresolved exprs emit `grid_track_unresolved` and are omitted from the layout.
+fn resolve_layout_track_list(items: &[Value]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|v| {
+            if let Some(s) = v.as_str() {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            } else if v.as_object().is_some_and(|obj| {
+                obj.contains_key("__var")
+                    || obj.contains_key("__binop")
+                    || obj.contains_key("__ref")
+                    || obj.contains_key("__call")
+            }) {
+                push_panel_lower_diagnostic(
+                    "grid_track_unresolved",
+                    format!("grid track value could not be folded to a string: {v}"),
+                );
+                None
+            } else {
+                push_panel_lower_diagnostic(
+                    "grid_track_unresolved",
+                    format!("grid track value is not a string: {v}"),
+                );
+                None
+            }
+        })
+        .collect()
 }
 
 fn lower_viewport_props(args: &Value) -> Value {
@@ -2677,6 +2728,14 @@ fn resolve_popup_config(
                 merge_popup_metric_source(&mut resolved, metric_source, ctx);
                 return resolve_config_refs_in_value(&resolved, ctx);
             }
+            return json!({
+                "kind": "unresolved_link_ref",
+                "link_key": key,
+                "__mei_diagnostic_code": "link_decl_target_missing",
+                "__mei_diagnostic_message": format!(
+                    "link_ref `{key}` could not resolve link_decl target (missing Navigation node or page_instance)"
+                ),
+            });
         }
     }
     let mut resolved = resolve_config_refs_in_value(popup, ctx);
@@ -2773,7 +2832,14 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         return Some(popup);
     }
     let board_key = v2_ref_arg0(target_ref)?;
-    let target = resolve_page_instance_target(ctx, board_key.as_str())?;
+    let Some(target) = resolve_page_instance_target(ctx, board_key.as_str()) else {
+        push_panel_lower_diagnostic(
+            "link_decl_target_missing",
+            format!("link_decl `{link_key}` target `{board_key}` could not resolve page_instance"),
+        );
+        return None;
+    };
+    diagnose_link_params(link_key, &params, target.accepts.as_ref());
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
     let mut target_json = json!({
@@ -2904,7 +2970,7 @@ fn resolve_page_instance_target(
     let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
     let payload = artifact.get("payload")?;
     Some(BoardSceneTarget {
-        scene_id: payload.get("scene").and_then(|v| v.as_str())?.to_string(),
+        scene_id: payload.get("scene").and_then(Value::as_str)?.to_string(),
         scene_file: assembly_source_file_from_payload(payload)
             .unwrap_or_else(|| assembly_key_to_target(board_key)),
         accepts: payload
@@ -2913,6 +2979,37 @@ fn resolve_page_instance_target(
             .or_else(|| payload.get("params").cloned()),
         capabilities: payload.get("capabilities").cloned(),
     })
+}
+
+fn diagnose_link_params(link_key: &str, params: &Value, accepts: Option<&Value>) {
+    let Some(accepts_map) = accepts.and_then(Value::as_object) else {
+        return;
+    };
+    let params_map = params.as_object().cloned().unwrap_or_default();
+    for (param_id, declared) in accepts_map {
+        let Some(decl) = declared.as_object() else {
+            continue;
+        };
+        let required = decl
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !required {
+            continue;
+        }
+        let missing = match params_map.get(param_id) {
+            None => true,
+            Some(Value::Null) => true,
+            Some(Value::String(s)) if s.trim().is_empty() => true,
+            _ => false,
+        };
+        if missing {
+            push_panel_lower_diagnostic(
+                "link_decl_param_missing",
+                format!("link_decl `{link_key}` missing required param `{param_id}`"),
+            );
+        }
+    }
 }
 
 fn resolve_basemap_value(ctx: &PanelLowerContext<'_>, id: &str) -> Option<Value> {

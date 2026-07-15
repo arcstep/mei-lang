@@ -79,6 +79,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 focuses.push(entry_main);
             }
         }
+        validate_warmup_focus_paths(app_root.as_path(), &focuses)?;
         let merged_datasets =
             crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
                 app_config
@@ -227,6 +228,29 @@ fn normalize_focuses(focuses: &[String]) -> Vec<String> {
         normalized.push(focus);
     }
     normalized
+}
+
+fn validate_warmup_focus_paths(app_root: &Path, focuses: &[String]) -> Result<()> {
+    let mut missing = Vec::new();
+    for focus in focuses {
+        let focus = focus.trim();
+        if focus.is_empty() {
+            continue;
+        }
+        let candidate = app_root.join(focus);
+        if candidate.is_file() {
+            continue;
+        }
+        missing.push(focus.to_string());
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "warmup focus file(s) missing under `{}`: {}",
+        app_root.display(),
+        missing.join(", ")
+    )
 }
 
 fn merge_warmup_scenes(default_scene: Option<&str>, hot_scenes: &[String]) -> Vec<String> {
