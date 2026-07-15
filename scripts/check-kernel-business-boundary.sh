@@ -33,7 +33,7 @@ for file in README.md .env.example server/src/gis_config.rs stock/components/gis
 done
 
 # Frontend drilldown — no hardcoded customer scene paths or metric ids
-DRILLDOWN="$ROOT/app/assets/spa-navigation/drilldown"
+DRILLDOWN="$ROOT/host-shell/app/assets/spa-navigation/drilldown"
 for item in \
   '05-监督预警' \
   'warnings_count' \

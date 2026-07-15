@@ -12,6 +12,7 @@ use mei_lang_kernel::{resolve_app_root, resolve_templates_root};
 use crate::{AppError, AppState};
 
 use super::static_serve::serve_static_asset_with_cache;
+use mei_host_core::resolve_app_assets_dir;
 
 const PUBLIC_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
 const PRIVATE_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
@@ -25,7 +26,7 @@ pub async fn app_asset(
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
     serve_static_asset_with_cache(
-        state.package_root.join("app").join("assets").join(&path),
+        resolve_app_assets_dir(&state.package_root).join(&path),
         "app asset",
         &headers,
         PUBLIC_REVALIDATE_CACHE_CONTROL,
@@ -37,7 +38,7 @@ pub async fn app_bundle(
     headers: HeaderMap,
     AxumPath(mode): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    let assets_root = state.package_root.join("app").join("assets");
+    let assets_root = resolve_app_assets_dir(&state.package_root);
     if let Some(dist_rel_path) = app_bundle_dist_path(&mode) {
         let dist_path = assets_root.join(dist_rel_path);
         if dist_path.exists() {

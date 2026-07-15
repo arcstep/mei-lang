@@ -17,7 +17,7 @@ This creates a new source workspace and immediately installs a local runtime:
 - workspace-local `.mei/` runtime metadata
 - `.mei/runtime/bin/mei-toolchain`
 - `.mei/runtime/bin/mei-lsp`
-- `.mei/runtime/bin/mei-host-web`
+- `.mei/runtime/bin/mei-host-shell`
 - MCP adapters and packaged knowledge
 - tool glue such as `.cursor/rules/` and `.cursor/mcp.json`
 - optional minimal app skeleton
@@ -54,9 +54,9 @@ After bootstrap or `workspace runtime install`, launch the browser host from the
 ./start.sh
 ```
 
-Defaults to **http://127.0.0.1:9527**. The script runs the workspace-local `.mei/runtime/bin/mei-host-web` by default. `MEI_HOST_WEB_BIN` or PATH `mei-host-web` are recovery overrides, not the normal source-workspace flow.
+Defaults to **http://127.0.0.1:9527**. The script runs the workspace-local `.mei/runtime/bin/mei-host-shell` by default. `MEI_HOST_WEB_BIN` or PATH `mei-host-shell` are recovery overrides, not the normal source-workspace flow.
 
-Optional flags are forwarded to `mei-host-web serve`, for example:
+Optional flags are forwarded to `mei-host-shell serve`, for example:
 
 ```bash
 ./start.sh --auth

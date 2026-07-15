@@ -90,7 +90,7 @@ async function main() {
 
   // Source-level guard: eval-pack-loader marks no-client packs.
   const loader = await readFile(
-    path.join(__dirname, "../app/assets/spa-navigation/spa/eval-pack-loader.js"),
+    path.join(__dirname, "../host-shell/app/assets/spa-navigation/spa/eval-pack-loader.js"),
     "utf8",
   );
   assert.match(loader, /__meiBootstrapNoClientPack/);

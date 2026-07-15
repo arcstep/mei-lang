@@ -11,7 +11,7 @@ import vm from "node:vm";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const enginePath = path.join(
   __dirname,
-  "../app/assets/spa-navigation/presentation/presentation-step-engine.js",
+  "../host-shell/app/assets/spa-navigation/presentation/presentation-step-engine.js",
 );
 const engineSource = await readFile(enginePath, "utf8");
 const STORAGE_KEY = "mei_copilot_presentation_v1";

@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 leptos.workspace = true
-mei-lang-kernel = { path = "../crates/kernel" }
+mei-lang-kernel = { path = "../../crates/kernel" }
 serde.workspace = true
 serde_json.workspace = true
 csv.workspace = true

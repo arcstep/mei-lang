@@ -1,12 +1,15 @@
 const invoke = window.__TAURI__.core.invoke;
-const open = window.__TAURI__.dialog.open;
-const save = window.__TAURI__.dialog.save;
+const dialogApi = window.__TAURI__?.dialog || {};
+const open = typeof dialogApi.open === "function" ? dialogApi.open.bind(dialogApi) : null;
+const save = typeof dialogApi.save === "function" ? dialogApi.save.bind(dialogApi) : null;
 
 const el = {
   status: document.getElementById("status-text"),
   port: document.getElementById("status-port"),
   workspace: document.getElementById("status-workspace"),
   logPath: document.getElementById("status-log"),
+  versionBadge: document.getElementById("viewer-version"),
+  statusVersion: document.getElementById("status-version"),
   logView: document.getElementById("log-view"),
   logFollow: document.getElementById("log-follow"),
   copyLog: document.getElementById("btn-copy-log"),
@@ -20,9 +23,43 @@ const el = {
   exportIncludeData: document.getElementById("export-include-data"),
   openHost: document.getElementById("btn-open-host"),
   stop: document.getElementById("btn-stop"),
+  startupOverlay: document.getElementById("startup-overlay"),
+  startupLabel: document.getElementById("startup-label"),
+  startupBar: document.getElementById("startup-bar"),
+  startupTrack: document.querySelector(".progress-track"),
 };
 
+function applyViewerVersion(ver) {
+  if (!ver) return;
+  if (el.versionBadge) el.versionBadge.textContent = ver;
+  if (el.statusVersion) el.statusVersion.textContent = ver;
+  document.title = `mei-viewer ${ver}`;
+}
+
 let lastLogText = "";
+let startupDepth = 0;
+
+function setStartupVisible(visible, title = "正在启动") {
+  if (visible) {
+    startupDepth += 1;
+    document.getElementById("startup-title").textContent = title;
+    el.startupOverlay.classList.remove("hidden");
+    document.body.classList.add("startup-busy");
+  } else {
+    startupDepth = Math.max(0, startupDepth - 1);
+    if (startupDepth === 0) {
+      el.startupOverlay.classList.add("hidden");
+      document.body.classList.remove("startup-busy");
+    }
+  }
+}
+
+function updateStartupProgress(percent, label) {
+  const pct = Math.max(4, Math.min(100, Number(percent) || 4));
+  el.startupBar.style.width = `${pct}%`;
+  el.startupTrack?.setAttribute("aria-valuenow", String(Math.round(pct)));
+  if (label) el.startupLabel.textContent = label;
+}
 
 function setHint(text, isError = false) {
   el.hint.textContent = text || "";
@@ -110,19 +147,30 @@ async function refreshExportApps(workspace) {
 
 async function refreshStatus() {
   const s = await invoke("host_status");
-  el.status.textContent = s.running ? (s.ready ? "就绪" : "启动中…") : "未启动";
+  // Prefer live readiness so the open button unlocks as soon as control plane is up.
+  let ready = Boolean(s.ready);
+  if (s.running && !ready) {
+    try {
+      const r = await invoke("host_readiness");
+      ready = Boolean(r.hostReady && r.controlReady);
+    } catch (_) {
+      /* still booting */
+    }
+  }
+  el.status.textContent = s.running ? (ready ? "就绪" : "启动中…") : "未启动";
   el.port.textContent = s.port != null ? String(s.port) : "—";
   el.workspace.textContent = s.workspace || "—";
   el.logPath.textContent = s.logPath || "—";
-  el.openHost.disabled = !s.ready;
+  el.openHost.disabled = !ready;
   el.stop.disabled = !s.running;
+  if (s.viewerVersion) applyViewerVersion(s.viewerVersion);
   await refreshExportApps(s.workspace || null);
-  if (s.autoOpened && s.ready) {
+  if (s.autoOpened && ready) {
     setHint(
       "已从当前工作区自动启动（含 --launch）。菜单「查看 → 显示启动器与运行日志」或 ⌘/Ctrl+L 可回看日志。"
     );
   }
-  return s;
+  return { ...s, ready };
 }
 
 async function refreshRecent() {
@@ -143,12 +191,12 @@ async function refreshRecent() {
       setHint("正在启动…");
       try {
         await invoke("start_workspace", { path });
-        await waitReady();
+        await waitReady("正在打开工作区");
         await refreshLogs();
         await invoke("open_host_ui");
-        setHint("已启动并打开宿主界面。");
+        setHint("已启动；宿主 UI 已在系统浏览器打开。");
       } catch (e) {
-        await refreshLogs();
+        await refreshLogs({ force: true });
         setHint(String(e), true);
       }
     });
@@ -157,14 +205,37 @@ async function refreshRecent() {
   }
 }
 
-async function waitReady() {
-  for (let i = 0; i < 120; i++) {
-    const s = await refreshStatus();
-    await refreshLogs();
-    if (s.ready) return;
-    await new Promise((r) => setTimeout(r, 500));
+async function waitReady(title = "正在启动工作区") {
+  setStartupVisible(true, title);
+  updateStartupProgress(6, "正在拉起 mei-host-shell…");
+  try {
+    for (let i = 0; i < 480; i++) {
+      let readiness = null;
+      try {
+        readiness = await invoke("host_readiness");
+      } catch (_) {
+        /* host process still booting */
+      }
+      if (readiness) {
+        updateStartupProgress(readiness.progressPercent, readiness.progressLabel);
+        if (readiness.startupError) {
+          throw new Error(readiness.startupError);
+        }
+        if (readiness.hostReady && readiness.controlReady) {
+          updateStartupProgress(100, "控制面已就绪");
+          await refreshStatus();
+          return readiness;
+        }
+      }
+      if (i % 2 === 0) {
+        await refreshLogs({ force: i % 6 === 0 });
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error("等待 host 就绪超时（约 4 分钟）");
+  } finally {
+    setStartupVisible(false);
   }
-  throw new Error("等待 host readiness 超时");
 }
 
 el.openWs.addEventListener("click", async () => {
@@ -174,7 +245,7 @@ el.openWs.addEventListener("click", async () => {
     if (!selected) return;
     setHint("正在启动工作区…");
     await invoke("start_workspace", { path: selected });
-    await waitReady();
+    await waitReady("正在打开工作区");
     await refreshRecent();
     await invoke("open_host_ui");
     setHint("工作区已启动（已带 --launch）。");
@@ -186,20 +257,26 @@ el.openWs.addEventListener("click", async () => {
 
 el.importSnap.addEventListener("click", async () => {
   setHint("");
+  if (typeof open !== "function") {
+    setHint("对话框插件未就绪（__TAURI__.dialog.open）。请重启 mei-viewer。", true);
+    return;
+  }
   try {
-    const selected = await open({
+    let selected = await open({
       multiple: false,
       filters: [{ name: "Mei Snapshot", extensions: ["zip"] }],
     });
     if (!selected) return;
+    if (Array.isArray(selected)) selected = selected[0];
+    if (typeof selected !== "string") selected = String(selected);
     setHint("正在导入快照…");
     await invoke("import_snapshot", { archive: selected });
-    await waitReady();
+    await waitReady("正在导入并启动快照");
     await refreshRecent();
     await invoke("open_host_ui");
     setHint("快照已导入并启动。");
   } catch (e) {
-    await refreshLogs();
+    await refreshLogs({ force: true });
     setHint(String(e), true);
   }
 });
@@ -211,12 +288,19 @@ el.exportSnap.addEventListener("click", async () => {
     setHint("请先选择要导出的 app。", true);
     return;
   }
+  if (typeof save !== "function") {
+    setHint("对话框插件未就绪（__TAURI__.dialog.save）。请重启 mei-viewer。", true);
+    return;
+  }
   try {
-    const outPath = await save({
+    let outPath = await save({
       defaultPath: `${appId}.mei-snapshot.zip`,
       filters: [{ name: "Mei Snapshot", extensions: ["zip"] }],
     });
     if (!outPath) return;
+    if (typeof outPath !== "string") {
+      outPath = String(outPath);
+    }
     setHint(`正在导出 ${appId}…`);
     const msg = await invoke("export_snapshot", {
       appId,
@@ -227,6 +311,10 @@ el.exportSnap.addEventListener("click", async () => {
   } catch (e) {
     setHint(String(e), true);
   }
+});
+
+el.exportApp.addEventListener("change", () => {
+  el.exportSnap.disabled = el.exportApp.disabled || !el.exportApp.value;
 });
 
 el.openHost.addEventListener("click", async () => {
@@ -270,6 +358,9 @@ el.stop.addEventListener("click", async () => {
 
 (async () => {
   try {
+    try {
+      applyViewerVersion(await invoke("viewer_version"));
+    } catch (_) {}
     const s = await refreshStatus();
     await refreshRecent();
     await refreshLogs();

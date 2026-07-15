@@ -48,7 +48,7 @@ Packaged guide after runtime install: `.mei/knowledge/author/language-and-editor
 ./start.sh
 ```
 
-This should launch the workspace-local `.mei/runtime/bin/mei-host-web`.
+This should launch the workspace-local `.mei/runtime/bin/mei-host-shell`.
 
 ## Create a new app
 

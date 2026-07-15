@@ -16,7 +16,7 @@ ${lines.join("\n")}
     })
 }`;
 
-const builtinPath = path.join(root, "app/src/ui/preview/theme/parse_builtin.rs");
+const builtinPath = path.join(root, "host-shell/app/src/ui/preview/theme/parse_builtin.rs");
 let src = fs.readFileSync(builtinPath, "utf8");
 src = src.replace(/fn page_shell_color_tokens\(\) -> Value \{[\s\S]*?\n\}/, block);
 fs.writeFileSync(builtinPath, src);

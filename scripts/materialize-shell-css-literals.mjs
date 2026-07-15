@@ -9,8 +9,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "..");
-const appShellPath = path.join(root, "app/assets/app-shell.css");
-const hostShellPath = path.join(root, "app/assets/host-shell.css");
+const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
+const hostShellPath = path.join(root, "host-shell/app/assets/host-shell.css");
 const fragmentPath = path.join(root, "scripts/workspace-host-theme.fragment.json");
 const workspacePaths = [
   path.join(root, "../workspaces/ws-spbjw/.mei-workspace.json"),

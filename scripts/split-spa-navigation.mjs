@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const assetsRoot = path.join(root, "app", "assets");
+const assetsRoot = path.join(root, "host-shell", "app", "assets");
 const srcPath = path.join(assetsRoot, "spa-navigation.js");
 const outDir = path.join(assetsRoot, "spa-navigation");
 

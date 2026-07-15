@@ -10,7 +10,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const SCAN_DIRS = [
   path.join(ROOT, "stock/components/mei"),
   path.join(ROOT, "stock/components/dataset"),
-  path.join(ROOT, "app/assets/app-shell.css"),
+  path.join(ROOT, "host-shell/app/assets/app-shell.css"),
 ];
 
 const ALLOWLIST = [

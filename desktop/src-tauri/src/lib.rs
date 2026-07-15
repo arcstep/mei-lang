@@ -2,12 +2,55 @@ mod host;
 mod recent;
 mod paths;
 
-use host::HostHandle;
+use host::{HostHandle, HostReadinessDto};
 use recent::RecentStore;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State};
+
+fn open_host_window(app: &AppHandle, port: u16) -> Result<(), String> {
+    // Open in the system browser — same URL renders correctly in Safari/Chrome, but
+    // Tauri's WKWebView consistently fails host chrome (Shoelace <sl-dropdown> never
+    // upgrades → vertical "mini/其他" bars crush the main pane).
+    let url = format!("http://127.0.0.1:{port}/home");
+    if let Some(w) = app.get_webview_window("host") {
+        let _ = w.close();
+    }
+    open_system_browser(&url)?;
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    Ok(())
+}
+
+fn open_system_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("open browser: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|e| format!("open browser: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("open browser: {e}"))?;
+        Ok(())
+    }
+}
 
 pub struct AppState {
     pub host: Mutex<HostHandle>,
@@ -25,6 +68,13 @@ pub struct StatusDto {
     pub workspace: Option<String>,
     pub auto_opened: bool,
     pub log_path: Option<String>,
+    pub viewer_version: String,
+}
+
+fn viewer_build_version() -> String {
+    option_env!("MEI_VIEWER_BUILD_VERSION")
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .to_string()
 }
 
 #[tauri::command]
@@ -42,7 +92,26 @@ fn host_status(state: State<'_, AppState>) -> StatusDto {
         workspace: host.workspace().map(|p| p.display().to_string()),
         auto_opened,
         log_path,
+        viewer_version: viewer_build_version(),
     }
+}
+
+#[tauri::command]
+fn viewer_version() -> String {
+    viewer_build_version()
+}
+
+#[tauri::command]
+fn host_readiness(state: State<'_, AppState>) -> Result<HostReadinessDto, String> {
+    let mut host = state.host.lock().map_err(|e| e.to_string())?;
+    host.poll_readiness().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn wait_host_ready(state: State<'_, AppState>) -> Result<(), String> {
+    let mut host = state.host.lock().map_err(|e| e.to_string())?;
+    host.wait_for_control_ready(std::time::Duration::from_secs(240))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -87,9 +156,21 @@ fn export_snapshot(
     if app_id.is_empty() {
         return Err("appId 不能为空".into());
     }
-    let out = PathBuf::from(&out_path);
+    let mut out = PathBuf::from(&out_path);
     if out.as_os_str().is_empty() {
         return Err("输出路径不能为空".into());
+    }
+    // Ensure recognizable snapshot extension (save dialog may omit it).
+    let name = out
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+    if !name.ends_with(".mei-snapshot.zip") && !name.ends_with(".zip") {
+        out.set_file_name(format!("{name}.mei-snapshot.zip"));
+    } else if name.ends_with(".zip") && !name.ends_with(".mei-snapshot.zip") {
+        let stem = name.trim_end_matches(".zip");
+        out.set_file_name(format!("{stem}.mei-snapshot.zip"));
     }
 
     // Preflight: clearer error when bundle missing.
@@ -219,29 +300,31 @@ fn materialize_snapshot_workspace(
 ) -> anyhow::Result<()> {
     let app_id = &unpacked.manifest.app_id;
     let app_root = ws.join("apps").join(app_id);
-    let exchange = app_root
-        .join("env")
-        .join("current")
-        .join("build")
-        .join("exchange");
+    let env_root = app_root.join("env");
+    // Host expects env/current → WS-yyyymmdd.n (symlink on Unix; marker file on Windows).
+    // Wipe prior env so re-import does not leave a real `current/` directory (Unix rejects that).
+    if env_root.exists() {
+        std::fs::remove_dir_all(&env_root)?;
+    }
+    let generation = snapshot_generation_id();
+    let gen_dir = env_root.join(&generation);
+    let exchange = gen_dir.join("build").join("exchange");
     std::fs::create_dir_all(&exchange)?;
-    // On Windows, `env/current` as a real directory avoids symlink requirements for Viewer slots.
     let bundle_name = format!("{app_id}.meibundle");
     std::fs::copy(&unpacked.bundle_path, exchange.join(&bundle_name))?;
     if unpacked.dest.join("data-snapshots").is_dir() {
-        let var_ds = app_root
-            .join("env")
-            .join("current")
-            .join("var")
-            .join("data-snapshots");
+        let var_ds = gen_dir.join("var").join("data-snapshots");
         copy_dir(&unpacked.dest.join("data-snapshots"), &var_ds)?;
     }
+    link_env_current(&env_root, &generation)?;
+
     if !ws.join("workspace.json").exists() {
         std::fs::write(
             ws.join("workspace.json"),
             serde_json::json!({
                 "id": format!("snapshot-{app_id}"),
                 "label": format!("Snapshot {app_id}"),
+                "schemaVersion": 2,
             })
             .to_string(),
         )?;
@@ -251,6 +334,57 @@ fn materialize_snapshot_workspace(
             app_root.join("app.toml"),
             format!("id = \"{app_id}\"\nlabel = \"{app_id}\"\n"),
         )?;
+    }
+    Ok(())
+}
+
+fn snapshot_generation_id() -> String {
+    // Valid WS-yyyymmdd.fixver tag (UTC calendar date).
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.as_secs() / 86400) as i64)
+        .unwrap_or(0);
+    let (y, m, d) = civil_from_days(days);
+    format!("WS-{y:04}{m:02}{d:02}.0")
+}
+
+/// Howard Hinnant civil_from_days (UTC), same algorithm as mei-lang-kernel.
+fn civil_from_days(mut days: i64) -> (i64, i64, i64) {
+    days += 719468;
+    let era = if days >= 0 {
+        days
+    } else {
+        days - 146096
+    } / 146097;
+    let doe = days - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    (year, m, d)
+}
+
+fn link_env_current(env_root: &std::path::Path, generation: &str) -> anyhow::Result<()> {
+    let current = env_root.join("current");
+    if current.exists() || current.is_symlink() {
+        if current.is_dir() && !current.is_symlink() {
+            std::fs::remove_dir_all(&current)?;
+        } else {
+            std::fs::remove_file(&current)?;
+        }
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(generation, &current)?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Real directory + marker (no Developer Mode / junction required).
+        std::fs::create_dir_all(&current)?;
+        std::fs::write(current.join(".mei-build-target"), generation)?;
     }
     Ok(())
 }
@@ -367,29 +501,20 @@ fn show_launcher(app: AppHandle) -> Result<(), String> {
     Err("launcher window missing".into())
 }
 
-fn open_host_window(app: &AppHandle, port: u16) -> Result<(), String> {
-    let url = format!("http://127.0.0.1:{port}/");
-    if let Some(w) = app.get_webview_window("host") {
-        let _ = w.eval(&format!("window.location.replace({url:?})"));
-        let _ = w.set_focus();
-        return Ok(());
-    }
-    WebviewWindowBuilder::new(app, "host", WebviewUrl::External(url.parse().unwrap()))
-        .title("mei-host")
-        .inner_size(1280.0, 860.0)
-        .build()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[tauri::command]
 fn open_host_ui(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let host = state.host.lock().map_err(|e| e.to_string())?;
+    let mut host = state.host.lock().map_err(|e| e.to_string())?;
     let port = host
         .port()
         .ok_or_else(|| "host is not running".to_string())?;
     if !host.is_ready() {
-        return Err("host is not ready yet".into());
+        // Refresh from live readiness — UI waitReady may have seen HTTP ready
+        // before the Rust ready flag was set.
+        match host.poll_readiness() {
+            Ok(dto) if dto.host_ready && dto.control_ready => {}
+            Ok(_) => return Err("host is not ready yet".into()),
+            Err(e) => return Err(format!("host is not ready yet ({e})")),
+        }
     }
     drop(host);
     open_host_window(&app, port)
@@ -411,6 +536,7 @@ fn try_auto_open_workspace(app: &AppHandle, state: &AppState) -> anyhow::Result<
     {
         let mut host = state.host.lock().expect("host lock");
         host.start_workspace(&ws, None, None, true)?;
+        host.wait_for_control_ready(std::time::Duration::from_secs(240))?;
         let port = host.port().ok_or_else(|| anyhow::anyhow!("no port after start"))?;
         drop(host);
         open_host_window(app, port).map_err(|e| anyhow::anyhow!(e))?;
@@ -438,6 +564,10 @@ pub fn run() {
             auto_opened: Mutex::new(false),
         })
         .setup(|app| {
+            let ver = viewer_build_version();
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.set_title(&format!("mei-viewer {ver}"));
+            }
             // Menu: when host UI is foreground after auto-open, user can still reveal logs.
             if let Ok(menu) = build_app_menu(app.handle()) {
                 let _ = app.set_menu(menu);
@@ -465,6 +595,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             host_status,
+            viewer_version,
+            host_readiness,
+            wait_host_ready,
             list_recent,
             list_workspace_apps,
             export_snapshot,

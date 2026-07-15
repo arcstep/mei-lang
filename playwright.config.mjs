@@ -7,12 +7,15 @@ const e2ePort = process.env.MEI_E2E_PORT || "3010";
 const baseURL =
   process.env.MEI_TEST_BASE_URL?.replace(/\/$/, "") ||
   `http://127.0.0.1:${e2ePort}`;
+const e2eWorkspace =
+  process.env.MEI_E2E_WORKSPACE ||
+  path.resolve(rootDir, "../workspaces/ws-demo-v2");
 
 const skipWebServer =
   process.env.MEI_TEST_SKIP_SERVER === "1" || !!process.env.MEI_TEST_BASE_URL;
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./tests/e2e",
   testMatch: "**/*.spec.mjs",
   timeout: 90000,
   expect: { timeout: 20000 },
@@ -29,7 +32,7 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: `cargo run -p mei-lang-server --bin mei-host-web -- serve --port ${e2ePort}`,
+          command: `cargo run -p mei-host-shell -- serve --workspace ${e2eWorkspace} --port ${e2ePort}`,
           url: baseURL,
           cwd: rootDir,
           reuseExistingServer: !process.env.CI,

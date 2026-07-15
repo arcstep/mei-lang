@@ -71,22 +71,22 @@ pub(crate) fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
         },
         EditorRuntimePathDescriptor {
             id: "author_skill".to_string(),
-            rel_path: "guides/author-skills/SKILL.md".to_string(),
+            rel_path: "agent/guides/author-skills/SKILL.md".to_string(),
             purpose: "Current authoring skill entrypoint in the source tree.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "author_profile".to_string(),
-            rel_path: "guides/author-profile.md".to_string(),
+            rel_path: "agent/guides/author-profile.md".to_string(),
             purpose: "Canonical author profile guidance shipped with the package.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "access_profile".to_string(),
-            rel_path: "guides/access-profile.md".to_string(),
+            rel_path: "agent/guides/access-profile.md".to_string(),
             purpose: "Canonical access profile guidance shipped with the package.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "access_skill".to_string(),
-            rel_path: "guides/access-skills/SKILL.md".to_string(),
+            rel_path: "agent/guides/access-skills/SKILL.md".to_string(),
             purpose: "Canonical access skill entrypoint in the source tree.".to_string(),
         },
         EditorRuntimePathDescriptor {
@@ -101,13 +101,13 @@ pub(crate) fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
         },
         EditorRuntimePathDescriptor {
             id: "standalone_example".to_string(),
-            rel_path: "knowledge/editor-runtime/minimal-app-main.mei".to_string(),
+            rel_path: "agent/knowledge/editor-runtime/minimal-app-main.mei".to_string(),
             purpose: "Minimal standalone app example shipped inside the source package."
                 .to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "editor_runtime_docs".to_string(),
-            rel_path: "knowledge/editor-runtime".to_string(),
+            rel_path: "agent/knowledge/editor-runtime".to_string(),
             purpose: "Package-contained editor runtime docs.".to_string(),
         },
     ]

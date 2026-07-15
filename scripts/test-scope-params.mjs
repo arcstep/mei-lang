@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const scopePath = path.join(root, "app", "assets", "scope-params.js");
+const scopePath = path.join(root, "host-shell", "app", "assets", "scope-params.js");
 
 // scope-params.js 为浏览器 IIFE；用 vm 执行后挂到 globalThis
 const code = await readFile(scopePath, "utf8");

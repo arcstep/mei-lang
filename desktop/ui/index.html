@@ -12,12 +12,13 @@
       <header class="brand">
         <img class="brand-logo" src="mei-logo.svg" width="48" height="48" alt="MeiLang" />
         <div>
-          <h1>mei-viewer</h1>
+          <h1>mei-viewer <span id="viewer-version" class="version-badge">…</span></h1>
           <p class="sub">打开工作区 · 导出快照 · 导入快照</p>
         </div>
       </header>
 
       <section class="status" id="status-panel">
+        <div class="row"><span>版本</span><code id="status-version">—</code></div>
         <div class="row"><span>状态</span><strong id="status-text">未启动</strong></div>
         <div class="row"><span>端口</span><code id="status-port">—</code></div>
         <div class="row"><span>工作区</span><code id="status-workspace">—</code></div>
@@ -40,7 +41,7 @@
           </label>
         </div>
         <button type="button" id="btn-export-snapshot" disabled>导出快照…</button>
-        <button type="button" id="btn-open-host" disabled>打开宿主界面</button>
+        <button type="button" id="btn-open-host" disabled>在浏览器打开宿主</button>
         <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
       </section>
 
@@ -66,6 +67,17 @@
 
       <p class="hint" id="hint"></p>
     </main>
+
+    <div id="startup-overlay" class="startup-overlay hidden" aria-live="polite" aria-busy="true">
+      <div class="startup-card">
+        <h2 id="startup-title">正在启动</h2>
+        <p id="startup-label">请稍候…</p>
+        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="startup-bar" class="progress-bar" style="width: 4%"></div>
+        </div>
+      </div>
+    </div>
+
     <script src="/main.js"></script>
   </body>
 </html>

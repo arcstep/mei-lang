@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const assetsRoot = path.join(root, "app", "assets");
+const assetsRoot = path.join(root, "host-shell", "app", "assets");
 const runtimeQuerySrc = await readFile(
   path.join(root, "stock/components/dataset/runtime-query.js"),
   "utf8",

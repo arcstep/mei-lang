@@ -5,7 +5,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 
 const root = path.resolve(import.meta.dirname, "..");
-const appShellPath = path.join(root, "app/assets/app-shell.css");
+const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
 
 function stripFallbacks(text) {
   let out = "";

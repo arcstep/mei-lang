@@ -51,6 +51,8 @@
   --mei-z-drilldown-context: 2210;
   --mei-z-cockpit-tooltip-in-board: 2300;
   --mei-z-cockpit-text-popover: 2350;
+  /* Host chrome (topbar/statusbar): above scene cockpit tiers so app-group menus paint over boards. */
+  --mei-z-host-chrome: 1400;
   --mei-z-presentation-slide: 5000;
   --mei-z-presentation-caption: 5100;
   --mei-z-spa-loading: 5050;
@@ -100,7 +102,7 @@ body {
 }
 .mei-host-chrome-slot {
   flex-shrink: 0;
-  z-index: 40;
+  z-index: var(--mei-z-host-chrome);
 }
 #mei-host-topbar-slot:not(:empty) {
   position: sticky;
@@ -1517,7 +1519,94 @@ a.status-chip-link:focus-visible {
   background: transparent;
 }
 .app-group-dropdown {
+  position: relative;
   display: inline-flex;
+  align-items: center;
+  align-self: center;
+}
+.app-group-dropdown > summary.app-group-trigger,
+.app-group-dropdown > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--mei-shell-color-border-inspector);
+  background: var(--mei-shell-color-nav-chip-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.2;
+  white-space: nowrap;
+  max-height: 2.25rem;
+}
+.app-group-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+.app-group-dropdown > summary::after {
+  content: "";
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-left: 0.15rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0.75;
+}
+.app-group-dropdown[open] > summary,
+.app-group-dropdown > summary:hover,
+.app-group-dropdown > summary:focus-visible,
+.app-group-dropdown > summary.is-active {
+  background: var(--mei-shell-color-nav-chip-active-bg);
+  color: var(--mei-shell-color-text-primary);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
+}
+.app-group-dropdown > .app-group-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  /* Prefer fixed via topbar-app-group-menu.js so overflow-x:auto ancestors cannot clip. */
+  z-index: 2;
+  min-width: 240px;
+  max-width: min(520px, 70vw);
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--mei-shell-color-border-metadata);
+  border-radius: 12px;
+  background: var(--mei-shell-color-panel-bg);
+  box-shadow: 0 16px 40px var(--mei-shell-color-shadow-overlay-lg);
+}
+.app-group-dropdown[open] > .app-group-menu {
+  display: flex;
+}
+/* Legacy Shoelace path (if any remain): undeclared custom elements must not expand the topbar. */
+sl-dropdown:not(:defined) {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  max-height: 2.25rem;
+  overflow: hidden;
+  vertical-align: middle;
+}
+sl-dropdown:not(:defined) .app-group-menu {
+  display: none !important;
+}
+sl-button:not(:defined) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--mei-shell-color-border-inspector);
+  background: var(--mei-shell-color-nav-chip-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.2;
+  max-height: 2.25rem;
+  white-space: nowrap;
 }
 .app-group-trigger::part(base) {
   border-radius: 999px;

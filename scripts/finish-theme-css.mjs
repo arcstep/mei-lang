@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const cssPath = path.resolve("app/assets/app-shell.css");
+const cssPath = path.resolve("host-shell/app/assets/app-shell.css");
 let css = fs.readFileSync(cssPath, "utf8");
 const parts = css.split(/(:root\s*\{[\s\S]*?\})/m);
 const root = parts[1] ?? "";

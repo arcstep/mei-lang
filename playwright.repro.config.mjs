@@ -4,7 +4,7 @@ const baseURL =
   process.env.MEI_TEST_BASE_URL?.replace(/\/$/, "") || "http://127.0.0.1:3000";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./tests/e2e",
   testMatch: "spa-navigation-repro.spec.mjs",
   timeout: 300000,
   workers: 1,

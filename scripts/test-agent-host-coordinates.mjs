@@ -6,8 +6,8 @@ import vm from "node:vm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const scopePath = path.join(root, "app", "assets", "scope-params.js");
-const hostPath = path.join(root, "app", "assets", "agent-host-coordinates.js");
+const scopePath = path.join(root, "host-shell", "app", "assets", "scope-params.js");
+const hostPath = path.join(root, "host-shell", "app", "assets", "agent-host-coordinates.js");
 
 const scopeCode = await readFile(scopePath, "utf8");
 const hostCode = await readFile(hostPath, "utf8");

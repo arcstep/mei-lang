@@ -5,9 +5,25 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
+
 use mei_snapshot::readiness;
 
 use crate::paths;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostReadinessDto {
+    pub host_ready: bool,
+    pub control_ready: bool,
+    pub access_ready: bool,
+    pub warmup_ready: bool,
+    pub startup_phase: Option<String>,
+    pub startup_detail: Option<String>,
+    pub startup_error: Option<String>,
+    pub progress_percent: u8,
+    pub progress_label: String,
+}
 
 pub struct HostHandle {
     child: Option<Child>,
@@ -108,41 +124,7 @@ impl HostHandle {
         if let Some(ceiling) = data_mode_ceiling.as_ref() {
             cmd.arg("--data-mode-ceiling").arg(ceiling);
         }
-        // Ensure sidecar bins (incl. mei-compiler / app-runtime / plug-ds) are on PATH.
-        if let Ok(bin_dir) = paths::sidecar_bin_dir() {
-            let path = std::env::var_os("PATH").unwrap_or_default();
-            let mut paths_os = std::env::split_paths(&path).collect::<Vec<_>>();
-            paths_os.insert(0, bin_dir.clone());
-            cmd.env("PATH", std::env::join_paths(paths_os)?);
-            cmd.env("MEI_DESKTOP_BIN", &bin_dir);
-            let compiler = bin_dir.join(if cfg!(windows) {
-                "mei-compiler.exe"
-            } else {
-                "mei-compiler"
-            });
-            if compiler.is_file() {
-                cmd.env("MEI_COMPILER_BIN", &compiler);
-            }
-            let runtime = bin_dir.join(if cfg!(windows) {
-                "mei-app-runtime.exe"
-            } else {
-                "mei-app-runtime"
-            });
-            if runtime.is_file() {
-                cmd.env("MEI_APP_RUNTIME_BIN", &runtime);
-            }
-            let plug = bin_dir.join(if cfg!(windows) {
-                "mei-plug-ds.exe"
-            } else {
-                "mei-plug-ds"
-            });
-            if plug.is_file() {
-                cmd.env("MEI_PLUG_DS_BIN", &plug);
-            }
-        }
-        if std::env::var_os("RUST_LOG").is_none() {
-            cmd.env("RUST_LOG", "info");
-        }
+        apply_sidecar_env(&mut cmd)?;
         cmd.stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_err));
@@ -150,13 +132,17 @@ impl HostHandle {
         {
             use std::io::Write;
             let mut header = OpenOptions::new().append(true).open(&log_path)?;
+            let pkg = paths::sidecar_package_root()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(unset)".into());
             writeln!(
                 header,
-                "==== mei-viewer spawn {} port={} workspace={} bin={} ====",
+                "==== mei-viewer spawn {} port={} workspace={} bin={} MEI_PACKAGE_ROOT={} ====",
                 chrono_like_now(),
                 port,
                 workspace.display(),
-                bin.display()
+                bin.display(),
+                pkg
             )?;
         }
 
@@ -168,17 +154,47 @@ impl HostHandle {
         self.workspace = Some(workspace.to_path_buf());
         self.log_path = Some(log_path);
         self.ready = false;
-        match self.wait_ready(Duration::from_secs(90)) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                let tail = self
-                    .log_path
-                    .as_ref()
-                    .and_then(|p| read_log_tail(p, 8 * 1024).ok())
-                    .unwrap_or_default();
-                anyhow::bail!("{err}\n--- host log tail ---\n{tail}")
+        Ok(())
+    }
+
+    /// Poll readiness until control plane is up or timeout (for auto-open / UI progress).
+    pub fn wait_for_control_ready(&mut self, timeout: Duration) -> anyhow::Result<()> {
+        let port = self.port.ok_or_else(|| anyhow::anyhow!("no port"))?;
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if let Some(child) = self.child.as_mut() {
+                if let Ok(Some(status)) = child.try_wait() {
+                    let tail = self
+                        .log_path
+                        .as_ref()
+                        .and_then(|p| read_log_tail(p, 8 * 1024).ok())
+                        .unwrap_or_default();
+                    anyhow::bail!("mei-host-shell exited early: {status}\n--- host log tail ---\n{tail}");
+                }
             }
+            if let Ok(dto) = fetch_readiness(port) {
+                if dto.control_ready && dto.host_ready {
+                    self.ready = true;
+                    return Ok(());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(300));
         }
+        let tail = self
+            .log_path
+            .as_ref()
+            .and_then(|p| read_log_tail(p, 8 * 1024).ok())
+            .unwrap_or_default();
+        anyhow::bail!("timeout waiting for host control readiness\n--- host log tail ---\n{tail}")
+    }
+
+    pub fn poll_readiness(&mut self) -> anyhow::Result<HostReadinessDto> {
+        let port = self.port.ok_or_else(|| anyhow::anyhow!("host is not running"))?;
+        let dto = fetch_readiness(port)?;
+        if dto.host_ready && dto.control_ready {
+            self.ready = true;
+        }
+        Ok(dto)
     }
 
     pub fn import_bundle(
@@ -188,51 +204,146 @@ impl HostHandle {
         bundle: &Path,
     ) -> anyhow::Result<()> {
         let bin = paths::resolve_host_shell_bin()?;
-        let status = Command::new(&bin)
-            .arg("import")
+        let mut cmd = Command::new(&bin);
+        cmd.arg("import")
             .arg("--workspace")
             .arg(workspace)
             .arg("--app")
             .arg(app)
             .arg("--bundle")
-            .arg(bundle)
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("import failed with status {status}");
+            .arg(bundle);
+        apply_sidecar_env(&mut cmd)?;
+        let output = cmd.output().map_err(|e| {
+            anyhow::anyhow!("spawn {}: {e}", bin.display())
+        })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = [stderr.trim(), stdout.trim()]
+                .into_iter()
+                .find(|s| !s.is_empty())
+                .unwrap_or("(no output)");
+            anyhow::bail!(
+                "import failed with status {}: {}",
+                output.status,
+                detail
+            );
         }
         Ok(())
     }
+}
 
-    fn wait_ready(&mut self, timeout: Duration) -> anyhow::Result<()> {
-        let port = self.port.ok_or_else(|| anyhow::anyhow!("no port"))?;
-        let url = format!("http://127.0.0.1:{port}{}", readiness::PATH);
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .build()?;
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            if let Some(child) = self.child.as_mut() {
-                if let Ok(Some(status)) = child.try_wait() {
-                    anyhow::bail!("mei-host-shell exited early: {status}");
-                }
-            }
-            if let Ok(resp) = client.get(&url).send() {
-                if resp.status().is_success() {
-                    if let Ok(v) = resp.json::<serde_json::Value>() {
-                        let ok = readiness::REQUIRED_TRUE_FIELDS
-                            .iter()
-                            .all(|k| v.get(*k).and_then(|x| x.as_bool()) == Some(true));
-                        if ok {
-                            self.ready = true;
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            std::thread::sleep(Duration::from_millis(300));
+fn apply_sidecar_env(cmd: &mut Command) -> anyhow::Result<()> {
+    if let Ok(bin_dir) = paths::sidecar_bin_dir() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths_os = std::env::split_paths(&path).collect::<Vec<_>>();
+        paths_os.insert(0, bin_dir.clone());
+        cmd.env("PATH", std::env::join_paths(paths_os)?);
+        cmd.env("MEI_DESKTOP_BIN", &bin_dir);
+        if let Some(pkg) = paths::sidecar_package_root() {
+            cmd.env("MEI_PACKAGE_ROOT", &pkg);
         }
-        anyhow::bail!("timeout waiting for {url}");
+        let compiler = bin_dir.join(if cfg!(windows) {
+            "mei-compiler.exe"
+        } else {
+            "mei-compiler"
+        });
+        if compiler.is_file() {
+            cmd.env("MEI_COMPILER_BIN", &compiler);
+        }
+        let runtime = bin_dir.join(if cfg!(windows) {
+            "mei-app-runtime.exe"
+        } else {
+            "mei-app-runtime"
+        });
+        if runtime.is_file() {
+            cmd.env("MEI_APP_RUNTIME_BIN", &runtime);
+        }
+        let plug = bin_dir.join(if cfg!(windows) {
+            "mei-plug-ds.exe"
+        } else {
+            "mei-plug-ds"
+        });
+        if plug.is_file() {
+            cmd.env("MEI_PLUG_DS_BIN", &plug);
+        }
     }
+    if std::env::var_os("RUST_LOG").is_none() {
+        cmd.env("RUST_LOG", "info");
+    }
+    Ok(())
+}
+
+fn fetch_readiness(port: u16) -> anyhow::Result<HostReadinessDto> {
+    let url = format!("http://127.0.0.1:{port}{}", readiness::PATH);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()?;
+    let resp = client.get(&url).send()?;
+    if !resp.status().is_success() {
+        anyhow::bail!("readiness HTTP {}", resp.status());
+    }
+    let v: serde_json::Value = resp.json()?;
+    let host_ready = v.get("hostReady").and_then(|x| x.as_bool()) == Some(true);
+    let control_ready = v.get("controlReady").and_then(|x| x.as_bool()) == Some(true);
+    let access_ready = v.get("accessReady").and_then(|x| x.as_bool()) == Some(true);
+    let warmup_ready = v.get("warmupReady").and_then(|x| x.as_bool()) == Some(true);
+    let startup_phase = v
+        .get("startupPhase")
+        .and_then(|x| x.as_str())
+        .map(str::to_string);
+    let startup_detail = v
+        .get("startupDetail")
+        .and_then(|x| x.as_str())
+        .map(str::to_string);
+    let startup_error = v
+        .get("startupError")
+        .and_then(|x| x.as_str())
+        .map(str::to_string);
+    let (progress_percent, progress_label) =
+        readiness_progress(host_ready, control_ready, access_ready, warmup_ready, &startup_phase, &startup_detail);
+    Ok(HostReadinessDto {
+        host_ready,
+        control_ready,
+        access_ready,
+        warmup_ready,
+        startup_phase,
+        startup_detail,
+        startup_error,
+        progress_percent,
+        progress_label,
+    })
+}
+
+fn readiness_progress(
+    host_ready: bool,
+    control_ready: bool,
+    access_ready: bool,
+    warmup_ready: bool,
+    startup_phase: &Option<String>,
+    startup_detail: &Option<String>,
+) -> (u8, String) {
+    let detail = startup_detail
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("正在启动…");
+    if !host_ready {
+        return (8, "正在拉起 mei-host-shell…".into());
+    }
+    if !control_ready {
+        return (22, "初始化控制面…".into());
+    }
+    let phase = startup_phase.as_deref().unwrap_or("");
+    if phase == "unconfigured" {
+        return (38, format!("{detail}（可在宿主 /runtime 应用配置档）"));
+    }
+    if !access_ready {
+        return (58, format!("{detail}"));
+    }
+    if !warmup_ready {
+        return (78, "预热视图与数据面…".into());
+    }
+    (92, "控制面已就绪".into())
 }
 
 impl Drop for HostHandle {

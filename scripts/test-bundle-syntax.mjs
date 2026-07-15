@@ -5,7 +5,7 @@ import { transform } from "esbuild";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const distRoot = path.join(root, "app", "assets", "dist");
+const distRoot = path.join(root, "host-shell", "app", "assets", "dist");
 
 const bundles = [
   "manage.bundle.js",

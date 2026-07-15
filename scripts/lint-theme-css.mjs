@@ -43,7 +43,7 @@ function lintCss(file, css) {
 }
 
 let failed = false;
-const appShell = path.join(root, "app/assets/app-shell.css");
+const appShell = path.join(root, "host-shell/app/assets/app-shell.css");
 const appRaw = fs.readFileSync(appShell, "utf8");
 let shellEnd = appRaw.length;
 for (const marker of shellEndMarkers) {
@@ -53,7 +53,7 @@ for (const marker of shellEndMarkers) {
 const shellCss = shellEnd === appRaw.length ? appRaw : appRaw.slice(0, shellEnd);
 if (lintCss(appShell, shellCss)) failed = true;
 
-const hostShell = path.join(root, "app/assets/host-shell.css");
+const hostShell = path.join(root, "host-shell/app/assets/host-shell.css");
 if (lintCss(hostShell, fs.readFileSync(hostShell, "utf8"))) failed = true;
 
 if (failed) process.exit(1);

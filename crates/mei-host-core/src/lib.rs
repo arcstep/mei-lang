@@ -1,5 +1,6 @@
 //! Shared host types for mei-host-shell and plugins.
 
+mod app_assets;
 mod app_launch;
 mod app_runtime;
 mod config;
@@ -12,6 +13,7 @@ mod report;
 mod slot;
 mod workspace_stock;
 
+pub use app_assets::resolve_app_assets_dir;
 pub use app_launch::{
     app_launch_dir, app_runtime_root, default_launch_path, ensure_app_launch_dir,
     ensure_default_launch_config, launch_config_path, launch_json_path, list_launch_configs,

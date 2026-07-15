@@ -79,6 +79,16 @@ pub fn launch_workspace_candidate() -> Option<PathBuf> {
     None
 }
 
+pub fn sidecar_package_root() -> Option<PathBuf> {
+    let bin_dir = sidecar_bin_dir().ok()?;
+    let sidecars = bin_dir.parent()?;
+    let app_assets = sidecars.join("app").join("assets");
+    if app_assets.is_dir() {
+        return std::fs::canonicalize(sidecars).ok().or(Some(sidecars.to_path_buf()));
+    }
+    None
+}
+
 pub fn sidecar_bin_dir() -> anyhow::Result<PathBuf> {
     if let Ok(v) = env::var("MEI_DESKTOP_BIN") {
         let p = PathBuf::from(v);

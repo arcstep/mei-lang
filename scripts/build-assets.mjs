@@ -6,7 +6,7 @@ import { build } from "esbuild";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, "..");
-const assetsRoot = path.join(root, "app", "assets");
+const assetsRoot = path.join(root, "host-shell", "app", "assets");
 const distRoot = path.join(assetsRoot, "dist");
 const vendorRoot = path.resolve(root, "stock", "components", "vendor");
 const manifestPath = path.join(__dirname, "bundle-manifest.json");
@@ -86,12 +86,15 @@ async function concatScripts(outputName, scripts) {
 
 async function bundleShoelace() {
   const outputPath = path.join(distRoot, "shoelace.bundle.js");
+  // IIFE (not ESM): Tauri/WKWebView has repeatedly failed to upgrade <sl-*> when
+  // shoelace is loaded as type=module from http://127.0.0.1 — undeclared
+  // sl-dropdown then stretches the topbar and crushes the main pane.
   await build({
     entryPoints: [path.join(assetsRoot, "shoelace-local.js")],
     outfile: outputPath,
     bundle: true,
     minify: true,
-    format: "esm",
+    format: "iife",
     target: "es2020",
     legalComments: "none",
   });

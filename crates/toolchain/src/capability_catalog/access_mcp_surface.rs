@@ -49,7 +49,7 @@ pub(crate) fn access_mcp_surface_descriptor(
                 "producer": "mei-toolchain inspect world --app <app> [--scene <scene>] [--target-file <file>] --json",
                 "eval_scope": "merge browser query_state into bounded dataset/metric evaluation before answering"
             },
-            "guidance_file_rel": "guides/access-profile.md",
+            "guidance_file_rel": "agent/guides/access-profile.md",
             "skill_package": meilang_access_skill_package(),
             "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(
                 package_root,

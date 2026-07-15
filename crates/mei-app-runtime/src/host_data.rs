@@ -257,7 +257,7 @@ fn scrub_host_shell_placeholders(mut html: String) -> String {
 /// Stamp for `?v=` on `/app-bundles/*` — mirrors host-shell `host_asset_version`.
 pub fn runtime_asset_version() -> String {
     use std::time::UNIX_EPOCH;
-    let dist_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/assets/dist");
+    let dist_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host-shell/app/assets/dist");
     let newest_stamp = [
         dist_root.join("access.bundle.js"),
         dist_root.join("manage.bundle.js"),

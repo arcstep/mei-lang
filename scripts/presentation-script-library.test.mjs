@@ -11,7 +11,7 @@ import vm from "node:vm";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const libraryPath = path.join(
   __dirname,
-  "../app/assets/spa-navigation/presentation/presentation-script-library.js",
+  "../host-shell/app/assets/spa-navigation/presentation/presentation-script-library.js",
 );
 const source = await readFile(libraryPath, "utf8");
 const defaultScript = {

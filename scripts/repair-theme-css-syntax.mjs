@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const appShellPath = path.join(root, "app/assets/app-shell.css");
+const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
 
 let css = fs.readFileSync(appShellPath, "utf8");
 

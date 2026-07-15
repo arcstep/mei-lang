@@ -187,26 +187,18 @@ pub(crate) fn topbar_view(
                 })
                 .collect_view();
             view! {
-                <sl-dropdown
+                <details
                     class="app-group-dropdown"
                     data-topbar-menu-group=group_id.clone()
-                    placement="bottom-start"
-                    distance="4"
-                    hoist=true
                 >
-                    <sl-button
-                        slot="trigger"
-                        class=trigger_class
-                        size="small"
-                        caret=true
-                    >
+                    <summary class=trigger_class>
                         {group_label}
-                    </sl-button>
+                    </summary>
                     <div class="app-group-menu">
                         {direct_links}
                         {subgroup_blocks}
                     </div>
-                </sl-dropdown>
+                </details>
             }
             .into_any()
         })
@@ -477,14 +469,14 @@ fn stage_switcher_view(
         .collect_view();
     view! {
         <div class="mode-tabs stage-switcher inline-flex shrink-0 items-center" data-mei-stage-switcher="1">
-            <sl-dropdown class="app-group-dropdown" hoist=true placement="bottom-start" distance=6>
-                <sl-button slot="trigger" class="app-group-trigger is-active" size="small" caret=true>
+            <details class="app-group-dropdown">
+                <summary class="app-group-trigger is-active">
                     <span class="mode-label">{trigger_label}</span>
-                </sl-button>
-                <sl-menu class="app-group-menu" label="舞台">
+                </summary>
+                <div class="app-group-menu" role="menu" aria-label="舞台">
                     {items}
-                </sl-menu>
-            </sl-dropdown>
+                </div>
+            </details>
         </div>
     }
     .into_any()

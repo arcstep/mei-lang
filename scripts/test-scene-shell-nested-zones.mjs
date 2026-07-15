@@ -8,7 +8,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const assetsRoot = path.join(root, "app", "assets");
+const assetsRoot = path.join(root, "host-shell", "app", "assets");
 
 function nonEmptyString(...values) {
   for (const value of values) {

@@ -13,10 +13,6 @@ path = "src/main.rs"
 name = "mei-toolchain"
 path = "src/bin/mei-toolchain.rs"
 
-[[bin]]
-name = "mei-host-web"
-path = "src/bin/mei-host-web.rs"
-
 [dependencies]
 anyhow.workspace = true
 async-stream = "0.3"
@@ -28,7 +24,7 @@ chrono = "0.4.44"
 clap.workspace = true
 csv.workspace = true
 dotenvy = "0.15"
-mei-lang-app = { path = "../app" }
+mei-lang-app = { path = "../host-shell/app" }
 mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-lang-toolchain = { path = "../crates/toolchain" }

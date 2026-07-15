@@ -2,10 +2,15 @@
 /**
  * Package mei-viewer build outputs into versioned files under desktop/dist/.
  *
- * macOS:   dist/mei-viewer-<ver>-<arch>-apple-darwin.zip  (contains mei-viewer.app)
- * Windows: dist/mei-viewer-<ver>-x64-setup.exe
+ * macOS:
+ *   dist/mei-viewer.app                          # stable, open without unzip (gitignored)
+ *   dist/mei-viewer-<ver>-<arch>-apple-darwin.zip
+ * Windows:
+ *   dist/mei-viewer-<ver>-x64-setup.exe
  *
  * Version = tauri.conf.json#version + optional +gitShortSha
+ *
+ * Does NOT delete the Tauri-built .app under src-tauri/target/.../bundle/macos/.
  */
 import {
   copyFileSync,
@@ -23,10 +28,38 @@ import { platform, arch } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
+const meiLangRoot = resolve(desktopRoot, "..");
 const confPath = join(desktopRoot, "src-tauri", "tauri.conf.json");
-const targetRoot = join(desktopRoot, "src-tauri", "target", "release");
 const distRoot = join(desktopRoot, "dist");
 
+/** Prefer the newest Tauri release bundle (src-tauri/target or CARGO_TARGET_DIR). */
+function resolveReleaseTargetRoot() {
+  const candidates = [];
+  if (process.env.CARGO_TARGET_DIR) {
+    candidates.push(resolve(process.env.CARGO_TARGET_DIR, "release"));
+  }
+  candidates.push(join(desktopRoot, "src-tauri", "target", "release"));
+  candidates.push(join(meiLangRoot, "target", "release"));
+  const existing = [...new Set(candidates)].filter((root) =>
+    existsSync(join(root, "bundle")),
+  );
+  if (!existing.length) {
+    return join(desktopRoot, "src-tauri", "target", "release");
+  }
+  existing.sort((a, b) => {
+    const appA = join(a, "bundle", "macos", "mei-viewer.app");
+    const appB = join(b, "bundle", "macos", "mei-viewer.app");
+    const mtime = (p) => {
+      try {
+        return spawnSync("stat", ["-f", "%m", p], { encoding: "utf8" }).stdout.trim() || "0";
+      } catch {
+        return "0";
+      }
+    };
+    return Number(mtime(appB)) - Number(mtime(appA));
+  });
+  return existing[0];
+}
 function readVersion() {
   const conf = JSON.parse(readFileSync(confPath, "utf8"));
   let ver = String(conf.version || "0.0.0").trim();
@@ -45,36 +78,57 @@ function darwinArchLabel() {
   return arch() === "arm64" ? "aarch64" : "x86_64";
 }
 
+function run(cmd, args) {
+  const r = spawnSync(cmd, args, { stdio: "inherit" });
+  if (r.status !== 0) {
+    throw new Error(`${cmd} failed with status ${r.status}`);
+  }
+}
+
 function zipMacApp(appDir, outZip) {
   if (platform() !== "darwin") {
     throw new Error("macOS .app packaging requires running on darwin");
   }
-  const r = spawnSync(
-    "ditto",
-    ["-c", "-k", "--sequesterRsrc", "--keepParent", appDir, outZip],
-    { stdio: "inherit" }
-  );
-  if (r.status !== 0) {
-    throw new Error(`ditto failed with status ${r.status}`);
+  run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appDir, outZip]);
+}
+
+/** Copy .app into dist/mei-viewer.app (stable path for Finder / open). */
+function syncStableMacApp(appDir, destApp) {
+  rmSync(destApp, { recursive: true, force: true });
+  run("ditto", [appDir, destApp]);
+}
+
+function cleanDistArtifacts() {
+  if (!existsSync(distRoot)) return;
+  for (const name of readdirSync(distRoot)) {
+    // Keep dist/mei-viewer.app across rebuilds until we replace it.
+    if (name === "mei-viewer.app") continue;
+    if (name.startsWith("mei-viewer-") || name === "MANIFEST.json") {
+      rmSync(join(distRoot, name), { recursive: true, force: true });
+    }
   }
 }
 
 function main() {
   const version = readVersion();
+  const targetRoot = resolveReleaseTargetRoot();
   mkdirSync(distRoot, { recursive: true });
-  for (const name of readdirSync(distRoot)) {
-    if (name.startsWith("mei-viewer-") || name === "MANIFEST.json") {
-      rmSync(join(distRoot, name), { recursive: true, force: true });
-    }
-  }
+  cleanDistArtifacts();
 
   const wrote = [];
+  let openHint = null;
 
   if (platform() === "darwin") {
     const appPath = join(targetRoot, "bundle", "macos", "mei-viewer.app");
     if (!existsSync(appPath)) {
       throw new Error(`missing ${appPath}; run npm run build first`);
     }
+    console.log(`[package-release] source app: ${appPath}`);
+    const stableApp = join(distRoot, "mei-viewer.app");
+    syncStableMacApp(appPath, stableApp);
+    wrote.push(stableApp);
+    openHint = stableApp;
+
     const zipName = `mei-viewer-${version}-${darwinArchLabel()}-apple-darwin.zip`;
     const outZip = join(distRoot, zipName);
     zipMacApp(appPath, outZip);
@@ -92,6 +146,7 @@ function main() {
     const outPath = join(distRoot, `mei-viewer-${version}-x64-setup.exe`);
     copyFileSync(src, outPath);
     wrote.push(outPath);
+    openHint = outPath;
   } else {
     console.warn(`[package-release] unsupported platform ${platform()}; nothing packaged`);
   }
@@ -103,6 +158,7 @@ function main() {
     productName: "mei-viewer",
     platform: platform(),
     arch: arch(),
+    openPath: openHint ? openHint.split(/[/\\]/).pop() : null,
     files: wrote.map((p) => p.split(/[/\\]/).pop()),
   };
   const manifestPath = join(distRoot, "MANIFEST.json");
@@ -111,6 +167,10 @@ function main() {
 
   console.log("[package-release] wrote:");
   for (const p of wrote) console.log(`  ${p}`);
+  if (openHint) {
+    console.log(`[package-release] open without unzip:`);
+    console.log(`  open "${openHint}"`);
+  }
 }
 
 main();

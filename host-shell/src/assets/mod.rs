@@ -8,6 +8,7 @@ use axum::{
     http::{header::CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
+use mei_host_core::resolve_app_assets_dir;
 use mei_lang_kernel::{resolve_app_root, resolve_components_root, resolve_templates_root};
 
 use crate::scene_bundle::parse_scene_bundle_request_path;
@@ -44,7 +45,7 @@ pub async fn app_asset(
                 .into_response();
         }
     }
-    let asset_path = package_root.join("app/assets").join(&path);
+    let asset_path = resolve_app_assets_dir(&package_root).join(&path);
     serve_static_asset_with_cache(
         asset_path,
         "app asset",
@@ -60,7 +61,7 @@ pub async fn app_bundle(
     AxumPath(mode): AxumPath<String>,
 ) -> Response {
     let package_root = state.read().expect("state lock").package_root.clone();
-    let assets_root = package_root.join("app/assets");
+    let assets_root = resolve_app_assets_dir(&package_root);
     if let Some(dist_rel_path) = app_bundle_dist_path(&mode) {
         let dist_path = assets_root.join(dist_rel_path);
         if dist_path.exists() {
@@ -167,7 +168,7 @@ pub async fn component_asset(
 }
 
 fn merged_page_load_progress_shell(package_root: &Path) -> Option<String> {
-    let base = package_root.join("app/assets/page-load-progress-shell");
+    let base = resolve_app_assets_dir(&package_root).join("page-load-progress-shell");
     let p1 = fs::read_to_string(base.join("p1.js")).ok()?;
     let p2 = fs::read_to_string(base.join("p2.js")).ok()?;
     Some(format!("{p1}\n{p2}"))

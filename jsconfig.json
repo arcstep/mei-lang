@@ -5,7 +5,7 @@
   },
   "exclude": [
     "node_modules",
-    "app/assets/dist",
-    "app/assets/spa-navigation"
+    "host-shell/app/assets/dist",
+    "host-shell/app/assets/spa-navigation"
   ]
 }

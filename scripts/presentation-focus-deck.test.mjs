@@ -11,7 +11,7 @@ import vm from "node:vm";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const focusControllerPath = path.join(
   __dirname,
-  "../app/assets/spa-navigation/presentation/focus-controller.js",
+  "../host-shell/app/assets/spa-navigation/presentation/focus-controller.js",
 );
 
 function extractFunction(source, name) {

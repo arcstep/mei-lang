@@ -13,12 +13,10 @@ AI-native scene orchestration language for building apps from world models, UI c
 `map.maplibre` 需要 HTTP 瓦片（MBTiles，无 PostGIS）。在 monorepo 根目录单独起 Martin：
 
 ```bash
-# 终端 A（mei-projects 根目录）
-./scripts/start_martin_docker.sh
-
+# 终端 A（若使用本机 Martin 瓦片服务，按你的环境启动）
 # 终端 B
 cd mei-lang
-cargo run -p mei-lang-server --bin mei-host-web -- serve
+cargo run -p mei-host-shell -- serve --workspace <workspace-root>
 ```
 
 - 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
@@ -33,56 +31,38 @@ MEI_TILES_JSON_PATH=/demo-tiles
 
 未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会默认走 `/gis`；实际代理上游由上述环境变量决定。自备 Martin + MBTiles 即可，无需绑定特定行政区示例。
 
-停止 Martin：`./scripts/stop_martin_docker.sh`（在 mei-projects 根目录）。
-
-### 3. 启动 `mei-lang`
+### 3. 启动宿主（主路径：`mei-host-shell`）
 
 ```bash
 cd mei-lang
-cargo run -p mei-lang-server --bin mei-host-web -- serve
+cargo run -p mei-host-shell -- serve --workspace <workspace-root>
 
 # 启用登录鉴权（须先完成下方配置，否则启动失败）
-cargo run -p mei-lang-server --bin mei-host-web -- serve --auth
-
-# 仅发布 access host（不暴露 build/config/upload）
-cargo run -p mei-lang-server --bin mei-host-web -- serve --host-surface access-only
+cargo run -p mei-host-shell -- serve --workspace <workspace-root> --auth
 ```
 
 启用 `--auth` 前，先初始化 workspace-local host-state（写入 `{source_root}/.mei/local/hosts/*.state.json`）：
 
 ```bash
-# 生成 JWT / RSA 密钥（写入 .mei/local/hosts/*.state.json）
-cargo run -p mei-lang-server --bin mei-host-web -- host auth ensure-keys --source-root ../workspaces/ws-dev --json
-
-# 方案 A1：一次性初始化 super/admin/guest（各账号随机临时密码，只打印一次）
-cargo run -p mei-lang-server --bin mei-host-web -- host auth bootstrap-users --source-root ../workspaces/ws-dev --json
-
-# 方案 A2：本地调试可用统一初始密码（super/admin/guest 共用，从 stdin 读取）
-printf '%s' 'Debug1!pwd' | cargo run -p mei-lang-server --bin mei-host-web -- host auth bootstrap-users \
-  --source-root ../workspaces/ws-dev --default-password-stdin --json
-
-# 方案 B1：手工编辑 auth.users[] 时，用 stdin 生成 Argon2 哈希
-printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web -- host auth hash-password --json
-
-# 方案 B2：工具链直接新增单个用户（同样从 stdin 读密码）
-printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web -- host auth add-user \
-  --source-root ../workspaces/ws-dev --username guest01 --role guest --password-stdin --json
+cargo run -p mei-host-shell -- auth ensure-keys --workspace <workspace-root> --json
+cargo run -p mei-host-shell -- auth bootstrap-users --workspace <workspace-root> --json
 ```
+
+旧入口 `mei-host-web` 已迁入 [`archive/mei-host-web/`](archive/mei-host-web/)（待手工清理）；请只使用 `mei-host-shell`。
 
 默认行为：
 
-- `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
-- 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）
-- 组件/模板：`mei workspace materialize` 物化到 profile 的 `.stock/`（Git 跟踪）；`.mei/` 仅运行时；未物化时只读 `mei-lang/stock/`
-- **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
-- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 **RSA-OAEP(SHA-256)** 加密后提交，禁止命令行参数与登录 API 明文 `password` 字段（HTTP 内网不依赖 SSL，登录页内置纯 JS 加密）
-- 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
+- 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
+- **必须**传 `--workspace <workspace-root>`（工作区源码根）
+- 组件/模板：`mei workspace materialize` 物化到 profile 的 `stock/`（Git 跟踪）；运行时目录由工作区约定生成；未物化时只读 `mei-lang/stock/`
+- **默认不要求登录**；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
+- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 **RSA-OAEP(SHA-256)** 加密后提交
 - 启动后提供默认宿主/runtime；访问侧 AI 若启用，将按 `.env` 中 OpenAI 兼容配置连接模型服务
 
 ## 当前边界
 
 - **编辑侧**：默认交给 `Cursor / Codex / Claude Code / OpenCode` 等外部开发工具；`mei-lang` 提供 DSL、编译/lowering、宿主/runtime，以及后续可供这些工具消费的 `CLI / LSP / MCP` 接口。
-- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`）。作者态打包说明见 [`knowledge/editor-runtime/language-and-editor-recognition.md`](knowledge/editor-runtime/language-and-editor-recognition.md)。
+- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`）。作者态打包说明见 [`agent/knowledge/editor-runtime/language-and-editor-recognition.md`](agent/knowledge/editor-runtime/language-and-editor-recognition.md)。
 - **访问侧**：`mei-lang` 宿主内置访问侧 AI，围绕当前 `scene/world/runtime` 做问答、查询、解释与临时视图。
 - **仓库内 skill / agent 相关实现**：当前仍有部分历史 authoring Agent 代码与配置表面，正在逐步从编辑侧主线退出。
 
@@ -109,8 +89,8 @@ cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --workspace ws-
 cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface author --json
 cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface access --json
 
-# host runtime contract 描述
-cargo run -p mei-lang-server --bin mei-host-web -- host describe --json
+# host auth / describe（mei-host-shell）
+cargo run -p mei-host-shell -- auth describe --workspace <workspace-root> --json
 
 # author MCP adapter（stdio）
 npm run mcp:author-adapter

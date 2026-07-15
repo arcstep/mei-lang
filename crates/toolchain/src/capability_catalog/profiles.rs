@@ -5,7 +5,7 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
         id: "meilang-author".to_string(),
         name: "MeiLang Author".to_string(),
         description: "Canonical MeiLang authoring skill package exported from the toolchain capability catalog.".to_string(),
-        source_dir_rel: "guides/author-skills".to_string(),
+        source_dir_rel: "agent/guides/author-skills".to_string(),
         install_dir_rel: "runtime/platform/skills/meilang-author".to_string(),
         entry_file: "SKILL.md".to_string(),
         companion_priority: vec![
@@ -26,7 +26,7 @@ pub fn meilang_access_skill_package() -> SkillPackageDescriptor {
         description:
             "Canonical MeiLang access skill package exported from the toolchain capability catalog."
                 .to_string(),
-        source_dir_rel: "guides/access-skills".to_string(),
+        source_dir_rel: "agent/guides/access-skills".to_string(),
         install_dir_rel: "runtime/platform/skills/meilang-access".to_string(),
         entry_file: "SKILL.md".to_string(),
         companion_priority: vec!["workflow.md".to_string()],
@@ -63,7 +63,7 @@ pub fn author_profile_descriptor() -> AiProfileDescriptor {
         preferred_surface: "author".to_string(),
         knowledge_surface: "author".to_string(),
         skill_package_id: Some("meilang-author".to_string()),
-        guidance_file_rel: Some("guides/author-profile.md".to_string()),
+        guidance_file_rel: Some("agent/guides/author-profile.md".to_string()),
         guidance_bundle_asset_id: Some("author_profile".to_string()),
     }
 }
@@ -100,7 +100,7 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
         preferred_surface: "access".to_string(),
         knowledge_surface: "access".to_string(),
         skill_package_id: Some("meilang-access".to_string()),
-        guidance_file_rel: Some("guides/access-profile.md".to_string()),
+        guidance_file_rel: Some("agent/guides/access-profile.md".to_string()),
         guidance_bundle_asset_id: Some("access_profile".to_string()),
     }
 }

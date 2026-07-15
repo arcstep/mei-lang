@@ -80,31 +80,31 @@ pub(crate) fn write_runtime_projection_files(
     )?);
     files.push(copy_runtime_file(
         target_root,
-        &package_root.join("guides/author-profile.md"),
+        &package_root.join("agent/guides/author-profile.md"),
         &workspace_profiles_dir(target_root).join("author.md"),
         force,
     )?);
     files.push(copy_runtime_file(
         target_root,
-        &package_root.join("guides/access-profile.md"),
+        &package_root.join("agent/guides/access-profile.md"),
         &workspace_profiles_dir(target_root).join("access.md"),
         force,
     )?);
     files.extend(copy_runtime_tree(
         target_root,
-        &package_root.join("guides/author-skills"),
+        &package_root.join("agent/guides/author-skills"),
         &workspace_author_skill_dir(target_root),
         force,
     )?);
     files.extend(copy_runtime_tree(
         target_root,
-        &package_root.join("guides/access-skills"),
+        &package_root.join("agent/guides/access-skills"),
         &workspace_access_skill_dir(target_root),
         force,
     )?);
     files.extend(copy_runtime_tree(
         target_root,
-        &package_root.join("knowledge/editor-runtime"),
+        &package_root.join("agent/knowledge/editor-runtime"),
         &workspace_knowledge_dir(target_root).join("author"),
         force,
     )?);
@@ -159,7 +159,7 @@ pub(crate) fn write_common_runtime_files(
         force,
     )?);
     files.push(write_file(
-        &platform.join("knowledge/author-runtime.json"),
+        &platform.join("agent/knowledge/author-runtime.json"),
         &serde_json::to_string_pretty(&crate::export_knowledge_bundle_for_package_root(
             package_root,
             "author",
@@ -248,7 +248,7 @@ pub fn ensure_workspace_author_skill_package(
             file_count: count_markdown_files(&install_dir),
         });
     }
-    let source_dir = package_root.join("guides/author-skills");
+    let source_dir = package_root.join("agent/guides/author-skills");
     anyhow::ensure!(
         source_dir.is_dir(),
         "author skill source tree missing at {}",

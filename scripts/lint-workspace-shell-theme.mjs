@@ -5,8 +5,8 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const fragmentPath = path.join(root, "scripts/workspace-host-theme.fragment.json");
-const appShellPath = path.join(root, "app/assets/app-shell.css");
-const hostShellPath = path.join(root, "app/assets/host-shell.css");
+const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
+const hostShellPath = path.join(root, "host-shell/app/assets/host-shell.css");
 
 const keyRe = /^[a-z][a-z0-9_]*$/;
 const hashKeyRe = /^[a-z]+_[0-9a-f]{8}$/;

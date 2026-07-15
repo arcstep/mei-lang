@@ -46,7 +46,7 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
         .unwrap()
         .iter()
         .any(|item| item["id"] == "author"
-            && item["guidance_file_rel"] == "guides/author-profile.md"));
+            && item["guidance_file_rel"] == "agent/guides/author-profile.md"));
     assert!(descriptor["skill_packages"]
         .as_array()
         .unwrap()

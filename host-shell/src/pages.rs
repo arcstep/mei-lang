@@ -2095,7 +2095,7 @@ fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRo
             r#"<script>(function(){{try{{if(window.MeiPageLoadProgress){{window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}}}catch(e){{}}}})();</script>"#,
             r#"<link rel="preload" href="{preload_href}" as="script"/>"#,
             r#"<script defer src="/app-assets/host-http-feedback.js"></script>"#,
-            r#"<script type="module" src="/app-bundles/shoelace.js"></script>"#,
+            r#"<script defer src="/app-bundles/shoelace.js"></script>"#,
             r#"<script defer src="{bundle_src}"></script>"#
         ),
         route_slug = route_mode.slug(),

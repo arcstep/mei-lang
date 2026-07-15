@@ -1,8 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    "./app/src/**/*.rs",
-    "./app/assets/**/*.js",
+    "./host-shell/app/src/**/*.rs",
+    "./host-shell/app/assets/**/*.js",
   ],
   corePlugins: {
     preflight: false,

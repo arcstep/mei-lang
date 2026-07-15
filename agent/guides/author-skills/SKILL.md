@@ -16,7 +16,7 @@ MeiLang 当前作者态的主线是：
 4. **只在需要 runtime/world 事实时才用 inspect/query/runtime**
 5. **正式文件写入始终由外部开发工具完成**
 
-编辑器识别说明：`.mei/knowledge/author/language-and-editor-recognition.md`（源码仓：`knowledge/editor-runtime/language-and-editor-recognition.md` / `extensions/mei-lang-vscode/README.md`）。
+编辑器识别说明：`.mei/knowledge/author/language-and-editor-recognition.md`（源码仓：`agent/knowledge/editor-runtime/language-and-editor-recognition.md` / `extensions/mei-lang-vscode/README.md`）。
 
 ## Workspace-local 入口
 
@@ -36,9 +36,9 @@ MeiLang 当前作者态的主线是：
 
 源码包目录对应：
 
-- `guides/author-profile.md`
-- `guides/author-skills/*.md`
-- `knowledge/editor-runtime/**/*`
+- `agent/guides/author-profile.md`
+- `agent/guides/author-skills/*.md`
+- `agent/knowledge/editor-runtime/**/*`
 
 独立 workspace 的公开消费面始终是 `.mei/`，不是源码仓路径。
 

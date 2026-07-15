@@ -48,6 +48,22 @@ h1 {
   font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.version-badge {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #9ec1ff;
+  background: rgba(61, 139, 253, 0.14);
+  border: 1px solid rgba(61, 139, 253, 0.35);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
 }
 
 .sub {
@@ -244,4 +260,64 @@ button.secondary {
 
 .hint.error {
   color: #f0a0a0;
+}
+
+body.startup-busy .actions button:not(#btn-stop),
+body.startup-busy .export-row {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.startup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 8, 14, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.startup-overlay.hidden {
+  display: none;
+}
+
+.startup-card {
+  width: min(520px, 100%);
+  padding: 1.35rem 1.4rem 1.5rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 94%, black);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.startup-card h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+#startup-label {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  min-height: 2.6em;
+  line-height: 1.45;
+}
+
+.progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: #0b1016;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #60a5fa, #34d399);
+  transition: width 0.35s ease;
 }

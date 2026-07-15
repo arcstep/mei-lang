@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const accessBundle = path.join(root, "app/assets/dist/access.bundle.js");
-const manageBundle = path.join(root, "app/assets/dist/manage.bundle.js");
+const accessBundle = path.join(root, "host-shell/app/assets/dist/access.bundle.js");
+const manageBundle = path.join(root, "host-shell/app/assets/dist/manage.bundle.js");
 
 function assert(cond, msg) {
   if (!cond) {
@@ -35,7 +35,7 @@ for (const bundlePath of [accessBundle, manageBundle]) {
 }
 
 const compositorSrc = fs.readFileSync(
-  path.join(root, "app/assets/spa-navigation/spa/view-compositor.js"),
+  path.join(root, "host-shell/app/assets/spa-navigation/spa/view-compositor.js"),
   "utf8",
 );
 const g = { __meiLangBoot: {} };

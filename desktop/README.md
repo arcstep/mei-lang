@@ -8,47 +8,63 @@
 
 ## 本机构建（macOS）
 
-在 **`mei-lang/desktop`** 下执行（不要设嵌套的 `CARGO_TARGET_DIR=./src-tauri/target`，否则会落到错误的 `src-tauri/src-tauri/target`）：
+**推荐一键**（在 `mei-lang` 根，或工作区根 `mei-projects/`）：
 
 ```bash
-# 1) 收集 sidecar（在 mei-lang 根）
-cd /Users/xuehongwei/codeup/mei-projects/mei-lang
-./scripts/collect-desktop-sidecars.sh --release   # 开发可用 --debug
+# 工作区根 → 转发到 mei-lang
+./scripts/build-desktop-viewer.sh
 
-# 2) 安装依赖并打包
-cd desktop
-npm install
-npm run build
+# 或 mei-lang 根（真源）
+cd mei-lang && ./scripts/build-desktop-viewer.sh
+
+# 开发热跑：collect (debug) + tauri dev
+./scripts/build-desktop-viewer.sh --dev
+
+# 仅重打安装包（sidecar 已收集过）
+./scripts/build-desktop-viewer.sh --skip-collect
 ```
+
+等价 npm（在 `desktop/` 下）：
+
+```bash
+npm run build:all   # = collect --release + build
+npm run dev:all     # = collect --debug + dev
+```
+
+不要设嵌套的 `CARGO_TARGET_DIR=./src-tauri/target`，否则会落到错误的 `src-tauri/src-tauri/target`。
 
 产物：
 
 ```text
-# 安装包本体（Finder 里的应用名）
-mei-lang/desktop/src-tauri/target/release/bundle/macos/mei-viewer.app
+# 推荐：直接打开（无需解压；已 gitignore）
+mei-lang/desktop/dist/mei-viewer.app
 
-# 带版本号、方便分发/下载的 zip（推荐）
+# 分发用 zip
 mei-lang/desktop/dist/mei-viewer-<version>-aarch64-apple-darwin.zip
 mei-lang/desktop/dist/MANIFEST.json
+
+# Tauri 原始 bundle（也不会被 package 脚本删掉）
+mei-lang/desktop/src-tauri/target/release/bundle/macos/mei-viewer.app
 ```
 
-`npm run build` 会在 `tauri build` 之后自动跑 `scripts/package-release.mjs`，生成版本化 zip（版本 = `tauri.conf.json#version` + git 短哈希）。
+`npm run build` 会在 `tauri build` 之后跑 `scripts/package-release.mjs`：复制稳定 `.app` 到 `dist/`，并打版本化 zip。
 
 打开：
 
 ```bash
-open "/Users/xuehongwei/codeup/mei-projects/mei-lang/desktop/src-tauri/target/release/bundle/macos/mei-viewer.app"
+open mei-lang/desktop/dist/mei-viewer.app
 
-# 或解压 dist 里的 zip 后再 open
 # 直开 demo 工作区：
-open -na "mei-viewer" --args "/Users/xuehongwei/codeup/mei-projects/workspaces/ws-demo-v2"
+open -na "mei-lang/desktop/dist/mei-viewer.app" --args "/Users/xuehongwei/codeup/mei-projects/workspaces/ws-demo-v2"
 ```
+
+sidecar 收集与 `scripts/build.sh` 一样会做 **cargo target hygiene**（超预算才 clean）；二进制相对 `Cargo.lock` 未过期时默认跳过 cargo（`MEI_DESKTOP_FORCE_BUILD=1` 强制重编）。
 
 开发热跑：
 
 ```bash
-cd mei-lang/desktop
-npm run dev
+./scripts/build-desktop-viewer.sh --dev
+# 或：cd desktop && npm run dev:all
 ```
 
 环境变量：

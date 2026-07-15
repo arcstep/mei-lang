@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "app",
+  "host-shell/app",
   "crates/datasets",
   "crates/kernel",
   "crates/lsp",

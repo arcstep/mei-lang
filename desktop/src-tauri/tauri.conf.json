@@ -34,7 +34,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../sidecars/bin": "sidecars/bin"
+      "../sidecars/bin": "sidecars/bin",
+      "../sidecars/app": "sidecars/app",
+      "../sidecars/stock": "sidecars/stock"
     },
     "macOS": {
       "minimumSystemVersion": "12.0"

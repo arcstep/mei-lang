@@ -17,7 +17,7 @@ clap.workspace = true
 mei-host-auth = { path = "../crates/mei-host-auth" }
 mei-host-core = { path = "../crates/mei-host-core" }
 mei-host-graph = { path = "../crates/mei-host-graph" }
-mei-lang-app = { path = "../app" }
+mei-lang-app = { path = "app" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-snapshot = { path = "../crates/mei-snapshot" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

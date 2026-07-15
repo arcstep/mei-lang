@@ -12,7 +12,10 @@ src-tauri/gen/
 # 误配 CARGO_TARGET_DIR 时可能落在嵌套路径
 src-tauri/src-tauri/
 
-# 打包中间物（若落到 desktop/ 根下）
+# ── 打包产物（勿提交）──
+dist/
+# 稳定可双击打开的副本（package-release 写入；已含在 dist/）
+# dist/mei-viewer.app
 *.dmg
 *.app/
 *.exe

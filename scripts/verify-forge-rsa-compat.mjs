@@ -4,7 +4,7 @@
  * Usage: node scripts/verify-forge-rsa-compat.mjs <public.pem> <plaintext>
  */
 import { readFileSync } from "node:fs";
-import { encryptPasswordWithPem } from "../app/assets/auth/rsa-oaep.js";
+import { encryptPasswordWithPem } from "../host-shell/app/assets/auth/rsa-oaep.js";
 
 const [publicPemPath, plain] = process.argv.slice(2);
 if (!publicPemPath || plain === undefined) {

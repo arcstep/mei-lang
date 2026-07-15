@@ -7,12 +7,12 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = fs.readFileSync(
-  path.join(root, "app/assets/host-runtime-control-center.js"),
+  path.join(root, "host-shell/app/assets/host-runtime-control-center.js"),
   "utf8",
 );
-const eventsSource = fs.readFileSync(path.join(root, "app/assets/host-runtime-events.js"), "utf8");
+const eventsSource = fs.readFileSync(path.join(root, "host-shell/app/assets/host-runtime-events.js"), "utf8");
 const devEvalSource = fs.readFileSync(
-  path.join(root, "app/assets/spa-navigation/spa/dev-eval-scope.js"),
+  path.join(root, "host-shell/app/assets/spa-navigation/spa/dev-eval-scope.js"),
   "utf8",
 );
 const hub = fs.readFileSync(path.join(root, "host-shell/src/host_runtime_hub.rs"), "utf8");

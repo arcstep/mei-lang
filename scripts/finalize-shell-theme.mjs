@@ -10,8 +10,8 @@ import { execSync } from "node:child_process";
 const root = path.resolve(import.meta.dirname, "..");
 const mapPath = path.join(root, "scripts/shell-theme-semantic-map.json");
 const fragmentPath = path.join(root, "scripts/workspace-host-theme.fragment.json");
-const appShellPath = path.join(root, "app/assets/app-shell.css");
-const hostShellPath = path.join(root, "app/assets/host-shell.css");
+const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
+const hostShellPath = path.join(root, "host-shell/app/assets/host-shell.css");
 const workspacePaths = [
   path.join(root, "../workspaces/ws-spbjw/.mei-workspace.json"),
   path.join(root, "../workspaces/ws-dev/.mei-workspace.json"),

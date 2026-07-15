@@ -19,6 +19,9 @@ Copies:
   app/assets/ (via npm run assets:build unless --skip-assets)
 into OUT (default: mei-lang/desktop/sidecars/).
 
+Also runs cargo target hygiene (same as scripts/build.sh) before compile.
+Skips cargo when binaries are newer than Cargo.lock unless MEI_DESKTOP_FORCE_BUILD=1.
+
 mei-compiler enables /runtime reload & local .mei recompile without
 reshipping a full snapshot/bundle (still not a full Studio).
 EOF
@@ -37,17 +40,63 @@ while [[ $# -gt 0 ]]; do
 done
 
 TARGET_DIR="${CARGO_TARGET_DIR:-${MEI_LANG_ROOT}/target}"
+# Cursor/agent shells may inject a sandbox CARGO_TARGET_DIR outside the repo.
+# Viewer sidecars must come from mei-lang/target unless explicitly overridden.
+if [[ -n "${MEI_CARGO_TARGET_DIR:-}" ]]; then
+  TARGET_DIR="${MEI_CARGO_TARGET_DIR}"
+elif [[ "${TARGET_DIR}" != "${MEI_LANG_ROOT}/target" ]]; then
+  echo "==> ignoring inherited CARGO_TARGET_DIR=${TARGET_DIR}"
+  echo "    using ${MEI_LANG_ROOT}/target (set MEI_CARGO_TARGET_DIR to override)"
+  unset CARGO_TARGET_DIR || true
+  TARGET_DIR="${MEI_LANG_ROOT}/target"
+fi
 BIN_DIR="${TARGET_DIR}/${PROFILE}"
 
+EXT=""
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) EXT=".exe" ;;
+esac
+
+# Same target hygiene as mei-lang/scripts/build.sh (sweep stale → budget → optional clean).
+export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
+export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-host-shell,mei-app-runtime,mei-plug-ds,mei-snapshot,mei-compiler}"
+# shellcheck source=cargo-target-gc.sh
+source "${SCRIPT_DIR}/cargo-target-gc.sh"
+if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
+  maybe_cargo_target_hygiene "${MEI_LANG_ROOT}"
+  export MEI_CARGO_TARGET_HYGIENE_RAN=1
+fi
+
+sidecar_bins_fresh() {
+  local name src
+  for name in mei-host-shell mei-app-runtime mei-plug-ds mei-snapshot mei-compiler; do
+    src="${BIN_DIR}/${name}${EXT}"
+    if [[ ! -f "${src}" ]]; then
+      return 1
+    fi
+    # Rebuild if Cargo.lock is newer than any required binary.
+    if [[ -f "${MEI_LANG_ROOT}/Cargo.lock" && "${MEI_LANG_ROOT}/Cargo.lock" -nt "${src}" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 if [[ "${SKIP_BUILD}" != "1" ]]; then
-  echo "==> building Viewer sidecars (profile=${PROFILE})"
-  CARGO_ARGS=(build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
-    -p mei-host-shell -p mei-app-runtime -p mei-plug-ds -p mei-snapshot -p mei-compiler)
-  if [[ "${PROFILE}" == "release" ]]; then
-    CARGO_ARGS=(build --release --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
+  if [[ "${MEI_DESKTOP_FORCE_BUILD:-0}" != "1" ]] \
+    && [[ "${MEI_CARGO_SKIP_BUILD_IF_FRESH:-1}" == "1" ]] \
+    && sidecar_bins_fresh; then
+    echo "==> skip cargo build (sidecars fresh vs Cargo.lock; set MEI_DESKTOP_FORCE_BUILD=1 to rebuild)"
+  else
+    echo "==> building Viewer sidecars (profile=${PROFILE})"
+    CARGO_ARGS=(build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
       -p mei-host-shell -p mei-app-runtime -p mei-plug-ds -p mei-snapshot -p mei-compiler)
+    if [[ "${PROFILE}" == "release" ]]; then
+      CARGO_ARGS=(build --release --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
+        -p mei-host-shell -p mei-app-runtime -p mei-plug-ds -p mei-snapshot -p mei-compiler)
+    fi
+    CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
   fi
-  CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
 fi
 
 if [[ "${SKIP_ASSETS}" != "1" ]]; then
@@ -56,10 +105,6 @@ if [[ "${SKIP_ASSETS}" != "1" ]]; then
 fi
 
 mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/app/assets"
-EXT=""
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*|Windows_NT) EXT=".exe" ;;
-esac
 
 copy_bin() {
   local name="$1"
@@ -87,14 +132,25 @@ copy_bin mei-plug-ds
 copy_bin mei-snapshot
 copy_bin mei-compiler
 
-ASSETS_SRC="${MEI_LANG_ROOT}/app/assets"
-if [[ -d "${ASSETS_SRC}/dist" ]]; then
-  rsync -a --delete "${ASSETS_SRC}/dist/" "${OUT_DIR}/app/assets/dist/"
-elif [[ -d "${ASSETS_SRC}" ]]; then
+ASSETS_SRC="${MEI_LANG_ROOT}/host-shell/app/assets"
+if [[ -d "${ASSETS_SRC}" ]]; then
+  # Always sync full app/assets (host-shell.css, favicon, page-load-progress-shell, dist/, …).
+  # Copying dist/ alone breaks shell chrome styles in Viewer sidecar mode.
   rsync -a --delete \
     --exclude 'node_modules' \
     --exclude '.git' \
     "${ASSETS_SRC}/" "${OUT_DIR}/app/assets/"
+fi
+
+# Stock components are resolved via MEI_PACKAGE_ROOT/stock when workspace has no override.
+STOCK_SRC="${MEI_LANG_ROOT}/stock/components"
+if [[ -d "${STOCK_SRC}" ]]; then
+  mkdir -p "${OUT_DIR}/stock"
+  rsync -a --delete \
+    --exclude 'node_modules' \
+    --exclude '.git' \
+    "${STOCK_SRC}/" "${OUT_DIR}/stock/components/"
+  echo "  + stock/components"
 fi
 
 export OUT_DIR PROFILE

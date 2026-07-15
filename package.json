@@ -20,7 +20,7 @@
     "test:scope": "node ./scripts/test-scope-params.mjs",
     "test:spa-static": "node ./scripts/test-spa-navigation-static.mjs && node ./scripts/test-scene-shell-nested-zones.mjs && node ./scripts/test-client-error-reporting.mjs",
     "test:artifact-static": "node ./scripts/test-artifact-layers-static.mjs",
-    "test:artifact-e2e": "playwright test e2e/artifact-navigation.spec.mjs",
+    "test:artifact-e2e": "playwright test tests/e2e/artifact-navigation.spec.mjs",
     "test:artifact-perf": "node ./scripts/test-artifact-perf.mjs",
     "test:spa-e2e": "playwright test",
     "test:spa": "npm run test:spa-static && npm run assets:build && npm run test:spa-static",

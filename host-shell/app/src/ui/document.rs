@@ -104,10 +104,7 @@ pub(crate) fn render_document(
                     {r#"(function(){try{if(window.MeiPageLoadProgress){window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}catch(e){}})();"#}
                 </script>
                 <script defer src="/app-assets/host-http-feedback.js"></script>
-                <script
-                    type="module"
-                    src="/app-bundles/shoelace.js"
-                ></script>
+                <script defer src="/app-bundles/shoelace.js"></script>
                 {chrome_script_preloads}
                 {head_script_preloads_view}
                 {chrome_scripts}

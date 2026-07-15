@@ -28,7 +28,7 @@ static KERNEL_CONTRACTS: OnceLock<ComponentContractsFile> = OnceLock::new();
 fn kernel_contracts() -> &'static ComponentContractsFile {
     KERNEL_CONTRACTS.get_or_init(|| {
         serde_json::from_str(include_str!(
-            "../../../../knowledge/editor-runtime/components/component-contracts.json"
+            "../../../../agent/knowledge/editor-runtime/components/component-contracts.json"
         ))
         .expect("component-contracts.json must parse")
     })

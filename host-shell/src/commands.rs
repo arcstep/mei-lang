@@ -1382,6 +1382,16 @@ fn refresh_host_materialization_flags(state: &SharedState) {
 }
 
 fn resolve_package_root() -> anyhow::Result<std::path::PathBuf> {
+    if let Ok(raw) = std::env::var("MEI_PACKAGE_ROOT") {
+        let root = std::path::PathBuf::from(raw.trim());
+        if mei_host_core::resolve_app_assets_dir(&root).is_dir() {
+            return Ok(root);
+        }
+        anyhow::bail!(
+            "MEI_PACKAGE_ROOT {} missing app/assets/ (or host-shell/app/assets/)",
+            root.display()
+        );
+    }
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     Ok(manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf())
 }

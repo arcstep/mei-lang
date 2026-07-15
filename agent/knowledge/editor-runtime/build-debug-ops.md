@@ -35,9 +35,9 @@
 - Fresh clone has no `.mei/`: run `workspace runtime install --force` before opening the workspace in an AI tool or starting `./start.sh`
 - Missing `.stock/`: run `workspace materialize`
 - Missing `.mei/` runtime assets after `workspace init`: run `workspace runtime install`
-- Missing workspace-local binaries after bootstrap/install: rerun `workspace runtime install --force` and verify `.mei/runtime/bin/mei-toolchain`, `mei-lsp`, and `mei-host-web`
+- Missing workspace-local binaries after bootstrap/install: rerun `workspace runtime install --force` and verify `.mei/runtime/bin/mei-toolchain`, `mei-lsp`, and `mei-host-shell`
 - Missing bundled docs, profiles, contracts, or examples: run `knowledge --surface author`
 - Missing access entry files or access guidance: run `knowledge --surface access`
 - Missing tool glue files: run `editor-runtime scaffold --tool <tool>`
-- `./start.sh` falling back to PATH `mei-host-web`: repair the workspace-local runtime instead of treating PATH as the normal path
+- `./start.sh` falling back to PATH `mei-host-shell`: repair the workspace-local runtime instead of treating PATH as the normal path
 - Missing theme/source refs: inspect `<app>/.mei-config.json -> ops.*` and `workspace-config-reference.md`

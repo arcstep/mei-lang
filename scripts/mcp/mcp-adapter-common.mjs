@@ -57,8 +57,8 @@ export function hostWebBinCandidates() {
   return uniqueNonEmpty([
     process.env.MEI_HOST_WEB_BIN,
     process.env.MEI_HOST_BIN,
-    siblingRuntimeBinary("mei-host-web"),
-    "mei-host-web",
+    siblingRuntimeBinary("mei-host-shell"),
+    "mei-host-shell",
   ]);
 }
 

@@ -40,8 +40,8 @@ fi
 
 TAILWIND_ARGS=(
   -c "${ROOT_DIR}/tailwind.config.js"
-  -i "${ROOT_DIR}/app/assets/tailwind-input.css"
-  -o "${ROOT_DIR}/app/assets/tailwind.css"
+  -i "${ROOT_DIR}/host-shell/app/assets/tailwind-input.css"
+  -o "${ROOT_DIR}/host-shell/app/assets/tailwind.css"
 )
 
 if [[ "${1:-}" == "--watch" ]]; then
