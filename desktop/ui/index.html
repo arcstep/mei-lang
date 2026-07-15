@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mei-viewer</title>
+    <link rel="icon" href="mei-logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="brand">
+        <img class="brand-logo" src="mei-logo.svg" width="48" height="48" alt="MeiLang" />
+        <div>
+          <h1>mei-viewer</h1>
+          <p class="sub">打开工作区 · 导出快照 · 导入快照</p>
+        </div>
+      </header>
+
+      <section class="status" id="status-panel">
+        <div class="row"><span>状态</span><strong id="status-text">未启动</strong></div>
+        <div class="row"><span>端口</span><code id="status-port">—</code></div>
+        <div class="row"><span>工作区</span><code id="status-workspace">—</code></div>
+        <div class="row"><span>日志文件</span><code id="status-log">—</code></div>
+      </section>
+
+      <section class="actions">
+        <button type="button" id="btn-open-workspace">打开工作区…</button>
+        <button type="button" id="btn-import-snapshot">导入快照…</button>
+        <div class="export-row">
+          <label class="export-app">
+            <span>导出 app</span>
+            <select id="export-app" disabled>
+              <option value="">（未打开工作区）</option>
+            </select>
+          </label>
+          <label class="follow">
+            <input type="checkbox" id="export-include-data" checked />
+            含 data-snapshots
+          </label>
+        </div>
+        <button type="button" id="btn-export-snapshot" disabled>导出快照…</button>
+        <button type="button" id="btn-open-host" disabled>打开宿主界面</button>
+        <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
+      </section>
+
+      <section class="logs">
+        <div class="logs-head">
+          <h2>运行日志</h2>
+          <div class="logs-actions">
+            <label class="follow">
+              <input type="checkbox" id="log-follow" checked />
+              自动刷新
+            </label>
+            <button type="button" id="btn-copy-log" class="secondary compact">复制全部</button>
+            <button type="button" id="btn-reveal-log" class="secondary compact">在访达中显示</button>
+          </div>
+        </div>
+        <pre id="log-view" class="log-view" tabindex="0" aria-live="polite">（尚未启动 host）</pre>
+      </section>
+
+      <section class="recent">
+        <h2>最近打开</h2>
+        <ul id="recent-list"></ul>
+      </section>
+
+      <p class="hint" id="hint"></p>
+    </main>
+    <script src="/main.js"></script>
+  </body>
+</html>

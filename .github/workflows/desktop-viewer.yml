@@ -1,0 +1,80 @@
+name: desktop-viewer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "desktop/**"
+      - "crates/mei-snapshot/**"
+      - "host-shell/**"
+      - "crates/mei-app-runtime/**"
+      - "crates/mei-plug-ds/**"
+      - "scripts/collect-desktop-sidecars.sh"
+      - ".github/workflows/desktop-viewer.yml"
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Collect sidecars (release)
+        run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci || npm install
+      - name: Build + versioned package
+        working-directory: desktop
+        run: npm run build
+      - name: Read dist version
+        id: meta
+        working-directory: desktop
+        run: |
+          VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('dist/MANIFEST.json','utf8')).version)")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "artifact=mei-viewer-${VER}-macos" >> "$GITHUB_OUTPUT"
+      - name: Upload Mac release zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: |
+            desktop/dist/mei-viewer-*.zip
+            desktop/dist/MANIFEST.json
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Collect sidecars (release)
+        shell: bash
+        run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci || npm install
+      - name: Build + versioned package
+        working-directory: desktop
+        run: npm run build
+      - name: Read dist version
+        id: meta
+        working-directory: desktop
+        shell: bash
+        run: |
+          VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('dist/MANIFEST.json','utf8')).version)")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "artifact=mei-viewer-${VER}-windows" >> "$GITHUB_OUTPUT"
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: |
+            desktop/dist/mei-viewer-*-setup.exe
+            desktop/dist/MANIFEST.json
+          if-no-files-found: error

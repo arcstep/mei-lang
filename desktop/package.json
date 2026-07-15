@@ -1,0 +1,22 @@
+{
+  "name": "mei-viewer",
+  "version": "2.5.14",
+  "private": true,
+  "type": "module",
+  "description": "mei-viewer — Tauri shell over mei-host-shell",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build && node ./scripts/package-release.mjs",
+    "package": "node ./scripts/package-release.mjs",
+    "tauri": "tauri",
+    "collect-sidecars": "../scripts/collect-desktop-sidecars.sh --release"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
+    "@tauri-apps/plugin-shell": "^2.2.0"
+  }
+}

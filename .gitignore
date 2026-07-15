@@ -35,3 +35,12 @@ __pycache__/
 
 # 本地 cargo target 编译前后对比快照（scripts/compare-build-snapshot.sh 输出）
 /.build-snapshot-*.txt
+
+# Desktop Viewer 编译物兜底（细则见 desktop/.gitignore）
+/desktop/node_modules/
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/sidecars/bin/
+/desktop/sidecars/app/
+/desktop/sidecars/MANIFEST.json
+/desktop/dist/

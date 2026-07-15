@@ -18,14 +18,18 @@ members = [
   "crates/mei-host-auth",
   "crates/mei-plug-ds",
   "crates/mei-app-runtime",
+  "crates/mei-snapshot",
   "host-shell",
   "server",
 ]
 resolver = "2"
 
+# Tauri Viewer keeps its own Cargo.toml / lockfile under desktop/src-tauri.
+exclude = ["desktop/src-tauri"]
+
 [workspace.package]
 edition = "2021"
-version = "2.5.13"
+version = "2.5.14"
 license = "MIT"
 
 [workspace.dependencies]

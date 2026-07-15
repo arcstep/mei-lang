@@ -23,6 +23,8 @@ pub enum Command {
     Apps(AppsCommand),
     #[command(subcommand, name = "eval-cache")]
     EvalCache(EvalCacheCommand),
+    #[command(subcommand, name = "snapshot")]
+    Snapshot(SnapshotCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -301,4 +303,38 @@ pub struct WorkspaceInitArgs {
     pub label: Option<String>,
     #[arg(long)]
     pub app: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SnapshotCommand {
+    Pack(SnapshotPackArgs),
+    Unpack(SnapshotUnpackArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SnapshotPackArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long)]
+    pub out: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub include_data: bool,
+    #[arg(long, default_value_t = false)]
+    pub include_cache: bool,
+    #[arg(long)]
+    pub default_scene: Option<String>,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SnapshotUnpackArgs {
+    #[arg(long)]
+    pub archive: PathBuf,
+    #[arg(long)]
+    pub into: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
 }

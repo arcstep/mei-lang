@@ -8,8 +8,9 @@ use crate::cli::{
     AppsCommand, AppsListArgs, AppsStartArgs, AppsStopArgs, BuildCleanArgs, BuildCommand,
     BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs,
     BuildStatusArgs, Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, LaunchMode,
-    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
-    WorkspaceCommand, WorkspaceInitArgs,
+    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs,
+    SnapshotCommand, SnapshotPackArgs, SnapshotUnpackArgs, VersionArgs, WorkspaceCommand,
+    WorkspaceInitArgs,
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
@@ -30,7 +31,60 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Workspace(sub) => run_workspace(sub),
         Command::Apps(sub) => run_apps(sub),
         Command::EvalCache(sub) => run_eval_cache(sub),
+        Command::Snapshot(sub) => run_snapshot(sub),
     }
+}
+
+fn run_snapshot(command: SnapshotCommand) -> anyhow::Result<()> {
+    match command {
+        SnapshotCommand::Pack(args) => run_snapshot_pack(args),
+        SnapshotCommand::Unpack(args) => run_snapshot_unpack(args),
+    }
+}
+
+fn run_snapshot_pack(args: SnapshotPackArgs) -> anyhow::Result<()> {
+    let manifest = mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
+        workspace: args.workspace,
+        app_id: args.app,
+        out: args.out.clone(),
+        include_data: args.include_data,
+        include_cache: args.include_cache,
+        default_scene: args.default_scene,
+        compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+    })?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&manifest)?);
+    } else {
+        println!(
+            "packed app={} files={} -> {}",
+            manifest.app_id,
+            manifest.files.len(),
+            args.out.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_snapshot_unpack(args: SnapshotUnpackArgs) -> anyhow::Result<()> {
+    let result = mei_snapshot::unpack_snapshot(&args.archive, &args.into)?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "dest": result.dest,
+                "bundlePath": result.bundle_path,
+                "manifest": result.manifest,
+            })
+        );
+    } else {
+        println!(
+            "unpacked app={} bundle={} -> {}",
+            result.manifest.app_id,
+            result.bundle_path.display(),
+            result.dest.display()
+        );
+    }
+    Ok(())
 }
 
 fn run_eval_cache(command: EvalCacheCommand) -> anyhow::Result<()> {

@@ -1,0 +1,20 @@
+[package]
+name = "mei-snapshot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Mei Viewer snapshot pack/unpack (mei-snapshot.zip)"
+
+[[bin]]
+name = "mei-snapshot"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+walkdir.workspace = true
+zip.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
