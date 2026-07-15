@@ -2,11 +2,12 @@
 
 ## 组件使用原则
 
-- 组件必须来自 public contract、example pack 或 `.stock/components/**/manifest.json` 已注册 type key
+- 组件必须来自 public contract 或 `stock/components/**/manifest.json` 已注册 type key
 - 输入统一走 `props`
 - 优先传语义对象，不传宿主内部字段路径
 - props 优先消费当前 scene 可见的 `dataset_ref` / `metric_ref` / `resource_ref`
-- pack 规则：`.mei/knowledge/author/components/component-contracts.json`
+- pack 规则（可选）：`.mei/knowledge/author/components/component-contracts.json`
+- **pack `previews/` / `stock/authoring/examples` 已退役**；查看组件请打开示例应用（如 zhifa / mini-data）
 - 模板壳：`.mei/knowledge/author/templates/template-contracts.json`
 - 新增组件 / 模板：先读 `.mei/knowledge/author/extension-authoring.md`
 

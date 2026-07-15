@@ -117,7 +117,7 @@ Minimal shape (schemaVersion 2):
     "authoring": "stock/authoring"
   },
   "stock": {
-    "bootstrap": { "source": "platform-default" },
+    "bootstrap": { "source": "platform-default", "refresh": true },
     "catalog": {
       "components": { "enabled": true, "exclude": [] },
       "templates": { "enabled": true, "exclude": ["**/assets/**"] },
@@ -132,9 +132,10 @@ Minimal shape (schemaVersion 2):
 }
 ```
 
+- **`bootstrap.refresh`**: when `true` (default), startup/prebuild re-copies missing or newer platform stock files into the workspace. Set `false` for **workspace-owned** stock (deleted examples/previews stay deleted). Explicit `mei-toolchain workspace stock sync` still force-copies.
 - **`preview.workspaceOnly`**: when true, Build preview reads only workspace stock (no package fallback).
-- **Build component preview**: `{paths.components}/{pack}/previews/{use_key}.mei` beside each manifest (see host doc 87).
-- **`preview.contracts`**: optional Agent/LSP overlay for tutorial `preferred_example_ids` — not the Build preview router.
+- **Build component preview**: `{paths.components}/{pack}/previews/{use_key}.mei` beside each manifest (see host doc 87). Optional for gold-sample workspaces that view components via apps instead.
+- **`preview.contracts`**: optional Agent/LSP overlay for tutorial `preferred_example_ids` — not the Build preview router. Use `null` when unused.
 
 Stock maintenance commands:
 

@@ -1,0 +1,50 @@
+# 视口 / 观察窗 chrome 模板：边线、画布底色等均走 theme.shared.viewport_chrome，应用可在 app.config 覆盖。
+
+template viewport_frame_shell_props():
+    {
+        "padding": "0",
+        "background": "transparent",
+        "border": shared_ref(
+            "viewport_chrome.frame_border",
+            "2px solid rgba(148, 163, 184, 0.52)",
+        ),
+        "radius": shared_ref("viewport_chrome.frame_radius", "0"),
+        "box_sizing": "border-box",
+        "pointer_events": "none",
+        "overflow": "visible",
+        "box_shadow": shared_ref(
+            "viewport_chrome.frame_inset_shadow",
+            "inset 0 0 0 1px rgba(226, 232, 240, 0.06)",
+        ),
+    }
+
+template stage_aperture_frame_shell_props():
+    {
+        "padding": "0",
+        "background": "transparent",
+        "border": shared_ref(
+            "viewport_chrome.stage_aperture_border",
+            "2px dashed #facc15",
+        ),
+        "radius": shared_ref("viewport_chrome.stage_aperture_radius", "6px"),
+        "box_sizing": "border-box",
+        "pointer_events": "none",
+        "overflow": "visible",
+    }
+
+template viewport_canvas_shell_props():
+    {
+        "padding": "0",
+        "background": shared_ref("viewport_chrome.canvas_background", "viewport_canvas"),
+        "overflow": "hidden",
+        "box_sizing": "border-box",
+    }
+
+template basemap_focus_frame_border():
+    shared_ref(
+        "viewport_chrome.basemap_focus_border",
+        "2px dashed #facc15",
+    )
+
+template basemap_focus_frame_radius():
+    shared_ref("viewport_chrome.stage_aperture_radius", "6px")

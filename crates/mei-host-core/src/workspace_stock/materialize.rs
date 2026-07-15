@@ -54,11 +54,22 @@ pub fn materialize_workspace_stock(
 
 /// Idempotent stock bootstrap: copy platform `stock/*` into the workspace when trees are missing,
 /// and on later runs refresh workspace copies when the platform source file is newer.
+///
+/// When `workspace.json` sets `stock.bootstrap.refresh` to `false` and stock trees already
+/// exist, this is a no-op (workspace-owned stock; deleted files stay deleted).
 pub fn ensure_workspace_stock_materialized(
     source_root: &Path,
     package_root: &Path,
 ) -> Result<Option<MaterializeReport>> {
     let needs_initial = workspace_stock_needs_materialize(source_root);
+    if !needs_initial
+        && !mei_lang_kernel::load_workspace_config(source_root)
+            .stock
+            .bootstrap
+            .refresh
+    {
+        return Ok(None);
+    }
     let report = materialize_workspace_stock(source_root, package_root, false)?;
     if !needs_initial
         && report.components.copied_files == 0

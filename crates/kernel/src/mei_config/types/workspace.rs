@@ -169,11 +169,27 @@ fn default_stock_catalog_app_title() -> String {
     "Stock Catalog".to_string()
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceStockBootstrapConfig {
     /// `platform-default` = mei-lang 包内 stock bootstrap。
     #[serde(default)]
     pub source: Option<String>,
+    /// When true (default), `ensure_workspace_stock_materialized` keeps copying/refreshing
+    /// missing or older files from the platform package. Set `false` for workspace-owned
+    /// stock (e.g. after moving unused examples/previews into `stock/legacy/`); then
+    /// startup/prebuild will not restore deleted files. Explicit `workspace stock sync`
+    /// still force-copies.
+    #[serde(default = "default_true")]
+    pub refresh: bool,
+}
+
+impl Default for WorkspaceStockBootstrapConfig {
+    fn default() -> Self {
+        Self {
+            source: None,
+            refresh: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -492,6 +492,7 @@ fn initialize_standalone_workspace(
             stock: mei_lang_kernel::WorkspaceStockConfig {
                 bootstrap: mei_lang_kernel::WorkspaceStockBootstrapConfig {
                     source: Some("platform-default".to_string()),
+                    refresh: true,
                 },
                 catalog: mei_lang_kernel::WorkspaceStockCatalogConfig {
                     components: mei_lang_kernel::WorkspaceStockCatalogKindConfig {

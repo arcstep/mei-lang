@@ -1,60 +1,12 @@
 {
   "components": {
-    "chart.bar-mini": {
-      "tag": "mei-chart-bar-mini",
-      "script": "bar-mini.js"
-    },
-    "chart.line": {
-      "tag": "mei-chart-line",
-      "script": "line.js"
-    },
-    "chart.area": {
-      "tag": "mei-chart-area",
-      "script": "area.js"
-    },
-    "chart.trend": {
-      "tag": "mei-chart-trend",
-      "script": "trend.js"
-    },
     "chart.column": {
       "tag": "mei-chart-column",
       "script": "column.js"
     },
-    "chart.bar": {
-      "tag": "mei-chart-bar",
-      "script": "bar.js"
-    },
     "chart.ranking": {
       "tag": "mei-chart-ranking",
       "script": "ranking.js"
-    },
-    "chart.pie": {
-      "tag": "mei-chart-pie",
-      "script": "pie.js"
-    },
-    "chart.donut": {
-      "tag": "mei-chart-donut",
-      "script": "donut.js"
-    },
-    "chart.rose": {
-      "tag": "mei-chart-rose",
-      "script": "rose.js"
-    },
-    "chart.scatter": {
-      "tag": "mei-chart-scatter",
-      "script": "scatter.js"
-    },
-    "chart.radar": {
-      "tag": "mei-chart-radar",
-      "script": "radar.js"
-    },
-    "chart.boxplot": {
-      "tag": "mei-chart-boxplot",
-      "script": "boxplot.js"
-    },
-    "chart.geo": {
-      "tag": "mei-chart-geo",
-      "script": "geo.js"
     }
   }
 }

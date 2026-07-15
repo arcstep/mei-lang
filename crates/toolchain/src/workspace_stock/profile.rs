@@ -5,6 +5,7 @@ pub(crate) fn default_workspace_stock_config() -> WorkspaceStockConfig {
     WorkspaceStockConfig {
         bootstrap: WorkspaceStockBootstrapConfig {
             source: Some(BOOTSTRAP_SOURCE_PLATFORM_DEFAULT.to_string()),
+            refresh: true,
         },
         catalog: WorkspaceStockCatalogConfig {
             components: WorkspaceStockCatalogKindConfig {

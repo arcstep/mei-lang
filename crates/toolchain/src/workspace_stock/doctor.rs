@@ -90,14 +90,34 @@ pub fn doctor_workspace_stock(
 
     let missing_component_previews =
         mei_lang_kernel::audit_component_preview_coverage(source_root).unwrap_or_default();
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    // Pack previews are optional when authoring catalog is disabled (gold-sample workspaces).
+    let preview_required = workspace.stock.catalog.authoring.enabled;
+    if !preview_required && !missing_component_previews.is_empty() {
+        warnings.push(format!(
+            "component pack previews absent for {} keys (ok: stock.catalog.authoring.enabled=false)",
+            missing_component_previews.len()
+        ));
+    }
+    let missing_component_previews = if preview_required {
+        missing_component_previews
+    } else {
+        Vec::new()
+    };
     let mut catalog_app_drift = Vec::new();
-    if mei_lang_kernel::catalog_app_needs_sync(source_root).unwrap_or(true) {
-        catalog_app_drift.push(
-            "apps/_stock-catalog out of sync; run `mei-toolchain workspace stock catalog-app sync`"
-                .to_string(),
+    if preview_required {
+        if mei_lang_kernel::catalog_app_needs_sync(source_root).unwrap_or(true) {
+            catalog_app_drift.push(
+                "apps/_stock-catalog out of sync; run `mei-toolchain workspace stock catalog-app sync`"
+                    .to_string(),
+            );
+        }
+        catalog_app_drift.extend(check_stock_catalog_menu_config(source_root));
+    } else if mei_lang_kernel::catalog_app_needs_sync(source_root).unwrap_or(false) {
+        warnings.push(
+            "apps/_stock-catalog drift ignored (stock.catalog.authoring.enabled=false)".to_string(),
         );
     }
-    catalog_app_drift.extend(check_stock_catalog_menu_config(source_root));
 
     let ok = missing_trees.is_empty()
         && orphan_paths.is_empty()

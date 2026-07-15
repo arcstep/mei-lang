@@ -23,6 +23,43 @@ mod tests {
     }
 
     #[test]
+    fn ensure_skips_when_bootstrap_refresh_false() {
+        let temp = std::env::temp_dir().join(format!(
+            "mei-ensure-stock-no-refresh-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        let package_root = temp.join("package");
+        let workspace_root = temp.join("workspace");
+        let src = package_root.join("stock/components/demo/marker.txt");
+        fs::create_dir_all(src.parent().expect("parent")).expect("create src dir");
+        fs::create_dir_all(package_root.join("stock/templates")).expect("templates src");
+        fs::create_dir_all(package_root.join("stock/authoring")).expect("authoring src");
+        fs::write(package_root.join("stock/templates/.keep"), "").expect("templates keep");
+        fs::write(package_root.join("stock/authoring/.keep"), "").expect("authoring keep");
+        fs::write(&src, "platform").expect("write src");
+        materialize_workspace_stock(workspace_root.as_path(), package_root.as_path(), false)
+            .expect("initial materialize");
+        let dest = workspace_root.join("stock/components/demo/marker.txt");
+        fs::remove_file(&dest).expect("delete workspace copy");
+        fs::write(
+            workspace_root.join("workspace.json"),
+            r#"{"schemaVersion":2,"stock":{"bootstrap":{"refresh":false}}}"#,
+        )
+        .expect("write workspace.json");
+        assert!(
+            ensure_workspace_stock_materialized(workspace_root.as_path(), package_root.as_path())
+                .expect("ensure with refresh false")
+                .is_none()
+        );
+        assert!(
+            !dest.is_file(),
+            "deleted file must not be restored when refresh=false"
+        );
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
     fn ensure_materialize_refreshes_when_platform_source_is_newer() {
         let temp = std::env::temp_dir().join(format!(
             "mei-ensure-stock-refresh-test-{}",
@@ -65,9 +102,8 @@ mod tests {
         let report = materialize_workspace_stock(temp.as_path(), package_root.as_path(), true)
             .expect("materialize");
         assert!(
-            temp.join("stock/authoring/examples/chart-baseline.mei")
-                .is_file(),
-            "authoring examples should be copied"
+            temp.join("stock/authoring/README.md").is_file(),
+            "authoring stub README should be copied"
         );
         assert_eq!(report.authoring.copied_files > 0, true);
         let json = serde_json::to_value(&report).expect("serialize");

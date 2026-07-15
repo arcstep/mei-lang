@@ -128,18 +128,17 @@ fn load_component_assets_resolves_pack_path_and_preview() {
         .canonicalize()
         .expect("package root");
     let assets = load_component_assets(package_root.as_path()).expect("load assets");
-    let asset = assets.get("chart.donut").expect("chart.donut");
+    let asset = assets.get("chart.column").expect("chart.column");
     assert_eq!(asset.pack_path, "chart/echarts");
     assert!(
-        asset.preview_mei.as_deref().is_some_and(
-            |path| path.ends_with("stock/components/chart/echarts/previews/chart.donut.mei")
-        ),
-        "preview path missing for chart.donut"
+        asset.preview_mei.is_none(),
+        "pack previews retired; chart.column should have no preview_mei"
     );
     let missing = audit_component_preview_coverage(package_root.as_path()).expect("audit");
-    assert!(
-        missing.is_empty(),
-        "package stock should cover all manifest previews, missing: {missing:?}"
+    assert_eq!(
+        missing.len(),
+        assets.len(),
+        "with previews retired, every registered component should be missing a preview"
     );
 }
 
