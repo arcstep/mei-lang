@@ -22,7 +22,7 @@
     "block_id": "app_skeleton:mini-grid",
     "default_stage": "home",
     "id": "mini-grid",
-    "title": "最简 Grid · Mini Grid"
+    "title": "迷你网格 · Mini Grid"
   },
   "block_count": 8,
   "blocks_by_kind": {
@@ -64,7 +64,7 @@
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
-    "app.mei",
+    "__mei_synthesized__",
     "scene/home.mei",
     "scene/home/t1.mei",
     "scene/home/t1/r-main.mei",
@@ -99,5 +99,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.9"
+  "syntax_version": "2.5.10"
 }

@@ -31,15 +31,44 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
 
 pub fn resolve_app_entry_main(app_root: &Path) -> String {
     let config = load_mei_config_for_app(app_root, None);
-    if config.entry.main.trim().is_empty() {
-        DEFAULT_APP_ENTRY_MAIN.to_string()
+    let has_toml = app_root
+        .join(super::types::APP_TOML_FILENAME)
+        .is_file();
+    let configured = config.entry.main.trim();
+    let entry = if configured.is_empty() {
+        if has_toml {
+            // Graph-native product apps: app.toml is the root; no Mei entry file.
+            String::new()
+        } else {
+            DEFAULT_APP_ENTRY_MAIN.to_string()
+        }
     } else {
         config.entry.main_rel()
+    };
+    if entry.is_empty() {
+        return entry;
+    }
+    let path = resolve_app_main_path_for_entry(app_root, entry.as_str());
+    if path.is_file() {
+        entry
+    } else if has_toml {
+        // Stale entry.main pointing at a missing file — treat as graph-native.
+        String::new()
+    } else {
+        entry
     }
 }
 
 pub fn resolve_app_main_path(app_root: &Path) -> PathBuf {
     let entry = resolve_app_entry_main(app_root);
+    if entry.trim().is_empty() {
+        // Sentinel path that does not exist; callers must check `is_file()` / IO errors.
+        return super::workspace_paths::resolve_app_src_root(app_root).join("__no_app_entry__.mei");
+    }
+    resolve_app_main_path_for_entry(app_root, entry.as_str())
+}
+
+fn resolve_app_main_path_for_entry(app_root: &Path, entry: &str) -> PathBuf {
     let normalized = entry.trim().trim_start_matches("./").replace('\\', "/");
     // `app.config.json` may use app-root-relative (`src/app.mei`) or src-relative (`app.mei` / `main.mei`).
     let from_app_root = app_root.join(normalized.as_str());

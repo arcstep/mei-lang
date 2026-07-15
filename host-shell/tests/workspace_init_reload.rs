@@ -36,7 +36,8 @@ fn workspace_init_creates_config_and_stock() {
     assert!(dir.join("workspace.json").is_file());
     assert!(dir.join("mei.lang.json").is_file());
     assert!(dir.join("stock/components").is_dir());
-    assert!(dir.join("apps/demo/src/app.mei").is_file());
+    assert!(dir.join("apps/demo/app.toml").is_file());
+    assert!(dir.join("apps/demo/src/stage/home.stage.mdx").is_file());
 }
 
 fn ws_demo_v2() -> Option<std::path::PathBuf> {

@@ -115,7 +115,10 @@ pub fn compute_narration_digest(catalogs: &BTreeMap<String, NarrationCatalog>) -
 
 fn is_t2_or_overlay_scope(preview_scope: &str) -> bool {
     let s = preview_scope.replace('\\', "/").to_ascii_lowercase();
-    s.contains("/t2/") || s.contains("/overlay/") || s.contains("/t2")
+    s.contains("/t2/")
+        || s.contains("/overlay/")
+        || s.contains("/t2")
+        || s.contains("/plane-")
 }
 
 fn content_key_from_preview(preview_scope: &str) -> String {

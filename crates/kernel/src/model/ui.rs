@@ -197,6 +197,9 @@ pub struct SceneDecl {
     /// Scene / board 的可选能力声明；用于表达运行时能力而非强制作者分型。
     #[serde(default)]
     pub capabilities: Value,
+    /// Openable T2 page-plane ids from `scene.t2_pages` (0335); not always-on panels.
+    #[serde(default)]
+    pub t2_pages: Vec<String>,
     /// Scene 级装配默认绑定；用于把可复用 scene 壳接到本地 world 资源。
     #[serde(default)]
     pub bindings: Value,

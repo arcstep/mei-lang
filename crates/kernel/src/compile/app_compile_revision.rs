@@ -159,8 +159,17 @@ fn default_scene_from_skeleton_or_navigation(raw: &Value) -> Option<String> {
 }
 
 fn scan_default_scene_from_app_source(app_root: &Path) -> Option<String> {
+    let programs = mei_syntax::discover_stage_programs(app_root);
+    if let Some(home) = programs.iter().find(|p| p.stage_id == "home") {
+        return Some(home.stage_id.clone());
+    }
+    if programs.len() == 1 {
+        return Some(programs[0].stage_id.clone());
+    }
     let app_main = resolve_app_main_path(app_root);
-    let source = std::fs::read_to_string(app_main).ok()?;
+    let Ok(source) = std::fs::read_to_string(app_main) else {
+        return programs.into_iter().next().map(|p| p.stage_id);
+    };
     if let Some(scene) = first_quoted_assignment(source.as_str(), "default_stage") {
         return Some(scene);
     }
@@ -581,7 +590,7 @@ mod default_scene_v2_tests {
     fn mei_tutorial_resolves_intro_default_scene() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../workspaces/ws-demo-v2/apps/mei-tutorial");
-        assert!(root.join("src/app.mei").is_file(), "missing {}", root.display());
+        assert!(root.join("app.toml").is_file(), "missing {}", root.display());
         let scene = resolve_default_scene_from_root(&root)
             .expect("resolve")
             .expect("default scene");

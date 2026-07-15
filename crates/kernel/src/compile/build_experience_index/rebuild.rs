@@ -146,6 +146,7 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
                     bindings: Value::Null,
                     examples: Value::Null,
                     access_export: true,
+                    t2_pages: Vec::new(),
                 },
                 themes: Vec::new(),
                 shared: Value::Null,

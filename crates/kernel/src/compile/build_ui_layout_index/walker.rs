@@ -106,20 +106,37 @@ pub fn build_scene_ui_structure(
 
     let mut planes: BTreeMap<String, Vec<&UiNodeDecl>> = BTreeMap::new();
     for panel in panels {
-        let tier = panel_tier(panel);
-        planes.entry(tier).or_default().push(panel);
+        // 0335: index by plane_id when authored as plane; do not collapse all tier=t2 into one node.
+        let key = panel
+            .props
+            .get("__mei_plane_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| panel_tier(panel));
+        planes.entry(key).or_default().push(panel);
     }
 
-    for (tier, top_panels) in planes {
+    for (plane_key, top_panels) in planes {
         let authored_plane = top_panels
             .iter()
             .find(|panel| ui_role_from_props(&panel.props) == Some("plane"))
             .copied();
+        let tier = authored_plane
+            .and_then(|p| p.props.get("__mei_tier").and_then(|v| v.as_str()))
+            .unwrap_or(plane_key.as_str())
+            .to_string();
         let plane_label = authored_plane
             .map(region_label)
             .filter(|label| !label.trim().is_empty())
-            .unwrap_or_else(|| plane_label_for_tier(tier.as_str()));
-        let plane_segments = vec![scene_id.to_string(), tier.clone()];
+            .unwrap_or_else(|| {
+                if tier == "t2" && plane_key != "t2" {
+                    format!("T2 · {plane_key}")
+                } else {
+                    plane_label_for_tier(tier.as_str())
+                }
+            });
+        let plane_segments = vec![scene_id.to_string(), plane_key.clone()];
         let plane_budget = authored_plane.and_then(budget_from_panel);
         let plane_anchors = authored_plane
             .map(source_anchor_for_panel)

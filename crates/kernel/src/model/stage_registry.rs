@@ -215,7 +215,11 @@ pub fn is_stage_registry_candidate(route: &CompiledSceneRoute) -> bool {
         return false;
     }
     let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
-    if target.contains("/t2/") || target.contains("/overlay/") {
+    // Legacy central t2/ plus colocated T2 page-planes (`.../plane-{id}/...` per 025004).
+    if target.contains("/t2/")
+        || target.contains("/overlay/")
+        || target.contains("/plane-")
+    {
         return false;
     }
     kind == "scene"
@@ -257,6 +261,13 @@ mod tests {
                 "warnings_analytics_page",
                 "scene",
                 "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei",
+                true,
+                false,
+            ),
+            route(
+                "park_point_1_page",
+                "scene",
+                "src/scene/home/t1/region-left-rail/section-lake-pavilion/plane-park-point-1/plane.mei",
                 true,
                 false,
             ),

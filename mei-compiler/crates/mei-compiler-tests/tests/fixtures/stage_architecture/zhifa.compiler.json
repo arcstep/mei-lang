@@ -201,7 +201,7 @@
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
-    "app.mei",
+    "__mei_synthesized__",
     "data/metrics/effectiveness.bundle.mei",
     "data/metrics/enforcement-elements.bundle.mei",
     "data/metrics/indicator-system.bundle.mei",
@@ -463,5 +463,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.9"
+  "syntax_version": "2.5.10"
 }

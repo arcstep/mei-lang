@@ -79,11 +79,11 @@
     }
   },
   "mcg": {
-    "node_count": 41,
+    "node_count": 40,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 9,
-      "navigation": 2,
+      "navigation": 1,
       "semantic_graph": 29
     },
     "schemaVersion": "mei-mcg-registry-v2"

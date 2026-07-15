@@ -287,9 +287,10 @@ pub fn load_app_manifest_from_json_pair(app_root: &Path) -> AppManifest {
             (None, "current".to_string(), None, None, None, None, None, None)
         };
 
-    let default_stage = scan_skeleton_default_stage(app_root);
+    // Product fields: never scan app.mei skeleton (0120 C4). Fall back to Stage Registry.
+    let default_stage = default_stage_from_registry(app_root);
     if title.is_none() {
-        title = scan_skeleton_title(app_root);
+        title = default_title_from_registry(app_root);
     }
 
     let source_raw = launch_path
@@ -364,56 +365,28 @@ fn rename_hot_scenes_keys(value: &Value, from: &str, to: &str) -> Value {
     }
 }
 
-fn scan_skeleton_default_stage(app_root: &Path) -> Option<String> {
-    scan_skeleton_field(app_root, "default_stage")
-}
-
-fn scan_skeleton_title(app_root: &Path) -> Option<String> {
-    scan_skeleton_field(app_root, "title")
-}
-
-fn scan_skeleton_field(app_root: &Path, key: &str) -> Option<String> {
-    let candidates = [
-        app_root.join("src/app.mei"),
-        app_root.join("src/main.mei"),
-        app_root.join("main.mei"),
-        app_root.join("app.mei"),
-    ];
-    for path in candidates {
-        if !path.is_file() {
-            continue;
-        }
-        let Ok(raw) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if let Some(v) = first_quoted_assignment(&raw, key) {
-            return Some(v);
-        }
+fn default_stage_from_registry(app_root: &Path) -> Option<String> {
+    let programs = mei_syntax::discover_stage_programs(app_root);
+    if let Some(home) = programs.iter().find(|p| p.stage_id == "home") {
+        return Some(home.stage_id.clone());
+    }
+    if programs.len() == 1 {
+        return Some(programs[0].stage_id.clone());
     }
     None
 }
 
-fn first_quoted_assignment(source: &str, key: &str) -> Option<String> {
-    let pattern = format!("{key}");
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(&format!("{pattern}")) {
-            let rest = rest.trim_start();
-            if !rest.starts_with('=') {
-                continue;
-            }
-            let rest = rest[1..].trim_start();
-            if let Some(s) = rest.strip_prefix('"') {
-                if let Some(end) = s.find('"') {
-                    let val = s[..end].trim();
-                    if !val.is_empty() {
-                        return Some(val.to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
+fn default_title_from_registry(app_root: &Path) -> Option<String> {
+    let programs = mei_syntax::discover_stage_programs(app_root);
+    let home = programs
+        .iter()
+        .find(|p| p.stage_id == "home")
+        .or_else(|| (programs.len() == 1).then(|| &programs[0]))?;
+    home.title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 #[cfg(test)]

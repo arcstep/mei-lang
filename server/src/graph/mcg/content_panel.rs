@@ -154,6 +154,7 @@ mod tests {
                 bindings: serde_json::Value::Null,
                 examples: serde_json::Value::Null,
                 access_export: true,
+            t2_pages: Vec::new(),
             },
             themes: Vec::new(),
             shared: serde_json::Value::Null,

@@ -1,104 +1,20 @@
 {
   "abi": {
-    "capability_count": 97,
+    "capability_count": 13,
     "capability_ids": [
-      "admin_reconsideration_filter",
-      "admin_reconsideration_main",
-      "ai_warning_cockpit_filter",
-      "ai_warning_cockpit_main",
-      "effect_filing_filter",
-      "effect_filing_main",
-      "effect_handled_filter",
-      "effect_handled_main",
-      "effect_mechanism_filter",
-      "effect_mechanism_main",
-      "effect_recovered_filter",
-      "effect_recovered_main",
-      "effect_sanction_filter",
-      "effect_sanction_main",
-      "effect_transfer_clue_filter",
-      "effect_transfer_clue_main",
       "effectiveness-stats",
       "enforcement-stats",
-      "enforcement_items_filter",
-      "enforcement_items_main",
-      "enforcement_objects_generic_filter",
-      "enforcement_objects_generic_main",
-      "enforcement_parks_filter",
-      "enforcement_parks_main",
-      "enforcement_personnel_filter",
-      "enforcement_personnel_main",
-      "enforcement_units_filter",
-      "enforcement_units_main",
-      "enterprise_complaints_filter",
-      "enterprise_complaints_main",
-      "enterprise_whitelist_filter",
-      "enterprise_whitelist_main",
       "gis-map",
       "indicator-system",
-      "indicator_inspection_frequency_filter",
-      "indicator_inspection_frequency_main",
-      "indicator_penalty_revenue_filter",
-      "indicator_penalty_revenue_main",
-      "indicator_rectification_filter",
-      "indicator_rectification_main",
-      "indicator_warnings_verification_filter",
-      "indicator_warnings_verification_main",
       "inspection-stats",
-      "inspection_no_violation_filter",
-      "inspection_no_violation_main",
-      "inspection_today_filter",
-      "inspection_today_main",
-      "inspection_total_filter",
-      "inspection_total_main",
-      "inspection_week_filter",
-      "inspection_week_main",
       "issue-stats",
-      "issue_clue_detail_filter",
-      "issue_clue_detail_main",
-      "issue_doing_filter",
-      "issue_doing_main",
-      "issue_done_filter",
-      "issue_done_main",
-      "issue_handling_detail_filter",
-      "issue_handling_detail_main",
-      "issue_pending_filter",
-      "issue_pending_main",
-      "issue_rate_filter",
-      "issue_rate_main",
-      "issue_result_detail_filter",
-      "issue_result_detail_main",
-      "key_enterprises_filter",
-      "key_enterprises_main",
       "map-interaction-surface",
       "map-viewport",
-      "mechanism_documents_filter",
-      "mechanism_documents_main",
       "penalty-stats",
-      "penalty_today_filter",
-      "penalty_today_main",
-      "penalty_total_filter",
-      "penalty_total_main",
-      "penalty_week_filter",
-      "penalty_week_main",
       "realtime-table",
-      "records_devices_filter",
-      "records_devices_main",
-      "records_playback_filter",
-      "records_playback_main",
       "screen_header_brand",
       "supervision-stats",
-      "supervision_items_filter",
-      "supervision_items_main",
-      "supervision_models_filter",
-      "supervision_models_main",
-      "typical-cases",
-      "typical_cases_filter",
-      "typical_cases_main",
-      "warning_detail_filter",
-      "warning_detail_main",
-      "warnings_filter",
-      "warnings_main"
+      "typical-cases"
     ],
     "digest_policy": {
       "narration_includes_caption_notes_timing": true,
@@ -107,110 +23,26 @@
     "narration_cue_count": 0,
     "narration_digest": "30406ea523c53def",
     "profile_layout_policy": "cockpit:inline=constrained/block=constrained/fill=strict",
-    "public_slot_count": 97,
+    "public_slot_count": 13,
     "public_slot_ids": [
-      "admin_reconsideration_filter",
-      "admin_reconsideration_main",
-      "ai_warning_cockpit_filter",
-      "ai_warning_cockpit_main",
-      "effect_filing_filter",
-      "effect_filing_main",
-      "effect_handled_filter",
-      "effect_handled_main",
-      "effect_mechanism_filter",
-      "effect_mechanism_main",
-      "effect_recovered_filter",
-      "effect_recovered_main",
-      "effect_sanction_filter",
-      "effect_sanction_main",
-      "effect_transfer_clue_filter",
-      "effect_transfer_clue_main",
       "effectiveness-stats",
       "enforcement-stats",
-      "enforcement_items_filter",
-      "enforcement_items_main",
-      "enforcement_objects_generic_filter",
-      "enforcement_objects_generic_main",
-      "enforcement_parks_filter",
-      "enforcement_parks_main",
-      "enforcement_personnel_filter",
-      "enforcement_personnel_main",
-      "enforcement_units_filter",
-      "enforcement_units_main",
-      "enterprise_complaints_filter",
-      "enterprise_complaints_main",
-      "enterprise_whitelist_filter",
-      "enterprise_whitelist_main",
       "gis-map",
       "indicator-system",
-      "indicator_inspection_frequency_filter",
-      "indicator_inspection_frequency_main",
-      "indicator_penalty_revenue_filter",
-      "indicator_penalty_revenue_main",
-      "indicator_rectification_filter",
-      "indicator_rectification_main",
-      "indicator_warnings_verification_filter",
-      "indicator_warnings_verification_main",
       "inspection-stats",
-      "inspection_no_violation_filter",
-      "inspection_no_violation_main",
-      "inspection_today_filter",
-      "inspection_today_main",
-      "inspection_total_filter",
-      "inspection_total_main",
-      "inspection_week_filter",
-      "inspection_week_main",
       "issue-stats",
-      "issue_clue_detail_filter",
-      "issue_clue_detail_main",
-      "issue_doing_filter",
-      "issue_doing_main",
-      "issue_done_filter",
-      "issue_done_main",
-      "issue_handling_detail_filter",
-      "issue_handling_detail_main",
-      "issue_pending_filter",
-      "issue_pending_main",
-      "issue_rate_filter",
-      "issue_rate_main",
-      "issue_result_detail_filter",
-      "issue_result_detail_main",
-      "key_enterprises_filter",
-      "key_enterprises_main",
       "map-interaction-surface",
       "map-viewport",
-      "mechanism_documents_filter",
-      "mechanism_documents_main",
       "penalty-stats",
-      "penalty_today_filter",
-      "penalty_today_main",
-      "penalty_total_filter",
-      "penalty_total_main",
-      "penalty_week_filter",
-      "penalty_week_main",
       "realtime-table",
-      "records_devices_filter",
-      "records_devices_main",
-      "records_playback_filter",
-      "records_playback_main",
       "screen_header_brand",
       "supervision-stats",
-      "supervision_items_filter",
-      "supervision_items_main",
-      "supervision_models_filter",
-      "supervision_models_main",
-      "typical-cases",
-      "typical_cases_filter",
-      "typical_cases_main",
-      "warning_detail_filter",
-      "warning_detail_main",
-      "warnings_filter",
-      "warnings_main"
+      "typical-cases"
     ],
     "slot_module_id": "scene:home",
     "stage_mdx_source": "src/stage/home.stage.mdx",
     "stage_surface": "viewport",
-    "structure_digest": "2b0f5ece84cd792f",
+    "structure_digest": "4ce3fe5ef7c5c874",
     "world_capability_count": 0,
     "world_is_content": true
   },
@@ -227,19 +59,18 @@
     "schemaVersion": "mei-layer-plan-v1",
     "tier_entry_counts": {
       "t0": 5,
-      "t1": 147,
-      "t2": 127
+      "t1": 75
     }
   },
   "mcg": {
-    "node_count": 263,
+    "node_count": 148,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 12,
+      "content_panel": 3,
       "metric_def_bundle": 11,
-      "navigation": 46,
-      "page_instance": 42,
-      "semantic_graph": 150,
+      "navigation": 37,
+      "page_instance": 36,
+      "semantic_graph": 59,
       "warmup_policy": 1
     },
     "schemaVersion": "mei-mcg-registry-v2"
@@ -249,80 +80,20 @@
     "slot_count_compared": false
   },
   "panel_ids": [
-    "admin_reconsideration_chart",
-    "admin_reconsideration_detail",
-    "admin_reconsideration_filter",
-    "admin_reconsideration_main",
     "ai_bottom",
     "ai_compound_card",
     "ai_main",
     "ai_top",
-    "ai_warning_cockpit_chart",
-    "ai_warning_cockpit_detail",
-    "ai_warning_cockpit_filter",
-    "ai_warning_cockpit_main",
     "cases",
     "center_rail",
     "doing",
     "done",
     "effect",
-    "effect_filing_chart",
-    "effect_filing_detail",
-    "effect_filing_filter",
-    "effect_filing_main",
-    "effect_handled_chart",
-    "effect_handled_detail",
-    "effect_handled_filter",
-    "effect_handled_main",
-    "effect_mechanism_chart",
-    "effect_mechanism_detail",
-    "effect_mechanism_filter",
-    "effect_mechanism_main",
-    "effect_recovered_chart",
-    "effect_recovered_detail",
-    "effect_recovered_filter",
-    "effect_recovered_main",
-    "effect_sanction_chart",
-    "effect_sanction_detail",
-    "effect_sanction_filter",
-    "effect_sanction_main",
-    "effect_transfer_clue_chart",
-    "effect_transfer_clue_detail",
-    "effect_transfer_clue_filter",
-    "effect_transfer_clue_main",
     "effectiveness-stats",
     "effectiveness_verified_rectification_rate_card",
     "enforcement",
     "enforcement-stats",
-    "enforcement_items_chart",
-    "enforcement_items_detail",
-    "enforcement_items_filter",
-    "enforcement_items_main",
-    "enforcement_objects_generic_chart",
-    "enforcement_objects_generic_detail",
-    "enforcement_objects_generic_filter",
-    "enforcement_objects_generic_main",
-    "enforcement_parks_chart",
-    "enforcement_parks_detail",
-    "enforcement_parks_filter",
-    "enforcement_parks_main",
-    "enforcement_personnel_chart",
-    "enforcement_personnel_detail",
-    "enforcement_personnel_filter",
-    "enforcement_personnel_main",
-    "enforcement_units_chart",
-    "enforcement_units_detail",
-    "enforcement_units_filter",
-    "enforcement_units_main",
     "enterprise",
-    "enterprise_complaints_chart",
-    "enterprise_complaints_detail",
-    "enterprise_complaints_filter",
-    "enterprise_complaints_main",
-    "enterprise_whitelist_chart",
-    "enterprise_whitelist_detail",
-    "enterprise_whitelist_filter",
-    "enterprise_whitelist_main",
     "filing",
     "funds",
     "gis-map",
@@ -330,23 +101,7 @@
     "header",
     "home_header",
     "indicator-system",
-    "indicator_inspection_frequency_chart",
-    "indicator_inspection_frequency_detail",
-    "indicator_inspection_frequency_filter",
-    "indicator_inspection_frequency_main",
-    "indicator_penalty_revenue_chart",
-    "indicator_penalty_revenue_detail",
-    "indicator_penalty_revenue_filter",
-    "indicator_penalty_revenue_main",
-    "indicator_rectification_chart",
-    "indicator_rectification_detail",
-    "indicator_rectification_filter",
-    "indicator_rectification_main",
     "indicator_system",
-    "indicator_warnings_verification_chart",
-    "indicator_warnings_verification_detail",
-    "indicator_warnings_verification_filter",
-    "indicator_warnings_verification_main",
     "inspection",
     "inspection-stats",
     "inspection_counts_layout",
@@ -356,53 +111,11 @@
     "inspection_counts_summary",
     "inspection_frequency_reduction_rate_card",
     "inspection_no_violation_card",
-    "inspection_no_violation_chart",
-    "inspection_no_violation_detail",
-    "inspection_no_violation_filter",
     "inspection_no_violation_layout",
-    "inspection_no_violation_main",
-    "inspection_today_chart",
-    "inspection_today_detail",
-    "inspection_today_filter",
-    "inspection_today_main",
-    "inspection_total_chart",
-    "inspection_total_detail",
-    "inspection_total_filter",
-    "inspection_total_main",
     "inspection_upper",
-    "inspection_week_chart",
-    "inspection_week_detail",
-    "inspection_week_filter",
-    "inspection_week_main",
     "issue",
     "issue-stats",
-    "issue_clue_detail_filter",
-    "issue_clue_detail_main",
-    "issue_doing_chart",
-    "issue_doing_detail",
-    "issue_doing_filter",
-    "issue_doing_main",
-    "issue_done_chart",
-    "issue_done_detail",
-    "issue_done_filter",
-    "issue_done_main",
-    "issue_handling_detail_filter",
-    "issue_handling_detail_main",
-    "issue_pending_chart",
-    "issue_pending_detail",
-    "issue_pending_filter",
-    "issue_pending_main",
-    "issue_rate_chart",
-    "issue_rate_detail",
-    "issue_rate_filter",
-    "issue_rate_main",
-    "issue_result_detail_filter",
-    "issue_result_detail_main",
     "items",
-    "key_enterprises_chart",
-    "key_enterprises_detail",
-    "key_enterprises_filter",
-    "key_enterprises_main",
     "layout_debug_body",
     "layout_debug_controller",
     "left_rail",
@@ -413,8 +126,6 @@
     "map_stage_body",
     "map_viewport",
     "mechanism",
-    "mechanism_documents_filter",
-    "mechanism_documents_main",
     "models",
     "objects",
     "park",
@@ -427,104 +138,25 @@
     "penalty_matter_rank_slot",
     "penalty_parks_slot",
     "penalty_revenue_growth_rate_card",
-    "penalty_today_chart",
-    "penalty_today_detail",
-    "penalty_today_filter",
-    "penalty_today_main",
-    "penalty_total_chart",
-    "penalty_total_detail",
-    "penalty_total_filter",
-    "penalty_total_main",
-    "penalty_week_chart",
-    "penalty_week_detail",
-    "penalty_week_filter",
-    "penalty_week_main",
     "pending",
     "personnel",
     "persons",
     "realtime-table",
     "realtime_table",
-    "records_devices_chart",
-    "records_devices_detail",
-    "records_devices_filter",
-    "records_devices_main",
-    "records_playback_chart",
-    "records_playback_detail",
-    "records_playback_filter",
-    "records_playback_main",
     "right_rail",
     "sanction",
     "stage-aperture-frame",
     "summary",
     "supervision-stats",
     "supervision_items",
-    "supervision_items_chart",
-    "supervision_items_detail",
-    "supervision_items_filter",
-    "supervision_items_main",
-    "supervision_models_chart",
-    "supervision_models_detail",
-    "supervision_models_filter",
-    "supervision_models_main",
     "t0",
     "t1",
-    "t2",
-    "t2_admin_reconsideration",
-    "t2_ai_warning_cockpit",
-    "t2_effect_filing",
-    "t2_effect_handled",
-    "t2_effect_mechanism",
-    "t2_effect_recovered",
-    "t2_effect_sanction",
-    "t2_effect_transfer_clue",
-    "t2_enforcement_items",
-    "t2_enforcement_objects_generic",
-    "t2_enforcement_parks",
-    "t2_enforcement_personnel",
-    "t2_enforcement_units",
-    "t2_enterprise_complaints",
-    "t2_enterprise_whitelist",
-    "t2_indicator_inspection_frequency",
-    "t2_indicator_penalty_revenue",
-    "t2_indicator_rectification",
-    "t2_indicator_warnings_verification",
-    "t2_inspection_no_violation",
-    "t2_inspection_today",
-    "t2_inspection_total",
-    "t2_inspection_week",
-    "t2_issue_clue_detail",
-    "t2_issue_doing",
-    "t2_issue_done",
-    "t2_issue_handling_detail",
-    "t2_issue_pending",
-    "t2_issue_rate",
-    "t2_issue_result_detail",
-    "t2_key_enterprises",
-    "t2_mechanism_documents",
-    "t2_penalty_today",
-    "t2_penalty_total",
-    "t2_penalty_week",
-    "t2_records_devices",
-    "t2_records_playback",
-    "t2_supervision_items",
-    "t2_supervision_models",
-    "t2_typical_cases",
-    "t2_warning_detail",
-    "t2_warnings",
     "total",
     "transfer",
     "typical-cases",
-    "typical_cases_filter",
-    "typical_cases_main",
     "units",
     "warning",
-    "warning_detail_filter",
-    "warning_detail_main",
     "warnings",
-    "warnings_chart",
-    "warnings_detail",
-    "warnings_filter",
-    "warnings_main",
     "warnings_verification_rate_card",
     "whitelist"
   ],
@@ -533,19 +165,11 @@
     "schemaVersion": "mei-presentation-map-v1",
     "slide_count": 0,
     "slide_ids": [],
-    "viewpoint_count": 1,
-    "viewpoint_ids": [
-      "vp_warnings_detail_table"
-    ]
+    "viewpoint_count": 0,
+    "viewpoint_ids": []
   },
   "scene_id": "home",
   "scene_routes": [
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "effect_mechanism_documents_page",
-      "target_file": "src/scene/home/t2/r-mechanism-documents/c-effect-mechanism-documents/content.mei"
-    },
     {
       "is_default": true,
       "kind": "scene",
@@ -554,249 +178,219 @@
     },
     {
       "is_default": false,
-      "kind": "scene",
-      "scene_id": "issue_clue_detail_page",
-      "target_file": "src/scene/home/t2/r-issue-clue-detail/c-issue-clue-detail/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "issue_handling_detail_page",
-      "target_file": "src/scene/home/t2/r-issue-handling-detail/c-issue-handling-detail/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "issue_result_detail_page",
-      "target_file": "src/scene/home/t2/r-issue-result-detail/c-issue-result-detail/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "supervision_items_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "supervision_models_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "typical_cases_detail_page",
-      "target_file": "src/scene/home/t2/r-typical-cases/c-typical-cases-detail/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "warning_detail_page",
-      "target_file": "src/scene/home/t2/r-warning-detail/c-warning-detail/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "warnings_analytics_page",
-      "target_file": "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "admin_reconsideration_analytics_page",
-      "target_file": "src/scene/home/t2/r-admin-reconsideration/c-admin-reconsideration-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "ai_warning_cockpit_page",
-      "target_file": "src/scene/home/t2/r-ai-warning-cockpit/c-ai-warning-cockpit/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_filing_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-filing/c-effect-filing-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_handled_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-handled/c-effect-handled-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_mechanism_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-mechanism/c-effect-mechanism-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_recovered_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-recovered/c-effect-recovered-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_sanction_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-sanction/c-effect-sanction-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "effect_transfer_clue_analytics_page",
-      "target_file": "src/scene/home/t2/r-effect-transfer-clue/c-effect-transfer-clue-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enforcement_items_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement-items/c-enforcement-items-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enforcement_objects_generic_page",
-      "target_file": "src/scene/home/t2/r-enforcement-objects-generic/c-enforcement-objects-generic/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enforcement_parks_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement-parks/c-enforcement-parks-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enforcement_personnel_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement-personnel/c-enforcement-personnel-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enforcement_units_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement-units/c-enforcement-units-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enterprise_complaints_analytics_page",
-      "target_file": "src/scene/home/t2/r-enterprise-complaints/c-enterprise-complaints-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "enterprise_whitelist_analytics_page",
-      "target_file": "src/scene/home/t2/r-enterprise-whitelist/c-enterprise-whitelist-analytics/content.mei"
-    },
-    {
-      "is_default": false,
       "kind": "page",
       "scene_id": "indicator_inspection_frequency_analytics_page",
-      "target_file": "src/scene/home/t2/r-indicator-inspection-frequency/c-indicator-inspection-frequency-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-center-rail/section-indicator-system/plane-indicator-inspection-frequency.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "indicator_penalty_revenue_analytics_page",
-      "target_file": "src/scene/home/t2/r-indicator-penalty-revenue/c-indicator-penalty-revenue-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-center-rail/section-indicator-system/plane-indicator-penalty-revenue.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "indicator_rectification_analytics_page",
-      "target_file": "src/scene/home/t2/r-indicator-rectification/c-indicator-rectification-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-center-rail/section-indicator-system/plane-indicator-rectification.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "indicator_warnings_verification_analytics_page",
-      "target_file": "src/scene/home/t2/r-indicator-warnings-verification/c-indicator-warnings-verification-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-center-rail/section-indicator-system/plane-indicator-warnings-verification.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "inspection_no_violation_analytics_page",
-      "target_file": "src/scene/home/t2/r-inspection-no-violation/c-inspection-no-violation-analytics/content.mei"
+      "scene_id": "warning_detail_page",
+      "target_file": "src/scene/home/t1/region-center-rail/section-realtime-table/plane-warning-detail.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "inspection_today_analytics_page",
-      "target_file": "src/scene/home/t2/r-inspection-today/c-inspection-today-analytics/content.mei"
+      "scene_id": "enforcement_items_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enforcement-items.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "inspection_total_analytics_page",
-      "target_file": "src/scene/home/t2/r-inspection-total/c-inspection-total-analytics/content.mei"
+      "scene_id": "enforcement_objects_generic_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enforcement-objects-generic.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "inspection_week_analytics_page",
-      "target_file": "src/scene/home/t2/r-inspection-week/c-inspection-week-analytics/content.mei"
+      "scene_id": "enforcement_parks_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enforcement-parks.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "issue_doing_analytics_page",
-      "target_file": "src/scene/home/t2/r-issue-doing/c-issue-doing-analytics/content.mei"
+      "scene_id": "enforcement_personnel_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enforcement-personnel.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "issue_done_analytics_page",
-      "target_file": "src/scene/home/t2/r-issue-done/c-issue-done-analytics/content.mei"
+      "scene_id": "enforcement_units_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enforcement-units.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "issue_pending_analytics_page",
-      "target_file": "src/scene/home/t2/r-issue-pending/c-issue-pending-analytics/content.mei"
-    },
-    {
-      "is_default": false,
-      "kind": "page",
-      "scene_id": "issue_rate_analytics_page",
-      "target_file": "src/scene/home/t2/r-issue-rate/c-issue-rate-analytics/content.mei"
+      "scene_id": "enterprise_whitelist_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-enterprise-whitelist.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "key_enterprises_analytics_page",
-      "target_file": "src/scene/home/t2/r-key-enterprises/c-key-enterprises-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-left-rail/section-enforcement/plane-key-enterprises.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "penalty_today_analytics_page",
-      "target_file": "src/scene/home/t2/r-penalty-today/c-penalty-today-analytics/content.mei"
+      "scene_id": "ai_warning_cockpit_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-ai-warning-cockpit.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "penalty_total_analytics_page",
-      "target_file": "src/scene/home/t2/r-penalty-total/c-penalty-total-analytics/content.mei"
+      "scene_id": "enterprise_complaints_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-enterprise-complaints.mei"
     },
     {
       "is_default": false,
       "kind": "page",
-      "scene_id": "penalty_week_analytics_page",
-      "target_file": "src/scene/home/t2/r-penalty-week/c-penalty-week-analytics/content.mei"
+      "scene_id": "inspection_no_violation_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-inspection-no-violation.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "inspection_total_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-inspection-total.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "inspection_week_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-inspection-week.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "records_devices_analytics_page",
-      "target_file": "src/scene/home/t2/r-records-devices/c-records-devices-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-records-devices.mei"
     },
     {
       "is_default": false,
       "kind": "page",
       "scene_id": "records_playback_analytics_page",
-      "target_file": "src/scene/home/t2/r-records-playback/c-records-playback-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-left-rail/section-inspection/plane-records-playback.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "admin_reconsideration_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-penalty/plane-admin-reconsideration.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "penalty_total_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-penalty/plane-penalty-total.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "penalty_week_analytics_page",
+      "target_file": "src/scene/home/t1/region-left-rail/section-penalty/plane-penalty-week.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "typical_cases_detail_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-cases/plane-typical-cases.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_filing_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-effect-filing.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_handled_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-effect-handled.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_recovered_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-effect-recovered.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_sanction_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-effect-sanction.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_transfer_clue_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-effect-transfer-clue.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "effect_mechanism_documents_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-effect/plane-mechanism-documents.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "issue_doing_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-issue/plane-issue-doing.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "issue_done_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-issue/plane-issue-done.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "issue_pending_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-issue/plane-issue-pending.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "issue_rate_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-issue/plane-issue-rate.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "supervision_items_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-items.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "supervision_models_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-models.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
+      "scene_id": "warnings_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei"
     }
   ],
   "schema_ledger": {
@@ -819,54 +413,9 @@
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
     {
-      "assembly_key": "zhifa/home/t2/r-mechanism-documents/c-effect-mechanism-documents",
-      "scene_id": "effect_mechanism_documents_page",
-      "url": "/apps/app/zhifa/scene/effect_mechanism_documents_page"
-    },
-    {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
       "url": "/apps/zhifa/home"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-issue-clue-detail/c-issue-clue-detail",
-      "scene_id": "issue_clue_detail_page",
-      "url": "/apps/app/zhifa/scene/issue_clue_detail_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-issue-handling-detail/c-issue-handling-detail",
-      "scene_id": "issue_handling_detail_page",
-      "url": "/apps/app/zhifa/scene/issue_handling_detail_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-issue-result-detail/c-issue-result-detail",
-      "scene_id": "issue_result_detail_page",
-      "url": "/apps/app/zhifa/scene/issue_result_detail_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-supervision-items/c-supervision-items-analytics",
-      "scene_id": "supervision_items_analytics_page",
-      "url": "/apps/app/zhifa/scene/supervision_items_analytics_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-supervision-models/c-supervision-models-analytics",
-      "scene_id": "supervision_models_analytics_page",
-      "url": "/apps/app/zhifa/scene/supervision_models_analytics_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-typical-cases/c-typical-cases-detail",
-      "scene_id": "typical_cases_detail_page",
-      "url": "/apps/app/zhifa/scene/typical_cases_detail_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-warning-detail/c-warning-detail",
-      "scene_id": "warning_detail_page",
-      "url": "/apps/app/zhifa/scene/warning_detail_page"
-    },
-    {
-      "assembly_key": "zhifa/home/t2/r-warnings/c-warnings-analytics",
-      "scene_id": "warnings_analytics_page",
-      "url": "/apps/app/zhifa/scene/warnings_analytics_page"
     }
   ],
   "stage_programs": {
@@ -892,7 +441,6 @@
       "ai_warning_cockpit_page",
       "effect_filing_analytics_page",
       "effect_handled_analytics_page",
-      "effect_mechanism_analytics_page",
       "effect_mechanism_documents_page",
       "effect_recovered_analytics_page",
       "effect_sanction_analytics_page",
@@ -909,18 +457,13 @@
       "indicator_rectification_analytics_page",
       "indicator_warnings_verification_analytics_page",
       "inspection_no_violation_analytics_page",
-      "inspection_today_analytics_page",
       "inspection_total_analytics_page",
       "inspection_week_analytics_page",
-      "issue_clue_detail_page",
       "issue_doing_analytics_page",
       "issue_done_analytics_page",
-      "issue_handling_detail_page",
       "issue_pending_analytics_page",
       "issue_rate_analytics_page",
-      "issue_result_detail_page",
       "key_enterprises_analytics_page",
-      "penalty_today_analytics_page",
       "penalty_total_analytics_page",
       "penalty_week_analytics_page",
       "records_devices_analytics_page",
@@ -942,20 +485,19 @@
     ]
   },
   "structure_full": {
-    "node_count": 286,
+    "node_count": 159,
     "scene_root_count": 1,
     "scene_roots": [
       "home/home"
     ],
     "schema_version": "structure-full-v1"
   },
-  "t2_page_count": 42,
+  "t2_page_count": 36,
   "t2_page_scenes": [
     "admin_reconsideration_analytics_page",
     "ai_warning_cockpit_page",
     "effect_filing_analytics_page",
     "effect_handled_analytics_page",
-    "effect_mechanism_analytics_page",
     "effect_mechanism_documents_page",
     "effect_recovered_analytics_page",
     "effect_sanction_analytics_page",
@@ -972,18 +514,13 @@
     "indicator_rectification_analytics_page",
     "indicator_warnings_verification_analytics_page",
     "inspection_no_violation_analytics_page",
-    "inspection_today_analytics_page",
     "inspection_total_analytics_page",
     "inspection_week_analytics_page",
-    "issue_clue_detail_page",
     "issue_doing_analytics_page",
     "issue_done_analytics_page",
-    "issue_handling_detail_page",
     "issue_pending_analytics_page",
     "issue_rate_analytics_page",
-    "issue_result_detail_page",
     "key_enterprises_analytics_page",
-    "penalty_today_analytics_page",
     "penalty_total_analytics_page",
     "penalty_week_analytics_page",
     "records_devices_analytics_page",

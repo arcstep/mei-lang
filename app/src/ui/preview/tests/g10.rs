@@ -98,6 +98,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![ThemeDecl {
             kind: "theme".to_string(),
@@ -188,6 +189,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: Vec::new(),
         shared: Value::Null,
@@ -462,6 +464,7 @@ fn resolve_value_supports_shared_refs() {
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: json!({}),

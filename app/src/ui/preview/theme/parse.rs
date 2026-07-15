@@ -147,6 +147,7 @@ pub fn scene_theme_style_for_theme_id(theme_id: &str, live_config: Option<&MeiCo
             bindings: serde_json::json!({}),
             examples: serde_json::json!({}),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: serde_json::json!({}),
@@ -365,6 +366,7 @@ mod tests {
                 bindings: json!({}),
                 examples: json!({}),
                 access_export: true,
+            t2_pages: Vec::new(),
             },
             themes: vec![ThemeDecl {
                 kind: "theme".to_string(),

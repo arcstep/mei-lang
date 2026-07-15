@@ -38,11 +38,10 @@
     }
   },
   "mcg": {
-    "node_count": 11,
+    "node_count": 7,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 1,
-      "navigation": 4,
+      "navigation": 1,
       "semantic_graph": 5
     },
     "schemaVersion": "mei-mcg-registry-v2"
@@ -101,16 +100,6 @@
   },
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
-    {
-      "assembly_key": "home@src/scene/home.mei",
-      "scene_id": "home",
-      "url": "/apps/app/metric-grid/scene/home"
-    },
-    {
-      "assembly_key": "home@src/scene/home.mei",
-      "scene_id": "home",
-      "url": "/apps/build/metric-grid?scene=home&file=src/scene/home.mei"
-    },
     {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",

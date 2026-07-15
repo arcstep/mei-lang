@@ -43,6 +43,8 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
     let vendor_root = components_root.join("vendor");
     let upload_root = app_root.join("assets/upload");
     let app_main = resolve_app_main_path(&app_root);
+    let has_app_toml = app_root.join("app.toml").is_file();
+    let app_entry_ok = has_app_toml || app_main.is_file();
     let components_resolution = components_root
         .strip_prefix(source_root)
         .map(|rel| format!("source_root/{}", rel.to_string_lossy().replace('\\', "/")))
@@ -56,17 +58,24 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         "error",
         format!("app root `{}` does not exist", app_root.display()),
         Some(format!(
-            "create `{}` with `src/main.mei`, or update --app/--source-root",
+            "create `{}` with `app.toml` + stage MDX, or update --app/--source-root",
             app_root.display()
         )),
     );
     push_layout_check(
         &mut checks,
         "app_main_exists",
-        app_main.is_file(),
+        app_entry_ok,
         "error",
-        format!("`{}` is missing", app_main.display()),
-        Some("ensure entry.main resolves to src/main.mei or provide a valid app root".to_string()),
+        if has_app_toml {
+            format!("app.toml present at `{}`", app_root.join("app.toml").display())
+        } else {
+            format!("`{}` is missing", app_main.display())
+        },
+        Some(
+            "ensure app.toml exists (graph-native) or entry.main resolves to a Mei entry file"
+                .to_string(),
+        ),
     );
     push_layout_check(
         &mut checks,

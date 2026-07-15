@@ -513,33 +513,64 @@ pub fn default_scene_assembly_key(app_root: &Path, scene_id: &str) -> String {
     )
 }
 
-/// 结构节点文件：`.../r-foo.mei` / `.../s-bar.mei` / 遗留 `.../layout.mei`。
+/// 结构节点文件（新：`region-*/region.mei`；旧：`r-*.mei` / `r-*/layout.mei`）。
 pub fn is_region_structure_mei_path(path: &str) -> bool {
     let raw = path.replace('\\', "/");
-    if !raw.contains("/r-") {
-        return false;
-    }
-    if raw.ends_with("/layout.mei") {
-        return true;
-    }
-    Path::new(&raw)
+    let name = Path::new(&raw)
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|name| name.starts_with("r-") && name.ends_with(".mei"))
+        .unwrap_or("");
+    if name == "region.mei" && raw.contains("/region-") {
+        return true;
+    }
+    if raw.contains("/r-") {
+        if raw.ends_with("/layout.mei") {
+            return true;
+        }
+        return name.starts_with("r-") && name.ends_with(".mei");
+    }
+    false
 }
 
 pub fn is_section_structure_mei_path(path: &str) -> bool {
     let raw = path.replace('\\', "/");
-    if !raw.contains("/s-") {
-        return false;
-    }
-    if raw.ends_with("/layout.mei") {
-        return true;
-    }
-    Path::new(&raw)
+    let name = Path::new(&raw)
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|name| name.starts_with("s-") && name.ends_with(".mei"))
+        .unwrap_or("");
+    if name == "section.mei" && raw.contains("/section-") {
+        return true;
+    }
+    if raw.contains("/s-") {
+        if raw.ends_with("/layout.mei") {
+            return true;
+        }
+        return name.starts_with("s-") && name.ends_with(".mei");
+    }
+    false
+}
+
+/// Plane 结构文件：`t0/plane.mei`、`plane-*/plane.mei`、旁挂 `plane-*.mei`；兼旧 `t0.mei` / `p-*.mei`。
+pub fn is_plane_structure_mei_path(path: &str) -> bool {
+    let raw = path.replace('\\', "/");
+    let name = Path::new(&raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if name == "plane.mei" {
+        return true;
+    }
+    if name.starts_with("plane-") && name.ends_with(".mei") {
+        return true;
+    }
+    // legacy short names
+    if matches!(name, "t0.mei" | "t1.mei" | "t2.mei") {
+        return true;
+    }
+    if name.starts_with("p-") && name.ends_with(".mei") && !name.contains('/') {
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]

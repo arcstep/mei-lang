@@ -24,30 +24,38 @@ const GRID_ONLY_DEPRECATED_PATTERNS: &[(&str, &str)] =
 
 fn is_region_structure_mei_path(path: &str) -> bool {
     let raw = path.replace('\\', "/");
-    if !raw.contains("/r-") {
-        return false;
-    }
-    if raw.ends_with("/layout.mei") {
-        return true;
-    }
-    Path::new(&raw)
+    let name = Path::new(&raw)
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|name| name.starts_with("r-") && name.ends_with(".mei"))
+        .unwrap_or("");
+    if name == "region.mei" && raw.contains("/region-") {
+        return true;
+    }
+    if raw.contains("/r-") {
+        if raw.ends_with("/layout.mei") {
+            return true;
+        }
+        return name.starts_with("r-") && name.ends_with(".mei");
+    }
+    false
 }
 
 fn is_section_structure_mei_path(path: &str) -> bool {
     let raw = path.replace('\\', "/");
-    if !raw.contains("/s-") {
-        return false;
-    }
-    if raw.ends_with("/layout.mei") {
-        return true;
-    }
-    Path::new(&raw)
+    let name = Path::new(&raw)
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|name| name.starts_with("s-") && name.ends_with(".mei"))
+        .unwrap_or("");
+    if name == "section.mei" && raw.contains("/section-") {
+        return true;
+    }
+    if raw.contains("/s-") {
+        if raw.ends_with("/layout.mei") {
+            return true;
+        }
+        return name.starts_with("s-") && name.ends_with(".mei");
+    }
+    false
 }
 
 fn sanitize_for_policy(source: &str) -> String {

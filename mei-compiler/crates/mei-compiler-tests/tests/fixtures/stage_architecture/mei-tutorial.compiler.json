@@ -94,7 +94,7 @@
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
-    "app.mei",
+    "__mei_synthesized__",
     "presentation/intro/intro.deck.mdx"
   ],
   "stage_programs": {
@@ -132,5 +132,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.9"
+  "syntax_version": "2.5.10"
 }

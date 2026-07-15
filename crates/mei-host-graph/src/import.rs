@@ -47,6 +47,15 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
     std::fs::create_dir_all(resolve_app_eval_cache_root(&app_root))?;
 
     let mut registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+    // Replace nodes for kinds present in this bundle so renamed/moved keys do not linger.
+    let kinds_in_bundle: std::collections::HashSet<GraphNodeKind> = exchange
+        .blocks
+        .iter()
+        .map(|block| GraphNodeKind::from_block_kind(block.kind.as_str()))
+        .collect();
+    registry
+        .nodes
+        .retain(|node| !kinds_in_bundle.contains(&node.id.kind));
     let mut cas_upserts = 0usize;
     let warnings = Vec::new();
     let mut bundle_owners = BTreeMap::new();

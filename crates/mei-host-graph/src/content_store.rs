@@ -44,10 +44,16 @@ pub fn put_if_absent(app_root: &Path, kind: &str, bytes: &[u8]) -> anyhow::Resul
         .with_context(|| format!("create content store dir {}", dir.display()))?;
     let path = dir.join(format!("{content_hash}.json"));
     if path.is_file() {
-        return Ok(PutResult {
-            content_hash,
-            created: false,
-        });
+        // Defend against in-place CAS corruption (hash filename kept, bytes rewritten).
+        let existing = std::fs::read(&path)
+            .with_context(|| format!("read existing content store blob {}", path.display()))?;
+        if existing.as_slice() == bytes {
+            return Ok(PutResult {
+                content_hash,
+                created: false,
+            });
+        }
+        // Bytes diverge from hash identity — repair by overwriting.
     }
     std::fs::write(&path, bytes)
         .with_context(|| format!("write content store blob {}", path.display()))?;

@@ -279,6 +279,7 @@ fn assemble_scope_from_registry_uncached(
         mut panels,
         panel_payloads,
         mut panel_diagnostics,
+        t2_page_ids,
     ) = if has_semantic_scene(&registry)
         && registry
             .nodes
@@ -296,6 +297,11 @@ fn assemble_scope_from_registry_uncached(
             assembly_stack_order: None,
         };
         let semantic = assemble_semantic_scene(&semantic_payload, &semantic_ctx)?;
+        let t2_page_ids: Vec<String> = semantic
+            .t2_page_catalog
+            .iter()
+            .map(|entry| entry.plane_id.clone())
+            .collect();
         (
             semantic.summary,
             semantic.profile,
@@ -311,6 +317,7 @@ fn assemble_scope_from_registry_uncached(
             semantic.panels,
             semantic.panel_payloads,
             Vec::new(),
+            t2_page_ids,
         )
     } else {
         let assembly_payload = normalize_page_instance_payload(load_assembly_payload(
@@ -357,6 +364,7 @@ fn assemble_scope_from_registry_uncached(
             Some(lower_frame_from_assembly(&assembly_payload)),
             panels,
             panel_payloads,
+            Vec::new(),
             Vec::new(),
         )
     };
@@ -411,6 +419,7 @@ fn assemble_scope_from_registry_uncached(
             bindings: scene_bindings,
             examples: scene_examples,
             access_export: true,
+            t2_pages: t2_page_ids,
         },
         themes: Vec::new(),
         shared: json!({}),

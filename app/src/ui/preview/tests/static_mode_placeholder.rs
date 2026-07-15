@@ -105,6 +105,7 @@ fn static_metric_fixture_compiled() -> CompiledApp {
             bindings: json!({}),
             examples: json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: json!({}),

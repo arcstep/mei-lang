@@ -15,7 +15,7 @@ pub(crate) use mei_lang_kernel::{
     stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
     WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
     WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
-    WorkspaceStockConfig, WorkspaceStockPreviewConfig, APP_CONFIG_FILENAME, DEFAULT_APPS_REL,
+    WorkspaceStockConfig, WorkspaceStockPreviewConfig, DEFAULT_APPS_REL,
     DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
     WORKSPACE_HOSTS_DIR_REL,
 };

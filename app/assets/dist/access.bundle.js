@@ -25089,9 +25089,30 @@
   }
 
   function openT2Panel(panelId) {
+    // 0335: prefer Layer2 tab open; region visibility path is deprecated fallback.
     const selector = t2PageSelector(panelId);
-    if (!selector) return false;
-    const target = document.querySelector(selector);
+    const target = selector ? document.querySelector(selector) : null;
+    const openId = String(
+      (target instanceof HTMLElement ? resolveT2PanelSceneId(target, panelId) : "") ||
+        panelId ||
+        "",
+    ).trim();
+    if (openId && typeof boot.openLayer2Tab === "function") {
+      try {
+        boot.openLayer2Tab({
+          sceneId: openId,
+          boardSceneId: openId,
+          label: openId,
+          overlaySize: "large",
+          overlayWorkspace: { tab_policy: "append", size: "large" },
+        });
+        setPlaneVisibility("t2", true);
+        document.documentElement.setAttribute("data-mei-active-t2-panel", openId);
+        return true;
+      } catch (_err) {
+        /* fall through to legacy */
+      }
+    }
     if (!(target instanceof HTMLElement)) return false;
     setPlaneVisibility("t2", true);
     const normalized = String(
@@ -25103,13 +25124,13 @@
       node.classList.toggle("mei-t2-page-active", active);
     });
     document.documentElement.setAttribute("data-mei-active-t2-panel", normalized);
-    const sceneId = resolveT2PanelSceneId(target, panelId);
-    if (sceneId && typeof boot.dispatchScopeActivation === "function") {
+    const legacySceneId = resolveT2PanelSceneId(target, panelId);
+    if (legacySceneId && typeof boot.dispatchScopeActivation === "function") {
       const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
       const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
       boot.dispatchScopeActivation({
-        scope: sceneId,
-        sceneId,
+        scope: legacySceneId,
+        sceneId: legacySceneId,
         appId,
         source: "t2-inline",
       });

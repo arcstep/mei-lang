@@ -19,6 +19,17 @@ use crate::v2_lower::{
     PanelLowerContext,
 };
 
+/// Catalog entry for an openable T2 page-plane (`scene.t2_pages`).
+/// Not mounted into the always-on panel stack; Layer2 mounts instances on open.
+#[derive(Debug, Clone)]
+pub struct T2PageCatalogEntry {
+    pub plane_id: String,
+    pub tier: String,
+    pub key: Option<String>,
+    /// Lowered plane panel tree (for structure / on-demand mount); not in `panels`.
+    pub panel: UiNodeDecl,
+}
+
 #[derive(Debug, Clone)]
 pub struct SemanticSceneAssembly {
     pub scene_id: String,
@@ -29,6 +40,8 @@ pub struct SemanticSceneAssembly {
     pub frame: FrameDecl,
     pub panels: Vec<UiNodeDecl>,
     pub panel_payloads: BTreeMap<String, Value>,
+    /// Openable T2 page-planes from `scene.t2_pages` (0335).
+    pub t2_page_catalog: Vec<T2PageCatalogEntry>,
     pub shared: Value,
     pub local_nav: Value,
     pub params: Value,
@@ -234,6 +247,158 @@ pub fn assemble_semantic_scene(
         }
     }
 
+    // 0335: scene.t2_pages = catalog of openable T2 page-planes (not always-on stack).
+    // When omitted/empty, auto-discover all plane_layout(tier="t2") under this scene.
+    let mut t2_page_entries = scene_array(payload, "t2_pages", "plane_ref", ctx)?;
+    if t2_page_entries.is_empty() {
+        t2_page_entries = discover_t2_page_planes(payload, ctx, &scene_id)?;
+    }
+    let mut t2_page_catalog = Vec::new();
+    for plane in t2_page_entries {
+        let plane_args = call_args(&plane);
+        let plane_id = string_field_map(plane_args, &["id", "tier", "name"])
+            .map(str::to_string)
+            .unwrap_or_else(|| "t2".to_string());
+        let tier = string_field_map(plane_args, &["tier", "id"])
+            .map(str::to_string)
+            .unwrap_or_else(|| plane_id.clone());
+        if tier != "t2" {
+            anyhow::bail!(
+                "scene.t2_pages entry `{plane_id}` must have tier = \"t2\" (got `{tier}`); see 0335"
+            );
+        }
+        let plane_key = string_field_map(plane_args, &["key"]).map(str::to_string);
+        let plane_grid = plane_args.and_then(|map| map.get("layout"));
+        let regions = child_nodes(&plane, &["regions", "nodes"], "region_ref", ctx)?;
+        // Catalog pages are not always-on; keep stack_order local per page-plane
+        // so many T2 pages do not exhaust the shared tier band (STACK_ORDER_MAX=99).
+        let mut catalog_stack: u8 = 0;
+        let mut plane_children = Vec::new();
+        if plane_grid.is_some() {
+            for region in regions {
+                let region_args = call_args(&region);
+                if is_plane_grid_overlay_region(region_args) {
+                    continue;
+                }
+                let region_payload =
+                    build_plane_grid_region_payload(&region, &tier, plane_id.as_str(), ctx)?;
+                let panel_ctx = ctx.with_assembly_stack_order(catalog_stack);
+                let lowered = lower_panel_payload(
+                    &region_payload,
+                    region_payload
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("region"),
+                    &panel_ctx,
+                )?;
+                catalog_stack = catalog_stack.saturating_add(1);
+                collect_payload_index(&region_payload, &mut panel_payloads, ctx);
+                let mut lowered = lowered;
+                apply_padding_profile_body_props(&mut lowered);
+                plane_children.push(lowered);
+            }
+        } else {
+            for region in regions {
+                let region_payload =
+                    build_panel_payload(&region, "region", &tier, Some(&plane_id), ctx)?;
+                let panel_ctx = ctx.with_assembly_stack_order(catalog_stack);
+                let lowered = lower_panel_payload(
+                    &region_payload,
+                    region_payload
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("region"),
+                    &panel_ctx,
+                )?;
+                catalog_stack = catalog_stack.saturating_add(1);
+                collect_payload_index(&region_payload, &mut panel_payloads, ctx);
+                let mut lowered = lowered;
+                apply_padding_profile_body_props(&mut lowered);
+                plane_children.push(lowered);
+            }
+        }
+        let mut plane_panel = if plane_grid.is_some() {
+            build_plane_grid_panel(
+                plane_id.as_str(),
+                tier.as_str(),
+                plane_grid,
+                plane_args,
+                plane_children,
+            )?
+        } else {
+            build_plane_grid_panel(
+                plane_id.as_str(),
+                tier.as_str(),
+                Some(&json!({
+                    "columns": ["1fr"],
+                    "rows": ["1fr"],
+                    "areas": [["main"]],
+                })),
+                plane_args,
+                plane_children,
+            )?
+        };
+        apply_padding_profile_body_props(&mut plane_panel);
+        if let Some(props) = plane_panel.props.as_object_mut() {
+            props.insert("__mei_t2_page_plane".to_string(), Value::Bool(true));
+            props.insert("__mei_layer2_catalog".to_string(), Value::Bool(true));
+        }
+        t2_page_catalog.push(T2PageCatalogEntry {
+            plane_id,
+            tier,
+            key: plane_key,
+            panel: plane_panel,
+        });
+    }
+
+    for entry in &t2_page_catalog {
+        if let Some(key) = entry.key.as_deref() {
+            let legacy = key.contains("/t2/")
+                || key
+                    .split('/')
+                    .any(|part| part.starts_with("p-") && !part.starts_with("plane-"));
+            if legacy {
+                eprintln!(
+                    "mei warning: T2 page key `{key}` still uses legacy central t2/ or p-* naming; prefer section-colocated plane-* keys per 025004"
+                );
+            }
+        }
+    }
+
+    // Transition: warn when always-on planes still host a mega t2 with many page regions.
+    let legacy_mega_t2 = panels.iter().any(|panel| {
+        let tier = panel
+            .props
+            .get("__mei_tier")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let role = panel
+            .props
+            .get("__mei_ui_role")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if tier != "t2" || role != "plane" {
+            return false;
+        }
+        let page_regions = panel.blocks.iter().filter(|node| {
+            matches!(node, UiTreeNode::Panel(p) if p
+                .props
+                .get("__mei_t2_page")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || p.props
+                    .get("__mei_t2_page")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s == "true" || s == "True"))
+        }).count();
+        page_regions > 1
+    });
+    if legacy_mega_t2 && t2_page_catalog.is_empty() {
+        eprintln!(
+            "mei warning: scene `{scene_id}` still uses a single t2 plane with multiple __mei_t2_page regions; migrate to scene.t2_pages (one page-plane each) per 0335"
+        );
+    }
+
     let mut frame_payload = payload.clone();
     if let Some(obj) = frame_payload.as_object_mut() {
         obj.insert("scene".to_string(), Value::String(scene_id.clone()));
@@ -249,6 +414,13 @@ pub fn assemble_semantic_scene(
         .unwrap_or_default();
 
     enrich_panel_payloads_from_tree(&panels, &mut panel_payloads, ctx);
+    for entry in &t2_page_catalog {
+        enrich_panel_payloads_from_tree(
+            std::slice::from_ref(&entry.panel),
+            &mut panel_payloads,
+            ctx,
+        );
+    }
 
     Ok(SemanticSceneAssembly {
         scene_id,
@@ -259,6 +431,7 @@ pub fn assemble_semantic_scene(
         frame,
         panels,
         panel_payloads,
+        t2_page_catalog,
         shared: config_value(&config, "shared"),
         local_nav: config_value(&config, "local_nav"),
         params: config_value(&config, "params"),
@@ -481,6 +654,81 @@ fn scene_array(
         .cloned()
         .unwrap_or_default();
     resolve_semantic_nodes(values, expected_ref, ctx)
+}
+
+/// Discover all `plane_layout(tier="t2")` fragments that belong to this scene.
+/// Used when `scene.t2_pages` is omitted/empty (025004 / 0335).
+fn discover_t2_page_planes(
+    payload: &Value,
+    ctx: &PanelLowerContext<'_>,
+    scene_id: &str,
+) -> Result<Vec<Value>> {
+    let mut always_on_keys = BTreeMap::<String, ()>::new();
+    for plane in scene_array(payload, "planes", "plane_ref", ctx)? {
+        if let Some(key) = string_field(&plane, &["key"]) {
+            always_on_keys.insert(key.to_string(), ());
+        }
+        if let Some(id) = string_field(&plane, &["id", "tier", "name"]) {
+            always_on_keys.insert(id.to_string(), ());
+        }
+    }
+    let scene_needles = [
+        format!("/{scene_id}/"),
+        format!("{}/{scene_id}/", ctx.app_id),
+        format!("{scene_id}/"),
+    ];
+    let mut discovered = Vec::new();
+    let mut seen_keys = BTreeMap::<String, ()>::new();
+    for node in ctx.registry.nodes.iter() {
+        if node.id.kind != GraphNodeKind::SemanticGraph {
+            continue;
+        }
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(ctx.app_root, pref) else {
+            continue;
+        };
+        let kind = artifact
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if kind != "plane_layout" {
+            continue;
+        }
+        let plane_payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        let plane_args = call_args(&plane_payload);
+        let tier = string_field_map(plane_args, &["tier", "id"]).unwrap_or("");
+        if tier != "t2" {
+            continue;
+        }
+        let key = string_field_map(plane_args, &["key"])
+            .map(str::to_string)
+            .unwrap_or_else(|| node.id.key.clone());
+        if always_on_keys.contains_key(&key) {
+            continue;
+        }
+        let in_scene = scene_needles
+            .iter()
+            .any(|needle| key.contains(needle.as_str()))
+            || key == scene_id
+            || key.ends_with(&format!("/{scene_id}"))
+            || node.id.key.contains(&format!("/{scene_id}/"))
+            || node.id.key.contains(&format!("{}/{scene_id}/", ctx.app_id));
+        if !in_scene {
+            continue;
+        }
+        if seen_keys.insert(key.clone(), ()).is_some() {
+            continue;
+        }
+        discovered.push(plane_payload);
+    }
+    discovered.sort_by(|a, b| {
+        let ka = string_field(a, &["key", "id"]).unwrap_or("");
+        let kb = string_field(b, &["key", "id"]).unwrap_or("");
+        ka.cmp(kb)
+    });
+    Ok(discovered)
 }
 
 fn child_nodes(

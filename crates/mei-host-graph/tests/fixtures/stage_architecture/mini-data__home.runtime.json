@@ -1,50 +1,34 @@
 {
   "abi": {
-    "capability_count": 14,
+    "capability_count": 6,
     "capability_ids": [
       "enforcement-compound",
-      "enforcement_filter",
-      "enforcement_main",
       "gis-map",
       "map-interaction-surface",
       "map-viewport",
       "screen_header_brand",
-      "supervision-stats",
-      "supervision_items_filter",
-      "supervision_items_main",
-      "supervision_models_filter",
-      "supervision_models_main",
-      "warnings_filter",
-      "warnings_main"
+      "supervision-stats"
     ],
     "digest_policy": {
       "narration_includes_caption_notes_timing": true,
       "structure_excludes_caption_notes_timing": true
     },
-    "narration_cue_count": 6,
-    "narration_digest": "473ae532995bc8a9",
+    "narration_cue_count": 3,
+    "narration_digest": "17687d44725571c7",
     "profile_layout_policy": "cockpit:inline=constrained/block=constrained/fill=strict",
-    "public_slot_count": 14,
+    "public_slot_count": 6,
     "public_slot_ids": [
       "enforcement-compound",
-      "enforcement_filter",
-      "enforcement_main",
       "gis-map",
       "map-interaction-surface",
       "map-viewport",
       "screen_header_brand",
-      "supervision-stats",
-      "supervision_items_filter",
-      "supervision_items_main",
-      "supervision_models_filter",
-      "supervision_models_main",
-      "warnings_filter",
-      "warnings_main"
+      "supervision-stats"
     ],
     "slot_module_id": "scene:home",
     "stage_mdx_source": "src/stage/home.stage.mdx",
     "stage_surface": "viewport",
-    "structure_digest": "2cbec4e99db6ba1e",
+    "structure_digest": "6ab1f482714a839a",
     "world_capability_count": 0,
     "world_is_content": true
   },
@@ -61,19 +45,18 @@
     "schemaVersion": "mei-layer-plan-v1",
     "tier_entry_counts": {
       "t0": 5,
-      "t1": 31,
-      "t2": 13
+      "t1": 23
     }
   },
   "mcg": {
-    "node_count": 67,
+    "node_count": 52,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 9,
+      "content_panel": 7,
       "metric_def_bundle": 2,
-      "navigation": 10,
+      "navigation": 6,
       "page_instance": 4,
-      "semantic_graph": 40,
+      "semantic_graph": 31,
       "warmup_policy": 1
     },
     "schemaVersion": "mei-mcg-registry-v2"
@@ -85,10 +68,6 @@
   "panel_ids": [
     "enforcement",
     "enforcement-compound",
-    "enforcement_chart",
-    "enforcement_detail",
-    "enforcement_filter",
-    "enforcement_main",
     "enterprise",
     "gis-map",
     "gis_map_layer",
@@ -108,28 +87,11 @@
     "right_rail",
     "stage-aperture-frame",
     "supervision-stats",
-    "supervision_items_chart",
-    "supervision_items_detail",
-    "supervision_items_filter",
-    "supervision_items_main",
-    "supervision_models_chart",
-    "supervision_models_detail",
-    "supervision_models_filter",
-    "supervision_models_main",
     "t0",
     "t1",
-    "t2",
-    "t2_enforcement",
-    "t2_supervision_items",
-    "t2_supervision_models",
-    "t2_warnings",
     "total",
     "warning",
     "warnings",
-    "warnings_chart",
-    "warnings_detail",
-    "warnings_filter",
-    "warnings_main",
     "whitelist"
   ],
   "presentation_map": {
@@ -137,22 +99,15 @@
     "schemaVersion": "mei-presentation-map-v1",
     "slide_count": 0,
     "slide_ids": [],
-    "viewpoint_count": 4,
+    "viewpoint_count": 3,
     "viewpoint_ids": [
       "items_metric",
       "models_metric",
-      "vp_warnings_detail_table",
       "warnings_metric"
     ]
   },
   "scene_id": "home",
   "scene_routes": [
-    {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "enforcement_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement/c-enforcement-analytics/content.mei"
-    },
     {
       "is_default": true,
       "kind": "scene",
@@ -167,21 +122,27 @@
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
+      "scene_id": "enforcement_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-enforcement/plane-enforcement.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
       "scene_id": "supervision_items_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-items.mei"
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
       "scene_id": "supervision_models_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-models.mei"
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
       "scene_id": "warnings_analytics_page",
-      "target_file": "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei"
     }
   ],
   "schema_ledger": {
@@ -204,11 +165,6 @@
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
     {
-      "assembly_key": "mini-data/home/t2/r-enforcement/c-enforcement-analytics",
-      "scene_id": "enforcement_analytics_page",
-      "url": "/apps/app/mini-data/scene/enforcement_analytics_page"
-    },
-    {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
       "url": "/apps/mini-data/home"
@@ -217,21 +173,6 @@
       "assembly_key": "supervision@src/presentation/supervision/supervision.deck.mdx",
       "scene_id": "supervision",
       "url": "/apps/mini-data/supervision"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-supervision-items/c-supervision-items-analytics",
-      "scene_id": "supervision_items_analytics_page",
-      "url": "/apps/app/mini-data/scene/supervision_items_analytics_page"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-supervision-models/c-supervision-models-analytics",
-      "scene_id": "supervision_models_analytics_page",
-      "url": "/apps/app/mini-data/scene/supervision_models_analytics_page"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-warnings/c-warnings-analytics",
-      "scene_id": "warnings_analytics_page",
-      "url": "/apps/app/mini-data/scene/warnings_analytics_page"
     }
   ],
   "stage_programs": {
@@ -288,7 +229,7 @@
     ]
   },
   "structure_full": {
-    "node_count": 56,
+    "node_count": 43,
     "scene_root_count": 1,
     "scene_roots": [
       "home/home"

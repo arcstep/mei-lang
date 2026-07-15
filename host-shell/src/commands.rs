@@ -536,38 +536,44 @@ fn create_v2_app_skeleton(workspace: &Path, app_id: &str) -> anyhow::Result<()> 
     if app_root.exists() {
         return Ok(());
     }
-    fs::create_dir_all(app_root.join("src"))?;
+    fs::create_dir_all(app_root.join("src/stage"))?;
+    fs::create_dir_all(app_root.join("src/scene"))?;
     fs::create_dir_all(app_root.join("upload"))?;
     fs::write(
-        app_root.join("src/app.mei"),
+        app_root.join("app.toml"),
         format!(
-            r#"# BlockId: app_skeleton:{app_id}
+            r#"schema_version = "mei-app-v1"
+title = "{app_id}"
+default_stage = "home"
+app_id = "{app_id}"
+generation = "current"
 
-app_skeleton(
-    id = "{app_id}",
-    title = "{app_id}",
-    default_stage = "home",
-)
+[paths]
+upload = "upload"
 
-navigation(
-    key = "default_access",
-    scene = "home",
-    url = "/apps/{app_id}/home",
-    assembly = assembly_ref("home@src/scene/home/assembly.mei"),
-)
+[runtime_plan]
+defaultMode = "frozen"
 "#
         ),
     )?;
     fs::write(
-        app_root.join("app.config.json"),
-        r#"{
-  "schemaVersion": 1,
-  "entry": { "main": "src/app.mei" },
-  "paths": { "upload": "upload" }
-}
+        app_root.join("src/stage/home.stage.mdx"),
+        r#"---
+stage_id: home
+profile: cockpit
+title: Home
+---
+@scene(use="scene/home")
 "#,
     )?;
-    println!("created app skeleton: apps/{app_id}");
+    fs::write(
+        app_root.join("src/scene/home.mei"),
+        r#"scene(
+    id = "home",
+)
+"#,
+    )?;
+    println!("created app skeleton: apps/{app_id} (app.toml + stage/home.stage.mdx)");
     Ok(())
 }
 

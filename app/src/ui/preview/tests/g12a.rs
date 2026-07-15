@@ -64,6 +64,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: json!({}),

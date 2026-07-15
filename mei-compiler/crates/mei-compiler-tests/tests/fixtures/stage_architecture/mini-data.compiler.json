@@ -30,7 +30,7 @@
     "block_id": "app_skeleton:mini-data",
     "default_stage": "home",
     "id": "mini-data",
-    "title": "真实数据 · Mini Data"
+    "title": "Mini Data · default"
   },
   "block_count": 67,
   "blocks_by_kind": {
@@ -163,7 +163,7 @@
   ],
   "schema_version": "mei-stage-architecture-compiler-baseline-v2",
   "source_files": [
-    "app.mei",
+    "__mei_synthesized__",
     "data/metrics/enforcement-objects.bundle.mei",
     "data/metrics/supervision-warning.bundle.mei",
     "presentation/supervision/supervision.deck.mdx",
@@ -262,5 +262,5 @@
       }
     ]
   },
-  "syntax_version": "2.5.9"
+  "syntax_version": "2.5.10"
 }

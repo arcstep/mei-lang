@@ -153,7 +153,7 @@ pub use semantic_cache::{
 pub use semantic_scene::{
     assemble_semantic_scene, collect_world_payloads_from_scene, default_target_for_scene,
     has_semantic_scene, load_semantic_scene_payload, target_key_from_payload,
-    SemanticSceneAssembly,
+    SemanticSceneAssembly, T2PageCatalogEntry,
 };
 pub use stage_bootstrap::{
     narration_catalogs_bootstrap, stage_programs_bootstrap, stage_registry_bootstrap,

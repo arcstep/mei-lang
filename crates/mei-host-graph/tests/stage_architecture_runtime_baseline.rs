@@ -649,7 +649,7 @@ fn read_fixture(path: &Path) -> Value {
 #[test]
 fn stage_architecture_runtime_baseline_assembles_golden_units() {
     let workspace = ws_demo_v2();
-    if !workspace.join("apps/mini-grid/src/app.mei").is_file() {
+    if !workspace.join("apps/mini-grid/app.toml").is_file() {
         eprintln!("skip: ws-demo-v2 missing at {}", workspace.display());
         return;
     }

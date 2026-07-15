@@ -4,9 +4,17 @@
 
 ### App / Navigation
 
-```python
-app_skeleton(id = "zhifa", title = "...", default_scene = "home")
-navigation(key = "access:home", scene = "home", url = "...", assembly = assembly_ref(...))
+```toml
+# app.toml — App 根
+title = "..."
+default_stage = "home"
+app_id = "zhifa"
+```
+
+```text
+src/stage/*.stage.mdx          # Stage Registry（编译器合成 access navigation）
+src/presentation/**/*.deck.mdx # slides
+# app_skeleton / navigation GraphBlock 由编译器合成，不手写 src/app.mei
 ```
 
 ### Scene / Layout 链

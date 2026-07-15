@@ -34,7 +34,7 @@
   },
   "active_scene": "home",
   "app_id": "mini-park",
-  "assembly_key": "home@src/scene/home/assembly.mei",
+  "assembly_key": "home@src/scene/home.mei",
   "digest_policy": {
     "compare_absolute_compile_revision": false,
     "compare_absolute_manifest_digest": false,
@@ -45,19 +45,18 @@
     "schemaVersion": "mei-layer-plan-v1",
     "tier_entry_counts": {
       "t0": 10,
-      "t1": 22,
-      "t2": 6
+      "t1": 22
     }
   },
   "mcg": {
-    "node_count": 73,
+    "node_count": 71,
     "nodes_by_kind": {
       "app_skeleton": 1,
       "content_panel": 11,
       "metric_def_bundle": 2,
       "navigation": 14,
       "page_instance": 4,
-      "semantic_graph": 37,
+      "semantic_graph": 35,
       "warmup_policy": 2,
       "world_model": 2
     },
@@ -84,10 +83,6 @@
     "map_stage",
     "map_stage_body",
     "map_viewport",
-    "park_point_1",
-    "park_point_2",
-    "park_point_3",
-    "park_point_4",
     "play-zone",
     "play_zone_section",
     "right_rail",
@@ -97,8 +92,6 @@
     "stage-aperture-hint",
     "t0",
     "t1",
-    "t2",
-    "t2_drilldown_region",
     "viewport-canvas",
     "viewport_canvas_body",
     "viewport_canvas_region",
@@ -129,37 +122,37 @@
       "is_default": true,
       "kind": "scene",
       "scene_id": "home",
-      "target_file": "src/scene/home/assembly.mei"
+      "target_file": "src/scene/home.mei"
     },
     {
       "is_default": false,
       "kind": "scene",
       "scene_id": "home_2d",
-      "target_file": "src/scene/home-2d/assembly.mei"
+      "target_file": "src/scene/home_2d.mei"
     },
     {
       "is_default": false,
       "kind": "scene",
       "scene_id": "park_point_1_page",
-      "target_file": "src/scene/home/t2/r-drilldown/c-park-point-1/content.mei"
+      "target_file": "src/scene/home/t1/region-left-rail/section-lake-pavilion/plane-park-point-1.mei"
     },
     {
       "is_default": false,
       "kind": "scene",
       "scene_id": "park_point_2_page",
-      "target_file": "src/scene/home/t2/r-drilldown/c-park-point-2/content.mei"
+      "target_file": "src/scene/home/t1/region-left-rail/section-sakura-path/plane-park-point-2.mei"
     },
     {
       "is_default": false,
       "kind": "scene",
       "scene_id": "park_point_3_page",
-      "target_file": "src/scene/home/t2/r-drilldown/c-park-point-3/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-play-zone/plane-park-point-3.mei"
     },
     {
       "is_default": false,
       "kind": "scene",
       "scene_id": "park_point_4_page",
-      "target_file": "src/scene/home/t2/r-drilldown/c-park-point-4/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-cafe-corner/plane-park-point-4.mei"
     }
   ],
   "schema_ledger": {
@@ -182,54 +175,54 @@
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
     {
-      "assembly_key": "home@src/scene/home/assembly.mei",
+      "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
       "url": "/apps/mini-park/home"
     },
     {
-      "assembly_key": "home_2d@src/scene/home-2d/assembly.mei",
+      "assembly_key": "home_2d@src/scene/home_2d.mei",
       "scene_id": "home_2d",
       "url": "/apps/mini-park/home_2d"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-1",
+      "assembly_key": "mini-park/home/t1/region-left-rail/section-lake-pavilion/plane-park-point-1",
       "scene_id": "park_point_1_page",
-      "url": "/apps/app/mini-park/scene/park_point_1_page"
+      "url": "/apps/build/mini-park?scene=park_point_1_page&file=src/scene/home/t1/region-left-rail/section-lake-pavilion/plane-park-point-1.mei"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-1",
+      "assembly_key": "mini-park/home/t1/region-left-rail/section-lake-pavilion/plane-park-point-1",
       "scene_id": "park_point_1_page",
-      "url": "/apps/build/mini-park?scene=park_point_1_page&file=src/scene/home/t2/r-drilldown/c-park-point-1/content.mei"
+      "url": "/apps/mini-park/park_point_1_page"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-2",
+      "assembly_key": "mini-park/home/t1/region-left-rail/section-sakura-path/plane-park-point-2",
       "scene_id": "park_point_2_page",
-      "url": "/apps/app/mini-park/scene/park_point_2_page"
+      "url": "/apps/build/mini-park?scene=park_point_2_page&file=src/scene/home/t1/region-left-rail/section-sakura-path/plane-park-point-2.mei"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-2",
+      "assembly_key": "mini-park/home/t1/region-left-rail/section-sakura-path/plane-park-point-2",
       "scene_id": "park_point_2_page",
-      "url": "/apps/build/mini-park?scene=park_point_2_page&file=src/scene/home/t2/r-drilldown/c-park-point-2/content.mei"
+      "url": "/apps/mini-park/park_point_2_page"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-3",
+      "assembly_key": "mini-park/home/t1/region-right-rail/section-play-zone/plane-park-point-3",
       "scene_id": "park_point_3_page",
-      "url": "/apps/app/mini-park/scene/park_point_3_page"
+      "url": "/apps/build/mini-park?scene=park_point_3_page&file=src/scene/home/t1/region-right-rail/section-play-zone/plane-park-point-3.mei"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-3",
+      "assembly_key": "mini-park/home/t1/region-right-rail/section-play-zone/plane-park-point-3",
       "scene_id": "park_point_3_page",
-      "url": "/apps/build/mini-park?scene=park_point_3_page&file=src/scene/home/t2/r-drilldown/c-park-point-3/content.mei"
+      "url": "/apps/mini-park/park_point_3_page"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-4",
+      "assembly_key": "mini-park/home/t1/region-right-rail/section-cafe-corner/plane-park-point-4",
       "scene_id": "park_point_4_page",
-      "url": "/apps/app/mini-park/scene/park_point_4_page"
+      "url": "/apps/build/mini-park?scene=park_point_4_page&file=src/scene/home/t1/region-right-rail/section-cafe-corner/plane-park-point-4.mei"
     },
     {
-      "assembly_key": "mini-park/home/t2/r-drilldown/c-park-point-4",
+      "assembly_key": "mini-park/home/t1/region-right-rail/section-cafe-corner/plane-park-point-4",
       "scene_id": "park_point_4_page",
-      "url": "/apps/build/mini-park?scene=park_point_4_page&file=src/scene/home/t2/r-drilldown/c-park-point-4/content.mei"
+      "url": "/apps/mini-park/park_point_4_page"
     }
   ],
   "stage_programs": {
@@ -273,20 +266,20 @@
         "is_default": true,
         "legacy_scene_id": "home",
         "profile": "cockpit",
-        "source_anchor": "src/scene/home/assembly.mei",
+        "source_anchor": "src/scene/home.mei",
         "stage_id": "home"
       },
       {
         "is_default": false,
         "legacy_scene_id": "home_2d",
         "profile": "cockpit",
-        "source_anchor": "src/scene/home-2d/assembly.mei",
+        "source_anchor": "src/scene/home_2d.mei",
         "stage_id": "home_2d"
       }
     ]
   },
   "structure_full": {
-    "node_count": 55,
+    "node_count": 49,
     "scene_root_count": 1,
     "scene_roots": [
       "home/home"

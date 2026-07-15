@@ -74,6 +74,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
         );
         if focuses.is_empty() {
             let entry_main = resolve_app_entry_main(&app_root);
+            // Graph-native apps (empty entry) leave focuses empty; stage warmup uses hot_stages.
             if !entry_main.trim().is_empty() {
                 focuses.push(entry_main);
             }

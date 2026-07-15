@@ -65,6 +65,7 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: json!({}),

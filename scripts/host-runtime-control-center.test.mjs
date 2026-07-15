@@ -69,11 +69,16 @@ assert(
 assert(!source.includes("/api/host/workspace-profiles"), "card hub must not depend on workspace-profiles UI");
 assert(source.includes("data-runtime-locked"), "buttons must encode availability locks");
 assert(source.includes("hasCurrentBundle"), "start must require current compile artifact");
-assert(source.includes("data-runtime-mode-select"), "must expose hot/lazy/frozen mode select");
-assert(source.includes("runtime-overlay"), "must apply ephemeral overlay for temporary modes");
+assert(source.includes("data-runtime-mode-select"), "must expose hot/lazy/frozen mode select for start/reload");
+assert(!source.includes("data-runtime-mode-apply"), "must not expose separate 应用模式 action");
+assert(!source.includes("data-runtime-mode-reset"), "must not expose 恢复默认 / overlay reset action");
+assert(!source.includes("应用模式"), "must not show 应用模式 button label");
+assert(!source.includes("恢复默认"), "must not show 恢复默认 button label");
+assert(!source.includes("恢复 Git"), "must not show 恢复 Git button label");
 assert(!source.includes("data-runtime-launch-select"), "multi-launch select must be removed");
-assert(source.includes("运行策略"), "must label single launch.json strategy");
-assert(source.includes("跟随 launch.json"), "mode select must allow follow Git default");
+assert(!source.includes("运行策略"), "must not repeat launch strategy blurb on every card");
+assert(source.includes("跟随 launch.json"), "mode select must allow follow launch.json default");
+assert(source.includes("startBodyForApp"), "start/reload must read selected mode");
 
 const sandbox = {
   console,

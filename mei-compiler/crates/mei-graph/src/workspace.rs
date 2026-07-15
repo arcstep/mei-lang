@@ -227,6 +227,33 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
     // 0119: synthesize access navigation from Stage MDX / Deck so authors need not
     // write sandwich navigation+assembly_ref for MCG graph closure.
     crate::stage_closure::synthesize_stage_access_navigation(&app_root, app_id, &mut blocks);
+    // 0120 C4 / 0540: app.toml is the App root — synthesize or overlay app_skeleton.
+    crate::app_skeleton::synthesize_app_skeleton(&app_root, app_id, &mut blocks);
+
+    // Index synthesized blocks under a virtual source so meibundle source maps stay complete.
+    let synthesized: Vec<crate::lower::GraphBlock> = blocks
+        .iter()
+        .filter(|block| {
+            block
+                .payload
+                .get("__mei_synthesized_stage_closure")
+                .and_then(|v| v.as_bool())
+                == Some(true)
+                || block
+                    .payload
+                    .get("__mei_synthesized_app_skeleton")
+                    .and_then(|v| v.as_bool())
+                    == Some(true)
+        })
+        .cloned()
+        .collect();
+    if !synthesized.is_empty() {
+        files.push(crate::lower::GraphOutcome {
+            graph_schema_version: "mei-compiler-graph-v2".to_string(),
+            source_file: "__mei_synthesized__".to_string(),
+            blocks: synthesized,
+        });
+    }
 
     files.sort_by(|a, b| a.source_file.cmp(&b.source_file));
     blocks.sort_by(|a, b| a.block_id.cmp(&b.block_id));

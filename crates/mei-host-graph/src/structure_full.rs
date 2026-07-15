@@ -494,6 +494,7 @@ mod tests {
                 bindings: json!({}),
                 examples: json!({}),
                 access_export: true,
+            t2_pages: Vec::new(),
             },
             themes: vec![],
             shared: json!({}),

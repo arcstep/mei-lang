@@ -10,22 +10,24 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 
 ## 应用入口
 
-```python
-app_skeleton(
-    id = "zhifa",
-    title = "面板调试 · Zhifa",
-    default_scene = "home",
-)
+App 根是 `app.toml`（`title` / `default_stage`）。编译器从 toml 合成 `app_skeleton`，并从 Stage MDX 合成 access `navigation`；作者不必再写 `src/app.mei`。
 
-navigation(
-    key = "access:home",
-    scene = "home",
-    url = "/apps/app/zhifa/scene/home",
-    assembly = assembly_ref("home@src/scene/home/assembly.mei"),
-)
+```toml
+# app.toml
+title = "面板调试 · Zhifa"
+default_stage = "home"
+app_id = "zhifa"
 ```
 
-入口文件通常是 `src/app.mei`。
+```mdx
+<!-- src/stage/home.stage.mdx -->
+---
+stage_id: home
+profile: cockpit
+title: Home
+---
+@scene(use="scene/home")
+```
 
 ## Scene 入口（assembly.mei）
 

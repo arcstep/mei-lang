@@ -195,7 +195,10 @@ fn stage_registry_summary(blocks: &[GraphBlock], default_scene: &str) -> Value {
             .unwrap_or("")
             .replace('\\', "/")
             .to_ascii_lowercase();
-        if assembly.contains("/t2/") || assembly.contains("/overlay/") {
+        if assembly.contains("/t2/")
+            || assembly.contains("/overlay/")
+            || assembly.contains("/plane-")
+        {
             excluded_t2.push(scene.to_string());
             continue;
         }
@@ -478,7 +481,7 @@ fn read_fixture(path: &Path) -> Value {
 #[test]
 fn stage_architecture_baseline_compiles_six_goldens() {
     let workspace = ws_demo_v2_root();
-    if !workspace.join("apps/mini-grid/src/app.mei").is_file() {
+    if !workspace.join("apps/mini-grid/app.toml").is_file() {
         eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
         return;
     }

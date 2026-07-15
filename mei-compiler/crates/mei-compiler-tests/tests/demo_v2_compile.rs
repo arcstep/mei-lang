@@ -12,7 +12,7 @@ fn ws_demo_v2_root() -> std::path::PathBuf {
 #[test]
 fn demo_v2_compiles_graph_blocks() {
     let workspace = ws_demo_v2_root();
-    if !workspace.join("apps/zhifa/src/app.mei").is_file() {
+    if !workspace.join("apps/zhifa/app.toml").is_file() {
         eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
         return;
     }
@@ -54,7 +54,7 @@ fn demo_v2_compiles_graph_blocks() {
 #[test]
 fn demo_v2_meibundle_roundtrip_and_size() {
     let workspace = ws_demo_v2_root();
-    if !workspace.join("apps/zhifa/src/app.mei").is_file() {
+    if !workspace.join("apps/zhifa/app.toml").is_file() {
         eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
         return;
     }

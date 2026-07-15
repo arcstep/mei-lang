@@ -90,53 +90,42 @@ pub fn create_app_skeleton(source_root: &Path, app_id: &str) -> Result<PathBuf> 
     if app_root.exists() {
         anyhow::bail!("app `{}` already exists", app_root.display());
     }
-    fs::create_dir_all(app_root.join("src/scenes")).context("create app scenes dir")?;
+    fs::create_dir_all(app_root.join("src/stage")).context("create app stage dir")?;
+    fs::create_dir_all(app_root.join("src/scene")).context("create app scene dir")?;
     fs::create_dir_all(app_root.join("assets")).context("create app assets dir")?;
     fs::write(
-        app_root.join("src/main.mei"),
+        app_root.join("app.toml"),
         format!(
-            r#"app(
-    id = "{app_id}",
-    title = "{app_id}",
-    default_stage = "home",
-    scene = scene_ref(scene_file = "scenes/home.mei"),
-)
+            r#"schema_version = "mei-app-v1"
+title = "{app_id}"
+default_stage = "home"
+app_id = "{app_id}"
+generation = "current"
+
+[runtime_plan]
+defaultMode = "frozen"
 "#
         ),
-    )?;
+    )
+    .context("write app.toml")?;
     fs::write(
-        app_root.join("src/scenes/home.mei"),
+        app_root.join("src/stage/home.stage.mdx"),
+        r#"---
+stage_id: home
+profile: cockpit
+title: Home
+---
+@scene(use="scene/home")
+"#,
+    )
+    .context("write home.stage.mdx")?;
+    fs::write(
+        app_root.join("src/scene/home.mei"),
         r#"scene(
     id = "home",
-    world = "home_world",
-    frame = "home_frame",
-    profile = "page",
-)
-
-world(
-    id = "home_world",
-    resources = [],
-)
-
-frame(
-    id = "home_frame",
-    layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
-    id = "main",
-    area = "auto",
-    blocks = [],
 )
 "#,
-    )?;
-    fs::write(
-        app_root.join(APP_CONFIG_FILENAME),
-        r#"{
-  "schemaVersion": 1,
-  "entry": { "main": "main.mei" }
-}
-"#,
-    )?;
+    )
+    .context("write scene/home.mei")?;
     Ok(app_root)
 }

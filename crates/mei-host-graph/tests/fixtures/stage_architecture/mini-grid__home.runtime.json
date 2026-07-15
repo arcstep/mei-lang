@@ -38,10 +38,9 @@
     }
   },
   "mcg": {
-    "node_count": 8,
+    "node_count": 7,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 1,
       "navigation": 1,
       "semantic_graph": 5
     },

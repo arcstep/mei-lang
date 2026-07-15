@@ -56,14 +56,14 @@
     }
   },
   "mcg": {
-    "node_count": 67,
+    "node_count": 52,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 9,
+      "content_panel": 7,
       "metric_def_bundle": 2,
-      "navigation": 10,
+      "navigation": 6,
       "page_instance": 4,
-      "semantic_graph": 40,
+      "semantic_graph": 31,
       "warmup_policy": 1
     },
     "schemaVersion": "mei-mcg-registry-v2"
@@ -112,12 +112,6 @@
   "scene_id": "supervision",
   "scene_routes": [
     {
-      "is_default": false,
-      "kind": "scene",
-      "scene_id": "enforcement_analytics_page",
-      "target_file": "src/scene/home/t2/r-enforcement/c-enforcement-analytics/content.mei"
-    },
-    {
       "is_default": true,
       "kind": "scene",
       "scene_id": "home",
@@ -131,21 +125,27 @@
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
+      "scene_id": "enforcement_analytics_page",
+      "target_file": "src/scene/home/t1/region-right-rail/section-enforcement/plane-enforcement.mei"
+    },
+    {
+      "is_default": false,
+      "kind": "page",
       "scene_id": "supervision_items_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-items/c-supervision-items-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-items.mei"
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
       "scene_id": "supervision_models_analytics_page",
-      "target_file": "src/scene/home/t2/r-supervision-models/c-supervision-models-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-supervision-models.mei"
     },
     {
       "is_default": false,
-      "kind": "scene",
+      "kind": "page",
       "scene_id": "warnings_analytics_page",
-      "target_file": "src/scene/home/t2/r-warnings/c-warnings-analytics/content.mei"
+      "target_file": "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei"
     }
   ],
   "schema_ledger": {
@@ -168,11 +168,6 @@
   "schema_version": "mei-stage-architecture-runtime-baseline-v1",
   "scope_routes": [
     {
-      "assembly_key": "mini-data/home/t2/r-enforcement/c-enforcement-analytics",
-      "scene_id": "enforcement_analytics_page",
-      "url": "/apps/app/mini-data/scene/enforcement_analytics_page"
-    },
-    {
       "assembly_key": "home@src/scene/home.mei",
       "scene_id": "home",
       "url": "/apps/mini-data/home"
@@ -181,21 +176,6 @@
       "assembly_key": "supervision@src/presentation/supervision/supervision.deck.mdx",
       "scene_id": "supervision",
       "url": "/apps/mini-data/supervision"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-supervision-items/c-supervision-items-analytics",
-      "scene_id": "supervision_items_analytics_page",
-      "url": "/apps/app/mini-data/scene/supervision_items_analytics_page"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-supervision-models/c-supervision-models-analytics",
-      "scene_id": "supervision_models_analytics_page",
-      "url": "/apps/app/mini-data/scene/supervision_models_analytics_page"
-    },
-    {
-      "assembly_key": "mini-data/home/t2/r-warnings/c-warnings-analytics",
-      "scene_id": "warnings_analytics_page",
-      "url": "/apps/app/mini-data/scene/warnings_analytics_page"
     }
   ],
   "stage_programs": {

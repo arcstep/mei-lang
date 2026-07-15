@@ -27,6 +27,7 @@ fn sample_scene_contract(panels: Vec<UiNodeDecl>) -> SceneContract {
             bindings: Value::Null,
             examples: Value::Null,
             access_export: true,
+        t2_pages: Vec::new(),
         },
         themes: Vec::new(),
         shared: Value::Null,
@@ -67,6 +68,7 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
             title: Some("首页".to_string()),
             is_default: true,
             access_export: true,
+        t2_pages: Vec::new(),
         },
         CompiledSceneRoute {
             scene_id: "home".to_string(),
@@ -76,6 +78,7 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
             title: Some("首页副本".to_string()),
             is_default: false,
             access_export: true,
+        t2_pages: Vec::new(),
         },
     ];
     let compiled_stub = CompiledApp {

@@ -239,7 +239,6 @@
         const run = runningByApp[appId];
         const isRunning = Boolean(run);
         const hasLaunch = Boolean(app.hasLaunch);
-        const launchPath = app.launchPath || `apps/${appId}/launch.json`;
         const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
         const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
         const effectiveMode = String(
@@ -265,7 +264,7 @@
         else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
         const overlayHint = overlayMode
           ? `临时 ${modeLabel(overlayMode)}`
-          : `Git ${modeLabel(gitMode)}`;
+          : `默认 ${modeLabel(gitMode)}`;
         const statusBlock = pending
           ? `<div class="mei-runtime-control__status-chip is-pending">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -334,18 +333,9 @@
           </header>
           <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
           <div class="mei-runtime-control__app-card-launch">
-            <div class="mei-runtime-control__launch-meta">
-              <span>运行策略</span>
-              <code title="${escapeHtml(launchPath)}">${escapeHtml(launchPath)}</code>
-            </div>
             <label class="mei-runtime-control__mode-field">
-              <span>整 app 统一模式（启动 / 重载 / 应用模式均读此处；默认「跟随」= launch.json 的 frozen）</span>
-              <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} runtime mode"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
+              <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} 启动模式"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
             </label>
-            <div class="mei-runtime-control__mode-actions">
-              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-apply data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending))} title="写入 overlay；若已在运行则立刻按该模式重启">应用模式</button>
-              <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-mode-reset data-app="${escapeHtml(appId)}"${lockedAttr(Boolean(pending) || !overlayMode)} title="清除临时 overlay，恢复 launch.json 的 defaultMode">恢复 Git</button>
-            </div>
           </div>
           <div class="mei-runtime-control__app-card-actions">${actions}</div>
           <details class="mei-runtime-control__bundles"${bundlesOpen}>
@@ -596,84 +586,6 @@
     }
   }
 
-  async function applyRuntimeMode(appId) {
-    if (!appId) return;
-    const mode = selectedModeForApp(appId);
-    const app = (state.appsOverview?.apps || []).find((row) => row.appId === appId);
-    const expectedRevision = app?.overlayRevision || undefined;
-    const running = Array.isArray(state.appsOverview?.running)
-      ? state.appsOverview.running.some((row) => row.appId === appId)
-      : false;
-    setBusy(true);
-    try {
-      if (!mode) {
-        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-        if (running) {
-          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ followGit: true }),
-          });
-          announce(`${appId} 已恢复 launch.json 并重启`, "success");
-        } else {
-          announce(`${appId} 已恢复 launch.json 模式（下次启动生效）`, "success");
-        }
-      } else {
-        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            overlay: {
-              schemaVersion: "mei-runtime-overlay-v1",
-              appId,
-              defaultMode: mode,
-              targets: [],
-              metricOverrides: {},
-            },
-            expectedRevision,
-          }),
-        });
-        if (running) {
-          await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode }),
-          });
-          announce(`${appId} 已统一为 ${mode} 并重启`, "success");
-        } else {
-          announce(`${appId} 已统一为 ${mode}（下次启动生效）`, "success");
-        }
-      }
-      await loadApps();
-    } catch (error) {
-      announce(`应用模式失败：${error.message}`, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resetRuntimeMode(appId) {
-    if (!appId) return;
-    setBusy(true);
-    try {
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/runtime-overlay/reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      announce(`${appId} 已恢复 launch.json 模式`, "success");
-      await loadApps();
-    } catch (error) {
-      announce(`恢复失败：${error.message}`, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function compileAndLoad(appId) {
     if (!appId) return;
     const config = "launch";
@@ -878,18 +790,11 @@
         void executeCleanup(appId);
       } else if (target.matches("[data-runtime-load-generation]")) {
         void loadGenerationAndStart(appId, target.getAttribute("data-generation"));
-      } else if (target.matches("[data-runtime-mode-apply]")) {
-        void applyRuntimeMode(appId);
-      } else if (target.matches("[data-runtime-mode-reset]")) {
-        void resetRuntimeMode(appId);
       }
     });
 
     root.addEventListener("change", (event) => {
       const target = event.target;
-      if (target.matches("[data-runtime-mode-select]")) {
-        return;
-      }
       if (target.matches("[data-runtime-cleanup-confirm]")) {
         const execute = root.querySelector(
           `[data-runtime-cleanup-execute][data-app="${target.getAttribute("data-app") || ""}"]`,
