@@ -73,7 +73,7 @@ pub use compile::{
     resolve_layout_budgets, resolve_layout_budgets_with_options, resolve_metric_contract_key, resolve_runtime_metric_def_key,
     runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
     scene_contract_contains_use_key, scene_payload_cache_epoch, source_file_content_signature,
-    try_get_cached_xlsx_table_snapshot, try_load_xlsx_parquet_snapshot,
+    snapshot_sealed_data_enabled, try_get_cached_xlsx_table_snapshot, try_load_xlsx_parquet_snapshot,
     ui_scope_annotation_for_preview_panel, ui_scope_annotation_for_preview_path,
     ui_scope_for_block, validate_layout_budget_policy, validate_layout_budget_policy_with_options,
     write_data_snapshot_import_manifest, write_xlsx_parquet_snapshot, BuildCompileCoordinate,
@@ -83,7 +83,7 @@ pub use compile::{
     LayoutBudgetValidateOptions, ReachabilityTreeNode, ReachabilityTreeRoot, RequestDagMetrics,
     RuntimeMetricEvalReport, RuntimeMetricEvalScope, TableSnapshot, TableSnapshotKey,
     UiScopeBlockAnnotation, UiScopePanelAnnotation, DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION,
-    DATA_SNAPSHOT_SCHEMA_VERSION,
+    DATA_SNAPSHOT_SCHEMA_VERSION, PORTABLE_SNAPSHOT_MARKER,
 };
 pub use compile_scope_filter::{
     compile_scope_entry_allowed, compile_scope_scene_id_allowed, compile_scope_target_allowed,

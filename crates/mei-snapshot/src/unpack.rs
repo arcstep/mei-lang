@@ -5,17 +5,21 @@ use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use crate::manifest::SnapshotManifest;
+use crate::resources::ResourcesDocument;
 
 #[derive(Debug, Clone)]
 pub struct UnpackResult {
     pub dest: PathBuf,
     pub manifest: SnapshotManifest,
+    /// Primary / first app bundle path (v1 or v2).
     pub bundle_path: PathBuf,
+    /// All app bundles for v2 (also length 1 for v1).
+    pub app_bundle_paths: Vec<(String, PathBuf)>,
+    pub resources: Option<ResourcesDocument>,
 }
 
 pub fn unpack_snapshot(archive: &Path, into: &Path) -> anyhow::Result<UnpackResult> {
     if into.exists() {
-        // Allow empty dir; refuse non-empty to avoid clobber.
         if into.is_dir() {
             let mut entries = fs::read_dir(into)?;
             if entries.next().is_some() {
@@ -59,20 +63,35 @@ pub fn unpack_snapshot(archive: &Path, into: &Path) -> anyhow::Result<UnpackResu
     let manifest: SnapshotManifest = serde_json::from_str(&raw)?;
     manifest.validate()?;
 
-    let bundle_rel = manifest
-        .files
-        .iter()
-        .find(|f| f.path.starts_with("exchange/") && f.path.ends_with(".meibundle"))
-        .map(|f| f.path.clone())
-        .ok_or_else(|| anyhow::anyhow!("no exchange/*.meibundle in manifest"))?;
-    let bundle_path = into.join(&bundle_rel);
-    if !bundle_path.is_file() {
-        anyhow::bail!("bundle missing after unpack: {}", bundle_path.display());
+    let app_entries = manifest.app_entries();
+    let mut app_bundle_paths = Vec::new();
+    for app in &app_entries {
+        let bundle_path = into.join(&app.bundle_path);
+        if !bundle_path.is_file() {
+            anyhow::bail!("bundle missing after unpack: {}", bundle_path.display());
+        }
+        app_bundle_paths.push((app.app_id.clone(), bundle_path));
     }
+    let bundle_path = app_bundle_paths
+        .first()
+        .map(|(_, p)| p.clone())
+        .ok_or_else(|| anyhow::anyhow!("no app bundles in snapshot"))?;
+
+    let resources = {
+        let path = into.join("resources.json");
+        if path.is_file() {
+            let text = fs::read_to_string(&path)?;
+            Some(serde_json::from_str(&text)?)
+        } else {
+            None
+        }
+    };
 
     Ok(UnpackResult {
         dest: into.to_path_buf(),
         manifest,
         bundle_path,
+        app_bundle_paths,
+        resources,
     })
 }

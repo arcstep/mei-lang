@@ -60,6 +60,23 @@ pub fn data_snapshot_import_manifest_path(app_root: &Path) -> PathBuf {
     data_snapshot_store_root(app_root).join("import-manifest.json")
 }
 
+/// Marker written by portable snapshot pack/materialize.
+pub const PORTABLE_SNAPSHOT_MARKER: &str = ".mei-portable-snapshot";
+
+/// True when this app was materialized from a portable snapshot (sealed parquet OK without xlsx).
+pub fn snapshot_sealed_data_enabled(app_root: &Path) -> bool {
+    if matches!(
+        env_flag("MEI_SNAPSHOT_SEALED_DATA").as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    ) {
+        return true;
+    }
+    app_root.join(PORTABLE_SNAPSHOT_MARKER).is_file()
+        || data_snapshot_store_root(app_root)
+            .join(PORTABLE_SNAPSHOT_MARKER)
+            .is_file()
+}
+
 fn now_epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -100,18 +117,44 @@ pub fn parquet_snapshot_path(
     if source_path.is_empty() {
         return None;
     }
+    let sheet = sheet.unwrap_or("").trim();
+    let header = header_row.max(1);
+
+    // Sealed portable snapshot: resolve via import-manifest without requiring xlsx on disk.
+    if snapshot_sealed_data_enabled(app_root) {
+        if let Some(entry) =
+            resolve_sealed_import_entry(app_root, source_path, Some(sheet).filter(|s| !s.is_empty()), header)
+        {
+            let store = data_snapshot_store_root(app_root);
+            let artifact = PathBuf::from(&entry.artifact_path);
+            let candidate = if artifact.is_file() {
+                artifact
+            } else {
+                store.join(artifact.file_name().unwrap_or_default())
+            };
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            // Fall back to conventional filename from content signature.
+            return Some(store.join(parquet_snapshot_filename(
+                entry.content_signature.as_str(),
+                sheet,
+                header,
+            )));
+        }
+    }
+
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
     let absolute = resolve_versioned_source_path(app_root, source_path);
     if !absolute.is_file() {
         return None;
     }
     let content_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
-    let sheet = sheet.unwrap_or("").trim();
     Some(
         data_snapshot_store_root(app_root).join(parquet_snapshot_filename(
             content_sig.as_str(),
             sheet,
-            header_row.max(1),
+            header,
         )),
     )
 }
@@ -155,6 +198,10 @@ pub fn resolve_data_snapshot_import_entry(
     if source_path.is_empty() {
         return None;
     }
+    let header = header_row.max(1);
+    if snapshot_sealed_data_enabled(app_root) {
+        return resolve_sealed_import_entry(app_root, source_path, sheet, header);
+    }
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
     let absolute = resolve_versioned_source_path(app_root, source_path);
     if !absolute.is_file() {
@@ -166,9 +213,30 @@ pub fn resolve_data_snapshot_import_entry(
         .flatten()?;
     manifest.entries.into_iter().find(|entry| {
         entry.resolved_source_path == resolved
-            && entry.header_row == header_row.max(1)
+            && entry.header_row == header
             && entry.sheet.as_deref().unwrap_or("") == sheet.unwrap_or("").trim()
             && entry.content_signature == expected_sig
+    })
+}
+
+fn resolve_sealed_import_entry(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+) -> Option<DataSnapshotImportEntry> {
+    let sheet = sheet.unwrap_or("").trim();
+    let resolved = resolve_versioned_source_identifier(app_root, source_path);
+    let manifest = read_data_snapshot_import_manifest(app_root)
+        .ok()
+        .flatten()?;
+    manifest.entries.into_iter().find(|entry| {
+        entry.header_row == header_row
+            && entry.sheet.as_deref().unwrap_or("") == sheet
+            && (entry.source_path == source_path
+                || entry.resolved_source_path == resolved
+                || entry.resolved_source_path.ends_with(source_path)
+                || source_path.ends_with(entry.source_path.trim_start_matches("./")))
     })
 }
 
@@ -374,32 +442,70 @@ pub fn try_load_xlsx_parquet_snapshot(
     if !path.is_file() {
         return None;
     }
-    let resolved = resolve_versioned_source_identifier(app_root, source_path.trim());
-    let absolute = resolve_versioned_source_path(app_root, source_path.trim());
-    if !absolute.is_file() {
-        return None;
+    let sealed = snapshot_sealed_data_enabled(app_root);
+    if !sealed {
+        let resolved = resolve_versioned_source_identifier(app_root, source_path.trim());
+        let absolute = resolve_versioned_source_path(app_root, source_path.trim());
+        if !absolute.is_file() {
+            return None;
+        }
+        let expected_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
+        let file = File::open(&path).ok()?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
+        let (stored_sig, columns) = parquet_meta_sig_and_columns(&builder);
+        if stored_sig != expected_sig {
+            return None;
+        }
+        return read_parquet_table_snapshot(builder, columns);
     }
-    let expected_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
+
+    // Sealed: trust parquet keyed by import-manifest; still verify meta sig when present.
     let file = File::open(&path).ok()?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
-    let meta = builder.metadata().file_metadata().key_value_metadata()?;
+    let (stored_sig, columns) = parquet_meta_sig_and_columns(&builder);
+    if let Some(entry) = resolve_sealed_import_entry(
+        app_root,
+        source_path.trim(),
+        sheet,
+        header_row.max(1),
+    ) {
+        if !stored_sig.is_empty() && stored_sig != entry.content_signature {
+            return None;
+        }
+    }
+    read_parquet_table_snapshot(builder, columns)
+}
+
+fn parquet_meta_sig_and_columns(
+    builder: &ParquetRecordBatchReaderBuilder<File>,
+) -> (String, Vec<String>) {
+    let meta = builder
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .map(|m| m.to_vec())
+        .unwrap_or_default();
     let stored_sig = meta
         .iter()
         .find(|kv| kv.key == PARQUET_META_CONTENT_SIG)
-        .map(|kv| kv.value.as_deref().unwrap_or(""))
-        .unwrap_or("");
-    if stored_sig != expected_sig {
-        return None;
-    }
+        .and_then(|kv| kv.value.clone())
+        .unwrap_or_default();
     let columns: Vec<String> = meta
         .iter()
         .find(|kv| kv.key == PARQUET_META_COLUMNS)
         .and_then(|kv| kv.value.as_deref())
         .and_then(|raw| serde_json::from_str(raw).ok())
         .unwrap_or_default();
+    (stored_sig, columns)
+}
+
+fn read_parquet_table_snapshot(
+    builder: ParquetRecordBatchReaderBuilder<File>,
+    columns: Vec<String>,
+) -> Option<XlsxTableSnapshot> {
     let mut reader = builder.build().ok()?;
     let mut rows = Vec::new();
-    let mut merged_columns = columns.clone();
+    let mut merged_columns = columns;
     while let Some(batch) = reader.next().transpose().ok()? {
         if merged_columns.is_empty() {
             merged_columns = batch

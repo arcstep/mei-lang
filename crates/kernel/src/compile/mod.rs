@@ -54,10 +54,10 @@ pub use data_snapshot::{
     access_parquet_import_required, data_snapshot_import_manifest_path, data_snapshot_store_root,
     parquet_sidecar_write_allowed, parquet_snapshot_path, publish_xlsx_data_snapshots_for_paths,
     read_data_snapshot_import_manifest, resolve_data_snapshot_import_entry,
-    source_file_content_signature, try_load_xlsx_parquet_snapshot,
+    snapshot_sealed_data_enabled, source_file_content_signature, try_load_xlsx_parquet_snapshot,
     write_data_snapshot_import_manifest, write_xlsx_parquet_snapshot, DataSnapshotImportEntry,
     DataSnapshotImportManifest, DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION,
-    DATA_SNAPSHOT_SCHEMA_VERSION,
+    DATA_SNAPSHOT_SCHEMA_VERSION, PORTABLE_SNAPSHOT_MARKER,
 };
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
