@@ -828,6 +828,20 @@ if (!customElements.get(TAG)) {
         panelId: meta.panel_id,
         phase,
       });
+      const health = window.__meiLangBoot && window.__meiLangBoot.resourceHealth;
+      if (health && typeof health.report === "function") {
+        health.report({
+          kind: "gis",
+          severity: "degrade",
+          message: detail,
+          hint: "底图资源未提供或瓦片服务未启动；地图其他要素仍可使用。",
+          panelId: meta.panel_id || "",
+          appId: "",
+          id: dedupeKey,
+          source: "maplibre",
+          recovery: "start_martin",
+        });
+      }
       if (typeof console !== "undefined" && typeof console.error === "function") {
         console.error(`[${TAG}] ${kind}`, {
           api,
