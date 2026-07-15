@@ -85,12 +85,14 @@ impl HostHandle {
     /// Start host-shell for a workspace.
     ///
     /// `launch_all`: pass `--launch` so discovered apps autostart (Viewer default).
+    /// `gis_env`: optional `(MEI_GIS_PROXY_UPSTREAM, MEI_TILES_JSON_PATH)` when Martin is ready.
     pub fn start_workspace(
         &mut self,
         workspace: &Path,
         app: Option<String>,
         data_mode_ceiling: Option<String>,
         launch_all: bool,
+        gis_env: Option<(String, String)>,
     ) -> anyhow::Result<()> {
         self.stop()?;
         let bin = paths::resolve_host_shell_bin()?;
@@ -125,6 +127,10 @@ impl HostHandle {
             cmd.arg("--data-mode-ceiling").arg(ceiling);
         }
         apply_sidecar_env(&mut cmd)?;
+        if let Some((upstream, tiles_json)) = gis_env {
+            cmd.env("MEI_GIS_PROXY_UPSTREAM", &upstream);
+            cmd.env("MEI_TILES_JSON_PATH", &tiles_json);
+        }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_err));

@@ -23,6 +23,16 @@ const el = {
   exportIncludeData: document.getElementById("export-include-data"),
   openHost: document.getElementById("btn-open-host"),
   stop: document.getElementById("btn-stop"),
+  martinStatus: document.getElementById("martin-status"),
+  martinVersion: document.getElementById("martin-version"),
+  martinMbtiles: document.getElementById("martin-mbtiles"),
+  martinCatalog: document.getElementById("martin-catalog"),
+  martinDownload: document.getElementById("btn-martin-download"),
+  martinPick: document.getElementById("btn-martin-pick"),
+  martinStart: document.getElementById("btn-martin-start"),
+  martinStop: document.getElementById("btn-martin-stop"),
+  martinOpenCatalog: document.getElementById("btn-martin-catalog"),
+  martinReveal: document.getElementById("btn-martin-reveal"),
   startupOverlay: document.getElementById("startup-overlay"),
   startupLabel: document.getElementById("startup-label"),
   startupBar: document.getElementById("startup-bar"),
@@ -344,6 +354,106 @@ el.revealLog.addEventListener("click", async () => {
   }
 });
 
+async function refreshMartinStatus() {
+  try {
+    const s = await invoke("martin_status");
+    const label = !s.installed
+      ? "未安装"
+      : s.ready
+        ? "就绪"
+        : s.running
+          ? "启动中…"
+          : "已安装 · 未运行";
+    if (el.martinStatus) el.martinStatus.textContent = label;
+    if (el.martinVersion) el.martinVersion.textContent = s.version || "—";
+    if (el.martinMbtiles) el.martinMbtiles.textContent = s.mbtilesPath || "（未选择）";
+    if (el.martinCatalog) el.martinCatalog.textContent = s.catalogUrl || "—";
+    if (el.martinStop) el.martinStop.disabled = !s.running;
+    if (el.martinOpenCatalog) el.martinOpenCatalog.disabled = !s.running;
+    return s;
+  } catch (_) {
+    return null;
+  }
+}
+
+el.martinDownload?.addEventListener("click", async () => {
+  setHint("正在从 GitHub 下载 Martin…");
+  setStartupVisible(true, "下载 Martin");
+  updateStartupProgress(20, "拉取官方二进制…");
+  try {
+    await invoke("martin_ensure_installed");
+    await refreshMartinStatus();
+    setHint("Martin 已安装到本机 Application Support。");
+  } catch (e) {
+    setHint(String(e), true);
+  } finally {
+    setStartupVisible(false);
+  }
+});
+
+el.martinPick?.addEventListener("click", async () => {
+  setHint("");
+  if (typeof open !== "function") {
+    setHint("对话框插件未就绪。请重启 mei-viewer。", true);
+    return;
+  }
+  try {
+    let selected = await open({
+      multiple: false,
+      filters: [{ name: "MBTiles", extensions: ["mbtiles"] }],
+    });
+    if (!selected) return;
+    if (Array.isArray(selected)) selected = selected[0];
+    await invoke("martin_pick_mbtiles", { path: String(selected) });
+    await refreshMartinStatus();
+    setHint("已记住 MBTiles 路径。");
+  } catch (e) {
+    setHint(String(e), true);
+  }
+});
+
+el.martinStart?.addEventListener("click", async () => {
+  setHint("正在启动 Martin…");
+  setStartupVisible(true, "启动瓦片服务");
+  updateStartupProgress(30, "下载（如需）并监听 :8080…");
+  try {
+    await invoke("martin_start");
+    await refreshMartinStatus();
+    setHint("Martin 已就绪（http://127.0.0.1:8080/catalog）。打开工作区时会自动注入 GIS 上游。");
+  } catch (e) {
+    setHint(String(e), true);
+  } finally {
+    setStartupVisible(false);
+  }
+});
+
+el.martinStop?.addEventListener("click", async () => {
+  try {
+    await invoke("martin_stop");
+    await refreshMartinStatus();
+    setHint("Martin 已停止。");
+  } catch (e) {
+    setHint(String(e), true);
+  }
+});
+
+el.martinOpenCatalog?.addEventListener("click", async () => {
+  try {
+    await invoke("martin_open_catalog");
+  } catch (e) {
+    setHint(String(e), true);
+  }
+});
+
+el.martinReveal?.addEventListener("click", async () => {
+  try {
+    const path = await invoke("martin_reveal");
+    setHint(`已打开：${path}`);
+  } catch (e) {
+    setHint(String(e), true);
+  }
+});
+
 el.stop.addEventListener("click", async () => {
   try {
     await invoke("stop_host");
@@ -362,6 +472,7 @@ el.stop.addEventListener("click", async () => {
       applyViewerVersion(await invoke("viewer_version"));
     } catch (_) {}
     const s = await refreshStatus();
+    await refreshMartinStatus();
     await refreshRecent();
     await refreshLogs();
     if (s.autoOpened && s.ready) {
@@ -370,6 +481,7 @@ el.stop.addEventListener("click", async () => {
   } catch (_) {}
   setInterval(() => {
     refreshStatus().catch(() => {});
+    refreshMartinStatus().catch(() => {});
     if (el.logFollow.checked) {
       refreshLogs().catch(() => {});
     }

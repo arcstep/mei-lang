@@ -100,13 +100,35 @@ h1 {
 }
 
 .logs h2,
-.recent h2 {
+.recent h2,
+.martin h2 {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
   font-weight: 560;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.martin.panel {
+  margin: 1.25rem 0;
+  padding: 1rem 1.1rem;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.martin .sub-inline {
+  margin: 0.35rem 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.martin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
 }
 
 .follow {

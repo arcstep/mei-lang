@@ -1,8 +1,10 @@
 mod host;
-mod recent;
+mod martin;
 mod paths;
+mod recent;
 
 use host::{HostHandle, HostReadinessDto};
+use martin::{MartinHandle, MartinStatusDto};
 use recent::RecentStore;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -54,9 +56,19 @@ fn open_system_browser(url: &str) -> Result<(), String> {
 
 pub struct AppState {
     pub host: Mutex<HostHandle>,
+    pub martin: Mutex<MartinHandle>,
     pub recent: Mutex<RecentStore>,
     /// True when launch cwd/argv was a workspace and we skipped the launcher UI.
     pub auto_opened: Mutex<bool>,
+}
+
+fn martin_gis_env(state: &AppState) -> Option<(String, String)> {
+    let mut martin = state.martin.lock().ok()?;
+    if !martin.is_ready() {
+        return None;
+    }
+    let tiles = martin.tiles_json_path_for_host()?;
+    Some((martin.gis_upstream_for_host(), tiles))
 }
 
 #[derive(Debug, Serialize)]
@@ -242,9 +254,10 @@ fn start_workspace(path: String, state: State<'_, AppState>) -> Result<(), Strin
         ));
     }
     {
+        let gis = martin_gis_env(&state);
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
         // Viewer default: --launch so discovered apps autostart (not bare control plane).
-        host.start_workspace(&workspace, None, None, true)
+        host.start_workspace(&workspace, None, None, true, gis)
             .map_err(|e| e.to_string())?;
     }
     let mut recent = state.recent.lock().map_err(|e| e.to_string())?;
@@ -277,6 +290,7 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
 
     let data_ceiling = unpacked.manifest.data_mode_hint.as_str().to_string();
     {
+        let gis = martin_gis_env(&state);
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
         // Prefer explicit import before serve so registry exists for --app autostart.
         host.import_bundle(&ws, &unpacked.manifest.app_id, &unpacked.bundle_path)
@@ -286,6 +300,7 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
             Some(unpacked.manifest.app_id.clone()),
             Some(data_ceiling),
             false, // --app already selects the snapshot app
+            gis,
         )
         .map_err(|e| e.to_string())?;
     }
@@ -502,6 +517,89 @@ fn show_launcher(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn martin_status(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    Ok(martin.status())
+}
+
+#[tauri::command]
+fn martin_ensure_installed(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    martin.ensure_installed().map_err(|e| e.to_string())?;
+    Ok(martin.status())
+}
+
+#[tauri::command]
+fn martin_start(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    martin.start().map_err(|e| e.to_string())?;
+    Ok(martin.status())
+}
+
+#[tauri::command]
+fn martin_stop(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    martin.stop().map_err(|e| e.to_string())?;
+    Ok(martin.status())
+}
+
+#[tauri::command]
+fn martin_pick_mbtiles(path: String, state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    martin
+        .set_mbtiles_path(PathBuf::from(path))
+        .map_err(|e| e.to_string())?;
+    Ok(martin.status())
+}
+
+#[tauri::command]
+fn martin_reveal(state: State<'_, AppState>) -> Result<String, String> {
+    let dir = paths::martin_root().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(&dir)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("open failed: {status}"));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new("explorer")
+            .arg(&dir)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("explorer failed: {status}"));
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let status = std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("xdg-open failed: {status}"));
+        }
+    }
+    let _ = state;
+    Ok(dir.display().to_string())
+}
+
+#[tauri::command]
+fn martin_open_catalog(state: State<'_, AppState>) -> Result<(), String> {
+    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
+    let status = martin.status();
+    if !status.running {
+        return Err("Martin 未在运行；请先启动瓦片服务".into());
+    }
+    open_system_browser(&status.catalog_url)
+}
+
+#[tauri::command]
 fn open_host_ui(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let mut host = state.host.lock().map_err(|e| e.to_string())?;
     let port = host
@@ -526,7 +624,22 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .accelerator("CmdOrCtrl+L")
         .build(app)?;
     let view = SubmenuBuilder::new(app, "查看").item(&show).build()?;
-    MenuBuilder::new(app).item(&view).build()
+
+    let download = MenuItemBuilder::with_id("martin_download", "下载或更新 Martin").build(app)?;
+    let start = MenuItemBuilder::with_id("martin_start", "启动瓦片服务").build(app)?;
+    let stop = MenuItemBuilder::with_id("martin_stop", "停止瓦片服务").build(app)?;
+    let reveal = MenuItemBuilder::with_id("martin_reveal", "在访达中显示 Martin 目录").build(app)?;
+    let catalog = MenuItemBuilder::with_id("martin_catalog", "打开 catalog").build(app)?;
+    let tiles = SubmenuBuilder::new(app, "地图瓦片")
+        .item(&download)
+        .item(&start)
+        .item(&stop)
+        .separator()
+        .item(&reveal)
+        .item(&catalog)
+        .build()?;
+
+    MenuBuilder::new(app).item(&view).item(&tiles).build()
 }
 
 fn try_auto_open_workspace(app: &AppHandle, state: &AppState) -> anyhow::Result<bool> {
@@ -534,8 +647,9 @@ fn try_auto_open_workspace(app: &AppHandle, state: &AppState) -> anyhow::Result<
         return Ok(false);
     };
     {
+        let gis = martin_gis_env(state);
         let mut host = state.host.lock().expect("host lock");
-        host.start_workspace(&ws, None, None, true)?;
+        host.start_workspace(&ws, None, None, true, gis)?;
         host.wait_for_control_ready(std::time::Duration::from_secs(240))?;
         let port = host.port().ok_or_else(|| anyhow::anyhow!("no port after start"))?;
         drop(host);
@@ -560,6 +674,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             host: Mutex::new(HostHandle::new()),
+            martin: Mutex::new(MartinHandle::new()),
             recent: Mutex::new(recent),
             auto_opened: Mutex::new(false),
         })
@@ -589,8 +704,60 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            if event.id() == "show_launcher" {
-                let _ = show_launcher(app.clone());
+            let id = event.id().as_ref();
+            match id {
+                "show_launcher" => {
+                    let _ = show_launcher(app.clone());
+                }
+                "martin_download" => {
+                    let state = app.state::<AppState>();
+                    let mut martin = state.martin.lock().expect("martin lock");
+                    if let Err(e) = martin.ensure_installed() {
+                        eprintln!("Martin download failed: {e:#}");
+                    } else {
+                        let _ = show_launcher(app.clone());
+                    }
+                }
+                "martin_start" => {
+                    let state = app.state::<AppState>();
+                    let mut martin = state.martin.lock().expect("martin lock");
+                    if let Err(e) = martin.start() {
+                        eprintln!("Martin start failed: {e:#}");
+                        let _ = show_launcher(app.clone());
+                    }
+                }
+                "martin_stop" => {
+                    let state = app.state::<AppState>();
+                    let mut martin = state.martin.lock().expect("martin lock");
+                    let _ = martin.stop();
+                }
+                "martin_reveal" => {
+                    let state = app.state::<AppState>();
+                    match paths::martin_root() {
+                        Ok(dir) => {
+                            #[cfg(target_os = "macos")]
+                            let _ = std::process::Command::new("open").arg(&dir).status();
+                            #[cfg(target_os = "windows")]
+                            let _ = std::process::Command::new("explorer").arg(&dir).status();
+                            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                            let _ = std::process::Command::new("xdg-open").arg(&dir).status();
+                            let _ = state;
+                        }
+                        Err(e) => eprintln!("Martin reveal failed: {e:#}"),
+                    }
+                }
+                "martin_catalog" => {
+                    let state = app.state::<AppState>();
+                    let mut martin = state.martin.lock().expect("martin lock");
+                    let status = martin.status();
+                    if status.running {
+                        let _ = open_system_browser(&status.catalog_url);
+                    } else {
+                        eprintln!("Martin is not running");
+                        let _ = show_launcher(app.clone());
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -607,7 +774,14 @@ pub fn run() {
             open_host_ui,
             host_log_tail,
             reveal_host_log,
-            show_launcher
+            show_launcher,
+            martin_status,
+            martin_ensure_installed,
+            martin_start,
+            martin_stop,
+            martin_pick_mbtiles,
+            martin_reveal,
+            martin_open_catalog
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mei Viewer");

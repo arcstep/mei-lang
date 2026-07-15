@@ -1,10 +1,21 @@
 # mei-viewer（desktop）
 
-本地桌面薄壳：监督 `mei-host-shell`，用系统 WebView 打开同源 Web UI。  
+本地桌面薄壳：监督 `mei-host-shell`，用系统浏览器打开同源 Web UI。  
+可选监督 **Martin** 瓦片服务（从 GitHub 拉取本机二进制，无需 Docker）。  
 设计 / 阶段见 `docs/mei-lang-v2/05-host/0541-desktop-viewer-implementation-plan.md`。
 
 > **产物不在工作区里。**  
 > 不会生成到 `workspaces/ws-demo-v2/`；固定输出在 `mei-lang/desktop/src-tauri/target/...`。
+
+## 地图瓦片（Martin）
+
+安装包**不内置** Martin。在启动器「地图瓦片」或菜单「地图瓦片」中：
+
+1. **下载 / 更新** — 官方 Release（钉死与 Docker 对齐的版本）
+2. **选择 MBTiles…** — 本地 `.mbtiles`（记住路径；开发机若存在 `gis/.../shapingba-z10-16.mbtiles` 可作默认）
+3. **启动** — `127.0.0.1:8080`；打开工作区时自动注入 `MEI_GIS_PROXY_UPSTREAM` / `MEI_TILES_JSON_PATH`
+
+数据目录：`~/Library/Application Support/MeiViewer/martin/`。详情见 `gis/spb/docs/martin-setup.md`。
 
 ## 本机构建（macOS）
 

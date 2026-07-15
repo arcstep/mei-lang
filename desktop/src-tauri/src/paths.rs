@@ -22,6 +22,64 @@ pub fn host_log_file() -> anyhow::Result<PathBuf> {
     Ok(logs_dir()?.join("host-shell.log"))
 }
 
+pub fn martin_root() -> anyhow::Result<PathBuf> {
+    let dir = app_support_dir()?.join("martin");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn martin_bin_dir() -> anyhow::Result<PathBuf> {
+    let dir = martin_root()?.join("bin");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn martin_bin() -> anyhow::Result<PathBuf> {
+    let name = if cfg!(windows) {
+        "martin.exe"
+    } else {
+        "martin"
+    };
+    Ok(martin_bin_dir()?.join(name))
+}
+
+pub fn martin_cache_dir() -> anyhow::Result<PathBuf> {
+    let dir = martin_root()?.join("cache");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn martin_log_file() -> anyhow::Result<PathBuf> {
+    let dir = martin_root()?.join("logs");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("martin.log"))
+}
+
+pub fn martin_state_path() -> anyhow::Result<PathBuf> {
+    Ok(martin_root()?.join("state.json"))
+}
+
+/// Dev-machine default MBTiles under the monorepo `gis/` tree (when present).
+pub fn default_shapingba_mbtiles() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../gis/spb/osm-tiles/data/tiles/shapingba-z10-16.mbtiles"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../gis/spb/osm-tiles/data/tiles/shapingba-z10-16.mbtiles"),
+    ];
+    for c in candidates {
+        if let Ok(canon) = std::fs::canonicalize(&c) {
+            if canon.is_file() {
+                return Some(canon);
+            }
+        }
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    None
+}
+
 pub fn snapshot_slot_dir() -> anyhow::Result<PathBuf> {
     let dir = app_support_dir()?.join("snapshots");
     std::fs::create_dir_all(&dir)?;

@@ -45,6 +45,23 @@
         <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
       </section>
 
+      <section class="martin panel">
+        <h2>地图瓦片（Martin）</h2>
+        <p class="sub-inline">无需 Docker：可从 GitHub 拉取本机二进制，配合本地 .mbtiles 启动。</p>
+        <div class="row"><span>状态</span><strong id="martin-status">—</strong></div>
+        <div class="row"><span>版本</span><code id="martin-version">—</code></div>
+        <div class="row"><span>MBTiles</span><code id="martin-mbtiles">—</code></div>
+        <div class="row"><span>Catalog</span><code id="martin-catalog">—</code></div>
+        <div class="martin-actions">
+          <button type="button" id="btn-martin-download">下载 / 更新</button>
+          <button type="button" id="btn-martin-pick">选择 MBTiles…</button>
+          <button type="button" id="btn-martin-start">启动</button>
+          <button type="button" id="btn-martin-stop" class="secondary" disabled>停止</button>
+          <button type="button" id="btn-martin-catalog" class="secondary" disabled>打开 catalog</button>
+          <button type="button" id="btn-martin-reveal" class="secondary compact">显示目录</button>
+        </div>
+      </section>
+
       <section class="logs">
         <div class="logs-head">
           <h2>运行日志</h2>
