@@ -171,6 +171,7 @@ pub fn persist_cutover(
     }
     if update_compat_symlink {
         if let Some(spec) = read_instance_spec(workspace, target_instance_id) {
+            let _ = mei_host_core::publish_active_instance_spec(workspace, &spec);
             let _ = attach_build_generation(
                 workspace,
                 std::slice::from_ref(&spec.app_id),
@@ -187,17 +188,14 @@ pub fn persist_cutover(
 }
 
 pub fn instance_is_ready(
-    supervisor: &Option<AppRuntimeSupervisor>,
+    supervisor: &AppRuntimeSupervisor,
     shell_ready_ids: &BTreeSet<String>,
     instance_id: &str,
 ) -> bool {
     if shell_ready_ids.contains(instance_id) {
         return true;
     }
-    supervisor
-        .as_ref()
-        .and_then(|sup| sup.runtime_for(instance_id))
-        .is_some()
+    supervisor.runtime_for(instance_id).is_some()
 }
 
 pub async fn api_host_route_cutover(
@@ -244,6 +242,7 @@ pub async fn execute_cutover(
     body: &CutoverRequest,
     update_compat_symlink: bool,
 ) -> Result<CutoverResult, RouteLifecycleError> {
+    let _manifest_guard = http.manifest_mutation.lock().await;
     let workspace = {
         let guard = http.shell.read().expect("state lock");
         guard.ctx.workspace_root.clone()
@@ -277,10 +276,7 @@ pub async fn execute_cutover(
         )));
     }
     {
-        let supervisor = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
+        let supervisor = http.app_runtime.lock().await;
         if !instance_is_ready(&supervisor, &shell_ready, instance_id) {
             return Err(RouteLifecycleError::NotReady(format!(
                 "instance `{instance_id}` is not Ready"
@@ -301,6 +297,7 @@ pub async fn execute_cutover(
         let mut guard = http.shell.write().expect("state lock");
         guard.install_launch_manifest(next);
     }
+    http.sync_route_table_from_supervisor().await;
     Ok(result)
 }
 
@@ -309,6 +306,7 @@ pub async fn execute_rollback(
     app_id: &str,
     body: &RollbackRequest,
 ) -> Result<CutoverResult, RouteLifecycleError> {
+    let _manifest_guard = http.manifest_mutation.lock().await;
     let workspace = {
         let guard = http.shell.read().expect("state lock");
         guard.ctx.workspace_root.clone()
@@ -369,10 +367,7 @@ async fn ensure_instance_ready(
         guard.app_runtime_by_instance.contains_key(instance_id)
     };
     {
-        let supervisor = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
+        let supervisor = http.app_runtime.lock().await;
         if instance_is_ready(&supervisor, &BTreeSet::new(), instance_id) || shell_ready {
             return Ok(());
         }
@@ -383,33 +378,27 @@ async fn ensure_instance_ready(
             "previous instance `{instance_id}` is not ready and has no persisted InstanceSpec"
         ))
     })?;
-    let mut supervisor = {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        slot.take()
-            .unwrap_or_else(|| AppRuntimeSupervisor::new(workspace.to_path_buf()))
+    let restart_result = {
+        let has_runtime = {
+            let guard = http.app_runtime.lock().await;
+            guard.runtime_for(instance_id).is_some()
+        };
+        if has_runtime {
+            crate::app_runtime_supervisor::restart_from(&http.app_runtime, instance_id, 3).await
+        } else {
+            let token = crate::app_runtime_supervisor::generate_instance_token(instance_id);
+            crate::app_runtime_supervisor::spawn_into(&http.app_runtime, spec, token).await
+        }
     };
-    let restart_result = if supervisor.runtime_for(instance_id).is_some() {
-        supervisor.restart_with_backoff(instance_id, 3).await
-    } else {
-        let token = crate::app_runtime_supervisor::generate_instance_token(instance_id);
-        supervisor.spawn_instance(spec, token).await
+    let (endpoints, started_at) = {
+        let guard = http.app_runtime.lock().await;
+        (guard.endpoint_map(), guard.started_at_map())
     };
-    let endpoints = supervisor.endpoint_map();
-    let started_at = supervisor.started_at_map();
-    {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        *slot = Some(supervisor);
-    }
     {
         let mut guard = http.shell.write().expect("state lock");
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
+    http.sync_route_table_from_supervisor().await;
     restart_result
         .map(|_| ())
         .map_err(|error| RouteLifecycleError::NotReady(error.to_string()))
@@ -467,30 +456,30 @@ async fn launch_specs(
     specs: &[InstanceSpec],
 ) -> Result<Vec<String>, RouteLifecycleError> {
     let mut launched = Vec::new();
-    let mut supervisor = {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        match slot.take() {
-            Some(supervisor) => supervisor,
-            None => {
-                drop(slot);
-                let mut guard = http.shell.write().expect("state lock");
-                for spec in specs {
-                    guard.register_app_runtime_endpoint(
-                        spec.instance_id.clone(),
-                        format!("pending://{}", spec.instance_id),
-                        Some(crate::state::current_time_ms()),
-                    );
-                    launched.push(spec.instance_id.clone());
-                }
-                return Ok(launched);
-            }
-        }
+    let workspace = {
+        let guard = http.shell.read().expect("state lock");
+        guard.ctx.workspace_root.clone()
     };
+    // Binary missing: register pending placeholders without emptying the pool.
+    if crate::tool_exec::resolve_mei_app_runtime(Some(workspace.as_path())).is_err() {
+        let mut guard = http.shell.write().expect("state lock");
+        for spec in specs {
+            guard.register_app_runtime_endpoint(
+                spec.instance_id.clone(),
+                format!("pending://{}", spec.instance_id),
+                Some(crate::state::current_time_ms()),
+            );
+            launched.push(spec.instance_id.clone());
+        }
+        return Ok(launched);
+    }
+
     for spec in specs {
-        if supervisor.runtime_for(spec.instance_id.as_str()).is_some() {
+        let already = {
+            let guard = http.app_runtime.lock().await;
+            guard.runtime_for(spec.instance_id.as_str()).is_some()
+        };
+        if already {
             launched.push(spec.instance_id.clone());
             continue;
         }
@@ -503,7 +492,9 @@ async fn launch_specs(
         );
         let token =
             crate::app_runtime_supervisor::generate_instance_token(spec.instance_id.as_str());
-        match supervisor.spawn_instance(spec.clone(), token).await {
+        match crate::app_runtime_supervisor::spawn_into(&http.app_runtime, spec.clone(), token)
+            .await
+        {
             Ok(observed) => {
                 crate::instance_api::emit_instance_event(
                     &http.shell,
@@ -521,18 +512,15 @@ async fn launch_specs(
                     mei_host_core::InstancePhase::Failed,
                     Some(error.to_string().as_str()),
                 );
-                let endpoints = supervisor.endpoint_map();
-                let started_at = supervisor.started_at_map();
-                {
-                    let mut slot = http.app_runtime.lock().map_err(|_| {
-                        RouteLifecycleError::Other("app-runtime supervisor poisoned".into())
-                    })?;
-                    *slot = Some(supervisor);
-                }
+                let (endpoints, started_at) = {
+                    let guard = http.app_runtime.lock().await;
+                    (guard.endpoint_map(), guard.started_at_map())
+                };
                 {
                     let mut guard = http.shell.write().expect("state lock");
                     guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
                 }
+                http.sync_route_table_from_supervisor().await;
                 return Err(RouteLifecycleError::NotReady(format!(
                     "failed to launch candidate {}: {error}",
                     spec.instance_id
@@ -540,19 +528,15 @@ async fn launch_specs(
             }
         }
     }
-    let endpoints = supervisor.endpoint_map();
-    let started_at = supervisor.started_at_map();
-    {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        *slot = Some(supervisor);
-    }
+    let (endpoints, started_at) = {
+        let guard = http.app_runtime.lock().await;
+        (guard.endpoint_map(), guard.started_at_map())
+    };
     {
         let mut guard = http.shell.write().expect("state lock");
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
+    http.sync_route_table_from_supervisor().await;
     Ok(launched)
 }
 
@@ -564,39 +548,21 @@ pub async fn stop_instances(
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    let mut supervisor = {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        match slot.take() {
-            Some(supervisor) => supervisor,
-            None => {
-                drop(slot);
-                let mut guard = http.shell.write().expect("state lock");
-                for id in &ids {
-                    guard.unregister_app_runtime_endpoint(id.as_str());
-                }
-                return Ok(());
-            }
-        }
-    };
     for id in &ids {
-        let _ = supervisor.stop_instance(id.as_str()).await;
+        let _ = crate::app_runtime_supervisor::stop_from(&http.app_runtime, id.as_str()).await;
     }
-    let endpoints = supervisor.endpoint_map();
-    let started_at = supervisor.started_at_map();
-    {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| RouteLifecycleError::Other("app-runtime supervisor poisoned".into()))?;
-        *slot = Some(supervisor);
-    }
+    let (endpoints, started_at) = {
+        let guard = http.app_runtime.lock().await;
+        (guard.endpoint_map(), guard.started_at_map())
+    };
     {
         let mut guard = http.shell.write().expect("state lock");
+        for id in &ids {
+            guard.unregister_app_runtime_endpoint(id.as_str());
+        }
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
+    http.sync_route_table_from_supervisor().await;
     Ok(())
 }
 
@@ -643,6 +609,34 @@ pub fn garbage_collect_instances(
                 continue;
             }
             let app_id = entry.file_name().to_string_lossy().to_string();
+            let instances_root = entry.path().join("instances");
+            if let Ok(instances) = fs::read_dir(&instances_root) {
+                for instance in instances.flatten() {
+                    if !instance
+                        .file_type()
+                        .map(|kind| kind.is_dir())
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    let instance_id = instance.file_name().to_string_lossy().to_string();
+                    if protected.contains(instance_id.as_str()) {
+                        continue;
+                    }
+                    let is_stopped = manifest
+                        .instances
+                        .get(instance_id.as_str())
+                        .map(|desired| desired.desired_state == DesiredState::Stopped)
+                        .unwrap_or(true);
+                    if !is_stopped {
+                        continue;
+                    }
+                    if !dry_run {
+                        let _ = fs::remove_dir_all(instance.path());
+                    }
+                    removed.push(instance_id);
+                }
+            }
             let route = manifest.routes.get(app_id.as_str());
             let still_referenced = route.is_some_and(|route| {
                 [&route.active, &route.candidate, &route.previous]
@@ -842,21 +836,21 @@ fn route_error(error: RouteLifecycleError) -> Response {
 /// Helper used by apply-profile after Build Worker success.
 pub async fn cutover_after_apply(
     state: &SharedState,
-    app_runtime_slot: &Arc<Mutex<Option<AppRuntimeSupervisor>>>,
+    app_runtime_slot: &crate::app_runtime_supervisor::SharedAppRuntime,
     specs: &[InstanceSpec],
 ) -> anyhow::Result<()> {
-    let http = HostHttpState {
-        shell: state.clone(),
-        auth: mei_host_auth::AuthServeState::new(
+    let http = HostHttpState::with_defaults(
+        state.clone(),
+        mei_host_auth::AuthServeState::new(
             {
                 let guard = state.read().expect("state lock");
                 guard.ctx.workspace_root.clone()
             },
             mei_host_auth::AuthEnforcement::Disabled,
         ),
-        managed_plug: Arc::new(Mutex::new(None)),
-        app_runtime: app_runtime_slot.clone(),
-    };
+        Arc::new(Mutex::new(None)),
+        app_runtime_slot.clone(),
+    );
     let expected = {
         let guard = state.read().expect("state lock");
         guard.launch_manifest.revision.clone()
@@ -871,8 +865,9 @@ pub async fn cutover_after_apply(
 mod tests {
     use super::*;
     use mei_host_core::{
-        instance_runtime_root, legacy_instance_runtime_root, write_host_control_state, BundleRef,
-        ConfigSnapshot, HostControlState, SCHEMA_INSTANCE_SPEC_V1,
+        app_ephemeral_runtime_root, instance_runtime_root, legacy_instance_runtime_root,
+        write_host_control_state, BundleRef, ConfigSnapshot, HostControlState,
+        SCHEMA_INSTANCE_SPEC_V1,
     };
     use mei_lang_kernel::{RuntimeMode, RuntimePlan};
 
@@ -1030,6 +1025,7 @@ mod tests {
             serde_json::to_vec_pretty(&orphan).expect("ser"),
         )
         .expect("orphan legacy spec");
+        write_instance_spec(workspace, &orphan).expect("orphan instance spec");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260710.0")).expect("gen");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260711.0")).expect("gen");
         fs::create_dir_all(workspace.join("apps/mini-data/env/WS-20260712.0")).expect("gen");
@@ -1066,7 +1062,8 @@ mod tests {
         assert!(!removed.contains(&"inst-old".to_string()));
         assert!(!removed.contains(&"inst-new".to_string()));
         assert!(!legacy_instance_runtime_root(workspace, "inst-orphan").exists());
-        assert!(instance_runtime_root(workspace, "mini-data").exists());
+        assert!(!instance_runtime_root(workspace, "mini-data", "inst-orphan").exists());
+        assert!(app_ephemeral_runtime_root(workspace, "mini-data").exists());
     }
 
     #[test]

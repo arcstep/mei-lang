@@ -11,9 +11,12 @@ use tokio::sync::broadcast;
 use mei_lang_kernel::DataModeCeiling;
 
 use crate::app_runtime_proxy::RuntimeProxyIdentity;
-use crate::app_runtime_supervisor::AppRuntimeSupervisor;
+use crate::app_runtime_supervisor::SharedAppRuntime;
+use crate::app_start_inflight::AppStartInflight;
 use crate::build_ops::OpsJobState;
 use crate::managed_plug::ManagedPlugDsPool;
+use crate::runtime_actor::RuntimeActorHandle;
+use crate::runtime_route_table::{RuntimeRouteEntry, RuntimeRoutePhase, SharedRuntimeRouteTable};
 
 pub const HOST_EVENT_CAPACITY: usize = 128;
 
@@ -291,7 +294,83 @@ pub struct HostHttpState {
     pub shell: SharedState,
     pub auth: AuthServeState,
     pub managed_plug: Arc<Mutex<Option<ManagedPlugDsPool>>>,
-    pub app_runtime: Arc<Mutex<Option<AppRuntimeSupervisor>>>,
+    /// Resident app-runtime supervisor (never taken as `None` during spawn).
+    pub app_runtime: SharedAppRuntime,
+    /// Proxy/readiness read snapshot — updated on start/stop/cutover.
+    pub route_table: SharedRuntimeRouteTable,
+    /// Per-app start dedupe for UI double-clicks.
+    pub start_inflight: Arc<AppStartInflight>,
+    /// Serializes short LaunchManifest CAS mutations across independent app lanes.
+    pub manifest_mutation: Arc<tokio::sync::Mutex<()>>,
+    /// Optional control-plane actor mailbox (serializes Start/Stop).
+    pub runtime_actor: Option<RuntimeActorHandle>,
+}
+
+impl HostHttpState {
+    pub fn with_defaults(
+        shell: SharedState,
+        auth: AuthServeState,
+        managed_plug: Arc<Mutex<Option<ManagedPlugDsPool>>>,
+        app_runtime: SharedAppRuntime,
+    ) -> Self {
+        Self {
+            shell,
+            auth,
+            managed_plug,
+            app_runtime,
+            route_table: SharedRuntimeRouteTable::new(),
+            start_inflight: Arc::new(AppStartInflight::default()),
+            manifest_mutation: Arc::new(tokio::sync::Mutex::new(())),
+            runtime_actor: None,
+        }
+    }
+
+    pub fn publish_route_running(
+        &self,
+        app_id: &str,
+        instance_id: &str,
+        endpoint: &str,
+        token: &str,
+        generation: &str,
+        spec_digest: &str,
+    ) {
+        self.route_table.publish_entry(RuntimeRouteEntry {
+            app_id: app_id.to_string(),
+            instance_id: instance_id.to_string(),
+            endpoint: endpoint.to_string(),
+            token: token.to_string(),
+            generation: generation.to_string(),
+            spec_digest: spec_digest.to_string(),
+            phase: RuntimeRoutePhase::Running,
+        });
+    }
+
+    pub fn mark_route_draining(&self, app_id: &str) {
+        self.route_table
+            .set_phase(app_id, RuntimeRoutePhase::Draining);
+    }
+
+    pub fn remove_route(&self, app_id: &str) {
+        self.route_table.remove_app(app_id);
+    }
+
+    pub async fn sync_route_table_from_supervisor(&self) {
+        let (endpoints, tokens, generations, digests) = {
+            let guard = self.app_runtime.lock().await;
+            (
+                guard.endpoint_map(),
+                guard.token_map(),
+                guard.generation_map(),
+                guard.digest_map(),
+            )
+        };
+        let routes = {
+            let shell = self.shell.read().expect("state lock");
+            shell.launch_manifest.routes.clone()
+        };
+        self.route_table
+            .rebuild_from_shell(&routes, &endpoints, &tokens, &generations, &digests);
+    }
 }
 
 impl FromRef<HostHttpState> for AuthServeState {
@@ -306,25 +385,12 @@ impl FromRef<HostHttpState> for SharedState {
     }
 }
 
-/// Build a proxy identity for `app_id` when an active managed runtime is reachable.
-pub fn runtime_identity_for_app(
-    shell: &ShellState,
-    supervisor: &Option<AppRuntimeSupervisor>,
+pub fn runtime_identity_from_snapshot(
+    route_table: &SharedRuntimeRouteTable,
     app_id: &str,
     principal: Option<AuthPrincipal>,
 ) -> Option<RuntimeProxyIdentity> {
-    let instance_id = shell.active_instance_id_for_app(app_id)?.to_string();
-    let supervisor = supervisor.as_ref()?;
-    let managed = supervisor.runtime_for(instance_id.as_str())?;
-    Some(RuntimeProxyIdentity {
-        endpoint: managed.endpoint.clone(),
-        token: managed.token.clone(),
-        instance_id,
-        app_id: managed.spec.app_id.clone(),
-        generation: managed.spec.bundle.generation.clone(),
-        spec_digest: managed.spec.spec_digest(),
-        principal,
-    })
+    route_table.load().identity_for(app_id, principal)
 }
 
 pub fn current_time_ms() -> u64 {

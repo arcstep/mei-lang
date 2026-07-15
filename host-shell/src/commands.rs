@@ -43,21 +43,39 @@ fn run_snapshot(command: SnapshotCommand) -> anyhow::Result<()> {
 }
 
 fn run_snapshot_pack(args: SnapshotPackArgs) -> anyhow::Result<()> {
-    let manifest = mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
-        workspace: args.workspace,
-        app_id: args.app,
-        out: args.out.clone(),
-        include_data: args.include_data,
-        include_cache: args.include_cache,
-        default_scene: args.default_scene,
-        compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-    })?;
+    if args.app.is_empty() {
+        anyhow::bail!("at least one --app is required");
+    }
+    let manifest = if args.portable || args.app.len() > 1 {
+        mei_snapshot::pack_portable_snapshot(&mei_snapshot::PortablePackOptions {
+            workspace: args.workspace,
+            app_ids: args.app,
+            out: args.out.clone(),
+            default_scene: args.default_scene,
+            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            workspace_label: None,
+            package_root: args.package_root,
+            include_media: args.include_media,
+        })?
+    } else {
+        mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
+            workspace: args.workspace,
+            app_id: args.app.into_iter().next().unwrap(),
+            out: args.out.clone(),
+            include_data: args.include_data,
+            include_cache: args.include_cache,
+            default_scene: args.default_scene,
+            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        })?
+    };
     if args.json {
         println!("{}", serde_json::to_string_pretty(&manifest)?);
     } else {
         println!(
-            "packed app={} files={} -> {}",
+            "packed v{} app={} apps={} files={} -> {}",
+            manifest.format_version,
             manifest.app_id,
+            manifest.apps.len().max(1),
             manifest.files.len(),
             args.out.display()
         );
@@ -843,12 +861,15 @@ async fn run_serve_control_plane(
         None,
     )
     .await;
-    let state = HostHttpState {
+    let mut state = HostHttpState::with_defaults(
         shell,
-        auth: auth_state.clone(),
-        managed_plug: Arc::new(Mutex::new(None)),
-        app_runtime: app_runtime.clone(),
-    };
+        auth_state.clone(),
+        Arc::new(Mutex::new(None)),
+        app_runtime.clone(),
+    );
+    state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
+    state.sync_route_table_from_supervisor().await;
+    let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let defer_autostart = crate::startup::defer_warmup_to_prebuild() && !launch_targets.is_empty();
     if !launch_targets.is_empty() && !defer_autostart {
         crate::app_launch_api::autostart_launch_targets(&state, &launch_targets).await;
@@ -932,7 +953,11 @@ async fn run_serve_control_plane(
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|error| anyhow::anyhow!(error));
-    if let Some(mut supervisor) = app_runtime.lock().ok().and_then(|mut guard| guard.take()) {
+    if let Some(actor) = runtime_actor_for_shutdown {
+        actor.shutdown().await;
+    }
+    {
+        let mut supervisor = app_runtime.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {
             tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
         }
@@ -1150,12 +1175,15 @@ async fn run_serve_blocking_init(
         shell.clone(),
         app_ids.clone(),
     ));
-    let state = HostHttpState {
+    let mut state = HostHttpState::with_defaults(
         shell,
-        auth: auth_state.clone(),
-        managed_plug: managed_plug.clone(),
-        app_runtime: app_runtime.clone(),
-    };
+        auth_state.clone(),
+        managed_plug.clone(),
+        app_runtime.clone(),
+    );
+    state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
+    state.sync_route_table_from_supervisor().await;
+    let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
@@ -1206,12 +1234,16 @@ async fn run_serve_blocking_init(
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e));
+    if let Some(actor) = runtime_actor_for_shutdown {
+        actor.shutdown().await;
+    }
     if let Some(mut pool) = managed_plug.lock().ok().and_then(|mut guard| guard.take()) {
         if let Err(error) = pool.shutdown().await {
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
-    if let Some(mut supervisor) = app_runtime.lock().ok().and_then(|mut guard| guard.take()) {
+    {
+        let mut supervisor = app_runtime.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {
             tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
         }
@@ -1278,12 +1310,15 @@ async fn run_serve_early_bind(
     )
     .await;
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
-    let state = HostHttpState {
-        shell: shell.clone(),
-        auth: auth_state.clone(),
-        managed_plug: managed_plug.clone(),
-        app_runtime: app_runtime.clone(),
-    };
+    let mut state = HostHttpState::with_defaults(
+        shell.clone(),
+        auth_state.clone(),
+        managed_plug.clone(),
+        app_runtime.clone(),
+    );
+    state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
+    state.sync_route_table_from_supervisor().await;
+    let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let listen_url = format!("http://{addr}");
@@ -1323,6 +1358,9 @@ async fn run_serve_early_bind(
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e));
+    if let Some(actor) = runtime_actor_for_shutdown {
+        actor.shutdown().await;
+    }
     if let Some(mut pool) = managed_plug_for_shutdown
         .lock()
         .ok()
@@ -1332,11 +1370,8 @@ async fn run_serve_early_bind(
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
-    if let Some(mut supervisor) = app_runtime_for_shutdown
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
     {
+        let mut supervisor = app_runtime_for_shutdown.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {
             tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
         }

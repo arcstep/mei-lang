@@ -315,14 +315,22 @@ pub enum SnapshotCommand {
 pub struct SnapshotPackArgs {
     #[arg(long)]
     pub workspace: PathBuf,
+    /// App id; repeat for portable multi-app packs.
     #[arg(long)]
-    pub app: String,
+    pub app: Vec<String>,
     #[arg(long)]
     pub out: PathBuf,
     #[arg(long, default_value_t = false)]
     pub include_data: bool,
     #[arg(long, default_value_t = false)]
     pub include_cache: bool,
+    /// Emit portable snapshot v2 (default when multiple --app).
+    #[arg(long, default_value_t = false)]
+    pub portable: bool,
+    #[arg(long, default_value_t = false)]
+    pub include_media: bool,
+    #[arg(long)]
+    pub package_root: Option<PathBuf>,
     #[arg(long)]
     pub default_scene: Option<String>,
     #[arg(long, default_value_t = false)]

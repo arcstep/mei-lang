@@ -161,7 +161,7 @@ pub fn build_apply_plan(
 pub fn start_profile_apply(
     state: SharedState,
     managed_plug_slot: Arc<Mutex<Option<crate::managed_plug::ManagedPlugDsPool>>>,
-    app_runtime_slot: Arc<Mutex<Option<crate::app_runtime_supervisor::AppRuntimeSupervisor>>>,
+    app_runtime_slot: crate::app_runtime_supervisor::SharedAppRuntime,
     prepared: PreparedProfileApply,
 ) -> Result<(), String> {
     let app_ids = prepared
@@ -217,18 +217,18 @@ pub fn start_profile_apply(
                     .map_err(|error| error.to_string()),
                     Err(error) => {
                         // Do not leave half-cut routes; stop failed candidates.
-                        let http = crate::state::HostHttpState {
-                            shell: state.clone(),
-                            auth: mei_host_auth::AuthServeState::new(
+                        let http = crate::state::HostHttpState::with_defaults(
+                            state.clone(),
+                            mei_host_auth::AuthServeState::new(
                                 {
                                     let guard = state.read().expect("state lock");
                                     guard.ctx.workspace_root.clone()
                                 },
                                 mei_host_auth::AuthEnforcement::Disabled,
                             ),
-                            managed_plug: Arc::new(Mutex::new(None)),
-                            app_runtime: app_runtime_slot.clone(),
-                        };
+                            Arc::new(Mutex::new(None)),
+                            app_runtime_slot.clone(),
+                        );
                         let _ = crate::route_lifecycle::stop_instances(
                             &http,
                             instance_specs.iter().map(|spec| spec.instance_id.as_str()),
@@ -942,6 +942,9 @@ mod tests {
 
     #[test]
     fn apply_profile_uses_worker_stub_not_in_process_compile() {
+        let _env_guard = crate::build_worker::BUILD_WORKER_ENV_LOCK
+            .lock()
+            .expect("worker env lock");
         let tmp = tempfile::tempdir().expect("tempdir");
         let workspace = tmp.path();
         fs::create_dir_all(workspace.join("configs")).expect("configs");

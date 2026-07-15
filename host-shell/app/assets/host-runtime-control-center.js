@@ -518,6 +518,7 @@
       `正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
     );
     setBusy(true);
+    let keepPending = false;
     try {
       await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
         method: "POST",
@@ -527,11 +528,27 @@
       announce(`已启动 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
-      announce(`启动失败：${error.message}`, "error");
+      if (isStartInFlightError(error)) {
+        keepPending = true;
+        announce(`启动进行中：${appId}（请勿重复点击）`, "neutral");
+        setAppPending(appId, "starting", "启动进行中…");
+        await loadApps();
+      } else {
+        announce(`启动失败：${error.message}`, "error");
+      }
     } finally {
-      clearAppPending(appId);
+      if (!keepPending) clearAppPending(appId);
       setBusy(false);
     }
+  }
+
+  function isStartInFlightError(error) {
+    return Boolean(
+      error &&
+        error.status === 409 &&
+        (error.body?.kind === "app-start-in-flight" ||
+          String(error.message || "").includes("app-start-in-flight")),
+    );
   }
 
   async function stopAppRuntime(appId, { confirm = true } = {}) {

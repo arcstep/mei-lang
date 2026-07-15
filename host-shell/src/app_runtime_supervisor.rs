@@ -19,7 +19,7 @@ use tokio::process::{Child, Command};
 use tokio::time::{sleep, timeout};
 
 const MANAGED_APP_RUNTIME_HOST: &str = "127.0.0.1";
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const RESTART_BACKOFF_BASE: Duration = Duration::from_millis(500);
 const RESTART_BACKOFF_MAX: Duration = Duration::from_secs(8);
@@ -85,6 +85,9 @@ impl AppRuntimeSupervisor {
     }
 
     /// Spawn one instance and insert into the pool.
+    ///
+    /// Prefer [`spawn_into`] when calling through a shared mutex so the lock is
+    /// not held across the slow process health-check.
     pub async fn spawn_instance(
         &mut self,
         spec: InstanceSpec,
@@ -109,6 +112,117 @@ impl AppRuntimeSupervisor {
         managed.shutdown().await
     }
 
+    pub fn token_map(&self) -> BTreeMap<String, String> {
+        self.runtimes
+            .iter()
+            .map(|(id, rt)| (id.clone(), rt.token.clone()))
+            .collect()
+    }
+
+    pub fn generation_map(&self) -> BTreeMap<String, String> {
+        self.runtimes
+            .iter()
+            .map(|(id, rt)| (id.clone(), rt.spec.bundle.generation.clone()))
+            .collect()
+    }
+
+    pub fn digest_map(&self) -> BTreeMap<String, String> {
+        self.runtimes
+            .iter()
+            .map(|(id, rt)| (id.clone(), rt.spec.spec_digest()))
+            .collect()
+    }
+}
+
+/// Shared resident supervisor (never taken out of the slot as `None`).
+pub type SharedAppRuntime = Arc<tokio::sync::Mutex<AppRuntimeSupervisor>>;
+
+pub fn empty_shared_app_runtime(workspace: impl Into<PathBuf>) -> SharedAppRuntime {
+    Arc::new(tokio::sync::Mutex::new(AppRuntimeSupervisor::new(
+        workspace,
+    )))
+}
+
+/// Spawn without holding the shared mutex across process startup (≤30s).
+pub async fn spawn_into(
+    shared: &SharedAppRuntime,
+    spec: InstanceSpec,
+    token: impl Into<String>,
+) -> anyhow::Result<ObservedInstance> {
+    let token = token.into();
+    let instance_id = spec.instance_id.clone();
+    let workspace = {
+        let guard = shared.lock().await;
+        if guard.runtimes.contains_key(instance_id.as_str()) {
+            anyhow::bail!("instance `{instance_id}` is already managed");
+        }
+        guard.workspace_root.clone()
+    };
+    let managed = spawn_managed_runtime(workspace.as_path(), &spec, token.as_str()).await?;
+    let observed = observed_from_managed(&managed, DesiredState::Running, None);
+    {
+        let mut guard = shared.lock().await;
+        if guard.runtimes.contains_key(instance_id.as_str()) {
+            drop(guard);
+            let mut dup = managed;
+            let _ = dup.shutdown().await;
+            anyhow::bail!("instance `{instance_id}` was inserted concurrently");
+        }
+        guard.runtimes.insert(instance_id, managed);
+    }
+    Ok(observed)
+}
+
+/// Remove + shutdown without holding the mutex across kill/wait.
+pub async fn stop_from(shared: &SharedAppRuntime, instance_id: &str) -> anyhow::Result<()> {
+    let mut managed = {
+        let mut guard = shared.lock().await;
+        match guard.runtimes.remove(instance_id) {
+            Some(managed) => managed,
+            None => return Ok(()),
+        }
+    };
+    managed.shutdown().await
+}
+
+/// Restart with backoff without a global take() window.
+pub async fn restart_from(
+    shared: &SharedAppRuntime,
+    instance_id: &str,
+    max_attempts: u32,
+) -> anyhow::Result<ObservedInstance> {
+    let (spec, token) = {
+        let guard = shared.lock().await;
+        let managed = guard
+            .runtimes
+            .get(instance_id)
+            .ok_or_else(|| anyhow::anyhow!("instance `{instance_id}` is not managed"))?;
+        (managed.spec.clone(), managed.token.clone())
+    };
+    let _ = stop_from(shared, instance_id).await;
+    let mut delay = RESTART_BACKOFF_BASE;
+    let mut last_error = None;
+    for attempt in 1..=max_attempts.max(1) {
+        match spawn_into(shared, spec.clone(), token.clone()).await {
+            Ok(observed) => return Ok(observed),
+            Err(error) => {
+                tracing::warn!(
+                    instance_id = %instance_id,
+                    attempt,
+                    error = %error,
+                    "app-runtime restart attempt failed"
+                );
+                last_error = Some(error);
+                sleep(delay).await;
+                delay = (delay * 2).min(RESTART_BACKOFF_MAX);
+            }
+        }
+    }
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("app-runtime restart failed for `{instance_id}`")))
+}
+
+impl AppRuntimeSupervisor {
     /// Restart with exponential backoff. Returns the new observation.
     pub async fn restart_with_backoff(
         &mut self,
@@ -323,7 +437,8 @@ pub fn instance_spec_from_launch(
         })
     };
     let overlay = mei_host_core::read_runtime_overlay(workspace, app_id);
-    let runtime_plan = mei_host_core::effective_runtime_plan(&runtime_plan, app_id, overlay.as_ref());
+    let runtime_plan =
+        mei_host_core::effective_runtime_plan(&runtime_plan, app_id, overlay.as_ref());
     let instance_id = format!(
         "{app_id}@{}@{}",
         generation,
@@ -414,7 +529,11 @@ async fn spawn_managed_runtime(
     let reserved_port = reserve_loopback_port()?;
     let binary = crate::tool_exec::resolve_mei_app_runtime(Some(workspace_root))?;
     let _ = mei_host_core::write_instance_spec(workspace_root, spec);
-    let spec_path = mei_host_core::instance_spec_path(workspace_root, spec.app_id.as_str());
+    let spec_path = mei_host_core::instance_spec_path(
+        workspace_root,
+        spec.app_id.as_str(),
+        spec.instance_id.as_str(),
+    );
     let listen_hint = format!("http://{MANAGED_APP_RUNTIME_HOST}:{reserved_port}");
     let mode_label = match spec.config_snapshot.runtime_plan.default_mode {
         mei_lang_kernel::RuntimeMode::Hot => "hot",
@@ -447,7 +566,20 @@ async fn spawn_managed_runtime(
         .arg("--host")
         .arg(MANAGED_APP_RUNTIME_HOST)
         .arg("--port")
-        .arg(reserved_port.to_string());
+        .arg(reserved_port.to_string())
+        .env("MEI_APP_RUNTIME_APP_ID", spec.app_id.as_str())
+        .env(
+            "MEI_APP_RUNTIME_GENERATION",
+            spec.bundle.generation.as_str(),
+        )
+        .env(
+            "MEI_APP_RUNTIME_VAR_ROOT",
+            mei_host_core::instance_var_dir(
+                workspace_root,
+                spec.app_id.as_str(),
+                spec.instance_id.as_str(),
+            ),
+        );
     if let Some(ceiling) = spec
         .data_mode_ceiling
         .as_deref()
@@ -481,6 +613,8 @@ async fn spawn_managed_runtime(
     }
 
     let fallback_endpoint = format!("http://{MANAGED_APP_RUNTIME_HOST}:{reserved_port}");
+    // Wait up to STARTUP_TIMEOUT for LISTEN — hot warmup used to run *before* bind,
+    // so a 3s cap caused premature fallback + health storm on a closed port.
     let listen_endpoint = if let Some(stdout) = child.stdout.take() {
         let app_id = spec.app_id.clone();
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
@@ -497,15 +631,23 @@ async fn spawn_managed_runtime(
                 }
             }
         });
-        match timeout(Duration::from_secs(3), rx).await {
+        match timeout(STARTUP_TIMEOUT, rx).await {
             Ok(Ok(endpoint)) => endpoint,
-            _ => fallback_endpoint,
+            Ok(Err(_)) => fallback_endpoint,
+            Err(_) => {
+                tracing::warn!(
+                    app = %spec.app_id,
+                    timeout_secs = STARTUP_TIMEOUT.as_secs(),
+                    "app-runtime LISTEN line timed out; falling back to reserved port"
+                );
+                fallback_endpoint
+            }
         }
     } else {
         fallback_endpoint
     };
 
-    if let Err(error) = wait_for_health(listen_endpoint.as_str(), &mut child).await {
+    if let Err(error) = wait_for_ready(listen_endpoint.as_str(), &mut child).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
         return Err(error);
@@ -540,22 +682,49 @@ pub fn reserve_loopback_port() -> anyhow::Result<u16> {
     Ok(port)
 }
 
-async fn wait_for_health(endpoint: &str, child: &mut Child) -> anyhow::Result<()> {
-    let health_url = format!("{endpoint}/api/app-runtime/health");
+async fn wait_for_ready(endpoint: &str, child: &mut Child) -> anyhow::Result<()> {
+    let ready_url = format!("{endpoint}/api/app-runtime/ready");
     let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(2))
         .build()
-        .map_err(|error| anyhow::anyhow!("build app-runtime health client: {error}"))?;
+        .map_err(|error| anyhow::anyhow!("build app-runtime ready client: {error}"))?;
     let deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
+    let mut last_phase = String::from("unknown");
     loop {
         if let Some(status) = child.try_wait()? {
             anyhow::bail!("app-runtime exited during startup (status={status})");
         }
-        match client.get(health_url.as_str()).send().await {
-            Ok(response) if response.status().is_success() => return Ok(()),
+        match client.get(ready_url.as_str()).send().await {
+            Ok(response) if response.status().is_success() => {
+                if let Ok(body) = response.json::<serde_json::Value>().await {
+                    if body
+                        .get("phase")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|p| p == "failed")
+                    {
+                        let detail = body
+                            .get("lastError")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("bootstrap failed");
+                        anyhow::bail!("app-runtime failed during startup: {detail}");
+                    }
+                    if let Some(phase) = body.get("phase").and_then(|v| v.as_str()) {
+                        last_phase = phase.to_string();
+                    }
+                    if body.get("ready").and_then(|v| v.as_bool()) == Some(true)
+                        || body.get("ok").and_then(|v| v.as_bool()) == Some(true)
+                    {
+                        return Ok(());
+                    }
+                }
+            }
             Ok(_) | Err(_) => {}
         }
         if tokio::time::Instant::now() >= deadline {
-            anyhow::bail!("app-runtime health check timed out at {health_url}");
+            anyhow::bail!(
+                "app-runtime ready check timed out at {ready_url} (last_phase={last_phase})"
+            );
         }
         sleep(HEALTH_POLL_INTERVAL).await;
     }
@@ -579,9 +748,8 @@ pub async fn bootstrap_supervisor_for_shell(
     workspace: &Path,
     shell: &crate::state::SharedState,
     auto_launch_app: Option<&str>,
-) -> Arc<std::sync::Mutex<Option<AppRuntimeSupervisor>>> {
+) -> SharedAppRuntime {
     use mei_host_core::{DesiredInstance, DesiredState, RouteBinding};
-    use std::sync::Mutex;
 
     let mut manifest = mei_host_core::read_host_control_state(workspace)
         .map(|state| state.launch_manifest)
@@ -629,7 +797,7 @@ pub async fn bootstrap_supervisor_for_shell(
         .values()
         .any(|desired| desired.desired_state == DesiredState::Running);
     if !desired_running {
-        return Arc::new(Mutex::new(None));
+        return empty_shared_app_runtime(workspace);
     }
 
     // Skip spawn when binary is missing — keep in-process Host fallback.
@@ -637,7 +805,7 @@ pub async fn bootstrap_supervisor_for_shell(
         tracing::warn!(
             "mei-app-runtime binary not found; LaunchManifest Running instances will not be spawned"
         );
-        return Arc::new(Mutex::new(None));
+        return empty_shared_app_runtime(workspace);
     }
 
     let mut supervisor = AppRuntimeSupervisor::new(workspace);
@@ -660,12 +828,15 @@ pub async fn bootstrap_supervisor_for_shell(
         let mut guard = shell.write().expect("state lock");
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
-    Arc::new(Mutex::new(Some(supervisor)))
+    Arc::new(tokio::sync::Mutex::new(supervisor))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn reserve_loopback_port_returns_nonzero() {
@@ -702,6 +873,38 @@ mod tests {
         assert_eq!(spec.app_id, "mini-data");
         assert_eq!(spec.instance_id, "inst-1");
         assert!(!spec.spec_digest().is_empty());
+    }
+
+    #[test]
+    fn runtime_env_pins_generation_reads_and_instance_var_writes() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_root = tmp.path().join("apps/demo");
+        let env_root = app_root.join("env");
+        std::fs::create_dir_all(env_root.join("WS-20260714.0")).expect("old");
+        std::fs::create_dir_all(env_root.join("WS-20260715.0")).expect("candidate");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260714.0", env_root.join("current")).expect("current");
+        let instance_var = tmp
+            .path()
+            .join("deploy/runtime/apps/demo/instances/inst-new/var");
+        std::env::set_var("MEI_APP_RUNTIME_APP_ID", "demo");
+        std::env::set_var("MEI_APP_RUNTIME_GENERATION", "WS-20260715.0");
+        std::env::set_var("MEI_APP_RUNTIME_VAR_ROOT", &instance_var);
+
+        assert_eq!(
+            mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+                .expect("pinned generation"),
+            "WS-20260715.0"
+        );
+        assert_eq!(
+            mei_lang_kernel::resolve_app_var_root(app_root.as_path()),
+            instance_var
+        );
+
+        std::env::remove_var("MEI_APP_RUNTIME_APP_ID");
+        std::env::remove_var("MEI_APP_RUNTIME_GENERATION");
+        std::env::remove_var("MEI_APP_RUNTIME_VAR_ROOT");
     }
 
     #[test]
@@ -750,10 +953,10 @@ mod tests {
             .apps
             .get("zhifa")
             .expect("app plan");
-        assert_eq!(app_plan.targets.len(), 1);
-        assert_eq!(app_plan.targets[0].mode, RuntimeMode::Hot);
+        // Without ephemeral overlay, effective plan is uniform defaultMode (no per-scope targets).
+        assert!(app_plan.targets.is_empty());
         assert!(spec.config_snapshot.warmup.is_some());
-        assert!(mei_lang_kernel::runtime_plan_requires_warm(
+        assert!(!mei_lang_kernel::runtime_plan_requires_warm(
             &spec.config_snapshot.runtime_plan,
             "zhifa"
         ));

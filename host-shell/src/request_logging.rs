@@ -1,8 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use axum::{body::Body, extract::Request, http::Method, middleware::Next, response::Response};
-use http_body_util::BodyExt;
+use axum::{extract::Request, http::Method, middleware::Next, response::Response};
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -135,7 +134,7 @@ pub async fn log_request(request: Request, next: Next) -> Response {
             .and_then(|value| value.to_str().ok()),
     );
     let started_at = Instant::now();
-    let mut response = next.run(request).await;
+    let response = next.run(request).await;
     let status = response.status();
     let latency_ms = started_at.elapsed().as_millis() as u64;
     let uri_text = uri.to_string();
@@ -156,20 +155,14 @@ pub async fn log_request(request: Request, next: Next) -> Response {
         return response;
     }
 
-    let (parts, body) = response.into_parts();
-    let body_bytes = match body.collect().await {
-        Ok(buffer) => buffer.to_bytes(),
-        Err(error) => {
-            tracing::warn!(
-                request_id = %request_id,
-                error = %error,
-                "failed to collect response body for request trace"
-            );
-            axum::body::Bytes::new()
-        }
-    };
-    let response_bytes = body_bytes.len() as u64;
-    response = Response::from_parts(parts, Body::from(body_bytes));
+    // Never collect response bodies in middleware. Doing so turns every video/PDF/export
+    // into a Host-sized allocation and prevents the browser from receiving early chunks.
+    let response_bytes = response
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
     let page_obs = crate::client_trace::parse_page_observability_from_headers(response.headers());
 
     if status.is_server_error() {
@@ -246,4 +239,46 @@ pub async fn log_request(request: Request, next: Next) -> Response {
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_request;
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::middleware;
+    use axum::routing::get;
+    use axum::Router;
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn middleware_does_not_collect_download_body() {
+        let app = Router::new()
+            .route(
+                "/download",
+                get(|| async {
+                    let stream = async_stream::stream! {
+                        yield Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"first"));
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        yield Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"second"));
+                    };
+                    Body::from_stream(stream)
+                }),
+            )
+            .layer(middleware::from_fn(log_request));
+        let response = tokio::time::timeout(
+            Duration::from_millis(500),
+            app.oneshot(
+                Request::builder()
+                    .uri("/download")
+                    .body(Body::empty())
+                    .expect("request"),
+            ),
+        )
+        .await
+        .expect("middleware must return after response headers")
+        .expect("response");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
 }

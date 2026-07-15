@@ -103,6 +103,7 @@ pub(crate) fn render_document(
                 <script>
                     {r#"(function(){try{if(window.MeiPageLoadProgress){window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}catch(e){}})();"#}
                 </script>
+                <script defer src="/app-assets/resource-health.js"></script>
                 <script defer src="/app-assets/host-http-feedback.js"></script>
                 <script defer src="/app-bundles/shoelace.js"></script>
                 {chrome_script_preloads}

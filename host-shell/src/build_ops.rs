@@ -471,24 +471,28 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
 }
 
 pub fn refresh_materialization_flags(shell: &mut ShellState) {
+    let (imported, warmed_up) = peek_materialization_flags(shell);
+    shell.imported = imported;
+    shell.warmed_up = warmed_up;
+}
+
+/// Read-only materialization peek — no mutation (heartbeat / readiness fast path).
+pub fn peek_materialization_flags(shell: &ShellState) -> (bool, bool) {
     let Some(app_id) = shell.default_app().map(str::to_string) else {
-        shell.imported = false;
-        shell.warmed_up = false;
-        return;
+        return (false, false);
     };
     let app_root = resolve_app_root(shell.ctx.workspace_root.as_path(), app_id.as_str());
     let current = app_root.join("env/current");
     if !current.exists() && !current.is_symlink() {
-        shell.imported = false;
-        shell.warmed_up = false;
-        return;
+        return (false, false);
     }
-    shell.imported =
+    let imported =
         mei_host_graph::mcg_registry_path(shell.ctx.workspace_root.as_path(), app_id.as_str())
             .is_file();
-    shell.warmed_up =
+    let warmed_up =
         mei_host_graph::mrg_registry_path(shell.ctx.workspace_root.as_path(), app_id.as_str())
             .is_file();
+    (imported, warmed_up)
 }
 
 pub fn begin_ops_job(shell: &mut ShellState, kind: &str) -> Result<(), String> {

@@ -29,6 +29,7 @@ tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 http-body-util = "0.1"
+http-body = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -359,35 +359,74 @@ pub fn router(state: HostHttpState) -> Router {
 }
 
 async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoResponse {
-    let mut guard = state.write().expect("state lock");
-    crate::build_ops::refresh_materialization_flags(&mut guard);
-    let default_access_ready = guard.data_plane_enabled && guard.imported;
-    let default_warmup_ready = guard.warmed_up;
-    let workspace_root = guard.ctx.workspace_root.as_path();
-    let has_active_profile = crate::workspace_profile_api::read_host_control_state(workspace_root)
-        .is_some_and(|value| value.get("activeProfile").is_some());
-    let default_phase = if guard
-        .ops_job
-        .as_ref()
-        .is_some_and(crate::build_ops::OpsJobState::is_running)
+    let (
+        default_access_ready,
+        default_warmup_ready,
+        workspace_root,
+        ops_running,
+        startup_error,
+        data_plane_enabled,
+        imported,
+        warmed_up,
+        default_app_id,
+        host_started_at_ms,
+        startup_phase,
+        startup_detail,
+    ) = {
+        let guard = state.read().expect("state lock");
+        let (peek_imported, peek_warmed) = crate::build_ops::peek_materialization_flags(&guard);
+        (
+            guard.data_plane_enabled && peek_imported,
+            peek_warmed,
+            guard.ctx.workspace_root.clone(),
+            guard
+                .ops_job
+                .as_ref()
+                .is_some_and(crate::build_ops::OpsJobState::is_running),
+            guard.startup_error.clone(),
+            guard.data_plane_enabled,
+            peek_imported,
+            peek_warmed,
+            guard.default_app().map(str::to_string),
+            guard.host_started_at_ms,
+            guard.startup_phase.clone(),
+            guard.startup_detail.clone(),
+        )
+    };
+    // Soft-sync flags under write lock only when disk state drifted.
     {
+        let mut guard = state.write().expect("state lock");
+        if guard.imported != imported || guard.warmed_up != warmed_up {
+            guard.imported = imported;
+            guard.warmed_up = warmed_up;
+        }
+    }
+    let has_active_profile = crate::workspace_profile_api::read_host_control_state(
+        workspace_root.as_path(),
+    )
+    .is_some_and(|value| value.get("activeProfile").is_some());
+    let default_phase = if ops_running {
         "building"
     } else if !has_active_profile {
         "unconfigured"
-    } else if !guard.data_plane_enabled || !guard.imported || guard.startup_error.is_some() {
+    } else if !data_plane_enabled || !imported || startup_error.is_some() {
         "degraded"
     } else if default_warmup_ready {
         "ready"
     } else {
         "degraded"
     };
-    let default_app_id = guard.default_app().map(str::to_string);
-    let discovered_apps = build_discovered_app_summaries(&guard);
+    let discovered_apps = {
+        let guard = state.read().expect("state lock");
+        build_discovered_app_summaries(&guard)
+    };
     let any_app_access_ready = discovered_apps
         .iter()
         .any(|app| app.get("accessReady").and_then(|value| value.as_bool()) == Some(true));
-    let descriptor =
-        build_info::version_descriptor(Some(workspace_root), Some(guard.host_started_at_ms));
+    let descriptor = build_info::version_descriptor(
+        Some(workspace_root.as_path()),
+        Some(host_started_at_ms),
+    );
     let display_label = descriptor
         .get("displayLabel")
         .and_then(|value| value.as_str())
@@ -398,7 +437,7 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "buildDescriptor": build_info::binary_descriptor(),
         "displayLabel": display_label,
         "version": descriptor,
-        "hostStartedAtMs": guard.host_started_at_ms,
+        "hostStartedAtMs": host_started_at_ms,
         "ready": true,
         "hostReady": true,
         "accessReady": default_access_ready,
@@ -409,8 +448,8 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "defaultAppWarmupReady": default_warmup_ready,
         "anyAppAccessReady": any_app_access_ready,
         "phase": default_phase,
-        "startupPhase": guard.startup_phase,
-        "startupDetail": guard.startup_detail,
+        "startupPhase": startup_phase,
+        "startupDetail": startup_detail,
         "scopeNote": "materialization flags reflect default app; discoveredApps lists all apps",
         "discoveredApps": discovered_apps,
         "apps": discovered_apps,
@@ -654,15 +693,11 @@ async fn api_datasets_query_inner(
                 .into_response();
         }
         let plug_ds = guard.plug_ds_endpoint_for(app_id).map(str::to_string);
-        let supervisor = http.app_runtime.lock().ok();
-        let runtime_identity = supervisor.as_ref().and_then(|slot| {
-            crate::state::runtime_identity_for_app(
-                &guard,
-                slot,
-                app_id,
-                principal.as_ref().map(|p| (**p).clone()),
-            )
-        });
+        let runtime_identity = crate::state::runtime_identity_from_snapshot(
+            &http.route_table,
+            app_id,
+            principal.as_ref().map(|p| (**p).clone()),
+        );
         (
             guard.data_mode_ceiling_for(app_id).slug().to_string(),
             plug_ds,
@@ -735,15 +770,11 @@ async fn api_datasets_metrics(
         let plug_ds = guard
             .plug_ds_endpoint_for(app_id.as_str())
             .map(str::to_string);
-        let supervisor = http.app_runtime.lock().ok();
-        let runtime_identity = supervisor.as_ref().and_then(|slot| {
-            crate::state::runtime_identity_for_app(
-                &guard,
-                slot,
-                app_id.as_str(),
-                principal.as_ref().map(|p| (**p).clone()),
-            )
-        });
+        let runtime_identity = crate::state::runtime_identity_from_snapshot(
+            &http.route_table,
+            app_id.as_str(),
+            principal.as_ref().map(|p| (**p).clone()),
+        );
         (plug_ds, runtime_identity)
     };
     let path = format!("/api/datasets/metrics/{app_id}");
@@ -795,15 +826,11 @@ async fn api_datasets_fixture(
         let plug_ds = guard
             .plug_ds_endpoint_for(app_id.as_str())
             .map(str::to_string);
-        let supervisor = http.app_runtime.lock().ok();
-        let runtime_identity = supervisor.as_ref().and_then(|slot| {
-            crate::state::runtime_identity_for_app(
-                &guard,
-                slot,
-                app_id.as_str(),
-                principal.as_ref().map(|p| (**p).clone()),
-            )
-        });
+        let runtime_identity = crate::state::runtime_identity_from_snapshot(
+            &http.route_table,
+            app_id.as_str(),
+            principal.as_ref().map(|p| (**p).clone()),
+        );
         (plug_ds, runtime_identity)
     };
     let path = format!("/api/datasets/fixture/{app_id}");
@@ -957,15 +984,15 @@ mod tests {
             data_mode_ceiling: mei_lang_kernel::DataModeCeiling::Eval,
             data_mode_ceiling_by_app: std::collections::BTreeMap::new(),
         }));
-        HostHttpState {
+        HostHttpState::with_defaults(
             shell,
-            auth: mei_host_auth::AuthServeState::new(
-                workspace,
+            mei_host_auth::AuthServeState::new(
+                workspace.clone(),
                 mei_host_auth::AuthEnforcement::Disabled,
             ),
-            managed_plug: Arc::new(Mutex::new(None)),
-            app_runtime: Arc::new(Mutex::new(None)),
-        }
+            Arc::new(Mutex::new(None)),
+            crate::app_runtime_supervisor::empty_shared_app_runtime(workspace),
+        )
     }
 
     fn write_generation_fixture(workspace: &std::path::Path, app_id: &str, generation: &str) {
@@ -1898,15 +1925,15 @@ mod tests {
             guard.startup_phase = "unconfigured".to_string();
             guard.startup_detail = Some("控制面已就绪".to_string());
         }
-        let state = HostHttpState {
+        let state = HostHttpState::with_defaults(
             shell,
-            auth: mei_host_auth::AuthServeState::new(
+            mei_host_auth::AuthServeState::new(
                 tmp.path().to_path_buf(),
                 mei_host_auth::AuthEnforcement::Disabled,
             ),
-            managed_plug: Arc::new(Mutex::new(None)),
-            app_runtime: Arc::new(Mutex::new(None)),
-        };
+            Arc::new(Mutex::new(None)),
+            crate::app_runtime_supervisor::empty_shared_app_runtime(tmp.path()),
+        );
 
         for uri in [
             "/home",
@@ -2045,14 +2072,16 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(
-            response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok()),
-            Some("/apps/zhifa/home")
-        );
+        // Phase 9: legacy surfaces return 410 Gone with canonical Access URL.
+        assert_eq!(response.status(), StatusCode::GONE);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["canonical"], "/apps/zhifa/home");
     }
 
     #[tokio::test]
@@ -2068,14 +2097,15 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(
-            response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok()),
-            Some("/apps/demo/home")
-        );
+        assert_eq!(response.status(), StatusCode::GONE);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["canonical"], "/apps/demo/home");
     }
 
     #[tokio::test]
@@ -2091,13 +2121,14 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(
-            response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok()),
-            Some("/apps/demo/home")
-        );
+        assert_eq!(response.status(), StatusCode::GONE);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["canonical"], "/apps/demo/home");
     }
 }

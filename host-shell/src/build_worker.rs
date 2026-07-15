@@ -24,6 +24,9 @@ use crate::cli::{BuildWorkerCommand, BuildWorkerRunArgs};
 const IN_PROCESS_ENV: &str = "MEI_BUILD_WORKER_IN_PROCESS";
 const WORKER_BIN_ENV: &str = "MEI_BUILD_WORKER_BIN";
 
+#[cfg(test)]
+pub(crate) static BUILD_WORKER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn dispatch_build_worker(command: BuildWorkerCommand) -> anyhow::Result<()> {
     match command {
         BuildWorkerCommand::Run(args) => run_cli(args),
@@ -391,6 +394,7 @@ mod tests {
 
     #[test]
     fn spawn_path_uses_stub_worker_binary() {
+        let _env_guard = BUILD_WORKER_ENV_LOCK.lock().expect("worker env lock");
         let tmp = tempfile::tempdir().expect("tempdir");
         let workspace = tmp.path().join("ws");
         fs::create_dir_all(&workspace).expect("ws");

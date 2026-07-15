@@ -99,6 +99,28 @@
     ) {
       return true;
     }
+    const health = window.__meiLangBoot && window.__meiLangBoot.resourceHealth;
+    if (
+      health &&
+      typeof health.shouldSuppressHttpToast === "function" &&
+      health.shouldSuppressHttpToast(url, status)
+    ) {
+      if (typeof health.report === "function") {
+        health.report({
+          kind: String(url).includes("/gis/")
+            ? "gis"
+            : String(url).includes("/upload/")
+              ? "upload_media"
+              : "dataset_source",
+          severity: "degrade",
+          message: "资源暂时不可用（HTTP " + String(status) + "）",
+          hint: "页面其他部分仍可继续使用；补齐文件或启动底图后刷新即可。",
+          source: "host-http-feedback",
+          id: String(url),
+        });
+      }
+      return true;
+    }
     const key = String(status) + " " + String(url);
     const now = Date.now();
     const last = recent.get(key) || 0;

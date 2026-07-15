@@ -180,8 +180,10 @@ pub async fn app_temp_stage_page(
                 .as_deref()
                 .and_then(|key| mei_host_graph::take_layer(key))
                 .and_then(|bytes| {
-                    serde_json::from_slice::<mei_host_graph::StructureFullDocument>(bytes.as_slice())
-                        .ok()
+                    serde_json::from_slice::<mei_host_graph::StructureFullDocument>(
+                        bytes.as_slice(),
+                    )
+                    .ok()
                 });
             match doc {
                 Some(document) => mei_host_graph::resolve_scope_target(&document, hint),
@@ -419,8 +421,10 @@ pub async fn app_root_page(
                 let guard = http.shell.read().expect("state lock");
                 guard.ctx.workspace_root.clone()
             };
-            let default_scene =
-                crate::shell_chrome::default_access_scene(workspace_root.as_path(), app_id.as_str());
+            let default_scene = crate::shell_chrome::default_access_scene(
+                workspace_root.as_path(),
+                app_id.as_str(),
+            );
             redirect_access_app_not_running(&uri, app_id.as_str(), default_scene.as_str())
         }
     }
@@ -1061,6 +1065,7 @@ pub async fn host_starting_page(
     };
     let (already_ready, gate_status) = {
         let data_plane_enabled = state.read().expect("state lock").data_plane_enabled;
+        // Disk I/O outside shell.write() so poll does not contend with start/stop.
         if data_plane_enabled {
             if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
                 workspace.as_path(),
@@ -1073,29 +1078,46 @@ pub async fn host_starting_page(
                 );
             }
         }
-        let mut guard = state.write().expect("state lock");
-        crate::build_ops::refresh_materialization_flags(&mut guard);
-        let axes =
-            crate::review_axes::resolve_page_render_axes(&guard, &AppQuery::default(), route_mode);
-        let readiness = crate::startup::evaluate_access_readiness(
-            &guard,
+        let runtime_ready = crate::state::runtime_identity_from_snapshot(
+            &http.route_table,
             poll_app.as_str(),
-            poll_scene.as_str(),
-            route_mode,
-            axes,
-        );
-        let assemble_ready = matches!(
-            mei_host_graph::assemble_scope_from_registry(
-                workspace.as_path(),
+            None,
+        )
+        .is_some();
+        {
+            let mut guard = state.write().expect("state lock");
+            crate::build_ops::refresh_materialization_flags(&mut guard);
+        }
+        let (readiness, assemble_ready) = {
+            let guard = state.read().expect("state lock");
+            let axes = crate::review_axes::resolve_page_render_axes(
+                &guard,
+                &AppQuery::default(),
+                route_mode,
+            );
+            let readiness = crate::startup::evaluate_access_readiness(
+                &guard,
                 poll_app.as_str(),
                 poll_scene.as_str(),
-            ),
-            Ok(Some(_))
-        );
-        let supervisor = http.app_runtime.lock().ok();
-        let runtime_ready = supervisor.as_ref().is_some_and(|slot| {
-            crate::state::runtime_identity_for_app(&guard, slot, poll_app.as_str(), None).is_some()
-        });
+                route_mode,
+                axes,
+            );
+            // Disk assemble only after basic readiness — assemble panics without env/current.
+            let assemble_ready = if readiness.ready {
+                matches!(
+                    mei_host_graph::assemble_scope_from_registry(
+                        workspace.as_path(),
+                        poll_app.as_str(),
+                        poll_scene.as_str(),
+                    ),
+                    Ok(Some(_))
+                )
+            } else {
+                false
+            };
+            (readiness, assemble_ready)
+        };
+        let guard = state.read().expect("state lock");
         let runtime_gate_ready = !matches!(
             crate::legacy_compat::decide_data_plane_gate(runtime_ready),
             crate::legacy_compat::DataPlaneGate::RuntimeRequired
@@ -1111,7 +1133,7 @@ pub async fn host_starting_page(
         };
         let title = crate::access_gate_status::resolve_access_gate_title(
             &guard,
-            supervisor.as_ref().and_then(|slot| slot.as_ref()),
+            None,
             poll_app.as_str(),
             gate_reason,
         );
@@ -1192,11 +1214,8 @@ pub async fn api_host_access_readiness(
         .as_deref()
         .map(UiRouteMode::from_slug)
         .unwrap_or(UiRouteMode::App);
-    let runtime_ready = {
-        let shell = http.shell.read().expect("state lock");
-        let supervisor = http.app_runtime.lock().expect("app-runtime lock");
-        crate::state::runtime_identity_for_app(&shell, &supervisor, app_id, None).is_some()
-    };
+    let runtime_ready =
+        crate::state::runtime_identity_from_snapshot(&http.route_table, app_id, None).is_some();
     if runtime_ready {
         return Json(json!({
             "ready": true,
@@ -1218,6 +1237,7 @@ pub async fn api_host_access_readiness(
             guard.ctx.workspace_root.clone()
         };
         let data_plane_enabled = state.read().expect("state lock").data_plane_enabled;
+        // Heavy registry work outside write lock.
         if data_plane_enabled {
             if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
                 workspace_root.as_path(),
@@ -1230,8 +1250,21 @@ pub async fn api_host_access_readiness(
                 );
             }
         }
-        let mut guard = state.write().expect("state lock");
-        crate::build_ops::refresh_materialization_flags(&mut guard);
+        let assemble_probe = || {
+            matches!(
+                mei_host_graph::assemble_scope_from_registry(
+                    workspace_root.as_path(),
+                    app_id,
+                    scene_id,
+                ),
+                Ok(Some(_))
+            )
+        };
+        {
+            let mut guard = state.write().expect("state lock");
+            crate::build_ops::refresh_materialization_flags(&mut guard);
+        }
+        let guard = state.read().expect("state lock");
         let axes = crate::review_axes::resolve_page_render_axes(
             &guard,
             &AppQuery {
@@ -1242,27 +1275,16 @@ pub async fn api_host_access_readiness(
         );
         let readiness =
             crate::startup::evaluate_access_readiness(&guard, app_id, scene_id, route_mode, axes);
-        let assemble_ready = readiness.ready
-            && matches!(
-                mei_host_graph::assemble_scope_from_registry(
-                    guard.ctx.workspace_root.as_path(),
-                    app_id,
-                    scene_id,
-                ),
-                Ok(Some(_))
-            );
-        let bootstrap_reason = if route_mode.is_access_like() {
+        let bootstrap_reason = if readiness.ready && route_mode.is_access_like() {
             Some(
-                mei_host_graph::bootstrap_embed_status(
-                    guard.ctx.workspace_root.as_path(),
-                    app_id,
-                    scene_id,
-                )
-                .reason,
+                mei_host_graph::bootstrap_embed_status(workspace_root.as_path(), app_id, scene_id)
+                    .reason,
             )
         } else {
             None
         };
+        // Disk assemble only after basic readiness — assemble panics without env/current.
+        let assemble_ready = readiness.ready && assemble_probe();
         let runtime_gate_ready = !matches!(
             crate::legacy_compat::decide_data_plane_gate(false),
             crate::legacy_compat::DataPlaneGate::RuntimeRequired
@@ -1277,13 +1299,8 @@ pub async fn api_host_access_readiness(
         } else {
             readiness.reason
         };
-        let supervisor = http.app_runtime.lock().ok();
-        let title = crate::access_gate_status::resolve_access_gate_title(
-            &guard,
-            supervisor.as_ref().and_then(|slot| slot.as_ref()),
-            app_id,
-            gate_reason,
-        );
+        let title =
+            crate::access_gate_status::resolve_access_gate_title(&guard, None, app_id, gate_reason);
         (
             gate_ready,
             gate_reason,
@@ -2094,6 +2111,8 @@ fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRo
             r#"<script src="/app-assets/page-load-progress-shell.js"></script>"#,
             r#"<script>(function(){{try{{if(window.MeiPageLoadProgress){{window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}}}catch(e){{}}}})();</script>"#,
             r#"<link rel="preload" href="{preload_href}" as="script"/>"#,
+            r#"<script defer src="/app-assets/resource-health.js"></script>"#,
+            r#"<script defer src="/app-assets/resource-health.js"></script>"#,
             r#"<script defer src="/app-assets/host-http-feedback.js"></script>"#,
             r#"<script defer src="/app-bundles/shoelace.js"></script>"#,
             r#"<script defer src="{bundle_src}"></script>"#
@@ -2349,9 +2368,10 @@ pub(crate) fn inject_layer_plane_scripts(
     let stage_programs =
         serde_json::to_string(&mei_host_graph::stage_programs_bootstrap(&outcome.compiled))
             .unwrap_or_else(|_| "{}".to_string());
-    let narration_catalogs =
-        serde_json::to_string(&mei_host_graph::narration_catalogs_bootstrap(&outcome.compiled))
-            .unwrap_or_else(|_| "{}".to_string());
+    let narration_catalogs = serde_json::to_string(&mei_host_graph::narration_catalogs_bootstrap(
+        &outcome.compiled,
+    ))
+    .unwrap_or_else(|_| "{}".to_string());
     let scene_routes =
         serde_json::to_string(&outcome.compiled.scene_routes).unwrap_or_else(|_| "[]".to_string());
     let scripts = format!(

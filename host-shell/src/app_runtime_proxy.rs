@@ -7,12 +7,18 @@
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
+use http_body::Frame;
 use mei_host_auth::AuthPrincipal;
 use mei_host_core::{
     HEADER_APP_ID, HEADER_GENERATION, HEADER_INSTANCE_ID, HEADER_INSTANCE_TOKEN, HEADER_PRINCIPAL,
     HEADER_SPEC_DIGEST,
 };
 use serde_json::json;
+use std::collections::BTreeMap;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::legacy_compat::{
     decide_data_plane_gate, runtime_required_unavailable_response, warn_legacy_data_plane_fallback,
@@ -81,6 +87,13 @@ pub async fn proxy_request(
     inbound_headers: Option<&HeaderMap>,
     body: Option<Vec<u8>>,
 ) -> Response {
+    if let Some(response) = circuit_open_response(identity.app_id.as_str()) {
+        return response;
+    }
+    let permit = match acquire_app_proxy_permit(identity.app_id.as_str()).await {
+        Ok(permit) => permit,
+        Err(response) => return response,
+    };
     let url = join_url(identity.endpoint.as_str(), path_and_query);
     let client = app_runtime_proxy_client();
     let mut request = client.request(
@@ -114,36 +127,39 @@ pub async fn proxy_request(
     if let Some(body) = body {
         request = request.body(body);
     }
-    let response = match request.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                axum::Json(json!({
-                    "error": "app-runtime unreachable",
-                    "endpoint": identity.endpoint,
-                    "detail": error.to_string(),
-                })),
-            )
-                .into_response();
-        }
-    };
+    let response =
+        match tokio::time::timeout(std::time::Duration::from_secs(30), request.send()).await {
+            Ok(Ok(response)) => {
+                record_proxy_transport_success(identity.app_id.as_str());
+                response
+            }
+            Ok(Err(error)) => {
+                record_proxy_transport_failure(identity.app_id.as_str());
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    axum::Json(json!({
+                        "error": "app-runtime unreachable",
+                        "endpoint": identity.endpoint,
+                        "detail": error.to_string(),
+                    })),
+                )
+                    .into_response();
+            }
+            Err(_) => {
+                record_proxy_transport_failure(identity.app_id.as_str());
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    axum::Json(json!({
+                        "error": "app-runtime response header timeout",
+                        "endpoint": identity.endpoint,
+                    })),
+                )
+                    .into_response();
+            }
+        };
     let status =
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let response_headers = response.headers().clone();
-    let bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                axum::Json(json!({
-                    "error": "app-runtime response read failed",
-                    "detail": error.to_string(),
-                })),
-            )
-                .into_response();
-        }
-    };
     let mut builder = Response::builder().status(status);
     for (name, value) in response_headers.iter() {
         let lower = name.as_str().to_ascii_lowercase();
@@ -158,7 +174,10 @@ pub async fn proxy_request(
         }
     }
     builder
-        .body(Body::from(bytes))
+        .body(Body::new(PermitBody {
+            inner: Body::from_stream(response.bytes_stream()),
+            _permit: permit,
+        }))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
@@ -212,9 +231,7 @@ fn resolve_identity(
     app_id: &str,
     principal: Option<AuthPrincipal>,
 ) -> Option<RuntimeProxyIdentity> {
-    let shell = http.shell.read().ok()?;
-    let supervisor = http.app_runtime.lock().ok()?;
-    crate::state::runtime_identity_for_app(&shell, &supervisor, app_id, principal)
+    crate::state::runtime_identity_from_snapshot(&http.route_table, app_id, principal)
 }
 
 /// When an active App Runtime route exists for `app_id`, proxy the Access GET.
@@ -304,9 +321,120 @@ fn app_runtime_proxy_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(5))
             .build()
             .expect("app-runtime proxy reqwest client")
     })
+}
+
+struct PermitBody {
+    inner: Body,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl axum::body::HttpBody for PermitBody {
+    type Data = axum::body::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.inner).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+}
+
+fn app_proxy_limit() -> usize {
+    std::env::var("MEI_HOST_APP_PROXY_CONCURRENCY")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(64)
+}
+
+fn app_proxy_semaphore(app_id: &str) -> Arc<Semaphore> {
+    static LIMITERS: std::sync::OnceLock<Mutex<BTreeMap<String, Arc<Semaphore>>>> =
+        std::sync::OnceLock::new();
+    let mut guard = LIMITERS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .expect("app proxy limiter lock");
+    guard
+        .entry(app_id.to_string())
+        .or_insert_with(|| Arc::new(Semaphore::new(app_proxy_limit())))
+        .clone()
+}
+
+async fn acquire_app_proxy_permit(app_id: &str) -> Result<OwnedSemaphorePermit, Response> {
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        app_proxy_semaphore(app_id).acquire_owned(),
+    )
+    .await
+    {
+        Ok(Ok(permit)) => Ok(permit),
+        _ => Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "1")],
+            axum::Json(json!({
+                "error": "app-runtime proxy concurrency limit reached",
+                "appId": app_id,
+            })),
+        )
+            .into_response()),
+    }
+}
+
+#[derive(Default)]
+struct CircuitState {
+    consecutive_failures: u32,
+    open_until_ms: u64,
+}
+
+fn proxy_circuits() -> &'static Mutex<BTreeMap<String, CircuitState>> {
+    static CIRCUITS: std::sync::OnceLock<Mutex<BTreeMap<String, CircuitState>>> =
+        std::sync::OnceLock::new();
+    CIRCUITS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn circuit_open_response(app_id: &str) -> Option<Response> {
+    let now = crate::state::current_time_ms();
+    let mut guard = proxy_circuits().lock().expect("proxy circuit lock");
+    let state = guard.get_mut(app_id)?;
+    if state.open_until_ms <= now {
+        state.open_until_ms = 0;
+        return None;
+    }
+    Some(
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [("retry-after", "2")],
+            axum::Json(json!({
+                "error": "app-runtime proxy circuit open",
+                "appId": app_id,
+                "retryAtMs": state.open_until_ms,
+            })),
+        )
+            .into_response(),
+    )
+}
+
+fn record_proxy_transport_failure(app_id: &str) {
+    let mut guard = proxy_circuits().lock().expect("proxy circuit lock");
+    let state = guard.entry(app_id.to_string()).or_default();
+    state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+    if state.consecutive_failures >= 5 {
+        state.open_until_ms = crate::state::current_time_ms().saturating_add(5_000);
+    }
+}
+
+fn record_proxy_transport_success(app_id: &str) {
+    let mut guard = proxy_circuits().lock().expect("proxy circuit lock");
+    guard.remove(app_id);
 }
 
 /// Prefer App Runtime endpoint for datasets; fallback to legacy plug-ds.
@@ -342,9 +470,13 @@ pub enum DatasetsProxyTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::routing::get;
+    use axum::Router;
+    use http_body_util::BodyExt;
     use mei_host_auth::{AuthPrincipal, AuthRole};
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Mutex;
+    use std::time::Duration;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -440,5 +572,107 @@ mod tests {
             join_url("http://127.0.0.1:9", "/api/host/view-revision?app_id=a"),
             "http://127.0.0.1:9/api/host/view-revision?app_id=a"
         );
+    }
+
+    #[test]
+    fn circuit_breaker_is_scoped_per_app_and_resets_on_success() {
+        let app_a = "circuit-test-a";
+        let app_b = "circuit-test-b";
+        record_proxy_transport_success(app_a);
+        record_proxy_transport_success(app_b);
+        for _ in 0..5 {
+            record_proxy_transport_failure(app_a);
+        }
+        assert!(circuit_open_response(app_a).is_some());
+        assert!(circuit_open_response(app_b).is_none());
+        record_proxy_transport_success(app_a);
+        assert!(circuit_open_response(app_a).is_none());
+    }
+
+    #[tokio::test]
+    async fn blackhole_runtime_does_not_block_another_app_proxy() {
+        let blackhole = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("blackhole bind");
+        let blackhole_addr = blackhole.local_addr().expect("blackhole addr");
+        let blackhole_task = tokio::spawn(async move {
+            let (_socket, _) = blackhole.accept().await.expect("blackhole accept");
+            std::future::pending::<()>().await;
+        });
+
+        let fast = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fast bind");
+        let fast_addr = fast.local_addr().expect("fast addr");
+        let fast_task = tokio::spawn(async move {
+            axum::serve(
+                fast,
+                Router::new().route("/ready", get(|| async { "fast-app-ready" })),
+            )
+            .await
+            .expect("fast server");
+        });
+
+        let mut slow_identity = sample_identity();
+        slow_identity.endpoint = format!("http://{blackhole_addr}");
+        slow_identity.app_id = "slow-app".to_string();
+        let slow_task =
+            tokio::spawn(async move { proxy_get(&slow_identity, "/never", None).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let mut fast_identity = sample_identity();
+        fast_identity.endpoint = format!("http://{fast_addr}");
+        fast_identity.app_id = "fast-app".to_string();
+        let response = tokio::time::timeout(
+            Duration::from_millis(500),
+            proxy_get(&fast_identity, "/ready", None),
+        )
+        .await
+        .expect("fast app must not wait for blackhole app");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(body.as_ref(), b"fast-app-ready");
+
+        slow_task.abort();
+        blackhole_task.abort();
+        fast_task.abort();
+    }
+
+    #[tokio::test]
+    async fn proxy_returns_headers_without_collecting_stream_body() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("stream bind");
+        let addr = listener.local_addr().expect("stream addr");
+        let server = tokio::spawn(async move {
+            let app = Router::new().route(
+                "/stream",
+                get(|| async {
+                    let stream = async_stream::stream! {
+                        yield Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"first"));
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        yield Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"second"));
+                    };
+                    Body::from_stream(stream)
+                }),
+            );
+            axum::serve(listener, app).await.expect("stream server");
+        });
+
+        let mut identity = sample_identity();
+        identity.endpoint = format!("http://{addr}");
+        let response = tokio::time::timeout(
+            Duration::from_millis(500),
+            proxy_get(&identity, "/stream", None),
+        )
+        .await
+        .expect("proxy must return after upstream headers");
+        assert_eq!(response.status(), StatusCode::OK);
+        server.abort();
     }
 }

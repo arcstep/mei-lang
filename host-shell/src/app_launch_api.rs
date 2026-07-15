@@ -8,16 +8,20 @@ use axum::{
 };
 use mei_host_core::{
     ensure_default_launch_config, list_launch_configs, read_launch_config, write_launch_config,
-    AppLaunchConfig, AppLaunchDocument, DesiredInstance, DesiredState, LaunchManifest,
-    RouteBinding,
+    AppLaunchConfig, AppLaunchDocument, DesiredInstance, DesiredState, RouteBinding,
 };
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::app_runtime_supervisor::{
-    generate_instance_token, instance_spec_from_launch, AppRuntimeSupervisor,
+    generate_instance_token, instance_spec_from_launch, spawn_into, stop_from,
 };
+use crate::app_start_inflight::{StartInflightGuard, StartPhase};
+use crate::runtime_route_table::RuntimeRoutePhase;
 use crate::state::{HostEvent, HostHttpState};
+
+static REPLACEMENT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,15 +62,26 @@ pub async fn api_host_app_start(
     AxumPath(app_id): AxumPath<String>,
     Json(body): Json<StartAppBody>,
 ) -> Response {
-    match start_app_with_launch(
-        &http,
-        app_id.as_str(),
-        body.config.as_deref(),
-        body.mode.as_deref(),
-        body.follow_git,
-    )
-    .await
-    {
+    let result = if let Some(actor) = http.runtime_actor.as_ref() {
+        actor
+            .start(
+                app_id.as_str(),
+                body.config.as_deref(),
+                body.mode.as_deref(),
+                body.follow_git,
+            )
+            .await
+    } else {
+        start_app_with_launch(
+            &http,
+            app_id.as_str(),
+            body.config.as_deref(),
+            body.mode.as_deref(),
+            body.follow_git,
+        )
+        .await
+    };
+    match result {
         Ok(payload) => Json(payload).into_response(),
         Err(error) => error_response(error),
     }
@@ -76,7 +91,12 @@ pub async fn api_host_app_stop(
     State(http): State<HostHttpState>,
     AxumPath(app_id): AxumPath<String>,
 ) -> Response {
-    match stop_app_runtime(&http, app_id.as_str()).await {
+    let result = if let Some(actor) = http.runtime_actor.as_ref() {
+        actor.stop(app_id.as_str()).await
+    } else {
+        stop_app_runtime(&http, app_id.as_str()).await
+    };
+    match result {
         Ok(payload) => Json(payload).into_response(),
         Err(error) => error_response(error),
     }
@@ -119,9 +139,9 @@ pub async fn api_host_app_runtime_overlay_get(
     let base = read_launch_config(workspace.as_path(), app_id.as_str(), "launch")
         .ok()
         .map(|doc| doc.config);
-    let effective = base.as_ref().map(|config| {
-        launch_runtime_plan(workspace.as_path(), app_id.as_str(), config)
-    });
+    let effective = base
+        .as_ref()
+        .map(|config| launch_runtime_plan(workspace.as_path(), app_id.as_str(), config));
     Json(json!({
         "appId": app_id,
         "overlay": overlay,
@@ -147,15 +167,18 @@ pub async fn api_host_app_runtime_overlay_put(
     ) {
         Ok(overlay) => {
             if let Ok(launch) = read_launch_config(workspace.as_path(), app_id.as_str(), "launch") {
-                apply_launch_runtime_profile(&http, workspace.as_path(), app_id.as_str(), &launch.config);
+                apply_launch_runtime_profile(
+                    &http,
+                    workspace.as_path(),
+                    app_id.as_str(),
+                    &launch.config,
+                );
             }
             Json(json!({ "accepted": true, "overlay": overlay })).into_response()
         }
-        Err(mei_host_core::RuntimeOverlayError::Conflict(message)) => (
-            StatusCode::CONFLICT,
-            Json(json!({ "error": message })),
-        )
-            .into_response(),
+        Err(mei_host_core::RuntimeOverlayError::Conflict(message)) => {
+            (StatusCode::CONFLICT, Json(json!({ "error": message }))).into_response()
+        }
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": error.to_string() })),
@@ -175,7 +198,12 @@ pub async fn api_host_app_runtime_overlay_reset(
     match mei_host_core::clear_runtime_overlay(workspace.as_path(), app_id.as_str()) {
         Ok(()) => {
             if let Ok(launch) = read_launch_config(workspace.as_path(), app_id.as_str(), "launch") {
-                apply_launch_runtime_profile(&http, workspace.as_path(), app_id.as_str(), &launch.config);
+                apply_launch_runtime_profile(
+                    &http,
+                    workspace.as_path(),
+                    app_id.as_str(),
+                    &launch.config,
+                );
             }
             Json(json!({ "accepted": true, "overlay": serde_json::Value::Null })).into_response()
         }
@@ -224,6 +252,22 @@ pub async fn start_app_with_launch(
     mode: Option<&str>,
     follow_git: bool,
 ) -> Result<serde_json::Value, StartStopError> {
+    let _inflight = StartInflightGuard::try_acquire(
+        http.start_inflight.as_ref(),
+        app_id,
+        StartPhase::Prebuilding,
+    )
+    .map_err(|existing| {
+        StartStopError::Conflict(format!(
+            "app-start-in-flight: app `{}` is already {}",
+            existing.app_id,
+            match existing.phase {
+                StartPhase::Prebuilding => "prebuilding",
+                StartPhase::Spawning => "spawning",
+            }
+        ))
+    })?;
+
     let workspace = {
         let guard = http.shell.read().expect("state lock");
         guard.ctx.workspace_root.clone()
@@ -244,17 +288,34 @@ pub async fn start_app_with_launch(
     }
     let launch = match read_launch_config(workspace.as_path(), app_id, "launch") {
         Ok(doc) => doc,
-        Err(_) => {
-            ensure_default_launch_config(workspace.as_path(), app_id)
-                .map_err(|e| StartStopError::BadRequest(e.to_string()))?
-        }
+        Err(_) => ensure_default_launch_config(workspace.as_path(), app_id)
+            .map_err(|e| StartStopError::BadRequest(e.to_string()))?,
     };
     apply_launch_runtime_profile(http, workspace.as_path(), app_id, &launch.config);
     prepare_current_launch(http, workspace.as_path(), app_id, &launch).await?;
 
-    // Keep the active instance serving until prebuild succeeds, then enforce
-    // the single-process rule immediately before spawning its replacement.
-    let _ = stop_app_runtime(http, app_id).await;
+    _inflight.set_phase(StartPhase::Spawning);
+
+    let old_active = {
+        let guard = http.shell.read().expect("state lock");
+        guard
+            .launch_manifest
+            .routes
+            .get(app_id)
+            .and_then(|route| route.active.clone())
+    };
+    if old_active.is_none() {
+        http.route_table
+            .publish_entry(crate::runtime_route_table::RuntimeRouteEntry {
+                app_id: app_id.to_string(),
+                instance_id: format!("{app_id}:starting"),
+                endpoint: "pending://starting".to_string(),
+                token: String::new(),
+                generation: String::new(),
+                spec_digest: String::new(),
+                phase: RuntimeRoutePhase::Starting,
+            });
+    }
     {
         let guard = http.shell.read().expect("state lock");
         let _ = guard.events.send(HostEvent::new(
@@ -267,78 +328,68 @@ pub async fn start_app_with_launch(
             }),
         ));
     }
-    let spec = instance_spec_from_launch(workspace.as_path(), app_id, &launch)
+    let mut spec = instance_spec_from_launch(workspace.as_path(), app_id, &launch)
         .map_err(|e| StartStopError::BadRequest(e.to_string()))?;
+    spec.instance_id = replacement_instance_id(spec.instance_id.as_str());
     let effective_mode = match spec.config_snapshot.runtime_plan.default_mode {
         mei_lang_kernel::RuntimeMode::Hot => "hot",
         mei_lang_kernel::RuntimeMode::Lazy => "lazy",
         mei_lang_kernel::RuntimeMode::Frozen => "frozen",
     };
     tracing::info!(
+        target: "mei.host.runtime",
         app = %app_id,
         mode = %effective_mode,
         follow_git = follow_git,
         requested_mode = mode.unwrap_or(""),
+        phase = "spawning",
         "starting app with unified runtime mode"
     );
     let token = generate_instance_token(spec.instance_id.as_str());
     let spec_for_state = spec.clone();
+    let candidate_revision =
+        register_start_candidate(http, workspace.as_path(), &spec_for_state).await?;
 
-    {
-        let mut supervisor_guard = http
-            .app_runtime
-            .lock()
-            .map_err(|_| StartStopError::Conflict("app-runtime supervisor lock poisoned".into()))?;
-        if supervisor_guard.is_none() {
-            *supervisor_guard = Some(AppRuntimeSupervisor::new(workspace.clone()));
+    // Spawn and warm the candidate while the route snapshot still targets old_active.
+    let observed = match spawn_into(&http.app_runtime, spec, token).await {
+        Ok(observed) => observed,
+        Err(error) => {
+            discard_start_candidate(http, workspace.as_path(), &spec_for_state).await;
+            return Err(StartStopError::Unavailable(error.to_string()));
         }
-    }
+    };
 
-    let mut stolen = http
-        .app_runtime
-        .lock()
-        .map_err(|_| StartStopError::Conflict("app-runtime supervisor lock poisoned".into()))?
-        .take()
-        .ok_or_else(|| StartStopError::Conflict("app-runtime supervisor missing".into()))?;
-    let result = stolen.spawn_instance(spec, token).await;
-    if let Ok(mut slot) = http.app_runtime.lock() {
-        *slot = Some(stolen);
-    }
-    let observed = result.map_err(|e| StartStopError::Unavailable(e.to_string()))?;
-
-    let _ = mei_host_core::write_instance_spec(workspace.as_path(), &spec_for_state);
-    sync_host_control_runtime_plan(
-        workspace.as_path(),
-        &spec_for_state.config_snapshot.runtime_plan,
-    );
-    crate::dev_eval_scope::install_runtime_plan(
-        spec_for_state.config_snapshot.runtime_plan.clone(),
-    );
-
+    let endpoint = observed.endpoint.clone().unwrap_or_default();
     {
         let mut guard = http.shell.write().expect("state lock");
         guard.register_app_runtime_endpoint(
             spec_for_state.instance_id.clone(),
-            observed.endpoint.clone().unwrap_or_default(),
+            endpoint.clone(),
             Some(crate::state::current_time_ms()),
         );
-        let mut manifest = guard.launch_manifest.clone();
-        manifest.instances.insert(
-            spec_for_state.instance_id.clone(),
-            DesiredInstance {
-                spec_ref: spec_for_state.spec_digest(),
-                desired_state: DesiredState::Running,
-            },
-        );
-        manifest.routes.insert(
-            app_id.to_string(),
-            RouteBinding {
-                active: Some(spec_for_state.instance_id.clone()),
-                candidate: None,
-                previous: None,
-            },
-        );
-        guard.launch_manifest = manifest.with_recomputed_revision();
+    }
+
+    let cutover = match crate::route_lifecycle::execute_cutover(
+        http,
+        app_id,
+        &crate::route_lifecycle::CutoverRequest {
+            instance_id: spec_for_state.instance_id.clone(),
+            expected_manifest_revision: candidate_revision,
+        },
+        true,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = stop_from(&http.app_runtime, spec_for_state.instance_id.as_str()).await;
+            discard_start_candidate(http, workspace.as_path(), &spec_for_state).await;
+            return Err(StartStopError::Conflict(error.message().to_string()));
+        }
+    };
+
+    {
+        let mut guard = http.shell.write().expect("state lock");
         guard.route_plane_ready = true;
         guard.data_plane_enabled = true;
         let _ = guard.events.send(HostEvent::new(
@@ -353,6 +404,14 @@ pub async fn start_app_with_launch(
         ));
     }
 
+    if let Some(previous) = cutover
+        .previous
+        .as_deref()
+        .filter(|previous| *previous != spec_for_state.instance_id)
+    {
+        drain_and_retire_previous(http, workspace.as_path(), app_id, previous).await;
+    }
+
     Ok(json!({
         "accepted": true,
         "kind": "app-started",
@@ -360,7 +419,135 @@ pub async fn start_app_with_launch(
         "mode": effective_mode,
         "launch": launch,
         "instance": observed,
+        "cutover": cutover,
     }))
+}
+
+fn replacement_instance_id(base: &str) -> String {
+    let counter = REPLACEMENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{base}@run-{}-{counter}", crate::state::current_time_ms())
+}
+
+async fn register_start_candidate(
+    http: &HostHttpState,
+    workspace: &std::path::Path,
+    spec: &mei_host_core::InstanceSpec,
+) -> Result<String, StartStopError> {
+    mei_host_core::write_instance_spec(workspace, spec)
+        .map_err(|error| StartStopError::Unavailable(error.to_string()))?;
+    let _mutation = http.manifest_mutation.lock().await;
+    let (expected, next) = {
+        let guard = http.shell.read().expect("state lock");
+        let expected = guard.launch_manifest.revision.clone();
+        let mut next = guard.launch_manifest.clone();
+        next.instances.insert(
+            spec.instance_id.clone(),
+            DesiredInstance {
+                spec_ref: spec.spec_digest(),
+                desired_state: DesiredState::Running,
+            },
+        );
+        let route = next
+            .routes
+            .entry(spec.app_id.clone())
+            .or_insert(RouteBinding {
+                active: None,
+                candidate: None,
+                previous: None,
+            });
+        route.candidate = Some(spec.instance_id.clone());
+        (expected, next.with_recomputed_revision())
+    };
+    mei_host_core::write_if_revision_matches(workspace, expected.as_str(), next.clone())
+        .map_err(|error| StartStopError::Conflict(error.to_string()))?;
+    let revision = next.revision.clone();
+    http.shell
+        .write()
+        .expect("state lock")
+        .install_launch_manifest(next);
+    Ok(revision)
+}
+
+async fn discard_start_candidate(
+    http: &HostHttpState,
+    workspace: &std::path::Path,
+    spec: &mei_host_core::InstanceSpec,
+) {
+    {
+        let mut guard = http.shell.write().expect("state lock");
+        guard.unregister_app_runtime_endpoint(spec.instance_id.as_str());
+    }
+    let _mutation = http.manifest_mutation.lock().await;
+    let (expected, next) = {
+        let guard = http.shell.read().expect("state lock");
+        let expected = guard.launch_manifest.revision.clone();
+        let mut next = guard.launch_manifest.clone();
+        next.instances.remove(spec.instance_id.as_str());
+        if let Some(route) = next.routes.get_mut(spec.app_id.as_str()) {
+            if route.candidate.as_deref() == Some(spec.instance_id.as_str()) {
+                route.candidate = None;
+            }
+        }
+        (expected, next.with_recomputed_revision())
+    };
+    if mei_host_core::write_if_revision_matches(workspace, expected.as_str(), next.clone()).is_ok()
+    {
+        http.shell
+            .write()
+            .expect("state lock")
+            .install_launch_manifest(next);
+    }
+    let _ = mei_host_core::clear_instance_ephemeral_runtime(
+        workspace,
+        spec.app_id.as_str(),
+        spec.instance_id.as_str(),
+    );
+    http.sync_route_table_from_supervisor().await;
+}
+
+async fn drain_and_retire_previous(
+    http: &HostHttpState,
+    workspace: &std::path::Path,
+    app_id: &str,
+    previous: &str,
+) {
+    let drain = std::env::var("MEI_HOST_RUNTIME_DRAIN_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(750);
+    if drain > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(drain)).await;
+    }
+    let _ = stop_from(&http.app_runtime, previous).await;
+    {
+        let mut guard = http.shell.write().expect("state lock");
+        guard.unregister_app_runtime_endpoint(previous);
+    }
+    let _mutation = http.manifest_mutation.lock().await;
+    let (expected, next) = {
+        let guard = http.shell.read().expect("state lock");
+        let expected = guard.launch_manifest.revision.clone();
+        let mut next = guard.launch_manifest.clone();
+        if let Some(desired) = next.instances.get_mut(previous) {
+            desired.desired_state = DesiredState::Stopped;
+        }
+        (expected, next.with_recomputed_revision())
+    };
+    if mei_host_core::write_if_revision_matches(workspace, expected.as_str(), next.clone()).is_ok()
+    {
+        http.shell
+            .write()
+            .expect("state lock")
+            .install_launch_manifest(next);
+    }
+    http.sync_route_table_from_supervisor().await;
+    tracing::info!(
+        target: "mei.host.runtime",
+        app = %app_id,
+        instance = %previous,
+        drain_ms = drain,
+        "retired previous app runtime after cutover"
+    );
 }
 
 async fn prepare_current_launch(
@@ -571,8 +758,7 @@ pub(crate) fn apply_launch_runtime_profile(
     config: &AppLaunchConfig,
 ) {
     let runtime_plan = launch_runtime_plan(workspace, app_id, config);
-    sync_host_control_runtime_plan(workspace, &runtime_plan);
-    crate::dev_eval_scope::install_runtime_plan(runtime_plan);
+    crate::dev_eval_scope::install_runtime_plan_for_app(app_id, runtime_plan);
     apply_launch_data_mode_ceiling(http, app_id, config);
 }
 
@@ -631,52 +817,100 @@ pub async fn stop_app_runtime(
             .get(app_id)
             .and_then(|r| r.active.clone())
     };
-    let Some(instance_id) = active_id else {
+    let mut instance_ids = {
+        let supervisor = http.app_runtime.lock().await;
+        supervisor
+            .runtimes
+            .iter()
+            .filter(|(_, runtime)| runtime.spec.app_id == app_id)
+            .map(|(instance_id, _)| instance_id.clone())
+            .collect::<Vec<_>>()
+    };
+    if let Some(active) = active_id.as_ref() {
+        if !instance_ids.contains(active) {
+            instance_ids.push(active.clone());
+        }
+    }
+    if instance_ids.is_empty() {
+        http.remove_route(app_id);
         return Ok(json!({
             "accepted": true,
             "kind": "app-stopped",
             "appId": app_id,
             "alreadyStopped": true,
         }));
-    };
-
-    let mut stolen = http
-        .app_runtime
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take());
-    if let Some(supervisor) = stolen.as_mut() {
-        let _ = supervisor.stop_instance(instance_id.as_str()).await;
-    }
-    if let Some(supervisor) = stolen {
-        if let Ok(mut slot) = http.app_runtime.lock() {
-            *slot = Some(supervisor);
-        }
     }
 
+    // Drain route table / manifest first so proxy stops targeting a dying process.
+    http.mark_route_draining(app_id);
     {
+        let _mutation = http.manifest_mutation.lock().await;
+        let (expected, next) = {
+            let guard = http.shell.read().expect("state lock");
+            let expected = guard.launch_manifest.revision.clone();
+            let mut manifest = guard.launch_manifest.clone();
+            if let Some(route) = manifest.routes.get_mut(app_id) {
+                route.previous = route.active.take();
+                route.candidate = None;
+            }
+            for instance_id in &instance_ids {
+                if let Some(desired) = manifest.instances.get_mut(instance_id.as_str()) {
+                    desired.desired_state = DesiredState::Stopped;
+                }
+            }
+            (expected, manifest.with_recomputed_revision())
+        };
+        let workspace_root = {
+            let guard = http.shell.read().expect("state lock");
+            guard.ctx.workspace_root.clone()
+        };
+        mei_host_core::write_if_revision_matches(
+            workspace_root.as_path(),
+            expected.as_str(),
+            next.clone(),
+        )
+        .map_err(|error| StartStopError::Conflict(error.to_string()))?;
         let mut guard = http.shell.write().expect("state lock");
+        for instance_id in &instance_ids {
+            guard.unregister_app_runtime_endpoint(instance_id.as_str());
+        }
+        guard.install_launch_manifest(next);
+    }
+    http.remove_route(app_id);
+
+    let mut stops = tokio::task::JoinSet::new();
+    for instance_id in instance_ids.iter().cloned() {
+        let supervisor = http.app_runtime.clone();
+        stops.spawn(async move {
+            let result = stop_from(&supervisor, instance_id.as_str()).await;
+            (instance_id, result)
+        });
+    }
+    while let Some(result) = stops.join_next().await {
+        if let Ok((instance_id, Err(error))) = result {
+            tracing::warn!(
+                app = %app_id,
+                instance = %instance_id,
+                error = %error,
+                "failed to stop app runtime instance"
+            );
+        }
+    }
+
+    let instance_id = active_id.unwrap_or_else(|| instance_ids[0].clone());
+    {
+        let guard = http.shell.write().expect("state lock");
         let workspace = guard.ctx.workspace_root.clone();
-        guard.unregister_app_runtime_endpoint(instance_id.as_str());
-        let mut manifest = guard.launch_manifest.clone();
-        if let Some(route) = manifest.routes.get_mut(app_id) {
-            route.previous = route.active.take();
-            route.candidate = None;
-        }
-        if let Some(desired) = manifest.instances.get_mut(instance_id.as_str()) {
-            desired.desired_state = DesiredState::Stopped;
-        }
-        guard.launch_manifest = manifest.with_recomputed_revision();
         let _ = guard.events.send(HostEvent::new(
             "app-stopped",
             json!({
                 "appId": app_id,
                 "instanceId": instance_id,
+                "instanceIds": instance_ids,
                 "href": crate::shell_chrome::app_access_href(workspace.as_path(), app_id),
             }),
         ));
         let _ = mei_host_core::clear_runtime_overlay(workspace.as_path(), app_id);
-        let _ = mei_host_core::clear_app_ephemeral_runtime(workspace.as_path(), app_id);
     }
 
     Ok(json!({
@@ -684,6 +918,7 @@ pub async fn stop_app_runtime(
         "kind": "app-stopped",
         "appId": app_id,
         "instanceId": instance_id,
+        "instanceIds": instance_ids,
     }))
 }
 
@@ -695,28 +930,50 @@ pub enum StartStopError {
 }
 
 fn error_response(error: StartStopError) -> Response {
-    let (status, message) = match error {
-        StartStopError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
-        StartStopError::Conflict(message) => (StatusCode::CONFLICT, message),
-        StartStopError::Unavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
+    let (status, message, kind) = match &error {
+        StartStopError::BadRequest(message) => {
+            (StatusCode::BAD_REQUEST, message.clone(), "bad_request")
+        }
+        StartStopError::Conflict(message) => {
+            let kind = if message.starts_with("app-start-in-flight") {
+                "app-start-in-flight"
+            } else {
+                "conflict"
+            };
+            (StatusCode::CONFLICT, message.clone(), kind)
+        }
+        StartStopError::Unavailable(message) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            message.clone(),
+            "unavailable",
+        ),
     };
-    (status, Json(json!({ "error": message }))).into_response()
-}
-
-/// Mirror launch-bound runtimePlan into host-control so legacy readers stay consistent.
-fn sync_host_control_runtime_plan(
-    workspace: &std::path::Path,
-    runtime_plan: &mei_lang_kernel::RuntimePlan,
-) {
-    let mut control = mei_host_core::read_host_control_state(workspace)
-        .unwrap_or_else(mei_host_core::HostControlState::empty);
-    control.runtime_plan = Some(runtime_plan.clone());
-    if let Err(error) = mei_host_core::write_host_control_state(workspace, &control) {
-        tracing::warn!(
-            error = %error,
-            "failed to sync runtimePlan into host-control after app start"
+    let mut body = json!({
+        "error": message,
+        "kind": kind,
+    });
+    if kind == "app-start-in-flight" {
+        if let Some(app_id) = message
+            .strip_prefix("app-start-in-flight: app `")
+            .and_then(|rest| rest.split('`').next())
+        {
+            body["appId"] = json!(app_id);
+        }
+        if message.contains("prebuilding") {
+            body["phase"] = json!("prebuilding");
+        } else if message.contains("spawning") {
+            body["phase"] = json!("spawning");
+        }
+        tracing::info!(
+            target: "mei.host.runtime",
+            kind = "app-start-in-flight",
+            inflight_rejected = true,
+            app_id = body.get("appId").and_then(|v| v.as_str()).unwrap_or(""),
+            phase = body.get("phase").and_then(|v| v.as_str()).unwrap_or(""),
+            "rejected duplicate app start"
         );
     }
+    (status, Json(body)).into_response()
 }
 
 fn apply_start_mode_policy(
@@ -839,9 +1096,4 @@ mod tests {
         }));
         assert!(launch_warmup_scenes(Path::new("/tmp"), &config, "zhifa").is_empty());
     }
-}
-
-#[allow(dead_code)]
-fn _manifest_touch(manifest: &LaunchManifest) {
-    let _ = manifest.revision.clone();
 }

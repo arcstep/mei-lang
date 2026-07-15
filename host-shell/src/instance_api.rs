@@ -47,12 +47,8 @@ pub async fn api_host_instances(State(http): State<HostHttpState>) -> Response {
             guard.app_runtime_by_instance.clone(),
         )
     };
-    let supervisor = http.app_runtime.lock().ok();
-    let items = collect_observed_instances(
-        &manifest,
-        supervisor.as_ref().and_then(|slot| slot.as_ref()),
-        &shell_endpoints,
-    );
+    let supervisor = http.app_runtime.lock().await;
+    let items = collect_observed_instances(&manifest, Some(&*supervisor), &shell_endpoints);
     Json(json!({
         "revision": manifest.revision,
         "instances": items,
@@ -275,32 +271,18 @@ async fn stop_instance(
             )));
         }
     }
-    let mut supervisor = {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        slot.take().unwrap_or_else(|| {
-            AppRuntimeSupervisor::new({
-                let guard = http.shell.read().expect("state lock");
-                guard.ctx.workspace_root.clone()
-            })
-        })
+    let _ = crate::app_runtime_supervisor::stop_from(&http.app_runtime, instance_id)
+        .await
+        .map_err(|e| InstanceApiError::Other(e.to_string()))?;
+    let (endpoints, started_at) = {
+        let guard = http.app_runtime.lock().await;
+        (guard.endpoint_map(), guard.started_at_map())
     };
-    let _ = supervisor.stop_instance(instance_id).await;
-    let endpoints = supervisor.endpoint_map();
-    let started_at = supervisor.started_at_map();
-    {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        *slot = Some(supervisor);
-    }
     {
         let mut guard = http.shell.write().expect("state lock");
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
+    http.sync_route_table_from_supervisor().await;
     Ok(ObservedInstance {
         instance_id: instance_id.to_string(),
         spec_ref: String::new(),
@@ -339,56 +321,25 @@ async fn restart_instance(
         InstancePhase::Launching,
         None,
     );
-    let mut supervisor = {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        slot.take().ok_or_else(|| {
-            InstanceApiError::NotFound(format!("instance `{instance_id}` is not managed"))
-        })?
+    let result = crate::app_runtime_supervisor::restart_from(&http.app_runtime, instance_id, 3)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("is not managed") {
+                InstanceApiError::NotFound(format!("instance `{instance_id}` is not managed"))
+            } else {
+                InstanceApiError::Other(e.to_string())
+            }
+        })?;
+    let (endpoints, started_at) = {
+        let guard = http.app_runtime.lock().await;
+        (guard.endpoint_map(), guard.started_at_map())
     };
-    let result = supervisor.restart_with_backoff(instance_id, 3).await;
-    let endpoints = supervisor.endpoint_map();
-    let started_at = supervisor.started_at_map();
-    {
-        let mut slot = http
-            .app_runtime
-            .lock()
-            .map_err(|_| InstanceApiError::Other("app-runtime supervisor poisoned".into()))?;
-        *slot = Some(supervisor);
-    }
     {
         let mut guard = http.shell.write().expect("state lock");
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
-    match result {
-        Ok(observed) => Ok(observed),
-        Err(error) => {
-            let observed = ObservedInstance {
-                instance_id: instance_id.to_string(),
-                spec_ref: String::new(),
-                observed_at_ms: crate::state::current_time_ms(),
-                phase: InstancePhase::Failed,
-                desired_state: DesiredState::Running,
-                reachable: false,
-                endpoint: None,
-                token_present: false,
-                health: InstanceHealth {
-                    process: "failed".to_string(),
-                    plug_ds: "unknown".to_string(),
-                    warmup: "unknown".to_string(),
-                    bootstrap: "unknown".to_string(),
-                },
-                revisions: InstanceRevisions::default(),
-                protected_reasons: Vec::new(),
-                last_error: Some(error.to_string()),
-                resource: InstanceResource::default(),
-            };
-            emit_instance_event(&http.shell, "instance-failed", &observed, None);
-            Err(InstanceApiError::Other(error.to_string()))
-        }
-    }
+    http.sync_route_table_from_supervisor().await;
+    Ok(result)
 }
 
 fn active_route_for(manifest: &LaunchManifest, instance_id: &str) -> Option<String> {

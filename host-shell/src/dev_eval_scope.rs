@@ -370,6 +370,7 @@ pub fn scope_matches_any(preview_scope: &str, prefixes: &[String]) -> bool {
 struct InstalledConfig {
     base: DevEvalConfig,
     runtime_plan: Option<RuntimePlan>,
+    app_runtime_plans: std::collections::BTreeMap<String, RuntimePlan>,
 }
 
 static INSTALLED: std::sync::OnceLock<std::sync::RwLock<InstalledConfig>> =
@@ -397,6 +398,11 @@ pub fn install_runtime_plan(plan: RuntimePlan) {
     guard.runtime_plan = Some(plan);
 }
 
+pub fn install_runtime_plan_for_app(app_id: &str, plan: RuntimePlan) {
+    let mut guard = installed().write().expect("dev eval config lock");
+    guard.app_runtime_plans.insert(app_id.to_string(), plan);
+}
+
 pub fn applied_runtime_plan(workspace_root: &std::path::Path) -> Option<RuntimePlan> {
     let path = workspace_root.join("deploy/state/host-control.json");
     let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
@@ -410,8 +416,9 @@ pub fn current() -> DevEvalConfig {
 pub fn current_for_app(app_id: &str) -> DevEvalConfig {
     let guard = installed().read().expect("dev eval config lock");
     guard
-        .runtime_plan
-        .as_ref()
+        .app_runtime_plans
+        .get(app_id)
+        .or(guard.runtime_plan.as_ref())
         .map(|plan| dev_eval_from_runtime_plan(plan, app_id))
         .unwrap_or_else(|| guard.base.clone())
 }
