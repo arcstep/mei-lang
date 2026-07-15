@@ -5,6 +5,12 @@ use crate::lifecycle::bootstrap_runtime;
 use crate::state::{resolve_instance_spec, AppRuntimeServeState};
 
 /// Bind loopback only; port `0` asks the OS for an ephemeral port.
+///
+/// Contract with Host supervisor:
+/// 1. Bind + print `MEI_APP_RUNTIME_LISTEN=...` **before** hot warmup
+/// 2. Serve `/health` immediately so Host can discover the port
+/// 3. Run bootstrap/warmup concurrently; `/ready` flips when Acceptable
+/// 4. Non-ready Access/API returns 503 quickly (does not block Host workers)
 pub async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let workspace = args
         .workspace
@@ -32,24 +38,33 @@ pub async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let host_ctx = HostContext::new(workspace, spec.app_id.as_str());
     let state = AppRuntimeServeState::new(host_ctx, spec, args.token.trim()).shared();
 
-    if let Err(error) = bootstrap_runtime(state.as_ref()) {
-        state.set_failed(error.to_string());
-        tracing::error!(error = %error, "app-runtime bootstrap failed");
-        // Still bind so supervisor can observe /ready=failed.
-    }
-
     let addr = format!("{host}:{}", args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let local = listener.local_addr()?;
-    // Supervisor contract: exact stdout line.
+    // Supervisor contract: exact stdout line — must appear before long warmup.
     println!("MEI_APP_RUNTIME_LISTEN={}:{}", local.ip(), local.port());
     tracing::info!(
         app = %state.app_id(),
         generation = %state.generation(),
         instance = %state.instance_id(),
         listen = %local,
-        "mei-app-runtime serving"
+        "mei-app-runtime listening (bootstrap may still be running)"
     );
+
+    let boot_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Err(error) = bootstrap_runtime(boot_state.as_ref()) {
+            boot_state.set_failed(error.to_string());
+            tracing::error!(error = %error, "app-runtime bootstrap failed");
+        } else {
+            tracing::info!(
+                app = %boot_state.app_id(),
+                generation = %boot_state.generation(),
+                instance = %boot_state.instance_id(),
+                "mei-app-runtime ready"
+            );
+        }
+    });
 
     let app = crate::http::router(state);
     axum::serve(listener, app)

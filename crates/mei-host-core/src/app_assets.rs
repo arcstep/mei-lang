@@ -9,10 +9,7 @@ pub fn resolve_app_assets_dir(package_root: &Path) -> PathBuf {
     if packaged.is_dir() {
         return packaged;
     }
-    let source = package_root
-        .join("host-shell")
-        .join("app")
-        .join("assets");
+    let source = package_root.join("host-shell").join("app").join("assets");
     if source.is_dir() {
         return source;
     }
@@ -25,8 +22,7 @@ mod tests {
 
     #[test]
     fn prefers_packaged_when_present() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..");
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         // Source checkout: host-shell/app/assets exists; packaged app/assets may not.
         let assets = resolve_app_assets_dir(&root);
         assert!(

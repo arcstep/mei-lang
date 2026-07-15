@@ -47,6 +47,10 @@ pub fn router(state: SharedRuntimeState) -> Router {
         .merge(runtime_api)
         .merge(ds)
         .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::require_ready_for_data_plane,
+        ))
+        .layer(middleware::from_fn_with_state(
             state,
             require_instance_token,
         ))

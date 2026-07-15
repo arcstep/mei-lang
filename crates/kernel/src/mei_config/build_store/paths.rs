@@ -19,6 +19,16 @@ use super::env_paths::{
     resolve_app_env_dir_following_current,
 };
 
+fn app_runtime_var_root_override(app_root: &Path) -> Option<PathBuf> {
+    let expected_app = std::env::var("MEI_APP_RUNTIME_APP_ID").ok()?;
+    let actual_app = app_root.file_name()?.to_str()?;
+    if expected_app.trim() != actual_app {
+        return None;
+    }
+    let path = PathBuf::from(std::env::var_os("MEI_APP_RUNTIME_VAR_ROOT")?);
+    path.is_absolute().then_some(path)
+}
+
 fn read_manifest_version(path: &Path) -> Option<String> {
     if !path.is_file() {
         return None;
@@ -131,6 +141,9 @@ pub fn resolve_app_build_root_following_active(app_root: &Path) -> PathBuf {
 pub fn resolve_app_var_root_following_active(app_root: &Path) -> PathBuf {
     if let Some(override_root) = prebuild_var_root_override() {
         return override_root;
+    }
+    if let Some(instance_var) = app_runtime_var_root_override(app_root) {
+        return instance_var;
     }
     require_app_env_dir_following_current(app_root)
         .map(|env_dir| env_dir.join(APP_ENV_VAR_REL))

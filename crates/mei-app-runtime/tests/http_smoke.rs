@@ -38,8 +38,21 @@ fn sample_spec(app_id: &str, instance_id: &str, generation: &str) -> InstanceSpe
 
 fn test_state(workspace: std::path::PathBuf) -> mei_app_runtime::SharedRuntimeState {
     let app_id = "demo";
+    let env_root = workspace.join("apps").join(app_id).join("env");
+    let generation = "WS-20260712.1";
+    std::fs::create_dir_all(env_root.join(generation).join("build/registry"))
+        .expect("minimal generation build");
+    std::fs::create_dir_all(env_root.join(generation).join("var")).expect("minimal generation var");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(generation, env_root.join("current")).expect("current symlink");
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(env_root.join("current")).expect("current dir");
+        std::fs::write(env_root.join("current/.mei-build-target"), generation)
+            .expect("current marker");
+    }
     let host = HostContext::new(workspace, app_id);
-    let spec = sample_spec(app_id, "inst-test", "WS-20260712.1");
+    let spec = sample_spec(app_id, "inst-test", generation);
     let state = AppRuntimeServeState::new(host, spec, "secret-token");
     state.set_phase(mei_host_core::InstancePhase::Ready);
     state.shared()

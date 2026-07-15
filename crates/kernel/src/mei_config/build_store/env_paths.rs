@@ -15,6 +15,9 @@ use super::build_generation::{
 };
 use super::types::{is_dev_toolchain_alias, DEV_TOOLCHAIN_ALIAS, DEV_TOOLCHAIN_VERSION};
 
+const APP_RUNTIME_APP_ID_ENV: &str = "MEI_APP_RUNTIME_APP_ID";
+const APP_RUNTIME_GENERATION_ENV: &str = "MEI_APP_RUNTIME_GENERATION";
+
 /// Toolchain segment only (dev alias → `latest`).
 pub fn resolve_toolchain_segment(toolchain_version: &str) -> String {
     let version = toolchain_version.trim();
@@ -99,6 +102,9 @@ pub fn env_generation_from_env_dir(env_dir: &Path) -> Option<String> {
 
 /// Follow `env/current` symlink to the active env directory (`…/env/{id}`).
 pub fn resolve_app_env_dir_following_current(app_root: &Path) -> Option<PathBuf> {
+    if let Some(pinned) = app_runtime_pinned_env_dir(app_root) {
+        return Some(pinned);
+    }
     let current = app_env_current_link(app_root);
     if current.is_symlink() {
         return resolve_symlink_target_from_link(&current);
@@ -117,6 +123,21 @@ pub fn resolve_app_env_dir_following_current(app_root: &Path) -> Option<PathBuf>
         }
     }
     None
+}
+
+fn app_runtime_pinned_env_dir(app_root: &Path) -> Option<PathBuf> {
+    let expected_app = std::env::var(APP_RUNTIME_APP_ID_ENV).ok()?;
+    let actual_app = app_root.file_name()?.to_str()?;
+    if expected_app.trim() != actual_app {
+        return None;
+    }
+    let generation = std::env::var(APP_RUNTIME_GENERATION_ENV).ok()?;
+    let generation = generation.trim();
+    if !is_build_generation_tag(generation) {
+        return None;
+    }
+    let pinned = app_env_dir(app_root, generation);
+    pinned.is_dir().then_some(pinned)
 }
 
 pub fn require_app_env_dir_following_current(app_root: &Path) -> Result<PathBuf> {
@@ -195,4 +216,42 @@ pub fn resolve_active_build_identity_for_app(
         workspace_version: date,
         env_generation_id: display.env_generation_id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn app_runtime_generation_override_pins_env_without_moving_current() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_root = tmp.path().join("apps/demo");
+        let old = app_env_dir(app_root.as_path(), "WS-20260714.0");
+        let candidate = app_env_dir(app_root.as_path(), "WS-20260715.0");
+        std::fs::create_dir_all(&old).expect("old");
+        std::fs::create_dir_all(&candidate).expect("candidate");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260714.0", app_env_current_link(&app_root))
+            .expect("current");
+
+        std::env::set_var(APP_RUNTIME_APP_ID_ENV, "demo");
+        std::env::set_var(APP_RUNTIME_GENERATION_ENV, "WS-20260715.0");
+        let instance_var = tmp.path().join("runtime/demo/instances/inst-a/var");
+        std::env::set_var("MEI_APP_RUNTIME_VAR_ROOT", &instance_var);
+        assert_eq!(
+            resolve_app_env_dir_following_current(app_root.as_path()),
+            Some(candidate)
+        );
+        assert_eq!(
+            super::super::paths::resolve_app_var_root_following_active(app_root.as_path()),
+            instance_var
+        );
+        std::env::remove_var(APP_RUNTIME_APP_ID_ENV);
+        std::env::remove_var(APP_RUNTIME_GENERATION_ENV);
+        std::env::remove_var("MEI_APP_RUNTIME_VAR_ROOT");
+    }
 }

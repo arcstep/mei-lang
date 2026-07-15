@@ -53,6 +53,7 @@ impl AppRuntimeState {
         instance_runtime_root(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -60,6 +61,7 @@ impl AppRuntimeState {
         instance_var_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -67,6 +69,7 @@ impl AppRuntimeState {
         instance_eval_cache_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -74,6 +77,7 @@ impl AppRuntimeState {
         instance_bootstrap_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -81,6 +85,7 @@ impl AppRuntimeState {
         instance_mrg_memory_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -88,6 +93,7 @@ impl AppRuntimeState {
         instance_mrg_disk_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -95,6 +101,7 @@ impl AppRuntimeState {
         instance_logs_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -102,6 +109,7 @@ impl AppRuntimeState {
         instance_meta_dir(
             self.workspace_root.as_path(),
             self.partition.app_id.as_str(),
+            self.instance_id.as_str(),
         )
     }
 
@@ -182,19 +190,35 @@ impl RuntimeContext {
     }
 
     pub fn instance_runtime_root(&self) -> PathBuf {
-        instance_runtime_root(self.workspace_root(), self.app_id())
+        instance_runtime_root(
+            self.workspace_root(),
+            self.app_id(),
+            self.instance_id.as_str(),
+        )
     }
 
     pub fn instance_eval_cache_dir(&self) -> PathBuf {
-        instance_eval_cache_dir(self.workspace_root(), self.app_id())
+        instance_eval_cache_dir(
+            self.workspace_root(),
+            self.app_id(),
+            self.instance_id.as_str(),
+        )
     }
 
     pub fn instance_bootstrap_dir(&self) -> PathBuf {
-        instance_bootstrap_dir(self.workspace_root(), self.app_id())
+        instance_bootstrap_dir(
+            self.workspace_root(),
+            self.app_id(),
+            self.instance_id.as_str(),
+        )
     }
 
     pub fn instance_var_dir(&self) -> PathBuf {
-        instance_var_dir(self.workspace_root(), self.app_id())
+        instance_var_dir(
+            self.workspace_root(),
+            self.app_id(),
+            self.instance_id.as_str(),
+        )
     }
 
     /// Read-only generation tree; does not follow `env/current`.
@@ -272,7 +296,7 @@ mod tests {
         );
         assert_eq!(
             ctx.instance_runtime_root(),
-            PathBuf::from("/tmp/ws/deploy/runtime/apps/mini-data")
+            PathBuf::from("/tmp/ws/deploy/runtime/apps/mini-data/instances/inst-a")
         );
         assert!(!ctx
             .pinned_generation_root()
@@ -290,8 +314,7 @@ mod tests {
             a.partition().prefix_key(inner),
             b.partition().prefix_key(inner)
         );
-        // One Runtime per app: ephemeral root is app-scoped, not instance-scoped.
-        assert_eq!(
+        assert_ne!(
             a.runtime_state().instance_runtime_root(),
             b.runtime_state().instance_runtime_root()
         );

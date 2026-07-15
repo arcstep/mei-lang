@@ -5,19 +5,44 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::paths::{instance_runtime_root, legacy_instance_runtime_root};
+use super::paths::{
+    app_ephemeral_runtime_root, instance_runtime_root, legacy_instance_runtime_root,
+};
 use super::InstanceSpec;
 
-/// `{app_ephemeral_root}/spec.json`
-pub fn instance_spec_path(workspace: &Path, app_id: &str) -> PathBuf {
-    instance_runtime_root(workspace, app_id).join("spec.json")
+/// Immutable spec for one instance:
+/// `{app_ephemeral_root}/instances/{instance_id}/spec.json`.
+pub fn instance_spec_path(workspace: &Path, app_id: &str, instance_id: &str) -> PathBuf {
+    instance_runtime_root(workspace, app_id, instance_id).join("spec.json")
+}
+
+/// Compatibility pointer for the currently active instance:
+/// `{app_ephemeral_root}/spec.json`.
+pub fn active_instance_spec_path(workspace: &Path, app_id: &str) -> PathBuf {
+    app_ephemeral_runtime_root(workspace, app_id).join("spec.json")
 }
 
 pub fn write_instance_spec(workspace: &Path, spec: &InstanceSpec) -> Result<()> {
-    let path = instance_spec_path(workspace, spec.app_id.as_str());
+    let path = instance_spec_path(workspace, spec.app_id.as_str(), spec.instance_id.as_str());
+    write_spec_atomically(path.as_path(), spec)
+}
+
+/// Publish the active compatibility pointer after route cutover.
+///
+/// Candidate startup must only call [`write_instance_spec`]; otherwise a warming
+/// candidate can replace the active app's spec before it receives traffic.
+pub fn publish_active_instance_spec(workspace: &Path, spec: &InstanceSpec) -> Result<()> {
+    write_instance_spec(workspace, spec)?;
+    write_spec_atomically(
+        active_instance_spec_path(workspace, spec.app_id.as_str()).as_path(),
+        spec,
+    )
+}
+
+fn write_spec_atomically(path: &Path, spec: &InstanceSpec) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .with_context(|| format!("create app runtime dir {}", parent.display()))?;
+            .with_context(|| format!("create runtime dir {}", parent.display()))?;
     }
     let bytes = serde_json::to_vec_pretty(spec).context("serialize InstanceSpec")?;
     let tmp = path.with_extension("json.tmp");
@@ -29,15 +54,20 @@ pub fn write_instance_spec(workspace: &Path, spec: &InstanceSpec) -> Result<()> 
 
 /// Read spec for an app from the ephemeral app root (preferred).
 pub fn read_instance_spec_for_app(workspace: &Path, app_id: &str) -> Option<InstanceSpec> {
-    let path = instance_spec_path(workspace, app_id);
+    let path = active_instance_spec_path(workspace, app_id);
     let bytes = fs::read(path).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Resolve by instance id: prefer app roots that contain a matching spec, then legacy
-/// `deploy/runtime/instances/{id}/spec.json`.
+/// Resolve by instance id: prefer instance-scoped specs, then legacy app/global roots.
 pub fn read_instance_spec(workspace: &Path, instance_id: &str) -> Option<InstanceSpec> {
-    if let Some(spec) = scan_app_runtime_specs(workspace)
+    if let Some(spec) = scan_instance_runtime_specs(workspace)
+        .into_iter()
+        .find(|spec| spec.instance_id == instance_id)
+    {
+        return Some(spec);
+    }
+    if let Some(spec) = scan_legacy_app_runtime_specs(workspace)
         .into_iter()
         .find(|spec| spec.instance_id == instance_id)
     {
@@ -50,10 +80,18 @@ pub fn read_instance_spec(workspace: &Path, instance_id: &str) -> Option<Instanc
 
 /// List instance ids from app ephemeral dirs plus legacy instance dirs.
 pub fn list_instance_runtime_ids(workspace: &Path) -> Vec<String> {
-    let mut ids = scan_app_runtime_specs(workspace)
+    let mut ids = scan_instance_runtime_specs(workspace)
         .into_iter()
         .map(|spec| spec.instance_id)
         .collect::<Vec<_>>();
+    for id in scan_legacy_app_runtime_specs(workspace)
+        .into_iter()
+        .map(|spec| spec.instance_id)
+    {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
     let legacy_root = workspace.join("deploy/runtime/instances");
     if let Ok(entries) = fs::read_dir(legacy_root) {
         for entry in entries.flatten() {
@@ -69,7 +107,7 @@ pub fn list_instance_runtime_ids(workspace: &Path) -> Vec<String> {
     ids
 }
 
-fn scan_app_runtime_specs(workspace: &Path) -> Vec<InstanceSpec> {
+fn scan_instance_runtime_specs(workspace: &Path) -> Vec<InstanceSpec> {
     let root = workspace.join("deploy/runtime/apps");
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
@@ -79,22 +117,61 @@ fn scan_app_runtime_specs(workspace: &Path) -> Vec<InstanceSpec> {
         if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
             continue;
         }
-        let path = entry.path().join("spec.json");
-        let Ok(bytes) = fs::read(&path) else {
+        let instances_root = entry.path().join("instances");
+        let Ok(instances) = fs::read_dir(instances_root) else {
             continue;
         };
-        if let Ok(spec) = serde_json::from_slice::<InstanceSpec>(&bytes) {
-            specs.push(spec);
+        for instance in instances.flatten() {
+            if !instance
+                .file_type()
+                .map(|kind| kind.is_dir())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let path = instance.path().join("spec.json");
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            if let Ok(spec) = serde_json::from_slice::<InstanceSpec>(&bytes) {
+                specs.push(spec);
+            }
         }
     }
     specs
 }
 
+fn scan_legacy_app_runtime_specs(workspace: &Path) -> Vec<InstanceSpec> {
+    let root = workspace.join("deploy/runtime/apps");
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| fs::read(entry.path().join("spec.json")).ok())
+        .filter_map(|bytes| serde_json::from_slice::<InstanceSpec>(&bytes).ok())
+        .collect()
+}
+
 /// Remove ephemeral runtime dir for an app. Never touches durable `apps/{app}/`.
 pub fn clear_app_ephemeral_runtime(workspace: &Path, app_id: &str) -> Result<()> {
-    let path = instance_runtime_root(workspace, app_id);
+    let path = app_ephemeral_runtime_root(workspace, app_id);
     if path.exists() {
         fs::remove_dir_all(&path).with_context(|| format!("clear ephemeral {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Remove mutable state for one retired instance without touching active/candidate siblings.
+pub fn clear_instance_ephemeral_runtime(
+    workspace: &Path,
+    app_id: &str,
+    instance_id: &str,
+) -> Result<()> {
+    let path = instance_runtime_root(workspace, app_id, instance_id);
+    if path.exists() {
+        fs::remove_dir_all(&path)
+            .with_context(|| format!("clear instance ephemeral {}", path.display()))?;
     }
     Ok(())
 }
@@ -135,19 +212,39 @@ mod tests {
     }
 
     #[test]
-    fn write_and_read_roundtrip_under_app_root() {
+    fn candidate_spec_does_not_replace_active_pointer() {
         let tmp = tempfile::tempdir().expect("temp");
-        let spec = sample_spec("inst-a", "mini-data");
-        write_instance_spec(tmp.path(), &spec).expect("write");
-        let path = instance_spec_path(tmp.path(), "mini-data");
+        let active = sample_spec("inst-a", "mini-data");
+        publish_active_instance_spec(tmp.path(), &active).expect("publish active");
+        let candidate = sample_spec("inst-b", "mini-data");
+        write_instance_spec(tmp.path(), &candidate).expect("write candidate");
+        let path = instance_spec_path(tmp.path(), "mini-data", "inst-b");
         assert!(path.exists());
         assert!(path
             .to_string_lossy()
-            .contains("deploy/runtime/apps/mini-data/spec.json"));
+            .contains("deploy/runtime/apps/mini-data/instances/inst-b/spec.json"));
         let back = read_instance_spec_for_app(tmp.path(), "mini-data").expect("read app");
         assert_eq!(back.instance_id, "inst-a");
-        let by_id = read_instance_spec(tmp.path(), "inst-a").expect("read id");
+        let by_id = read_instance_spec(tmp.path(), "inst-b").expect("read id");
         assert_eq!(by_id.app_id, "mini-data");
+    }
+
+    #[test]
+    fn clearing_retired_instance_preserves_active_sibling() {
+        let tmp = tempfile::tempdir().expect("temp");
+        let active = sample_spec("inst-a", "mini-data");
+        let retired = sample_spec("inst-b", "mini-data");
+        publish_active_instance_spec(tmp.path(), &active).expect("active");
+        write_instance_spec(tmp.path(), &retired).expect("retired");
+        clear_instance_ephemeral_runtime(tmp.path(), "mini-data", "inst-b").expect("clear");
+        assert!(instance_spec_path(tmp.path(), "mini-data", "inst-a").exists());
+        assert!(!instance_spec_path(tmp.path(), "mini-data", "inst-b").exists());
+        assert_eq!(
+            read_instance_spec_for_app(tmp.path(), "mini-data")
+                .expect("active pointer")
+                .instance_id,
+            "inst-a"
+        );
     }
 
     #[test]

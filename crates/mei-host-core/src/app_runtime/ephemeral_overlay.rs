@@ -16,7 +16,7 @@ use mei_lang_kernel::{RuntimeMode, RuntimePlan, RuntimePlanApp, RuntimePlanTarge
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::paths::instance_runtime_root;
+use super::paths::app_ephemeral_runtime_root;
 
 pub const SCHEMA_RUNTIME_OVERLAY_V1: &str = "mei-runtime-overlay-v1";
 
@@ -54,7 +54,7 @@ pub enum RuntimeOverlayError {
 }
 
 fn overlay_path(workspace: &Path, app_id: &str) -> PathBuf {
-    instance_runtime_root(workspace, app_id).join("runtime-overlay.json")
+    app_ephemeral_runtime_root(workspace, app_id).join("runtime-overlay.json")
 }
 
 fn parse_mode(value: &str) -> Option<RuntimeMode> {
@@ -80,10 +80,7 @@ fn memory_overlays() -> &'static Mutex<BTreeMap<String, RuntimePolicyOverlay>> {
     CELL.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-pub fn read_runtime_overlay(
-    workspace: &Path,
-    app_id: &str,
-) -> Option<RuntimePolicyOverlay> {
+pub fn read_runtime_overlay(workspace: &Path, app_id: &str) -> Option<RuntimePolicyOverlay> {
     if let Ok(guard) = memory_overlays().lock() {
         if let Some(overlay) = guard.get(app_id) {
             return Some(overlay.clone());
@@ -304,10 +301,7 @@ mod tests {
                             mode: RuntimeMode::Frozen,
                         },
                     ],
-                    metric_overrides: BTreeMap::from([(
-                        "warnings_count".into(),
-                        RuntimeMode::Hot,
-                    )]),
+                    metric_overrides: BTreeMap::from([("warnings_count".into(), RuntimeMode::Hot)]),
                 },
             )]),
         };

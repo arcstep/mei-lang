@@ -11,9 +11,51 @@ use serde_json::json;
 
 use crate::state::SharedRuntimeState;
 
-/// Paths that may be probed without an instance token (supervisor health).
+/// Paths that may be probed without an instance token (supervisor health/ready).
 pub fn is_public_health_path(path: &str) -> bool {
-    matches!(path, "/api/app-runtime/health" | "/api/plug-ds/health")
+    matches!(
+        path,
+        "/api/app-runtime/health" | "/api/app-runtime/ready" | "/api/plug-ds/health"
+    )
+}
+
+/// Reject Access/data-plane traffic until bootstrap/warmup flips `ready`.
+/// Keeps `/health` + `/ready` available so Host can wait without hanging proxies.
+pub async fn require_ready_for_data_plane(
+    State(state): State<SharedRuntimeState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    if is_public_health_path(path.as_str()) || path == "/api/app-runtime/meta" {
+        return next.run(request).await;
+    }
+    let snap = state.snapshot();
+    if snap.ready {
+        return next.run(request).await;
+    }
+    let phase = match snap.phase {
+        mei_host_core::InstancePhase::Queued => "queued",
+        mei_host_core::InstancePhase::Building => "building",
+        mei_host_core::InstancePhase::Launching => "launching",
+        mei_host_core::InstancePhase::Importing => "importing",
+        mei_host_core::InstancePhase::Snapshotting => "snapshotting",
+        mei_host_core::InstancePhase::Warming => "warming",
+        mei_host_core::InstancePhase::Ready => "ready",
+        mei_host_core::InstancePhase::Failed => "failed",
+        mei_host_core::InstancePhase::Stopped => "stopped",
+    };
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({
+            "error": "app-runtime not ready",
+            "kind": "app-runtime-not-ready",
+            "phase": phase,
+            "lastError": snap.last_error,
+            "appId": state.app_id(),
+        })),
+    )
+        .into_response()
 }
 
 pub async fn require_instance_token(
@@ -115,6 +157,7 @@ mod tests {
     #[test]
     fn health_paths_are_public() {
         assert!(is_public_health_path("/api/app-runtime/health"));
+        assert!(is_public_health_path("/api/app-runtime/ready"));
         assert!(is_public_health_path("/api/plug-ds/health"));
         assert!(!is_public_health_path("/api/app-runtime/meta"));
         assert!(!is_public_health_path("/api/host/view-revision"));

@@ -28,8 +28,8 @@ fn document_from_manifest(
     manifest: &AppManifest,
 ) -> Result<AppLaunchDocument, AppLaunchError> {
     let value = manifest.to_launch_json_value(app_id);
-    let mut config: AppLaunchConfig = serde_json::from_value(value)
-        .map_err(|e| AppLaunchError::InvalidJson(e.to_string()))?;
+    let mut config: AppLaunchConfig =
+        serde_json::from_value(value).map_err(|e| AppLaunchError::InvalidJson(e.to_string()))?;
     if config.app_id.trim().is_empty() {
         config.app_id = app_id.to_string();
     } else if config.app_id != app_id {
@@ -46,12 +46,7 @@ fn document_from_manifest(
     Ok(AppLaunchDocument {
         id: "launch".to_string(),
         path: rel_display(workspace, &path),
-        revision: revision_hash(
-            manifest
-                .source_raw
-                .as_deref()
-                .unwrap_or(raw.as_str()),
-        ),
+        revision: revision_hash(manifest.source_raw.as_deref().unwrap_or(raw.as_str())),
         config,
     })
 }
@@ -200,10 +195,7 @@ pub fn write_launch_config(
     })
 }
 
-fn migrate_legacy_launch_if_needed(
-    workspace: &Path,
-    app_id: &str,
-) -> Result<(), AppLaunchError> {
+fn migrate_legacy_launch_if_needed(workspace: &Path, app_id: &str) -> Result<(), AppLaunchError> {
     let canonical = launch_json_path(workspace, app_id);
     if canonical.is_file() {
         return Ok(());
