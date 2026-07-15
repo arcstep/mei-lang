@@ -10,35 +10,42 @@ use mei_lang_kernel::WorkspaceAppMeta;
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+    let Ok(root) = candidate.canonicalize() else {
+        return None;
+    };
+    if root.join("workspace.json").is_file() {
+        Some(root)
+    } else {
+        None
+    }
 }
 
-fn zhifa_bundle() -> PathBuf {
-    ws_demo_v2().join("apps/zhifa/env/current/build/exchange/zhifa.meibundle")
+fn zhifa_bundle(workspace: &std::path::Path) -> PathBuf {
+    workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle")
 }
 
-fn ensure_zhifa_imported() -> PathBuf {
-    let workspace = ws_demo_v2();
+/// Local monorepo optional. Returns `None` when `ws-demo-v2` is not beside mei-lang.
+fn ensure_zhifa_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
+        let bundle = zhifa_bundle(&workspace);
         assert!(
-            zhifa_bundle().is_file(),
-            "run `mei-compiler compile --workspace ws-demo-v2 --app zhifa` first"
+            bundle.is_file(),
+            "run `mei-compiler compile --workspace <ws-demo-v2> --app zhifa` first"
         );
         let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
             &ImportOptions {
-                bundle_path: Some(zhifa_bundle()),
+                bundle_path: Some(bundle),
             },
         )
         .expect("import zhifa bundle");
         clear_assemble_cache_for_app("zhifa");
     });
-    workspace
+    Some(workspace)
 }
 
 fn enforcement_body_cell_style(html: &str) -> String {
@@ -61,7 +68,10 @@ fn enforcement_body_cell_style(html: &str) -> String {
 
 #[test]
 fn zhifa_home_ssr_applies_titled_shell_body_padding() {
-    let workspace = ensure_zhifa_imported();
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -156,7 +166,10 @@ fn zhifa_home_ssr_applies_titled_shell_body_padding() {
 
 #[test]
 fn zhifa_home_layer_plan_includes_t1_viewport_chrome() {
-    let workspace = ensure_zhifa_imported();
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -234,7 +247,10 @@ fn panel_has_layout_fill(contract: &mei_lang_kernel::SceneContract, panel_id: &s
 
 #[test]
 fn zhifa_right_rail_sections_have_no_layout_policy_overflow() {
-    let workspace = ensure_zhifa_imported();
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -265,7 +281,10 @@ fn zhifa_right_rail_sections_have_no_layout_policy_overflow() {
 
 #[test]
 fn zhifa_theme_layout_merges_via_index() {
-    let workspace = ensure_zhifa_imported();
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");

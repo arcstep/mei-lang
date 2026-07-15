@@ -1,0 +1,30 @@
+---
+description: 禁止 mei-lang 公开仓库/CI 硬依赖本机 monorepo 的 workspaces 路径
+alwaysApply: true
+---
+
+# mei-lang 禁止依赖 sibling workspaces 路径
+
+## 硬约束
+
+- `ws-demo-v2`（及整个 `workspaces/`）**不能、也不会**发布到 GitHub。
+- 公开发布的 `mei-lang` 仓库（含 `.github/workflows/**`）**禁止**假定存在：
+  - `../workspaces/ws-demo-v2`
+  - `../../workspaces/ws-demo-v2`
+  - 任何「与 mei-lang 并列的 monorepo sibling」路径。
+- GitHub Actions **禁止** `checkout` / `locate` / `compile --workspace` 指向上述路径；找不到时 **禁止** `exit 1` 硬失败。
+
+## 允许 vs 禁止
+
+| 场景 | 允许？ | 要求 |
+|------|--------|------|
+| 运行时 `--workspace <path>` 由调用方传入 | ✅ | 路径由 CLI/配置注入，不写死 sibling |
+| 本地可选集成测试读 monorepo 旁路 | ✅ | **缺目录必须 skip**，禁止 `.expect("ws-demo-v2")` / `canonicalize().unwrap()` |
+| CI gate / workflow / 公开 fixture | ✅ | 只用 `mei-lang` 仓库内自包含资源 |
+| CI 硬依赖 `workspaces/ws-demo-v2` | ❌ | 一律禁止 |
+
+## 落地要求
+
+- 改 `.github/workflows/**` 时：不得新增对 `workspaces/` 或 `ws-demo-v2` 的引用。
+- 新增/修改依赖演示工作区的测试：用「存在则跑、不存在则 skip」；CI 门禁用 kernel 单测或 `mei-lang` 内 fixture。
+- 不要为了让 CI 变绿而把私有工作区打进 `mei-lang` 仓库。

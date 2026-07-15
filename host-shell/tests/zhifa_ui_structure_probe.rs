@@ -8,15 +8,21 @@ use std::sync::Once;
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+    let Ok(root) = candidate.canonicalize() else {
+        return None;
+    };
+    if root.join("workspace.json").is_file() {
+        Some(root)
+    } else {
+        None
+    }
 }
 
-fn ensure_imported() -> PathBuf {
-    let workspace = ws_demo_v2();
+/// Local monorepo optional. Returns `None` when `ws-demo-v2` is not beside mei-lang.
+fn ensure_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
         let bundle =
             workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
@@ -30,7 +36,7 @@ fn ensure_imported() -> PathBuf {
         .expect("import");
         clear_assemble_cache_for_app("zhifa");
     });
-    workspace
+    Some(workspace)
 }
 
 fn find_panel_by_id<'a>(
@@ -54,8 +60,12 @@ fn find_panel_by_id<'a>(
 
 #[test]
 fn zhifa_map_stage_resolves_maplibre_in_region_tree() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let contract = outcome.compiled.scene_contract.as_ref().unwrap();
@@ -153,8 +163,12 @@ fn zhifa_map_stage_resolves_maplibre_in_region_tree() {
 
 #[test]
 fn zhifa_ui_structure_includes_header_section() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let header = find_panel_by_id(
@@ -187,8 +201,12 @@ fn zhifa_ui_structure_includes_header_section() {
 
 #[test]
 fn zhifa_ui_structure_includes_left_rail_sections() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let left_rail = find_panel_by_id(
@@ -232,8 +250,12 @@ fn zhifa_ui_structure_includes_left_rail_sections() {
 
 #[test]
 fn zhifa_penalty_section_surfaces_contract_level_charts() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let ui = build_ui_layout_index(&outcome.compiled);
@@ -270,8 +292,12 @@ fn zhifa_penalty_section_surfaces_contract_level_charts() {
 
 #[test]
 fn zhifa_assemble_accepts_legacy_assembly_scene_id() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "assembly")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "assembly")
             .expect("assemble")
             .expect("home via assembly alias");
     assert_eq!(
@@ -283,8 +309,12 @@ fn zhifa_assemble_accepts_legacy_assembly_scene_id() {
 
 #[test]
 fn zhifa_warnings_drilldown_has_runtime_projection_slots() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
     let outcome =
-        assemble_scope_from_registry(ensure_imported().as_path(), "zhifa", "home")
+        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
             .expect("assemble")
             .expect("home");
     let mut assembly = outcome
