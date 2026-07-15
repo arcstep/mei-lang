@@ -4,9 +4,8 @@
 
 优先使用：
 
-- `app_skeleton(...)`
-- `navigation(...)`
-- `scene(...)`
+- `app.toml`（`title` / `default_stage`）+ `src/stage/*.stage.mdx`
+- `scene(...)`（`app_skeleton` / access `navigation` 由编译器合成）
 - `plane_layout(...)` / `region_layout(...)` / `section_layout(...)`
 - `section_shell(...)`
 - `content_panel(...)`（`content.mei` 作者名；源码样板常写作 `content_panel(...)`）
@@ -39,6 +38,13 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 - Fill-down：region `Nfr` → section stretch → slot fill → content **不设 px 高度**
 - `key` 镜像目录：`{app}/{scene}/t*/r-*/s-*`
 - T2 文档术语：**page_instance**（实现叶子可能仍是 `page_instance`，勿当推荐新路径名）
+
+## 语言身份（编辑器）
+
+- `.mei` 的正式 language id 是 **`mei`**（扩展 `mei-lang-vscode`），不是 Python / Starlark。
+- 表面借鉴 Python 风格（`#`、`True`/`False`/`None`、调用式构造器），语义真源是 **`mei-syntax`**。
+- 作者策略会拒绝 `for` / `while` / `lambda` / `load` / `import` / `open` 等（world 文件另有限例外）；不要按 Starlark 控制流来写 `.mei`。
+- 编辑器安装与排障：`.mei/knowledge/author/language-and-editor-recognition.md`
 
 ## 组件绑定
 

@@ -1,6 +1,6 @@
 ---
 name: meilang-author
-description: 创建、修改、审查、修复、编译、预构建、发布前校验或性能比较 MeiLang `.mei` / scene / dataset / metric 时使用。作者态主线是“源码 + knowledge + mei-toolchain CLI + mei-lsp + 外部开发工具”，默认优先 scoped build / 增量 prebuild，而不是提示重启宿主。
+description: 创建、修改、审查、修复、编译、预构建、发布前校验或性能比较 MeiLang `.mei` / scene / dataset / metric 时使用。作者态主线是“源码 + knowledge + mei-lang-vscode（language id mei）+ mei-toolchain CLI + mei-lsp + 外部开发工具”，默认优先 scoped build / 增量 prebuild，而不是提示重启宿主。
 ---
 
 # MeiLang Author（短入口）
@@ -10,10 +10,13 @@ description: 创建、修改、审查、修复、编译、预构建、发布前�
 
 MeiLang 当前作者态的主线是：
 
-1. **先读当前 `.mei` 源码与 workspace-local 文本知识**
-2. **再用 `mei-toolchain check` / `mei-lsp` 收 diagnostics**
-3. **只在需要 runtime/world 事实时才用 inspect/query/runtime**
-4. **正式文件写入始终由外部开发工具完成**
+1. **先确认编辑器用 language id `mei` 识别 `.mei`**（扩展 `mei-lang-vscode`；勿长期用 `files.associations` 绑到 python/starlark）
+2. **先读当前 `.mei` 源码与 workspace-local 文本知识**
+3. **再用 `mei-toolchain check` / `mei-lsp` 收 diagnostics**
+4. **只在需要 runtime/world 事实时才用 inspect/query/runtime**
+5. **正式文件写入始终由外部开发工具完成**
+
+编辑器识别说明：`.mei/knowledge/author/language-and-editor-recognition.md`（源码仓：`knowledge/editor-runtime/language-and-editor-recognition.md` / `extensions/mei-lang-vscode/README.md`）。
 
 ## Workspace-local 入口
 
@@ -22,13 +25,14 @@ MeiLang 当前作者态的主线是：
 1. `.mei/profiles/author.md`
 2. 同目录下的 `authoring.md`、`syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
 3. `.mei/knowledge/author/authoring-overview.md`
-4. `.mei/knowledge/author/workflow-recipes.md`
-5. `.mei/knowledge/author/build-debug-ops.md`
-6. `.mei/knowledge/author/workspace-config-reference.md`
-7. `.mei/knowledge/author/components/*`
-8. `.mei/knowledge/author/templates/*`
-9. `.mei/knowledge/author/examples/*`
-10. `.mei/knowledge/author/extension-authoring.md`
+4. `.mei/knowledge/author/language-and-editor-recognition.md`
+5. `.mei/knowledge/author/workflow-recipes.md`
+6. `.mei/knowledge/author/build-debug-ops.md`
+7. `.mei/knowledge/author/workspace-config-reference.md`
+8. `.mei/knowledge/author/components/*`
+9. `.mei/knowledge/author/templates/*`
+10. `.mei/knowledge/author/examples/*`
+11. `.mei/knowledge/author/extension-authoring.md`
 
 源码包目录对应：
 
@@ -69,14 +73,15 @@ T2 用 **page_instance** 术语（实现侧 `page_instance` 正在改名）；�
 
 ## 推荐顺序
 
-1. 先读当前任务相关的 `.mei`、相邻 `layout.mei` / `content.mei`、`stock/templates` 与 `stock/components`。
-2. 再读 `.mei/profiles/author.md` 与同目录 skill companion 文档。
-3. 跑 `mei-toolchain check --app <app> --source-root <workspace> --json`；编辑器内反馈走 `mei-lsp`。
-4. 需要 app / 别名 / discover 视图时再跑 `mei-toolchain workspace summary --source-root <workspace> --json`。
-5. bootstrap / create-app / 配置 / 主题：补读 `.mei/knowledge/author/workspace-config-reference.md`。
-6. 新组件 / 新模板：先读 `.mei/knowledge/author/extension-authoring.md`。
-7. 源码与 packaged knowledge 仍不足时，再读 `stock/**/README.md`。
-8. 仍需 runtime/world 真值时，再跑 `inspect/query/runtime`。
+1. 确认 Cursor / VS Code 中 `.mei` 语言模式为 **MeiLang**（已装 `mei-lang-vscode`，且无 associations 盖过）。
+2. 先读当前任务相关的 `.mei`、相邻 `layout.mei` / `content.mei`、`stock/templates` 与 `stock/components`。
+3. 再读 `.mei/profiles/author.md` 与同目录 skill companion 文档。
+4. 跑 `mei-toolchain check --app <app> --source-root <workspace> --json`；编辑器内反馈走 `mei-lsp`。
+5. 需要 app / 别名 / discover 视图时再跑 `mei-toolchain workspace summary --source-root <workspace> --json`。
+6. bootstrap / create-app / 配置 / 主题：补读 `.mei/knowledge/author/workspace-config-reference.md`。
+7. 新组件 / 新模板：先读 `.mei/knowledge/author/extension-authoring.md`。
+8. 源码与 packaged knowledge 仍不足时，再读 `stock/**/README.md`。
+9. 仍需 runtime/world 真值时，再跑 `inspect/query/runtime`。
 
 ## 运行中宿主的默认处理原则
 
@@ -90,7 +95,7 @@ T2 用 **page_instance** 术语（实现侧 `page_instance` 正在改名）；�
 
 ## 当前作者态主线
 
-- 应用入口：`app.mei` 中的 `app_skeleton(...)` + `navigation(...)`
+- 应用入口：`app.toml`（`title` / `default_stage`）；Stage Registry = `src/stage/*.stage.mdx` + `src/presentation/**/*.deck.mdx`；`app_skeleton` 由编译器从 toml 合成
 - 场景入口：`scene/.../assembly.mei` 中的 `scene(...)` + `planes = [plane_ref(...)]`
 - 结构主线：上表 layout 链；`region_layout` 只挂 `section_ref(...)`
 - UI 内容：`content_panel`（`content.mei`）内 `grid` + slot + `component` / `metric_card` / 业务宏

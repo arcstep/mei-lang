@@ -22,6 +22,13 @@
 
 - `mei-toolchain check --app <app> --source-root <workspace> --json`
 - `mei-lsp` inside the editor for faster feedback
+- Install `mei-lang-vscode` so `.mei` uses language id `mei` (see `language-and-editor-recognition.md`)
+
+## Editor recognition issues
+
+- `.mei` shows as Python / Starlark / plain text: install `mei-lang-vscode`, then remove any `files.associations` that force `*.mei` to another language, and reload the window
+- Highlighting works but no diagnostics: build or install `mei-lsp` (`.mei/runtime/bin/mei-lsp`) and optionally set `mei.lsp.path`
+- Status bar is not **MeiLang**: use “Change Language Mode” → MeiLang, or reinstall the extension
 
 ## Common standalone issues
 

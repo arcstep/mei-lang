@@ -5,10 +5,13 @@
 作者态默认协作方式：
 
 - **外部开发工具**负责读写文件、重构、搜索、多文件修改
+- **`mei-lang-vscode`** 负责 language id `mei`、语法着色，并挂载 `mei-lsp`
 - **MeiLang CLI / LSP** 负责 diagnostics，以及在需要 runtime/world 事实时提供 inspect/query
 - **MeiLang 宿主内置 AI** 不再承担编辑侧主线
 
 不要再假设存在：`skill_list` / `skill_read` / `rewrite_current_mei`。
+
+不要把 `.mei` 长期 `files.associations` 到 `python` / `starlark`；那只是未装扩展时的过渡。安装与排障见 `.mei/knowledge/author/language-and-editor-recognition.md`。
 
 ## 布局心智（先记这一条）
 
@@ -42,9 +45,10 @@ scene → plane_layout → region_layout → section_layout + section_shell → 
 1. 当前 `app.mei` / `assembly.mei` / 目标 `layout.mei` / `content.mei`
 2. 相邻 `t*/r-*/s-*` 树与 `stock/templates` / `stock/components`
 3. `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
-4. `.mei/knowledge/author/workspace-config-reference.md`
-5. `.mei/knowledge/author/components/*`、`templates/*`
-6. 相近 example（优先 zhifa / mini-park）
+4. `.mei/knowledge/author/language-and-editor-recognition.md`（确认 MeiLang 语言模式与 `mei-lsp`）
+5. `.mei/knowledge/author/workspace-config-reference.md`
+6. `.mei/knowledge/author/components/*`、`templates/*`
+7. 相近 example（优先 zhifa / mini-park）
 
 作者态默认 **source-first + knowledge-first**。不要先把 `inspect summary` / `workspace summary` 当源码替代品。
 
@@ -101,14 +105,15 @@ curl -X POST http://127.0.0.1:9527/api/host/build \
 
 ## 当前主线写法
 
-1. `src/app.mei`：`app_skeleton` + `navigation`
-2. `src/scene/{id}/assembly.mei`：薄 `scene` + `plane_ref`
-3. `t*/layout.mei`：`plane_layout` + `region_ref`
-4. `r-*/layout.mei`：`region_layout` + `section_ref`（仅此）
-5. `s-*/layout.mei`：`section_layout` + `section_shell`（或裸 `content_panel` shell）
-6. `content.mei`：`content_panel` + `grid` + blocks（组件 / metric / 业务宏）
-7. T2：同构树 + `link_decl`；叶子按 **page_instance** 理解（实现名可能仍是 `page_instance`）
-8. world / map / view 外置，content 层 `*_ref` 引用
+1. `app.toml`：`title` / `default_stage`（App 根；无 `src/app.mei`）
+2. `src/stage/{id}.stage.mdx`：Stage Program（access navigation 由编译器从 MDX 合成）
+3. `src/scene/{id}/assembly.mei`：薄 `scene` + `plane_ref`
+4. `t*/layout.mei`：`plane_layout` + `region_ref`
+5. `r-*/layout.mei`：`region_layout` + `section_ref`（仅此）
+6. `s-*/layout.mei`：`section_layout` + `section_shell`（或裸 `content_panel` shell）
+7. `content.mei`：`content_panel` + `grid` + blocks（组件 / metric / 业务宏）
+8. T2：同构树 + `link_decl`；叶子按 **page_instance** 理解（实现名可能仍是 `page_instance`）
+9. world / map / view 外置，content 层 `*_ref` 引用
 
 ## typed ref
 
@@ -121,8 +126,9 @@ curl -X POST http://127.0.0.1:9527/api/host/build \
 ## 文件组织
 
 ```text
+app.toml
 src/
-  app.mei
+  stage/home.stage.mdx
   scene/home/
     assembly.mei
     t0/ ... t1/ ... t2/
@@ -152,6 +158,7 @@ src/
 
 ## 版本口径
 
-- 应用入口：`app_skeleton` + `navigation`（不是旧 `app(...)` / `entry`）
-- 页面选路：`default_scene` + `scene` + `assembly_ref`
+- 应用入口：`app.toml`（不是 `app.mei` / 旧 `app(...)` / `entry.main`）
+- 默认 Stage：`app.toml` 的 `default_stage`；Registry 枚举 Stage MDX
+- 页面选路：Stage MDX `@scene` → Scene assembly
 - 编辑侧自动化：`mei-toolchain mcp describe --surface author --json`

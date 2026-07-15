@@ -82,7 +82,7 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web
 ## 当前边界
 
 - **编辑侧**：默认交给 `Cursor / Codex / Claude Code / OpenCode` 等外部开发工具；`mei-lang` 提供 DSL、编译/lowering、宿主/runtime，以及后续可供这些工具消费的 `CLI / LSP / MCP` 接口。
-- **编辑器识别**：Cursor / VS Code 可侧载本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate 着色 + `mei-lsp`）。详见该目录 README。
+- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`）。作者态打包说明见 [`knowledge/editor-runtime/language-and-editor-recognition.md`](knowledge/editor-runtime/language-and-editor-recognition.md)。
 - **访问侧**：`mei-lang` 宿主内置访问侧 AI，围绕当前 `scene/world/runtime` 做问答、查询、解释与临时视图。
 - **仓库内 skill / agent 相关实现**：当前仍有部分历史 authoring Agent 代码与配置表面，正在逐步从编辑侧主线退出。
 

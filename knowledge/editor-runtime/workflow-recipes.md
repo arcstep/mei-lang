@@ -27,6 +27,21 @@ mei-toolchain workspace runtime install --source-root /path/to/workspace --force
 
 Use `workspace runtime update` for day-2 refreshes when the source workspace already exists and you want to rebuild `.mei/` without touching `.mei/local/**`.
 
+## Recognize `.mei` in Cursor / VS Code
+
+Install the MeiLang language extension from the `mei-lang` source tree:
+
+```bash
+cd /path/to/mei-lang/extensions/mei-lang-vscode
+npm install
+npm run package
+cursor --install-extension ./mei-lang-*.vsix
+```
+
+Then open any `.mei` file and confirm the language mode is **MeiLang**. Prefer this over `files.associations` remaps to Python/Starlark.
+
+Packaged guide after runtime install: `.mei/knowledge/author/language-and-editor-recognition.md`.
+
 ## Start the host
 
 ```bash

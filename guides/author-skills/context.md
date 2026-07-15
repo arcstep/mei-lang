@@ -8,13 +8,14 @@
 2. 对应 example：`zhifa`、`mini-park` 的 `src/scene/**`
 3. `.mei/profiles/author.md`
 4. 同目录的 `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`
-5. `.mei/knowledge/author/workspace-config-reference.md`
-6. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
-7. `.mei/knowledge/author/authoring-overview.md`、`workflow-recipes.md`、`build-debug-ops.md`
-8. `.mei/knowledge/author/extension-authoring.md`
-9. `mei-toolchain knowledge --surface author --include-content --json`
-10. 仍不足时再读 `.stock/**/README.md`
-11. 最后才看相关 component 实现
+5. `.mei/knowledge/author/language-and-editor-recognition.md`
+6. `.mei/knowledge/author/workspace-config-reference.md`
+7. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
+8. `.mei/knowledge/author/authoring-overview.md`、`workflow-recipes.md`、`build-debug-ops.md`
+9. `.mei/knowledge/author/extension-authoring.md`
+10. `mei-toolchain knowledge --surface author --include-content --json`
+11. 仍不足时再读 `.stock/**/README.md`
+12. 最后才看相关 component 实现
 
 ## 读取原则
 
@@ -23,6 +24,7 @@
 - 先看例子，再抽象规则
 - `inspect summary` / `workspace summary` 只当路由摘要，不当源码替代品
 - 不要默认回源 `docs/` 找另一套规则；优先 packaged knowledge
+- `.mei` 着色 / 语言模式问题优先 `language-and-editor-recognition.md`（装 `mei-lang-vscode`，勿长期 associations）
 - bootstrap / config / theme / upload 优先 `workspace-config-reference.md`
 - 新组件 / 新模板优先 `extension-authoring.md`
 

@@ -8,10 +8,21 @@
 
 - 围绕当前 `.mei` 源码做结构化修改
 - 读取稳定语法、组件与示例知识
-- 依赖 `mei-toolchain check` / `mei-lsp` 收敛 diagnostics
+- 在 Cursor / VS Code 中用 **language id `mei`**（扩展 `mei-lang-vscode`）获得着色，并用 `mei-lsp` / `mei-toolchain check` 收敛 diagnostics
 - 只在需要 runtime/world 事实时调用 `inspect/query/runtime`
 
 因此，作者态默认应是 **source-first + diagnostics-first**，而不是 world-first。
+
+## 编辑器识别（先装再写）
+
+1. 安装 `mei-lang` 仓库中的 [`extensions/mei-lang-vscode`](../extensions/mei-lang-vscode/README.md)（VSIX / Install from Location / F5）。
+2. 打开 `.mei` 后，状态栏语言模式应为 **MeiLang**。
+3. **不要**长期依赖 `"files.associations": { "*.mei": "python" }` 或 `starlark`；那只是过渡，且可能盖过正式扩展。
+4. 确保 `mei-lsp` 可达：工作区 `.mei/runtime/bin/mei-lsp`，或设置 `mei.lsp.path`。
+
+打包说明（runtime install 后）：`.mei/knowledge/author/language-and-editor-recognition.md`。
+
+MeiLang 作者面是独立的 `mei-syntax` DSL（Python 风格表面），**不是** Starlark 方言。
 
 ## Catalog 真源
 
@@ -40,22 +51,24 @@ mei-toolchain knowledge --surface author --json
 8. `.mei/skills/meilang-author/components-reference.md`
 9. `.mei/skills/meilang-author/context.md`
 10. `.mei/knowledge/author/workspace-config-reference.md`
-11. `.mei/knowledge/author/components/*`
-12. `.mei/knowledge/author/templates/*`
-13. `.mei/knowledge/author/examples/*`
-14. `.mei/knowledge/author/extension-authoring.md`
-15. `mei-toolchain check --app <app> --source-root <workspace> --json`
-16. `mei-lsp` diagnostics / symbol / hover / definition / completion
+11. `.mei/knowledge/author/language-and-editor-recognition.md`
+12. `.mei/knowledge/author/components/*`
+13. `.mei/knowledge/author/templates/*`
+14. `.mei/knowledge/author/examples/*`
+15. `.mei/knowledge/author/extension-authoring.md`
+16. `mei-toolchain check --app <app> --source-root <workspace> --json`
+17. `mei-lsp` diagnostics / symbol / hover / definition / completion
 
 ## 默认顺序
 
 1. 先读当前 target `.mei` 与相邻 scene / template / `_components`。
-2. 再读 workspace-local packaged authoring knowledge，而不是去源码仓库里额外找一套 docs。
-3. 先跑 `mei-toolchain check` 或看 `mei-lsp`，把 diagnostics 当成主要机器反馈。
-4. 涉及 bootstrap、create-app、`.mei-workspace.json`、`.mei-config.json`、`theme_ref(...)` 或 upload source 时，先读 `.mei/knowledge/author/workspace-config-reference.md`。
-5. 涉及新组件 / 新模板 / provider 扩展时，先读 `.mei/knowledge/author/extension-authoring.md`，明确任务是否已经离开普通 author 链。
-6. 只有当 packaged knowledge 仍然没有答案时，才把 `.stock/**/README.md` 或实现文件当成最后兜底来源。
-7. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
+2. 确认编辑器已用 **MeiLang** 识别 `.mei`（扩展 + `mei-lsp`）；详见 `language-and-editor-recognition.md`。
+3. 再读 workspace-local packaged authoring knowledge，而不是去源码仓库里额外找一套 docs。
+4. 先跑 `mei-toolchain check` 或看 `mei-lsp`，把 diagnostics 当成主要机器反馈。
+5. 涉及 bootstrap、create-app、`.mei-workspace.json`、`.mei-config.json`、`theme_ref(...)` 或 upload source 时，先读 `.mei/knowledge/author/workspace-config-reference.md`。
+6. 涉及新组件 / 新模板 / provider 扩展时，先读 `.mei/knowledge/author/extension-authoring.md`，明确任务是否已经离开普通 author 链。
+7. 只有当 packaged knowledge 仍然没有答案时，才把 `.stock/**/README.md` 或实现文件当成最后兜底来源。
+8. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
 
 ## Access 的边界
 
@@ -68,8 +81,10 @@ mei-toolchain knowledge --surface author --json
 
 ### 语言服务
 
+- Cursor / VS Code 扩展：`mei-lang-vscode`（language id `mei` + TextMate + LSP 客户端）
 - `mei-lsp`
 - `mei-toolchain check --app <app> --source-root <workspace> --json`
+- 打包说明：`.mei/knowledge/author/language-and-editor-recognition.md`
 
 ### 结构与 discover
 

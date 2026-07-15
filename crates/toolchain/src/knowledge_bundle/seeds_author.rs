@@ -133,6 +133,16 @@ pub(super) fn author_assets() -> Vec<AssetSeed> {
             injection_roles: &["system", "bootstrap"],
         },
         AssetSeed {
+            id: "language_and_editor_recognition",
+            topic: "editor",
+            kind: "guide",
+            title: "Language And Editor Recognition",
+            rel_path: "knowledge/editor-runtime/language-and-editor-recognition.md",
+            install_rel_path: "runtime/platform/knowledge/author/language-and-editor-recognition.md",
+            summary: "How to register language id mei, install mei-lang-vscode, and wire mei-lsp in Cursor/VS Code.",
+            injection_roles: &["system", "editor", "bootstrap"],
+        },
+        AssetSeed {
             id: "workspace_config_reference",
             topic: "config",
             kind: "guide",
