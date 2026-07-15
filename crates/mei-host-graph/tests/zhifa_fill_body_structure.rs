@@ -11,16 +11,13 @@ use mei_lang_kernel::DataMode;
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn ensure_zhifa_imported() {
+fn ensure_zhifa_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
-        let workspace = ws_demo_v2();
         let bundle =
             workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         if !bundle.is_file() {
@@ -36,13 +33,15 @@ fn ensure_zhifa_imported() {
         .expect("import zhifa bundle");
         clear_assemble_cache_for_app("zhifa");
     });
+    Some(workspace)
 }
 
-fn assemble_zhifa_home() -> mei_host_graph::AssembleOutcome {
-    ensure_zhifa_imported();
-    assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
+fn assemble_zhifa_home() -> Option<(PathBuf, mei_host_graph::AssembleOutcome)> {
+    let workspace = ensure_zhifa_imported()?;
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
-        .expect("home outcome")
+        .expect("home outcome");
+    Some((workspace, outcome))
 }
 
 fn structure_scope_count(structure: &StructureFullDocument, needle: &str) -> usize {
@@ -55,7 +54,10 @@ fn structure_scope_count(structure: &StructureFullDocument, needle: &str) -> usi
 
 #[test]
 fn zhifa_enforcement_and_issue_export_body_structure() {
-    let outcome = assemble_zhifa_home();
+    let Some((_workspace, outcome)) = assemble_zhifa_home() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
 
     let structure = build_structure_full_document(&outcome.compiled, "test");
     assert!(
@@ -95,7 +97,10 @@ fn zhifa_enforcement_and_issue_export_body_structure() {
 
 #[test]
 fn zhifa_section_head_eval_slots_do_not_aggregate_scene_mounts() {
-    let outcome = assemble_zhifa_home();
+    let Some((workspace, outcome)) = assemble_zhifa_home() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let structure = build_structure_full_document(&outcome.compiled, "test");
 
     for scope_suffix in [
@@ -109,7 +114,7 @@ fn zhifa_section_head_eval_slots_do_not_aggregate_scene_mounts() {
             &structure,
             group.as_str(),
             DataMode::Eval,
-            Some(ws_demo_v2().as_path()),
+            Some(workspace.as_path()),
         );
         let mounts = doc
             .slots

@@ -9,15 +9,12 @@ use mei_host_graph::{
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2 workspace")
+fn ws_demo_v2_root() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 fn skip_if_data_demo_missing() -> Option<PathBuf> {
-    let workspace = ws_demo_v2_root();
+    let workspace = ws_demo_v2_root()?;
     if !workspace.join("apps/data-demo").is_dir() {
         return None;
     }
@@ -104,7 +101,10 @@ fn ws_demo_penalty_section_maps_to_page_scenes() {
 
 #[test]
 fn ws_demo_home_bootstrap_payload_includes_t2_neighbor_scopes() {
-    let workspace = ws_demo_v2_root();
+    let Some(workspace) = ws_demo_v2_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let manifest_dir = workspace.join("apps/data-demo/env/current/var/client-bootstrap");
     if !manifest_dir.is_dir() {
         eprintln!("skip: run data-demo prebuild to populate client-bootstrap manifests");

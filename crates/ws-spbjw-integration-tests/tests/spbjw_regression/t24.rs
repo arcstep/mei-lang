@@ -1,6 +1,6 @@
 use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
@@ -9,8 +9,14 @@ fn spbjw_shell_and_scene_theme_injection_use_separate_css_var_tracks() {
     use mei_lang_app::{page_body_theme_style, scene_viewport_theme_style};
     use mei_lang_kernel::load_workspace_config;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let workspace = load_workspace_config(&source_root);
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -18,6 +24,7 @@ fn spbjw_shell_and_scene_theme_injection_use_separate_css_var_tracks() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw home preview");
@@ -49,12 +56,19 @@ fn spbjw_live_ops_theme_overlay_overrides_compile_snapshot_without_recompile() {
     };
     use serde_json::json;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compile_options = CompileOptions {
         scene: None,
         preview_target: Some("scenes/home.mei".to_string()),
-    };
+            ..Default::default()
+        };
     let config_on_disk = load_mei_config_for_app(&app_root, Some(source_root.as_path()));
     let digest_before = mei_config_compile_revision_digest(&config_on_disk);
     let compiled = compile_app_from_root_with_options(&source_root, &app_root, compile_options)
@@ -100,8 +114,14 @@ fn spbjw_disk_config_font_28px_in_viewport_style() {
         compile_app_from_root_with_options, source_root, zhifa_app_root,
     };
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let config = load_mei_config_for_app(&app_root, Some(source_root.as_path()));
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -109,6 +129,7 @@ fn spbjw_disk_config_font_28px_in_viewport_style() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile");

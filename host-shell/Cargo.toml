@@ -34,3 +34,4 @@ http-body = "1"
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+mei-test-support = { path = "../crates/mei-test-support" }

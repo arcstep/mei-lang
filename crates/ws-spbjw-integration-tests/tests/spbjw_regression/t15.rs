@@ -6,8 +6,14 @@ use ws_spbjw_integration_tests::{
 
 #[test]
 fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +21,7 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -109,8 +116,14 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
 #[test]
 fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
     use ws_spbjw_integration_tests::MetricShape;
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/02-行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -118,6 +131,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw administrative inspection preview");
@@ -204,8 +218,14 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let preview_targets = [
         "scenes/03-指标体系.mei",
         "scenes/07-问题办理.mei",
@@ -237,7 +257,8 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
             CompileOptions {
                 scene: None,
                 preview_target: Some(target.to_string()),
-            },
+            ..Default::default()
+        },
         )
         .unwrap_or_else(|_| panic!("compile {target} preview"));
         for metric_id in metric_ids {

@@ -11,8 +11,14 @@ use ws_spbjw_integration_tests::{
 
 #[test]
 fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let capsule = "scenes/07-问题办理.mei";
     let owner = format!("__world_metrics__::{capsule}::metrics");
     let compiled = compile_app_from_root_with_options(
@@ -21,6 +27,7 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|e| panic!("compile home preview failed: {e}"));
@@ -98,6 +105,7 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         CompileOptions {
             scene: None,
             preview_target: Some(capsule.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|e| panic!("compile `{capsule}` preview failed: {e}"));
@@ -214,14 +222,21 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
 
 #[test]
 fn eval_spbjw_realtime_warnings_cockpit_table_rows_and_status() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|e| panic!("compile home preview failed: {e}"));
@@ -274,8 +289,14 @@ fn query_realtime_warning_detail_rowset_with_warning_id_filter() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
     use std::collections::BTreeMap;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/06-实时预警.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -283,6 +304,7 @@ fn query_realtime_warning_detail_rowset_with_warning_id_filter() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile realtime warnings preview");
@@ -348,8 +370,14 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
     use std::collections::BTreeMap;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let host_target = "scenes/06-实时预警.mei";
     let board_target = "scenes/_shared/warning-detail.card.board.mei";
     let compiled = compile_app_from_root_with_options(
@@ -358,6 +386,7 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
         CompileOptions {
             scene: None,
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile warning detail card board");
@@ -367,6 +396,7 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
         CompileOptions {
             scene: None,
             preview_target: Some(host_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile realtime warnings preview");
@@ -427,8 +457,14 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
 fn query_issue_handling_detail_rowset_via_issue_handling_detail_card_board() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/_shared/issue-clue-detail.card.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -436,6 +472,7 @@ fn query_issue_handling_detail_rowset_via_issue_handling_detail_card_board() {
         CompileOptions {
             scene: Some("issue_handling_detail_card_board".to_string()),
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile issue handling detail card board");

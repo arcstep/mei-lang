@@ -1925,10 +1925,19 @@ mod tests {
         use crate::mcg::registry::McgRegistryWriter;
         use std::path::PathBuf;
 
-        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-demo-v2")
-            .canonicalize()
-            .expect("ws-demo-v2");
+        fn optional_external_workspace() -> Option<PathBuf> {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        }
+
+        let Some(workspace) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
         let registry = McgRegistryWriter::load(workspace.as_path(), "mini-park");
         let exchange =
@@ -2073,10 +2082,19 @@ mod tests {
         use crate::mcg::registry::McgRegistryWriter;
         use std::path::PathBuf;
 
-        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-demo-v2")
-            .canonicalize()
-            .expect("ws-demo-v2");
+        fn optional_external_workspace() -> Option<PathBuf> {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        }
+
+        let Some(workspace) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
         let world_path = app_root.join("src/world/3d/plaza-native.world.mei");
         assert!(world_path.is_file(), "missing {}", world_path.display());
@@ -2120,10 +2138,19 @@ mod tests {
     fn shixi_building_import_compiles_with_batch_extrusion() {
         use std::path::PathBuf;
 
-        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-demo-v2")
-            .canonicalize()
-            .expect("ws-demo-v2");
+        fn optional_external_workspace() -> Option<PathBuf> {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        }
+
+        let Some(workspace) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
         let payload = json!({
             "id": "shixi_overlay",

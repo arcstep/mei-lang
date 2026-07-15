@@ -2,7 +2,10 @@ use super::support::*;
 
 #[test]
 fn standalone_source_root_core_smoke_check_works() {
-    let root = standalone_fixture_root();
+    let Some(root) = standalone_fixture_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, "core-smoke-app");
     let report =
         compile_report(&root, "core-smoke-app", CompileOptions::default()).expect("compile report");
@@ -16,7 +19,10 @@ fn standalone_source_root_core_smoke_check_works() {
 
 #[test]
 fn standalone_source_root_ds_smoke_query_dataset_works() {
-    let root = standalone_fixture_root();
+    let Some(root) = standalone_fixture_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, "ds-smoke-app");
     let payload = query_world_dataset(
         &root,

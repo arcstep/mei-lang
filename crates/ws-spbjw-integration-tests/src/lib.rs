@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub use mei_lang_kernel::{
     coerce_rows_to_schema, compile_app_from_root, compile_app_from_root_with_options,
@@ -6,14 +6,16 @@ pub use mei_lang_kernel::{
     CompileOptions, MetricShape, Severity, UiNodeDecl, UiTreeNode,
 };
 
-/// `ws-spbjw` workspace root (sibling repo under mei-projects).
-pub fn source_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-spbjw")
-        .canonicalize()
-        .expect("ws-spbjw source root")
+/// Optional private workspace via `MEI_TEST_WORKSPACE` only (never sibling default).
+pub fn source_root() -> Option<PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
 }
 
-pub fn zhifa_app_root() -> PathBuf {
-    mei_lang_kernel::resolve_app_root(&source_root(), "zhifa")
+pub fn zhifa_app_root() -> Option<PathBuf> {
+    Some(mei_lang_kernel::resolve_app_root(&source_root()?, "zhifa"))
 }

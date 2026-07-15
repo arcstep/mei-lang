@@ -24,7 +24,10 @@ fn print_phase(label: &str, ms: u64, extra: &str) {
 #[test]
 #[ignore = "manual perf probe; run with --ignored --nocapture"]
 fn xlsx_perf_probe_zhifa_hot_files() {
-    let app_root = zhifa_app_root();
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let cases = [
         (
             "upload/5.行政检查结果清单.xlsx",

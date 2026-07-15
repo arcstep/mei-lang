@@ -1,0 +1,52 @@
+name: conformance
+
+# In-repo Golden Cases. Must NOT require sibling workspaces/ws-demo-v2.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tests/fixtures/ws-conformance/**"
+      - "crates/mei-test-support/**"
+      - "crates/mei-host-graph/**"
+      - "crates/mei-plug-ds/**"
+      - "host-shell/**"
+      - "stock/templates/**"
+      - ".github/workflows/conformance.yml"
+  pull_request:
+    paths:
+      - "tests/fixtures/ws-conformance/**"
+      - "crates/mei-test-support/**"
+      - "crates/mei-host-graph/**"
+      - "crates/mei-plug-ds/**"
+      - "host-shell/**"
+      - "stock/templates/**"
+      - ".github/workflows/conformance.yml"
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Forbid sibling hard-expect in tests and workflows
+        run: |
+          if rg -n 'workspaces/ws-demo-v2|\.\./workspaces/' .github/workflows; then
+            echo "::error::workflows must not reference private sibling workspaces"
+            exit 1
+          fi
+          if rg -n '\.expect\("ws-demo|\.expect\("workspaces/ws-|\.expect\("ws-spbjw' \
+              crates host-shell mei-compiler; then
+            echo "::error::hard .expect on sibling workspaces is forbidden; use MEI_TEST_WORKSPACE or in-repo fixtures"
+            exit 1
+          fi
+          test -f tests/fixtures/ws-conformance/workspace.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Conformance tests (must be green; no fake skip)
+        run: |
+          cargo test -p mei-host-graph conformance_ -- --nocapture --test-threads=1
+          cargo test -p mei-plug-ds conformance_ -- --nocapture --test-threads=1
+          cargo test -p mei-host-shell conformance_ -- --nocapture --test-threads=1

@@ -1,6 +1,6 @@
 use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
@@ -9,8 +9,14 @@ fn spbjw_typical_cases_swimlane_metric_dataframe_respects_result_id_filter() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
     use std::collections::BTreeMap;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/09-监督典型案例.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -18,6 +24,7 @@ fn spbjw_typical_cases_swimlane_metric_dataframe_respects_result_id_filter() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/09-监督典型案例.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile typical cases preview");
@@ -84,14 +91,21 @@ fn spbjw_typical_cases_swimlane_metric_dataframe_respects_result_id_filter() {
 fn spbjw_home_resolves_imported_typical_cases_dataset_selector() {
     use mei_lang_kernel::locate_dataset_resource;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw home preview");
@@ -124,8 +138,14 @@ fn spbjw_home_resolves_imported_typical_cases_dataset_selector() {
 fn spbjw_typical_cases_board_resolves_namespaced_dataset_selector() {
     use mei_lang_kernel::locate_dataset_resource;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/09-监督典型案例.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -133,6 +153,7 @@ fn spbjw_typical_cases_board_resolves_namespaced_dataset_selector() {
         CompileOptions {
             scene: None,
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile typical cases board preview");

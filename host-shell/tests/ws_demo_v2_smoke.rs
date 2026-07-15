@@ -28,19 +28,16 @@ fn find_panel_by_id<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNode
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2 workspace")
+fn ws_demo_v2_root() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn bundle_path() -> PathBuf {
-    ws_demo_v2_root().join("apps/data-demo/env/current/build/exchange/data-demo.meibundle")
+fn bundle_path(workspace: &std::path::Path) -> PathBuf {
+    workspace.join("apps/data-demo/env/current/build/exchange/data-demo.meibundle")
 }
 
 fn skip_if_data_demo_missing() -> Option<PathBuf> {
-    let workspace = ws_demo_v2_root();
+    let workspace = ws_demo_v2_root()?;
     if !workspace.join("apps/data-demo").is_dir() {
         return None;
     }
@@ -50,19 +47,19 @@ fn skip_if_data_demo_missing() -> Option<PathBuf> {
 fn ensure_imported() -> Option<PathBuf> {
     let workspace = skip_if_data_demo_missing()?;
     INIT.call_once(|| {
-        if !bundle_path().is_file() {
+        if !bundle_path(workspace.as_path()).is_file() {
             return;
         }
         let ctx = HostContext::new(workspace.clone(), "data-demo");
         import_bundle(
             &ctx,
             &ImportOptions {
-                bundle_path: Some(bundle_path()),
+                bundle_path: Some(bundle_path(workspace.as_path())),
             },
         )
         .expect("import bundle");
     });
-    if !bundle_path().is_file() {
+    if !bundle_path(workspace.as_path()).is_file() {
         return None;
     }
     Some(workspace)
@@ -474,7 +471,7 @@ fn ws_demo_v2_assemble_without_reimport() {
     let Some(workspace) = skip_if_data_demo_missing() else {
         return;
     };
-    if !bundle_path().is_file() {
+    if !bundle_path(workspace.as_path()).is_file() {
         return;
     }
     let result = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home");
@@ -789,7 +786,10 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
 
 #[test]
 fn ws_demo_v2_discovers_zhifa_and_mini_park() {
-    let workspace = ws_demo_v2_root();
+    let Some(workspace) = ws_demo_v2_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let apps = mei_lang_kernel::discover_apps(workspace.as_path()).expect("discover");
     let ids: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
     assert!(ids.contains(&"zhifa"), "discover apps: {ids:?}");
@@ -878,8 +878,8 @@ fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
     );
 }
 
-fn ensure_mini_park_imported() -> PathBuf {
-    let workspace = ws_demo_v2_root();
+fn ensure_mini_park_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2_root()?;
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if bundle.is_file() {
         let ctx = HostContext::new(workspace.clone(), "mini-park");
@@ -890,12 +890,15 @@ fn ensure_mini_park_imported() -> PathBuf {
             },
         );
     }
-    workspace
+    Some(workspace)
 }
 
 #[test]
 fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;
@@ -1063,7 +1066,10 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
 
 #[test]
 fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;
@@ -1149,8 +1155,12 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
 
 #[test]
 fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
+    let Some(workspace) = ws_demo_v2_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let presentation =
-        ws_demo_v2_root().join("apps/mini-park/src/presentation/intro.presentation.json");
+        workspace.join("apps/mini-park/src/presentation/intro.presentation.json");
     if !presentation.is_file() {
         return;
     }
@@ -1209,7 +1219,10 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
 
 #[test]
 fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let home_outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
         .expect("assemble mini-park home")
         .expect("mini-park home outcome");
@@ -1304,7 +1317,10 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
 
 #[test]
 fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;
@@ -1462,7 +1478,10 @@ fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() 
 
 #[test]
 fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;
@@ -1507,7 +1526,10 @@ fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
 
 #[test]
 fn ws_demo_v2_mini_park_home_assembles_when_prebuilt() {
-    let workspace = ensure_mini_park_imported();
+    let Some(workspace) = ensure_mini_park_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;

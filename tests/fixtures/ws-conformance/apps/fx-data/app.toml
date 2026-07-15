@@ -1,0 +1,79 @@
+schema_version = "mei-app-v1"
+title = "Conformance Data"
+default_stage = "home"
+app_id = "fx-data"
+generation = "current"
+data_mode_ceiling = "eval"
+
+[paths]
+upload = "upload"
+prototype = "prototype"
+
+[features]
+aiChat = false
+
+[discover]
+skip_directories = []
+
+[[menu.items]]
+app_id = "fx-data"
+label = "fx-data"
+order = 20
+
+[runtime.memoryWarmup]
+enabled = true
+maxPinnedSlots = 8
+maxPinnedMb = 16
+
+[runtime.clientBootstrap]
+enabled = true
+scopes = ["home"]
+maxMetricsPerScope = 16
+neighborHops = 0
+maxNeighborScopes = 0
+embedMode = "revision_only"
+
+[ops]
+strictFillDown = true
+fillDown = true
+
+[ops.themes.cockpit.tokens.color]
+panel_title = "#ffffff"
+surface_bg = "rgb(14, 48, 92)"
+text_body = "#e2e8f0"
+text_muted = "#a8c8e6"
+text_primary = "#ffffff"
+text_unit = "#7dd3fc"
+text_value = "#ffffff"
+
+[ops.themes.cockpit.tokens.shell]
+bg = "rgb(14, 48, 92)"
+stage = "rgb(14, 48, 92)"
+text = "#ffffff"
+
+[ops.sources.fx_rows]
+kind = "csv"
+path = "upload/fx-rows.csv"
+
+[ops.params]
+layout_debug_enabled = false
+
+[runtime_plan]
+defaultMode = "lazy"
+
+[[runtime_plan.apps.fx-data.targets]]
+mode = "eager"
+scope = "home"
+
+[warmup]
+enabled = true
+
+[warmup.apps.fx-data]
+hot_stages = ["home"]
+
+[warmup.apps.fx-data.compileScope]
+skipDiscover = true
+
+[[warmup.apps.fx-data.datasets]]
+datasetId = "metrics/fx-rows.bundle.mei"
+metricIds = ["fx_rows_count"]

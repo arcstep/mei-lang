@@ -31,6 +31,11 @@ jobs:
             echo "::error::mei-lang GitHub Actions must not reference private sibling workspaces (ws-demo-v2 is not on GitHub)"
             exit 1
           fi
+          if rg -n '\.expect\("ws-demo|\.expect\("workspaces/ws-|\.expect\("ws-spbjw' \
+              crates host-shell mei-compiler; then
+            echo "::error::hard .expect on sibling workspaces is forbidden"
+            exit 1
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 

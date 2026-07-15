@@ -1,13 +1,18 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +20,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw enforcement elements preview (whitelist dataset)");
@@ -51,8 +57,14 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
 
 #[test]
 fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_scene() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -60,6 +72,7 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
         CompileOptions {
             scene: Some("执法要素".to_string()),
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw enforcement elements with filename-like scene query");
@@ -80,8 +93,14 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
 
 #[test]
 fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_only() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -89,6 +108,7 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
         CompileOptions {
             scene: Some("enforcement_elements".to_string()),
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw enforcement elements scene+focus");

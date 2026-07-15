@@ -338,17 +338,26 @@ mod spbjw_capsule_load_tests {
 
     use crate::mei_config::resolve_app_root;
 
-    fn spbjw_zhifa_app_root() -> PathBuf {
-        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw")
-            .canonicalize()
-            .expect("ws-spbjw source root");
-        resolve_app_root(&source_root, "zhifa")
+    fn optional_external_workspace() -> Option<PathBuf> {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    }
+
+    fn spbjw_zhifa_app_root() -> Option<PathBuf> {
+        let source_root = optional_external_workspace()?;
+        Some(resolve_app_root(&source_root, "zhifa"))
     }
 
     #[test]
     fn load_spbjw_map_capsule_world_metrics() {
-        let app_root = spbjw_zhifa_app_root();
+        let Some(app_root) = spbjw_zhifa_app_root() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let scoped =
             load_namespaced_capsule_resources(&app_root, "scenes/10-地图.mei").expect("load map");
         let metrics_id = imported_world_metrics_resource_id("scenes/10-地图.mei");
@@ -368,7 +377,10 @@ mod spbjw_capsule_load_tests {
 
     #[test]
     fn load_spbjw_inspection_scene_world_metrics() {
-        let app_root = spbjw_zhifa_app_root();
+        let Some(app_root) = spbjw_zhifa_app_root() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let scoped = load_namespaced_capsule_resources(&app_root, "scenes/02-行政检查.mei")
             .expect("load inspection scene");
         let metrics_id = imported_world_metrics_resource_id("scenes/02-行政检查.mei");

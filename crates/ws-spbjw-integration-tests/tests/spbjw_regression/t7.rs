@@ -1,19 +1,25 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_layout_right_typical_cases_popup_lowers_list_preview() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/layout-右栏.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile layout right preview");
@@ -31,8 +37,14 @@ fn compile_spbjw_layout_right_typical_cases_popup_lowers_list_preview() {
 
 #[test]
 fn compile_spbjw_preview_widget_typical_cases_succeeds() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let started = std::time::Instant::now();
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -40,6 +52,7 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/09-监督典型案例.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw typical cases preview");
@@ -90,8 +103,14 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
 
 #[test]
 fn compile_spbjw_overview_preview_materializes_imported_metrics() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/layout-左栏.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -99,6 +118,7 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw layout left preview");

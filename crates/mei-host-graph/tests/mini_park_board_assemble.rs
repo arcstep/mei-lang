@@ -7,15 +7,12 @@ use mei_host_graph::{
     assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
 };
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn ensure_imported() {
-    let workspace = ws_demo_v2();
+fn ensure_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     let outcome = compile_app(workspace.as_path(), "mini-park").expect("compile mini-park");
     let digest = compute_workspace_digest(workspace.as_path(), "mini-park", "stock/templates");
     let temp_dir = std::env::temp_dir().join("mei-mini-park-board-assemble");
@@ -29,7 +26,7 @@ fn ensure_imported() {
         false,
     )
     .expect("write bundle");
-    let ctx = HostContext::new(workspace, "mini-park");
+    let ctx = HostContext::new(workspace.clone(), "mini-park");
     import_bundle(
         &ctx,
         &ImportOptions {
@@ -38,12 +35,16 @@ fn ensure_imported() {
     )
     .expect("import mini-park bundle");
     clear_assemble_cache_for_app("mini-park");
+    Some(workspace)
 }
 
 #[test]
 fn mini_park_home_assembles_t2_pages_in_catalog() {
-    ensure_imported();
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "mini-park", "home")
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
         .expect("assemble")
         .expect("home outcome");
     let contract = outcome

@@ -1,0 +1,15 @@
+# BlockId: warmup_policy:home@src/warmup/home.critical.mei
+
+warmup_policy(
+    scope = scope("home", assembly = "src/scene/home.mei"),
+    priority = "critical",
+    slots = [
+        workset(
+            bundle = metric_bundle_ref("metrics/fx-rows.bundle.mei"),
+            metrics = [
+                "fx_rows_count",
+            ],
+            preview_scope = "home/t1/region-main/section-metric",
+        ),
+    ],
+)

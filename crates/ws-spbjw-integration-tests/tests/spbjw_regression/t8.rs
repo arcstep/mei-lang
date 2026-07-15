@@ -1,19 +1,25 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_access_home_scene_materializes_ops_theme() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: Some("home".to_string()),
             preview_target: None,
+            ..Default::default()
         },
     )
     .expect("compile spbjw access home");
@@ -84,14 +90,21 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
 
 #[test]
 fn compile_spbjw_preview_home_scene_succeeds() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw home preview");
@@ -197,14 +210,21 @@ fn compile_spbjw_preview_home_scene_succeeds() {
 
 #[test]
 fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("main.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile spbjw main preview");

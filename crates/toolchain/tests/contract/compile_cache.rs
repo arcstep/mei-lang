@@ -2,7 +2,10 @@ use super::support::*;
 
 #[test]
 fn compile_service_reports_cache_hit_on_second_request() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, DATASET_APP);
     let components = resolve_components_root(&root);
     let options = CompileOptions::default();
@@ -18,7 +21,10 @@ fn compile_service_reports_cache_hit_on_second_request() {
 
 #[test]
 fn clear_compile_cache_for_app_invalidates_cache_hit() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     let components = resolve_components_root(&root);
     let options = CompileOptions::default();
     clear_compile_cache_for_app(&root, DATASET_APP);
@@ -38,7 +44,10 @@ fn clear_compile_cache_for_app_invalidates_cache_hit() {
 
 #[test]
 fn compile_report_revision_matches_cached_outcome() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, DATASET_APP);
     let report = compile_report(&root, DATASET_APP, CompileOptions::default()).expect("report");
     assert!(!report.revision_token.is_empty());

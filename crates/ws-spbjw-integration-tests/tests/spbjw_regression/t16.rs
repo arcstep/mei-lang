@@ -1,13 +1,18 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let preview_targets = [
         (
             "scenes/08-监督成效.mei",
@@ -29,7 +34,8 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
             CompileOptions {
                 scene: None,
                 preview_target: Some(target.to_string()),
-            },
+            ..Default::default()
+        },
         )
         .unwrap_or_else(|_| panic!("compile {target} preview"));
         let explain = compiled.resources.iter().find_map(|resource| {
@@ -53,14 +59,21 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
 
 #[test]
 fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_keys() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile home preview");
@@ -104,14 +117,21 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
 
 #[test]
 fn compile_spbjw_home_embedded_map_world_metrics_materialized() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile home preview");

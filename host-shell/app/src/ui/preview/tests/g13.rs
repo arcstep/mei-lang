@@ -137,8 +137,6 @@ fn component_html_escapes_quotes_in_data_props_attribute() {
 #[test]
 #[ignore = "slow: compiles ws-spbjw/zhifa home for SSR payload measurement"]
 fn zhifa_home_build_resolved_data_props_under_5mb() {
-    use std::path::Path;
-
     use mei_lang_kernel::{
         compile_app_from_root_with_options, BlockDecl, CompileOptions, UiTreeNode,
     };
@@ -161,10 +159,17 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         }
     }
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-spbjw")
-        .canonicalize()
-        .expect("ws-spbjw");
+    let Some(source_root) = (|| {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = std::path::PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    })() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -250,8 +255,6 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
 #[test]
 #[ignore = "slow: full render_page HTML payload measurement for zhifa home build"]
 fn zhifa_home_full_render_page_data_props_under_5mb() {
-    use std::path::Path;
-
     use mei_lang_kernel::{
         compile_app_from_root_with_options, load_workspace_config, CompileOptions,
     };
@@ -259,10 +262,17 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
     use crate::ui::route::UiRouteMode;
     use crate::ui::{page_body_theme_style, render_page};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../workspaces/ws-spbjw")
-        .canonicalize()
-        .expect("ws-spbjw");
+    let Some(source_root) = (|| {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = std::path::PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    })() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,

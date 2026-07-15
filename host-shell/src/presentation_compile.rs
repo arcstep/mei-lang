@@ -1812,10 +1812,19 @@ mod tests {
 
     #[test]
     fn mini_park_surface_index_uses_prebuilt_registry() {
-        let ws = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-demo-v2")
-            .canonicalize()
-            .expect("ws-demo-v2");
+        fn optional_external_workspace() -> Option<std::path::PathBuf> {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = std::path::PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        }
+
+        let Some(ws) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let bundle = ws.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
         if !bundle.is_file() {
             return;

@@ -2109,6 +2109,7 @@ dependencies = [
  "mei-lang-datasets",
  "mei-lang-kernel",
  "mei-syntax",
+ "mei-test-support",
  "serde",
  "serde_json",
  "sha2",
@@ -2133,6 +2134,7 @@ dependencies = [
  "mei-lang-app",
  "mei-lang-kernel",
  "mei-snapshot",
+ "mei-test-support",
  "reqwest",
  "serde",
  "serde_json",
@@ -2285,6 +2287,7 @@ dependencies = [
  "mei-host-graph",
  "mei-lang-datasets",
  "mei-lang-kernel",
+ "mei-test-support",
  "serde",
  "serde_json",
  "tempfile",
@@ -2328,6 +2331,19 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "walkdir",
+]
+
+[[package]]
+name = "mei-test-support"
+version = "2.5.17"
+dependencies = [
+ "anyhow",
+ "mei-bundle",
+ "mei-graph",
+ "mei-host-core",
+ "mei-host-graph",
+ "mei-lang-kernel",
+ "mei-lang-toolchain",
 ]
 
 [[package]]

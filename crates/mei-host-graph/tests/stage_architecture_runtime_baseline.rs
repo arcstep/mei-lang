@@ -63,11 +63,8 @@ const UNITS: &[GoldenUnit] = &[
     },
 ];
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 fn fixtures_dir() -> PathBuf {
@@ -648,7 +645,10 @@ fn read_fixture(path: &Path) -> Value {
 
 #[test]
 fn stage_architecture_runtime_baseline_assembles_golden_units() {
-    let workspace = ws_demo_v2();
+    let Some(workspace) = ws_demo_v2() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !workspace.join("apps/mini-grid/app.toml").is_file() {
         eprintln!("skip: ws-demo-v2 missing at {}", workspace.display());
         return;

@@ -19,6 +19,7 @@ members = [
   "crates/mei-plug-ds",
   "crates/mei-app-runtime",
   "crates/mei-snapshot",
+  "crates/mei-test-support",
   "host-shell",
   "server",
 ]

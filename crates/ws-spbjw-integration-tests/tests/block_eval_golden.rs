@@ -9,7 +9,10 @@ fn home_wm_owner(scene_file: &str) -> String {
 
 #[test]
 fn t_block_eval_home_wm_03() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let owner = home_wm_owner("03-指标体系.mei");
     let report = materialize_worksets(
         source_root.as_path(),
@@ -30,7 +33,10 @@ fn t_block_eval_home_wm_03() {
 
 #[test]
 fn t_block_eval_home_wm_05() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let owner = home_wm_owner("05-监督预警.mei");
     let report = block_eval(BlockEvalRequest {
         source_root: source_root.clone(),
@@ -50,7 +56,10 @@ fn t_block_eval_home_wm_05() {
 
 #[test]
 fn t_block_eval_home_wm_08() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let owner = home_wm_owner("08-监督成效.mei");
     let report = materialize_worksets(
         source_root.as_path(),
@@ -71,7 +80,10 @@ fn t_block_eval_home_wm_08() {
 
 #[test]
 fn t_block_eval_qunfu_home_zero_warning_regression() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let report = materialize_worksets(
         source_root.as_path(),
         "qunfu",
@@ -91,7 +103,10 @@ fn t_block_eval_qunfu_home_zero_warning_regression() {
 
 #[test]
 fn t_block_eval_card_board_warning_list() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let report = materialize_worksets(
         source_root.as_path(),
         "qunfu",

@@ -11,19 +11,16 @@ use mei_plug_ds::{
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2 workspace")
+fn ws_demo_v2_root() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn bundle_path() -> PathBuf {
-    ws_demo_v2_root().join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+fn bundle_path(workspace: &std::path::Path) -> PathBuf {
+    workspace.join("apps/data-demo/build/active/exchange/data-demo.meibundle")
 }
 
 fn skip_if_data_demo_missing() -> Option<PathBuf> {
-    let workspace = ws_demo_v2_root();
+    let workspace = ws_demo_v2_root()?;
     if !workspace.join("apps/data-demo").is_dir() {
         return None;
     }
@@ -33,19 +30,19 @@ fn skip_if_data_demo_missing() -> Option<PathBuf> {
 fn ensure_imported() -> Option<PathBuf> {
     let workspace = skip_if_data_demo_missing()?;
     INIT.call_once(|| {
-        if !bundle_path().is_file() {
+        if !bundle_path(workspace.as_path()).is_file() {
             return;
         }
         let ctx = HostContext::new(workspace.clone(), "data-demo");
         import_bundle(
             &ctx,
             &ImportOptions {
-                bundle_path: Some(bundle_path()),
+                bundle_path: Some(bundle_path(workspace.as_path())),
             },
         )
         .expect("import bundle");
     });
-    if !bundle_path().is_file() {
+    if !bundle_path(workspace.as_path()).is_file() {
         return None;
     }
     Some(workspace)

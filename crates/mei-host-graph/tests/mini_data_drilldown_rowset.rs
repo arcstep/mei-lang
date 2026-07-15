@@ -3,15 +3,12 @@ use std::path::PathBuf;
 use mei_host_graph::assemble_scope_from_registry;
 use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn mini_data_app_root() -> PathBuf {
-    ws_demo_v2().join("apps/mini-data")
+fn mini_data_app_root(workspace: &std::path::Path) -> PathBuf {
+    workspace.join("apps/mini-data")
 }
 
 fn first_column_name(result: &mei_lang_datasets::DatasetQueryResult) -> String {
@@ -32,8 +29,11 @@ fn first_column_name(result: &mei_lang_datasets::DatasetQueryResult) -> String {
 
 #[test]
 fn mini_data_home_scalar_rowset_respects_dataset_across_pages() {
-    let workspace = ws_demo_v2();
-    let app_root = mini_data_app_root();
+    let Some(workspace) = ws_demo_v2() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let app_root = mini_data_app_root(workspace.as_path());
     let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-data", "home")
         .expect("assemble")
         .expect("home outcome");

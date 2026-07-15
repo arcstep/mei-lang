@@ -1,13 +1,18 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis_contracts() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +20,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -50,8 +56,14 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
 
 #[test]
 fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_source() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -59,6 +71,7 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -106,8 +119,14 @@ fn spbjw_enforcement_items_count_rowset_matches_metric_value() {
         evaluate_runtime_metrics, query_metric_dataframe, DatasetQueryOptions,
     };
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -115,6 +134,7 @@ fn spbjw_enforcement_items_count_rowset_matches_metric_value() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));

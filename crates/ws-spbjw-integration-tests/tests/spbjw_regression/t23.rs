@@ -1,6 +1,6 @@
 use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
@@ -8,8 +8,14 @@ use ws_spbjw_integration_tests::{
 fn spbjw_enforcement_personnel_composition_by_agency_returns_grouped_rows() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -17,6 +23,7 @@ fn spbjw_enforcement_personnel_composition_by_agency_returns_grouped_rows() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -52,8 +59,14 @@ fn spbjw_penalty_total_rowset_query_returns_more_than_preview_rows() {
     use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
     use ws_spbjw_integration_tests::load_xlsx_table_snapshot;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/04-行政处罚.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -61,6 +74,7 @@ fn spbjw_penalty_total_rowset_query_returns_more_than_preview_rows() {
         CompileOptions {
             scene: None,
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{board_target}` failed: {error}"));
@@ -138,8 +152,14 @@ fn spbjw_penalty_filter_prefetch_does_not_cap_rowset_materialization() {
 
     clear_dataset_rows_cache();
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let scene_target = "scenes/04-行政处罚.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -147,6 +167,7 @@ fn spbjw_penalty_filter_prefetch_does_not_cap_rowset_materialization() {
         CompileOptions {
             scene: None,
             preview_target: Some(scene_target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{scene_target}` failed: {error}"));

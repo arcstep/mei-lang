@@ -3,11 +3,8 @@ use std::path::PathBuf;
 use mei_host_graph::assemble_scope_from_registry;
 use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
@@ -30,7 +27,11 @@ fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNo
 
 #[test]
 fn zhifa_enforcement_section_uses_padding_profile_not_body_props() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
+    let Some(workspace) = ws_demo_v2() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome

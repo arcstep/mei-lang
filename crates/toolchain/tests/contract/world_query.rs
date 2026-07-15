@@ -2,7 +2,10 @@ use super::support::*;
 
 #[test]
 fn query_world_dataset_contract_shape_is_stable() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, DATASET_APP);
     let payload = query_world_dataset(
         &root,
@@ -27,7 +30,10 @@ fn query_world_dataset_contract_shape_is_stable() {
 
 #[test]
 fn query_world_dataset_metrics_contract_shape_is_stable() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, METRIC_APP);
     let payload = query_world_dataset_metrics(
         &root,
@@ -53,7 +59,10 @@ fn query_world_dataset_metrics_contract_shape_is_stable() {
 
 #[test]
 fn runtime_sim_step_returns_scene_view_and_html() {
-    let root = workspaces_root();
+    let Some(root) = workspaces_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE or MEI_TEST_SOURCE_ROOT for private demo probes");
+        return;
+    };
     clear_compile_cache_for_app(&root, RUNTIME_APP);
     let result = runtime_sim_step(
         &root,

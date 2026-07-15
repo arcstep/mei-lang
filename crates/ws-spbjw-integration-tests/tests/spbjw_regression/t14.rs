@@ -1,13 +1,19 @@
 use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_issue_handling_analytics_projection_slots() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/07-问题办理.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +21,7 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -125,8 +132,14 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_enterprise_complaints_analytics_board_projection_slots() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/02-行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -134,6 +147,7 @@ fn compile_spbjw_enterprise_complaints_analytics_board_projection_slots() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -191,8 +205,14 @@ fn compile_spbjw_enterprise_complaints_analytics_board_projection_slots() {
 
 #[test]
 fn compile_spbjw_left_rail_analytics_projection_slots() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     for (target, board_id) in [
         (
             "scenes/01-执法要素.mei",
@@ -211,7 +231,8 @@ fn compile_spbjw_left_rail_analytics_projection_slots() {
             CompileOptions {
                 scene: None,
                 preview_target: Some(target.to_string()),
-            },
+            ..Default::default()
+        },
         )
         .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
         let contract = compiled

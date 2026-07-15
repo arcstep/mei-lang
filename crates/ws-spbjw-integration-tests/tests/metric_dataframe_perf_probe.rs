@@ -16,8 +16,14 @@ fn elapsed_ms(start: Instant) -> u64 {
 #[test]
 #[ignore = "manual perf probe; run with --ignored --nocapture"]
 fn metric_dataframe_perf_probe_administrative_inspection() {
-    let source_root = ws_spbjw_integration_tests::source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = ws_spbjw_integration_tests::source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     clear_runtime_compile_caches();
 
     let compile_started = Instant::now();
@@ -27,7 +33,7 @@ fn metric_dataframe_perf_probe_administrative_inspection() {
         CompileOptions {
             scene: Some("administrative_inspection".to_string()),
             preview_target: None,
-            ..CompileOptions::default()
+            ..Default::default()
         },
     )
     .expect("compile administrative_inspection");

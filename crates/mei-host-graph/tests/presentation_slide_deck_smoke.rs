@@ -2,17 +2,16 @@ use std::path::PathBuf;
 
 use mei_host_graph::assemble_scope_from_registry;
 
-fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .join("workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn workspace_root() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 #[test]
 fn mei_tutorial_intro_assembles_presentation_deck() {
-    let root = workspace_root();
+    let Some(root) = workspace_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let outcome = assemble_scope_from_registry(root.as_path(), "mei-tutorial", "intro")
         .expect("assemble")
         .expect("outcome");
@@ -59,7 +58,10 @@ fn mei_tutorial_intro_assembles_presentation_deck() {
 
 #[test]
 fn mini_data_supervision_assembles_four_slides() {
-    let root = workspace_root();
+    let Some(root) = workspace_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let outcome = assemble_scope_from_registry(root.as_path(), "mini-data", "supervision")
         .expect("assemble")
         .expect("outcome");

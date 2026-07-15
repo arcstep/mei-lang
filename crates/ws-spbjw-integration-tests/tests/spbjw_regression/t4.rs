@@ -1,19 +1,25 @@
-use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn spbjw_supervision_models_count_is_eighteen() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/05-监督预警.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile supervision warning preview for models count");
@@ -36,14 +42,21 @@ fn spbjw_supervision_models_count_is_eighteen() {
 
 #[test]
 fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/05-监督预警.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile supervision warning for warning_list columns");
@@ -83,14 +96,21 @@ fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
 #[test]
 #[ignore = "历史数据口径：预警条数求和断言待与 Excel 源数据对齐后恢复"]
 fn spbjw_warnings_count_sums_warning_entry_column() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/05-监督预警.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile supervision warning preview for warnings count");

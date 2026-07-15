@@ -5,16 +5,16 @@ use std::path::PathBuf;
 use mei_host_core::HostContext;
 use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions};
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 #[test]
 fn mini_park_presentation_map_includes_basemap_viewpoints() {
-    let workspace = ws_demo_v2();
+    let Some(workspace) = ws_demo_v2() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let bundle = workspace.join("apps/mini-park/env/current/build/exchange/mini-park.meibundle");
     assert!(
         bundle.is_file(),

@@ -1,13 +1,19 @@
 use serde_json::Value;
 use ws_spbjw_integration_tests::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    compile_app_from_root_with_options, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_supervision_warning_analytics_projection_slots() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/05-监督预警.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +21,7 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -87,8 +94,14 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/05-监督预警.board.mei";
     let scene_id = "supervision_items_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -97,6 +110,7 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
         CompileOptions {
             scene: Some(scene_id.to_string()),
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -156,8 +170,14 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
 
 #[test]
 fn compile_spbjw_inspection_board_export_preview_projection_slots_in_assembly() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/02-行政检查.board.mei";
     let scene_id = "inspection_total_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -166,6 +186,7 @@ fn compile_spbjw_inspection_board_export_preview_projection_slots_in_assembly() 
         CompileOptions {
             scene: Some(scene_id.to_string()),
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));

@@ -8,7 +8,7 @@ pub use std::time::{SystemTime, UNIX_EPOCH};
 pub use mei_lang_kernel::RuntimeIntent;
 pub use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 pub use mei_lang_toolchain::{
-    build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
+    capability_catalog_descriptor_for_package_root,
     capability_catalog_descriptor_for_workspace_root, clear_compile_cache_for_app,
     compile_app_with_cache, compile_report, create_app_skeleton,
     doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
@@ -32,26 +32,43 @@ pub fn package_root() -> PathBuf {
     .clone()
 }
 
-pub fn workspaces_root() -> PathBuf {
+/// Prefer `MEI_TEST_WORKSPACE` / `MEI_TEST_SOURCE_ROOT`; sibling `ws-dev` is `.ok()` only.
+/// Panics only when an explicit env var is set but invalid.
+pub fn workspaces_root() -> Option<PathBuf> {
     let _ = package_root();
+    if let Ok(raw) = std::env::var("MEI_TEST_WORKSPACE") {
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            panic!(
+                "MEI_TEST_WORKSPACE is set but not a directory: {}",
+                path.display()
+            );
+        }
+        return Some(path.canonicalize().unwrap_or(path));
+    }
     if let Ok(raw) = std::env::var("MEI_TEST_SOURCE_ROOT") {
-        return PathBuf::from(raw)
-            .canonicalize()
-            .expect("MEI_TEST_SOURCE_ROOT");
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            panic!(
+                "MEI_TEST_SOURCE_ROOT is set but not a directory: {}",
+                path.display()
+            );
+        }
+        return Some(path.canonicalize().unwrap_or(path));
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../workspaces/ws-dev")
         .canonicalize()
-        .expect("workspaces/ws-dev root")
+        .ok()
 }
 
-pub fn standalone_fixture_root() -> PathBuf {
-    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+pub fn standalone_fixture_root() -> Option<PathBuf> {
+    static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
     ROOT.get_or_init(build_standalone_fixture).clone()
 }
 
-pub fn build_standalone_fixture() -> PathBuf {
-    let source = workspaces_root();
+pub fn build_standalone_fixture() -> Option<PathBuf> {
+    let source = workspaces_root()?;
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time")
@@ -79,7 +96,7 @@ pub fn build_standalone_fixture() -> PathBuf {
         source.join("stock/components"),
         fixture_root.join("stock/components"),
     );
-    fixture_root
+    Some(fixture_root)
 }
 
 pub fn copy_dir_recursive(src: PathBuf, dst: PathBuf) {

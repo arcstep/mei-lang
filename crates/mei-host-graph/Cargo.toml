@@ -21,3 +21,4 @@ walkdir.workspace = true
 [dev-dependencies]
 tempfile = "3"
 mei-lang-datasets = { path = "../datasets" }
+mei-test-support = { path = "../mei-test-support" }

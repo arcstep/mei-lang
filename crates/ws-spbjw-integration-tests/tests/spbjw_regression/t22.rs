@@ -6,7 +6,10 @@ use ws_spbjw_integration_tests::{
 
 #[test]
 fn compile_spbjw_qunfu_home_scene_succeeds() {
-    let source_root = source_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("qunfu");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -14,6 +17,7 @@ fn compile_spbjw_qunfu_home_scene_succeeds() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile qunfu home failed: {error}"));
@@ -37,14 +41,21 @@ fn eval_spbjw_park_relocation_summary_and_charts_nonempty() {
 
     use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/01-执法要素.board.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile enforcement board failed: {error}"));
@@ -175,8 +186,14 @@ fn assert_calendar_field_is_date_only(row: &Value, field: &str) {
 fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
     use mei_lang_datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/05-监督预警.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -184,6 +201,7 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         CompileOptions {
             scene: None,
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{board_target}` failed: {error}"));
@@ -223,6 +241,7 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         CompileOptions {
             scene: None,
             preview_target: Some(issue_board.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{issue_board}` failed: {error}"));
@@ -293,6 +312,7 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         CompileOptions {
             scene: None,
             preview_target: Some(realtime_target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{realtime_target}` failed: {error}"));

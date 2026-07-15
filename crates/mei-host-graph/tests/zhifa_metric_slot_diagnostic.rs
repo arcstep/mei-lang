@@ -9,16 +9,13 @@ use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn ensure_zhifa_imported() {
+fn ensure_zhifa_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
-        let workspace = ws_demo_v2();
         let bundle =
             workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         if !bundle.is_file() {
@@ -34,6 +31,7 @@ fn ensure_zhifa_imported() {
         .expect("import zhifa bundle");
         clear_assemble_cache_for_app("zhifa");
     });
+    Some(workspace)
 }
 
 fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
@@ -56,8 +54,11 @@ fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNo
 
 #[test]
 fn zhifa_enforcement_body_includes_triptych_and_compound_shell() {
-    ensure_zhifa_imported();
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome
@@ -92,8 +93,11 @@ fn zhifa_enforcement_body_includes_triptych_and_compound_shell() {
 
 #[test]
 fn zhifa_issue_body_exports_four_status_metric_cards() {
-    ensure_zhifa_imported();
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "zhifa", "home")
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
         .expect("assemble")
         .expect("home outcome");
     let panels = &outcome

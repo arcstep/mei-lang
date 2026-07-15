@@ -1,0 +1,41 @@
+use template "cockpit/layout-defaults" as ui
+
+FX_BUNDLE = "metrics/fx-rows.bundle.mei"
+
+section_layout(
+    id = "metric",
+    key = "fx-data/home/t1/region-main/section-metric",
+    area = "metric",
+    title = "Fixture rows",
+    budget = budget(width = "100%", padding = "8px 6px 6px 6px"),
+    layout = grid(
+        rows = ["auto", "minmax(0, 1fr)"],
+        columns = ["1fr"],
+        areas = [["title"], ["body"]],
+    ),
+    shell = section_shell(
+        title = "Fixture rows",
+        width = "100%",
+        padding = "8px 6px 6px 6px",
+        body = content_panel(
+            id = "fx-data-metric",
+            variant = "container",
+            chrome = "bare",
+            props = {
+                "__mei_layout_fill": True,
+            },
+            layout = grid(
+                rows = ["1fr"],
+                columns = ["1fr"],
+                areas = [["count"]],
+                gap = "0",
+            ),
+            blocks = [
+                ui.narrow_metric_card(
+                    id = "count",
+                    metric = metric_ref("fx_rows_count", bundle = FX_BUNDLE),
+                ),
+            ],
+        ),
+    ),
+)

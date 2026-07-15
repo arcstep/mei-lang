@@ -9,22 +9,16 @@ use mei_lang_kernel::{compile_app_from_root_with_options, CompileOptions, UiNode
 
 static V2_INIT: Once = Once::new();
 
-fn ws_data_demo_v1() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-data-demo")
-        .canonicalize()
-        .expect("ws-data-demo")
+fn ws_data_demo_v1() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 fn skip_if_data_demo_missing() -> Option<PathBuf> {
-    let workspace = ws_demo_v2();
+    let workspace = ws_demo_v2()?;
     if !workspace.join("apps/data-demo").is_dir() {
         return None;
     }
@@ -91,13 +85,16 @@ fn panel_titles(panels: &[UiNodeDecl]) -> Vec<String> {
 
 #[test]
 fn home_v2_matches_v1_component_shape() {
-    let Some(_) = ensure_v2_imported() else { return; };
-    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+    let Some(workspace) = ensure_v2_imported() else { return; };
+    let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
     let v2_contract = v2.compiled.scene_contract.as_ref().expect("contract");
 
-    let v1_root = ws_data_demo_v1();
+    let Some(v1_root) = ws_data_demo_v1() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let v1_app = v1_root.join("apps/data-demo");
     let v1 = compile_app_from_root_with_options(
         v1_root.as_path(),
@@ -152,8 +149,8 @@ fn walk_panels<'a>(panels: &'a [UiNodeDecl], f: &mut dyn FnMut(&'a UiNodeDecl)) 
 
 #[test]
 fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
-    let Some(_) = ensure_v2_imported() else { return; };
-    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+    let Some(workspace) = ensure_v2_imported() else { return; };
+    let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
     let contract = v2.compiled.scene_contract.as_ref().expect("contract");
@@ -192,8 +189,8 @@ fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
 
 #[test]
 fn home_v2_resolves_metric_card_link_ref_popup() {
-    let Some(_) = ensure_v2_imported() else { return; };
-    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+    let Some(workspace) = ensure_v2_imported() else { return; };
+    let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
     let contract = v2.compiled.scene_contract.as_ref().expect("contract");
@@ -251,8 +248,8 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
 
 #[test]
 fn home_v2_analytics_board_assemblies_include_projection_slots() {
-    let Some(_) = ensure_v2_imported() else { return; };
-    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+    let Some(workspace) = ensure_v2_imported() else { return; };
+    let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
     let assemblies = &v2.compiled.scene_projection_assembly_by_id;

@@ -8,23 +8,19 @@ use mei_host_graph::{
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
-fn ensure_mini_data_imported() {
+fn ensure_mini_data_imported() -> Option<PathBuf> {
+    let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
-        let workspace = ws_demo_v2();
         let bundle =
             workspace.join("apps/mini-data/env/current/build/exchange/mini-data.meibundle");
-        assert!(
-            bundle.is_file(),
-            "run `mei-compiler compile --workspace ws-demo-v2 --app mini-data` first"
-        );
-        let ctx = HostContext::new(workspace, "mini-data");
+        if !bundle.is_file() {
+            return;
+        }
+        let ctx = HostContext::new(workspace.clone(), "mini-data");
         import_bundle(
             &ctx,
             &ImportOptions {
@@ -33,14 +29,20 @@ fn ensure_mini_data_imported() {
         )
         .expect("import mini-data bundle");
     });
+    let bundle = workspace.join("apps/mini-data/env/current/build/exchange/mini-data.meibundle");
+    if !bundle.is_file() {
+        return None;
+    }
+    Some(workspace)
 }
 
-fn mini_data_home_outcome() -> mei_host_graph::AssembleOutcome {
-    ensure_mini_data_imported();
+fn mini_data_home_outcome() -> Option<(PathBuf, mei_host_graph::AssembleOutcome)> {
+    let workspace = ensure_mini_data_imported()?;
     clear_assemble_cache_for_app("mini-data");
-    assemble_scope_from_registry(ws_demo_v2().as_path(), "mini-data", "home")
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-data", "home")
         .expect("assemble")
-        .expect("home outcome")
+        .expect("home outcome");
+    Some((workspace, outcome))
 }
 
 fn find_panel<'a>(
@@ -64,6 +66,7 @@ fn find_panel<'a>(
 }
 
 fn mini_data_home_eval_docs(
+    workspace: &std::path::Path,
     outcome: &mei_host_graph::AssembleOutcome,
 ) -> Vec<mei_host_graph::EvalSlotGroupDocument> {
     use mei_host_graph::{build_eval_slot_group_document, collect_slot_groups};
@@ -78,7 +81,7 @@ fn mini_data_home_eval_docs(
                 &structure,
                 group.as_str(),
                 DataMode::Eval,
-                Some(ws_demo_v2().as_path()),
+                Some(workspace),
             )
         })
         .collect()
@@ -86,7 +89,10 @@ fn mini_data_home_eval_docs(
 
 #[test]
 fn mini_data_right_rail_region_manifest_includes_four_row_grid() {
-    let outcome = mini_data_home_outcome();
+    let Some((_workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let panels = &outcome
         .compiled
         .scene_contract
@@ -128,8 +134,11 @@ fn mini_data_right_rail_region_manifest_includes_four_row_grid() {
 
 #[test]
 fn mini_data_warning_head_exports_head_chrome() {
-    let outcome = mini_data_home_outcome();
-    let head_doc = mini_data_home_eval_docs(&outcome)
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let head_doc = mini_data_home_eval_docs(workspace.as_path(), &outcome)
         .into_iter()
         .find(|doc| {
             doc.slot_group_id == "scope:t1/right_rail/warning/title"
@@ -159,8 +168,11 @@ fn mini_data_warning_head_exports_head_chrome() {
 
 #[test]
 fn mini_data_metric_card_value_mount_includes_resolved_popup() {
-    let outcome = mini_data_home_outcome();
-    let docs = mini_data_home_eval_docs(&outcome);
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let docs = mini_data_home_eval_docs(workspace.as_path(), &outcome);
     let mut value_popup = None;
     for doc in &docs {
         for (scope, slot) in &doc.slots {
@@ -197,7 +209,10 @@ fn mini_data_metric_card_value_mount_includes_resolved_popup() {
 
 #[test]
 fn mini_data_enforcement_objects_panel_has_slot_frame_background() {
-    let outcome = mini_data_home_outcome();
+    let Some((_workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let panels = &outcome
         .compiled
         .scene_contract
@@ -239,8 +254,11 @@ fn mini_data_enforcement_objects_panel_has_slot_frame_background() {
 
 #[test]
 fn mini_data_enforcement_compound_metric_exports_panel_shell_background() {
-    let outcome = mini_data_home_outcome();
-    let compound_doc = mini_data_home_eval_docs(&outcome)
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let compound_doc = mini_data_home_eval_docs(workspace.as_path(), &outcome)
         .into_iter()
         .find(|doc| {
             doc.slot_group_id.contains("/enforcement/objects")
@@ -271,8 +289,11 @@ fn mini_data_enforcement_compound_metric_exports_panel_shell_background() {
 
 #[test]
 fn mini_data_enforcement_compound_metric_exports_static_mounts() {
-    let outcome = mini_data_home_outcome();
-    let docs = mini_data_home_eval_docs(&outcome);
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let docs = mini_data_home_eval_docs(workspace.as_path(), &outcome);
     let enforcement_groups: Vec<_> = docs
         .iter()
         .filter(|doc| doc.slot_group_id.contains("enforcement"))
@@ -323,8 +344,11 @@ fn mini_data_enforcement_compound_metric_exports_static_mounts() {
 
 #[test]
 fn mini_data_supervision_stats_exports_panel_shell() {
-    let outcome = mini_data_home_outcome();
-    let stats_doc = mini_data_home_eval_docs(&outcome)
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let stats_doc = mini_data_home_eval_docs(workspace.as_path(), &outcome)
         .into_iter()
         .find(|doc| doc.slot_group_id == "scope:t1/right_rail/warning/supervision-stats")
         .expect("scope:t1/right_rail/warning/supervision-stats eval doc");
@@ -345,8 +369,11 @@ fn mini_data_supervision_stats_exports_panel_shell() {
 
 #[test]
 fn mini_data_triptych_metric_exports_slot_frame_panel_shell() {
-    let outcome = mini_data_home_outcome();
-    let docs = mini_data_home_eval_docs(&outcome);
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let docs = mini_data_home_eval_docs(workspace.as_path(), &outcome);
     let items_slot = docs
         .iter()
         .find(|doc| doc.slot_group_id.contains("warning") && doc.slot_group_id.contains("/items"))
@@ -393,8 +420,11 @@ fn mini_data_triptych_metric_exports_slot_frame_panel_shell() {
 
 #[test]
 fn mini_data_screen_header_exports_bare_panel_shell() {
-    let outcome = mini_data_home_outcome();
-    let docs = mini_data_home_eval_docs(&outcome);
+    let Some((workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let docs = mini_data_home_eval_docs(workspace.as_path(), &outcome);
     let header_shell = docs.iter().find_map(|doc| {
         doc.slots.iter().find_map(|(scope, slot)| {
             if !scope.contains("header") {
@@ -419,7 +449,10 @@ fn mini_data_screen_header_exports_bare_panel_shell() {
 
 #[test]
 fn mini_data_hierarchy_spacing_omitted_defaults_are_injected() {
-    let outcome = mini_data_home_outcome();
+    let Some((_workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let panels = &outcome
         .compiled
         .scene_contract
@@ -536,7 +569,10 @@ fn mini_data_hierarchy_spacing_omitted_defaults_are_injected() {
 
 #[test]
 fn mini_data_header_structure_includes_brand() {
-    let outcome = mini_data_home_outcome();
+    let Some((_workspace, outcome)) = mini_data_home_outcome() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let structure = mei_host_graph::build_structure_full_document(&outcome.compiled, "test");
     let scopes: Vec<_> = structure
         .nodes

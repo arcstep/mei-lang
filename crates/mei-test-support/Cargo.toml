@@ -1,0 +1,16 @@
+[package]
+name = "mei-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Shared helpers for mei-lang conformance fixtures and optional external workspaces"
+
+[dependencies]
+anyhow.workspace = true
+mei-bundle = { path = "../../mei-compiler/crates/mei-bundle" }
+mei-graph = { path = "../../mei-compiler/crates/mei-graph" }
+mei-host-core = { path = "../mei-host-core" }
+mei-host-graph = { path = "../mei-host-graph" }
+mei-lang-kernel = { path = "../kernel" }
+mei-lang-toolchain = { path = "../toolchain" }

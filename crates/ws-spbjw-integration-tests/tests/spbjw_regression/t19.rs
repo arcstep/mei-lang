@@ -6,8 +6,14 @@ use ws_spbjw_integration_tests::{
 
 #[test]
 fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset_not_dataset() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -15,6 +21,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -47,8 +54,14 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -56,6 +69,7 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|_| panic!("compile {target} preview"));
@@ -97,8 +111,14 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
 fn spbjw_effectiveness_transfer_clue_and_filing_count_from_alert_tracking() {
     use std::collections::BTreeMap;
 
-    let source_root = source_root();
-    let app_root = zhifa_app_root();
+    let Some(source_root) = source_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -106,6 +126,7 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_from_alert_tracking() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));

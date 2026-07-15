@@ -1,0 +1,31 @@
+metric_def_bundle(
+    key = "metrics/fx-rows.bundle.mei",
+    datasets = [
+        dataset(
+            id = "fx_rows",
+            source = source_ref("fx_rows"),
+            filters = {
+                "category": "category in filter.category",
+                "name": "name contains filter.name",
+            },
+            schema = [
+                column("id", "integer", source = "id"),
+                column("category", "string", source = "category"),
+                column("name", "string", source = "name"),
+            ],
+        ),
+    ],
+    metrics = [
+        metric_scalar(
+            id = "fx_rows_count",
+            label = "Fixture rows",
+            unit = "rows",
+            rowset = data_ref("fx_rows"),
+            agg = count(),
+            explain = [
+                composition(id = "composition_by_category", label = "Category", by = "category", top_n = 6),
+                detail(label = "Row detail", fields = ["category", "name"]),
+            ],
+        ),
+    ],
+)

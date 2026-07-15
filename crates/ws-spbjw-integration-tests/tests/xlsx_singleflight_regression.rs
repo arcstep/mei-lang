@@ -8,7 +8,10 @@ use ws_spbjw_integration_tests::zhifa_app_root;
 
 #[test]
 fn xlsx_parallel_cold_load_reuses_single_snapshot() {
-    let app_root = zhifa_app_root();
+    let Some(app_root) = zhifa_app_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let rel_path = "upload/8.行政处罚结果清单.xlsx";
     if !app_root.join(rel_path).is_file() {
         eprintln!("skip: zhifa xlsx fixture missing");

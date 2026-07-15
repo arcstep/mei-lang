@@ -6,15 +6,12 @@ use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions}
 
 static INIT: Once = Once::new();
 
-fn ws_demo_v2() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .expect("ws-demo-v2")
+fn ws_demo_v2() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
 }
 
 fn skip_if_data_demo_missing() -> Option<PathBuf> {
-    let workspace = ws_demo_v2();
+    let workspace = ws_demo_v2()?;
     if !workspace.join("apps/data-demo").is_dir() {
         return None;
     }
