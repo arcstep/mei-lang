@@ -21,11 +21,19 @@ pub fn materialize_workspace_stock(
         &templates_dest,
         force,
     )?;
-    let authoring = materialize_tree(
-        &stock_authoring_source(package_root),
-        &authoring_dest,
-        force,
-    )?;
+    // Authoring tree is optional (retired for gold-sample workspaces); skip when absent.
+    let authoring_src = stock_authoring_source(package_root);
+    let authoring = if authoring_src.is_dir() {
+        materialize_tree(&authoring_src, &authoring_dest, force)?
+    } else {
+        MaterializeDirReport {
+            from: authoring_src.display().to_string(),
+            to: authoring_dest.display().to_string(),
+            copied_files: 0,
+            skipped_files: 0,
+            overwritten_files: 0,
+        }
+    };
     write_stock_manifest(
         source_root,
         package_root,
@@ -80,8 +88,7 @@ pub fn ensure_workspace_stock_materialized(
     Ok(Some(report))
 }
 pub(crate) fn workspace_stock_needs_materialize(source_root: &Path) -> bool {
-    !stock_tree_ready(&resolve_authoring_root(source_root))
-        || !stock_tree_ready(&resolve_components_root(source_root))
+    !stock_tree_ready(&resolve_components_root(source_root))
         || !stock_tree_ready(&resolve_templates_root(source_root))
 }
 

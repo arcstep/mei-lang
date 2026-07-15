@@ -4,7 +4,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn ensure_materialize_fills_missing_authoring_tree() {
+    fn ensure_materialize_fills_missing_required_trees() {
         let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let temp =
             std::env::temp_dir().join(format!("mei-ensure-stock-test-{}", std::process::id()));
@@ -13,7 +13,16 @@ mod tests {
         let report = ensure_workspace_stock_materialized(temp.as_path(), package_root.as_path())
             .expect("ensure stock")
             .expect("should materialize");
-        assert!(report.authoring.copied_files > 0);
+        assert!(report.components.copied_files > 0);
+        assert!(report.templates.copied_files > 0);
+        assert_eq!(
+            report.authoring.copied_files, 0,
+            "authoring tree is optional / retired"
+        );
+        assert!(
+            !temp.join("stock/authoring").is_dir(),
+            "authoring should not be created when platform has none"
+        );
         assert!(
             ensure_workspace_stock_materialized(temp.as_path(), package_root.as_path())
                 .expect("ensure again")
@@ -34,9 +43,8 @@ mod tests {
         let src = package_root.join("stock/components/demo/marker.txt");
         fs::create_dir_all(src.parent().expect("parent")).expect("create src dir");
         fs::create_dir_all(package_root.join("stock/templates")).expect("templates src");
-        fs::create_dir_all(package_root.join("stock/authoring")).expect("authoring src");
         fs::write(package_root.join("stock/templates/.keep"), "").expect("templates keep");
-        fs::write(package_root.join("stock/authoring/.keep"), "").expect("authoring keep");
+        // authoring intentionally omitted — optional
         fs::write(&src, "platform").expect("write src");
         materialize_workspace_stock(workspace_root.as_path(), package_root.as_path(), false)
             .expect("initial materialize");
@@ -70,6 +78,8 @@ mod tests {
         let workspace_root = temp.join("workspace");
         let src = package_root.join("stock/components/demo/refresh-marker.txt");
         fs::create_dir_all(src.parent().expect("parent")).expect("create src dir");
+        fs::create_dir_all(package_root.join("stock/templates")).expect("templates src");
+        fs::write(package_root.join("stock/templates/.keep"), "").expect("templates keep");
         fs::write(&src, "v1").expect("write src v1");
         materialize_workspace_stock(workspace_root.as_path(), package_root.as_path(), false)
             .expect("initial materialize");
@@ -93,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn materialize_report_includes_authoring_tree() {
+    fn materialize_report_allows_absent_authoring_tree() {
         let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let temp =
             std::env::temp_dir().join(format!("mei-materialize-test-{}", std::process::id()));
@@ -102,14 +112,14 @@ mod tests {
         let report = materialize_workspace_stock(temp.as_path(), package_root.as_path(), true)
             .expect("materialize");
         assert!(
-            temp.join("stock/authoring/README.md").is_file(),
-            "authoring stub README should be copied"
+            !temp.join("stock/authoring").exists(),
+            "authoring should stay absent when platform ships none"
         );
-        assert_eq!(report.authoring.copied_files > 0, true);
+        assert_eq!(report.authoring.copied_files, 0);
         let json = serde_json::to_value(&report).expect("serialize");
         assert!(
             json.get("authoring").is_some(),
-            "json must include authoring"
+            "json must include authoring fingerprint field"
         );
         assert!(
             temp.join("stock/STOCK.json").is_file(),
@@ -128,7 +138,7 @@ mod tests {
         let report =
             doctor_workspace_stock(temp.as_path(), package_root.as_path()).expect("doctor");
         assert!(!report.ok, "empty workspace should not pass doctor");
-        assert_eq!(report.missing_trees.len(), 3);
+        assert_eq!(report.missing_trees.len(), 2);
         let _ = fs::remove_dir_all(&temp);
     }
 

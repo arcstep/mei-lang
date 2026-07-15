@@ -13,7 +13,7 @@ mei-toolchain workspace bootstrap --source-root /path/to/workspace --app hello -
 This creates a new source workspace and immediately installs a local runtime:
 
 - `.mei-workspace.json`
-- `stock/`（components、templates、authoring 示例；Git 真源）
+- `stock/`（components、templates；Git 真源。`authoring` 已退役）
 - workspace-local `.mei/` runtime metadata
 - `.mei/runtime/bin/mei-toolchain`
 - `.mei/runtime/bin/mei-lsp`

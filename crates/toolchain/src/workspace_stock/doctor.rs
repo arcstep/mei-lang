@@ -23,11 +23,10 @@ pub fn doctor_workspace_stock(
 
     let components_root = resolve_components_root(source_root);
     let templates_root = resolve_templates_root(source_root);
-    let authoring_root = resolve_authoring_root(source_root);
+    // components + templates are required; authoring is optional (retired).
     for (label, path) in [
         ("components", &components_root),
         ("templates", &templates_root),
-        ("authoring", &authoring_root),
     ] {
         if !stock_tree_ready(path) {
             missing_trees.push(format!("{label}: {}", path.display()));
@@ -77,10 +76,7 @@ pub fn doctor_workspace_stock(
                 manifest_path.display()
             )),
         }
-    } else if stock_tree_ready(&components_root)
-        || stock_tree_ready(&templates_root)
-        || stock_tree_ready(&authoring_root)
-    {
+    } else if stock_tree_ready(&components_root) || stock_tree_ready(&templates_root) {
         warnings.push(format!(
             "missing {} under {}",
             STOCK_MANIFEST_FILENAME,
