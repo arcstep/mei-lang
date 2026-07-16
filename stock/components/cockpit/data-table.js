@@ -56,6 +56,9 @@ import { formatTableRowCountLabel } from "../dataset/table-runtime/footer.js";
 import {
   buildTableRowDrilldownDetail,
   emitTableRowDrilldown,
+  emitObjectFieldOpen,
+  resolveObjectFieldLinks,
+  resolveObjectFieldTargets,
   tableDrilldownMeta,
   tableRowSelectionMode,
   emitTableRowSelect,
@@ -395,7 +398,7 @@ function resolveColumnTemplate(props, keys, descriptors) {
   return "";
 }
 
-function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displayOverride, toneClass = "") {
+function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displayOverride, toneClass = "", objectLinkTargets = []) {
   const format = descriptor?.format || {};
   const formatType = String(format?.type || descriptor?.type || "").trim().toLowerCase();
   if (formatType === "action") {
@@ -411,6 +414,14 @@ function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displa
   const previewAttrs = ` data-cell-preview-key="${escapeAttr(previewKey)}" data-r="${rowIndex}" data-c="${escapeAttr(
     descriptor.key
   )}"`;
+  if (Array.isArray(objectLinkTargets) && objectLinkTargets.length > 0) {
+    const tip = objectLinkTargets.map((target) => target.label || target.objectType).join(" / ");
+    return `<button type="button" class="cell-object-link${cell.tipClass}" title="${escapeAttr(
+      tip || "打开智能对象",
+    )}" data-object-field="${escapeAttr(descriptor.key)}" data-r="${rowIndex}" data-c="${escapeAttr(
+      descriptor.key,
+    )}">${cell.html}</button>`;
+  }
   if (descriptor?.tag || isTagField(descriptor?.key)) {
     const tone = toneClass || resolveTagToneClass(descriptor?.key, displayOverride);
     return `<span class="cell-tag ${tone}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
@@ -885,11 +896,22 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   onRowDrilldownClick(event) {
+    const fieldLink = eventComposedPath(event).find(
+      (node) => node instanceof HTMLElement && node.classList.contains("cell-object-link"),
+    );
+    if (fieldLink instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      // Prevent later host listeners (row select → render) from wiping the chooser.
+      event.stopImmediatePropagation();
+      this.onObjectFieldLinkClick(event, fieldLink);
+      return;
+    }
     const rowEl = findTableRowInEventPath(event, "drilldown-row");
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger, .cell-object-link, .object-field-chooser")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);
@@ -905,6 +927,78 @@ export class MeiCockpitDataTable extends HTMLElement {
     }
     event.preventDefault();
     emitTableRowDrilldown(this, detail);
+  }
+
+  onObjectFieldLinkClick(event, linkEl) {
+    const columnKey = String(linkEl?.dataset?.objectField || linkEl?.dataset?.c || "").trim();
+    const rowIndex = Number(linkEl?.dataset?.r);
+    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    const row = Number.isFinite(rowIndex) && rowIndex >= 0 ? rows[rowIndex] : null;
+    if (!row || !columnKey) return;
+    const targets = resolveObjectFieldTargets(this._props || {}, row, columnKey);
+    if (!targets.length) return;
+    if (targets.length === 1) {
+      emitObjectFieldOpen(this, targets[0], row, this._props || {});
+      return;
+    }
+    this.openObjectFieldChooser(linkEl, targets, row);
+  }
+
+  closeObjectFieldChooser() {
+    const existing = this.shadowRoot?.querySelector?.(".object-field-chooser");
+    if (existing) existing.remove();
+    if (typeof this._objectFieldChooserCleanup === "function") {
+      this._objectFieldChooserCleanup();
+      this._objectFieldChooserCleanup = null;
+    }
+  }
+
+  openObjectFieldChooser(anchor, targets, row) {
+    this.closeObjectFieldChooser();
+    if (!this.shadowRoot || !anchor) return;
+    const menu = document.createElement("div");
+    menu.className = "object-field-chooser";
+    menu.setAttribute("role", "menu");
+    menu.innerHTML = [
+      `<div class="object-field-chooser-title">选择智能对象</div>`,
+      ...targets.map(
+        (target, index) =>
+          `<button type="button" class="object-field-chooser-item" data-target-index="${index}" role="menuitem">${escapeHtml(
+            target.label || `${target.objectType} · ${target.objectKey}`,
+          )}</button>`,
+      ),
+    ].join("");
+    // Fixed to viewport so overflow:hidden on .table-wrap cannot clip the menu.
+    this.shadowRoot.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 240))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 8)}px`;
+
+    const onPick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const button = event.target?.closest?.(".object-field-chooser-item");
+      if (!(button instanceof HTMLElement)) return;
+      const index = Number(button.dataset.targetIndex);
+      const target = targets[index];
+      this.closeObjectFieldChooser();
+      if (target) emitObjectFieldOpen(this, target, row, this._props || {});
+    };
+    menu.addEventListener("click", onPick);
+    const onDoc = (event) => {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (path.includes(menu) || path.includes(anchor)) return;
+      this.closeObjectFieldChooser();
+    };
+    window.setTimeout(() => {
+      document.addEventListener("mousedown", onDoc, true);
+      this._objectFieldChooserCleanup = () => {
+        document.removeEventListener("mousedown", onDoc, true);
+        menu.removeEventListener("click", onPick);
+      };
+    }, 0);
   }
 
   emitRowActivation(row, rowIndex, reason = "select") {
@@ -989,7 +1083,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger, .cell-object-link, .object-field-chooser")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);
@@ -1015,7 +1109,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger, .cell-object-link, .object-field-chooser")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);
@@ -1054,6 +1148,7 @@ export class MeiCockpitDataTable extends HTMLElement {
 
   render() {
     this.closeCellPopover();
+    this.closeObjectFieldChooser();
     const p = this._props || {};
     let { keys, headers } = resolveTableSpec(p);
     const rows = this._state?.rows || [];
@@ -1121,7 +1216,12 @@ export class MeiCockpitDataTable extends HTMLElement {
       )
       .join("");
     const layoutKey = String(p.layoutPreset ?? "");
-    const drilldownEnabled = Boolean(tableDrilldownMeta(p));
+    const fieldLinks = resolveObjectFieldLinks(p);
+    const hasObjectFieldLinks = Object.keys(fieldLinks).some(
+      (key) => Array.isArray(fieldLinks[key]) && fieldLinks[key].length > 0,
+    );
+    // Field-level object links own navigation; do not also treat the whole row as a link.
+    const drilldownEnabled = Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks;
     const selectionMode = tableRowSelectionMode(p);
     const selectableRows = selectionMode === "single";
     const body = rows
@@ -1133,10 +1233,14 @@ export class MeiCockpitDataTable extends HTMLElement {
             const sharedTone = resolveToneToken(raw, descriptor);
             const tone = sharedTone ? `tone-${sharedTone}` : cellToneClass(layoutKey, descriptor.key, formatted);
             const tagTone = sharedTone ? `tone-${sharedTone}` : resolveTagToneClass(descriptor.key, formatted);
+            const objectLinkTargets = Array.isArray(fieldLinks[descriptor.key])
+              ? resolveObjectFieldTargets(p, row, descriptor.key)
+              : [];
             const cls = [
               "td-cell",
               lastColRight && i === layoutDescriptors.length - 1 ? "align-right" : "",
-              tone,
+              objectLinkTargets.length ? "" : tone,
+              objectLinkTargets.length ? "has-object-link" : "",
             ]
               .filter(Boolean)
               .join(" ");
@@ -1147,7 +1251,8 @@ export class MeiCockpitDataTable extends HTMLElement {
               this._cellTextMap,
               p,
               formatted,
-              tagTone
+              objectLinkTargets.length ? "" : tagTone,
+              objectLinkTargets,
             )}</span>`;
           })
           .join("");
@@ -1316,7 +1421,9 @@ export class MeiCockpitDataTable extends HTMLElement {
         .tr.is-active-event .td-cell .cell-tag {
           font-weight: 600;
         }
-        .tr:hover {
+        /* Only interactive rows show hover affordance (not whole-row when field links own nav). */
+        .tr.drilldown-row:hover,
+        .tr.selectable-row:hover {
           background: ${color("table_row_selected")};
           box-shadow: ${themeShadow("table_row_selected", "inset 0 0 0 1px rgba(125, 211, 252, 0.2)")};
           transform: translateY(-1px);
@@ -1334,7 +1441,8 @@ export class MeiCockpitDataTable extends HTMLElement {
           overflow: hidden;
           transition: color 120ms ease;
         }
-        .tr:hover .td-cell {
+        .tr.drilldown-row:hover .td-cell,
+        .tr.selectable-row:hover .td-cell {
           color: ${color("text_primary")};
         }
         .align-right { text-align: right; color: ${color("text_accent")}; }
@@ -1379,6 +1487,60 @@ export class MeiCockpitDataTable extends HTMLElement {
           opacity: 0.72;
           cursor: default;
           text-decoration: none;
+        }
+        .cell-object-link {
+          display: inline;
+          max-width: 100%;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: ${color("text_accent")};
+          font: inherit;
+          line-height: 1.35;
+          cursor: pointer;
+          text-align: inherit;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .cell-object-link:hover {
+          filter: brightness(1.12);
+        }
+        .object-field-chooser {
+          position: fixed;
+          z-index: 12000;
+          min-width: 220px;
+          max-width: min(360px, 90vw);
+          padding: 8px;
+          border-radius: 8px;
+          border: 1px solid rgba(125, 211, 252, 0.35);
+          background: rgba(15, 23, 42, 0.96);
+          box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+          display: grid;
+          gap: 4px;
+        }
+        .object-field-chooser-title {
+          font-size: 12px;
+          color: rgba(226, 232, 240, 0.78);
+          padding: 2px 6px 6px;
+        }
+        .object-field-chooser-item {
+          appearance: none;
+          border: 0;
+          border-radius: 6px;
+          background: transparent;
+          color: #e2e8f0;
+          text-align: left;
+          padding: 8px 10px;
+          font: inherit;
+          cursor: pointer;
+        }
+        .object-field-chooser-item:hover,
+        .object-field-chooser-item:focus-visible {
+          background: rgba(56, 189, 248, 0.16);
+          outline: none;
         }
         .empty {
           padding: 24px 10px;

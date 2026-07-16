@@ -303,11 +303,15 @@
   }
 
   function resolveLayer2TabLabel(config, sceneId) {
+    const detail = config?.detail && typeof config.detail === "object" ? config.detail : null;
+    const locator = detail?.object_locator || detail?.objectLocator || null;
     return nonEmptyString(
       config?.title,
       config?.mount?.title,
       config?.popup?.title,
-      config?.detail?.label,
+      detail?.label,
+      locator?.objectKey,
+      locator?.object_key,
       config?.label,
       config?.summary,
       sceneId,
@@ -317,7 +321,15 @@
   function openLayer2Tab(config) {
     const root = ensureLayer2WorkspaceRoot();
     const session = layer2Session();
-    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, "board");
+    // Prefer popup/board target scene; pageSceneId may still be the L1 host (home).
+    const sceneId = nonEmptyString(
+      config?.popup?.scene_id,
+      config?.popup?.sceneId,
+      config?.boardSceneId,
+      config?.sceneId,
+      config?.pageSceneId,
+      "board",
+    );
     const overlayWorkspace =
       (config?.overlayWorkspace && typeof config.overlayWorkspace === "object" && config.overlayWorkspace) ||
       (typeof boot.resolveOverlayWorkspace === "function"

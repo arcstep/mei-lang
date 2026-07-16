@@ -45,21 +45,23 @@
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
+    // Prefer the board being opened over pageSceneId. The latter often carries the L1 host
+    // active scene (e.g. `home`) from tableDrilldownMeta and must not win the tab identity.
     return {
       sceneId: nonEmptyString(
-        config.pageSceneId,
         config.boardSceneId,
-        config.sceneId,
-        popup?.page_scene_id,
         popup?.scene_id,
         popup?.sceneId,
+        popup?.page_scene_id,
+        config.sceneId,
+        config.pageSceneId,
       ),
       sceneFile: nonEmptyString(
-        config.pageSceneFile,
         config.boardSceneFile,
-        popup?.page_scene_file,
         popup?.scene_file,
         popup?.sceneFile,
+        popup?.page_scene_file,
+        config.pageSceneFile,
       ),
       params: config.params || normalizeSceneParams(popup?.params),
       entry: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab),

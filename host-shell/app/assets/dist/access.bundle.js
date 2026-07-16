@@ -17824,21 +17824,23 @@
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
+    // Prefer the board being opened over pageSceneId. The latter often carries the L1 host
+    // active scene (e.g. `home`) from tableDrilldownMeta and must not win the tab identity.
     return {
       sceneId: nonEmptyString(
-        config.pageSceneId,
         config.boardSceneId,
-        config.sceneId,
-        popup?.page_scene_id,
         popup?.scene_id,
         popup?.sceneId,
+        popup?.page_scene_id,
+        config.sceneId,
+        config.pageSceneId,
       ),
       sceneFile: nonEmptyString(
-        config.pageSceneFile,
         config.boardSceneFile,
-        popup?.page_scene_file,
         popup?.scene_file,
         popup?.sceneFile,
+        popup?.page_scene_file,
+        config.pageSceneFile,
       ),
       params: config.params || normalizeSceneParams(popup?.params),
       entry: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab),
@@ -18837,6 +18839,51 @@
     return raw;
   }
 
+  function readPresentationObjectFieldLinks(objectType) {
+    const type = nonEmptyString(objectType);
+    if (!type || typeof document === "undefined") return null;
+    try {
+      const fromBoot = globalThis.__mei?.presentation_map?.objectFieldLinksByObjectType?.[type];
+      if (fromBoot && typeof fromBoot === "object") return fromBoot;
+      const node = document.getElementById?.("mei-presentation-map");
+      if (node?.textContent) {
+        return JSON.parse(node.textContent)?.objectFieldLinksByObjectType?.[type] || null;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  /** When local_nav still has unresolved link_ref, reuse Warning self openPopup from field-link IR. */
+  function resolveObjectFieldSelfOpenPopup(config = null) {
+    const rowSpec = resolveDeclaredRowDrilldownSpec(config);
+    const locator =
+      (rowSpec?.object_locator && typeof rowSpec.object_locator === "object"
+        ? rowSpec.object_locator
+        : null) ||
+      (rowSpec?.objectLocator && typeof rowSpec.objectLocator === "object"
+        ? rowSpec.objectLocator
+        : null);
+    const objectType = nonEmptyString(locator?.object_type, locator?.objectType);
+    const links = readPresentationObjectFieldLinks(objectType);
+    if (!links || typeof links !== "object") return null;
+    for (const targets of Object.values(links)) {
+      if (!Array.isArray(targets)) continue;
+      for (const target of targets) {
+        if (String(target?.role || "").trim() !== "self") continue;
+        const openPopup =
+          (target.openPopup && typeof target.openPopup === "object" && target.openPopup) ||
+          (target.open_popup && typeof target.open_popup === "object" && target.open_popup) ||
+          null;
+        if (openPopup && nonEmptyString(openPopup.scene_id, openPopup.sceneId)) {
+          return openPopup;
+        }
+      }
+    }
+    return null;
+  }
+
   function popupBoardSceneFields(popup) {
     if (!popup || typeof popup !== "object") {
       return { sceneId: "", sceneFile: "" };
@@ -18878,11 +18925,18 @@
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
-    const declaredPopup = resolveDeclaredRowDrilldownPopup(config);
+    let declaredPopup = resolveDeclaredRowDrilldownPopup(config);
     if (!declaredPopup) {
       return null;
     }
-    const { sceneId: boardSceneId, sceneFile: boardSceneFile } = popupBoardSceneFields(declaredPopup);
+    let { sceneId: boardSceneId, sceneFile: boardSceneFile } = popupBoardSceneFields(declaredPopup);
+    if (!boardSceneId || !boardSceneFile) {
+      const fallback = resolveObjectFieldSelfOpenPopup(config);
+      if (fallback) {
+        declaredPopup = fallback;
+        ({ sceneId: boardSceneId, sceneFile: boardSceneFile } = popupBoardSceneFields(declaredPopup));
+      }
+    }
     if (!boardSceneId || !boardSceneFile) {
       return null;
     }
@@ -18973,17 +19027,61 @@
     if (!props) {
       return props;
     }
-    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config, detail);
-    if (!rowDrilldown) {
-      return props;
+    const rowSpec =
+      resolveDeclaredRowDrilldownSpec(config) ||
+      (config?.sceneLocalNav?.row_drilldown &&
+      typeof config.sceneLocalNav.row_drilldown === "object"
+        ? config.sceneLocalNav.row_drilldown
+        : null) ||
+      null;
+    const locator =
+      (rowSpec?.object_locator && typeof rowSpec.object_locator === "object"
+        ? rowSpec.object_locator
+        : null) ||
+      (rowSpec?.objectLocator && typeof rowSpec.objectLocator === "object"
+        ? rowSpec.objectLocator
+        : null);
+    const objectType = nonEmptyString(locator?.object_type, locator?.objectType);
+    let objectFieldLinks = props.object_field_links || props.objectFieldLinks || undefined;
+    if (!objectFieldLinks && objectType && typeof document !== "undefined") {
+      try {
+        const fromBoot =
+          globalThis.__mei?.presentation_map?.objectFieldLinksByObjectType?.[objectType];
+        if (fromBoot && typeof fromBoot === "object") {
+          objectFieldLinks = fromBoot;
+        } else {
+          const node = document.getElementById?.("mei-presentation-map");
+          if (node?.textContent) {
+            const parsed = JSON.parse(node.textContent);
+            objectFieldLinks = parsed?.objectFieldLinksByObjectType?.[objectType];
+          }
+        }
+      } catch (_) {
+        objectFieldLinks = undefined;
+      }
     }
+
+    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config, detail);
     return {
       ...props,
-      popup: rowDrilldown.popup,
-      drilldownMetric: rowDrilldown.drilldownMetric,
-      previewCompileAnchor: rowDrilldown.previewCompileAnchor,
-      rowDrilldown: rowDrilldown.rowDrilldown || undefined,
-      row_drilldown: rowDrilldown.rowDrilldown || undefined,
+      ...(rowDrilldown
+        ? {
+            popup: rowDrilldown.popup,
+            drilldownMetric: rowDrilldown.drilldownMetric,
+            previewCompileAnchor: rowDrilldown.previewCompileAnchor,
+            rowDrilldown: rowDrilldown.rowDrilldown || rowSpec || undefined,
+            row_drilldown: rowDrilldown.rowDrilldown || rowSpec || undefined,
+          }
+        : rowSpec
+          ? {
+              rowDrilldown: rowSpec,
+              row_drilldown: rowSpec,
+            }
+          : {}),
+      ...(locator ? { object_locator: locator, objectLocator: locator } : {}),
+      ...(objectFieldLinks
+        ? { object_field_links: objectFieldLinks, objectFieldLinks }
+        : {}),
     };
   }
 
@@ -25492,11 +25590,15 @@
   }
 
   function resolveLayer2TabLabel(config, sceneId) {
+    const detail = config?.detail && typeof config.detail === "object" ? config.detail : null;
+    const locator = detail?.object_locator || detail?.objectLocator || null;
     return nonEmptyString(
       config?.title,
       config?.mount?.title,
       config?.popup?.title,
-      config?.detail?.label,
+      detail?.label,
+      locator?.objectKey,
+      locator?.object_key,
       config?.label,
       config?.summary,
       sceneId,
@@ -25506,7 +25608,15 @@
   function openLayer2Tab(config) {
     const root = ensureLayer2WorkspaceRoot();
     const session = layer2Session();
-    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, "board");
+    // Prefer popup/board target scene; pageSceneId may still be the L1 host (home).
+    const sceneId = nonEmptyString(
+      config?.popup?.scene_id,
+      config?.popup?.sceneId,
+      config?.boardSceneId,
+      config?.sceneId,
+      config?.pageSceneId,
+      "board",
+    );
     const overlayWorkspace =
       (config?.overlayWorkspace && typeof config.overlayWorkspace === "object" && config.overlayWorkspace) ||
       (typeof boot.resolveOverlayWorkspace === "function"
