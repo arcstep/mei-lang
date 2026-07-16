@@ -21,9 +21,10 @@ use super::viewport::{
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
-    build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
-    CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
-    SceneContract, SceneDecl, SourceDecl, ThemeDecl,
+    build_runtime_resource_index, build_runtime_resource_map, clear_prebuild_build_root_override,
+    set_prebuild_build_root_override, ColumnSchema, CompiledApp, CompiledSceneRoute, DatasetView,
+    LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract, SceneDecl, SourceDecl,
+    ThemeDecl,
 };
 use serde_json::{json, Value};
 
@@ -266,6 +267,16 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
 
 #[test]
 fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
+    let fixture_root = std::env::temp_dir().join(format!(
+        "mei-g10-attach-host-meta-{}",
+        std::process::id()
+    ));
+    let app_root = fixture_root.join("apps/preview-shared");
+    let build_root = app_root.join("env/WS-20260716.0/build");
+    let var_root = app_root.join("env/WS-20260716.0/var");
+    let _ = std::fs::create_dir_all(&build_root);
+    let _ = std::fs::create_dir_all(&var_root);
+    set_prebuild_build_root_override(app_root.as_path(), Some(build_root.as_path()));
     let compiled = CompiledApp {
         app_id: "preview-shared".to_string(),
         active_scene: Some("home".to_string()),
@@ -279,7 +290,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         world_metrics: BTreeMap::new(),
         world_semantic_by_file: BTreeMap::new(),
         scene_routes: Vec::new(),
-        app_root: ".".to_string(),
+        app_root: app_root.to_string_lossy().into_owned(),
         title: "preview-shared".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
@@ -441,6 +452,8 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         .get("_mei")
         .and_then(|value| value.get("scene_projection_assembly_by_id"))
         .is_some());
+    clear_prebuild_build_root_override();
+    let _ = std::fs::remove_dir_all(fixture_root);
 }
 
 #[test]

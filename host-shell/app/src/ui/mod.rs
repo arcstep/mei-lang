@@ -420,11 +420,11 @@ mod tests {
     use mei_lang_kernel::BuildViewTab;
 
     #[test]
-    fn build_view_defaults_to_overview_for_scene_node() {
+    fn build_view_defaults_to_preview_for_scene_node() {
         assert!(matches!(
             resolve_build_query(Some("scene:home"), None, None, None, None, None, None, None,)
                 .map(|resolved| resolved.tab),
-            Some(BuildViewTab::Overview)
+            Some(BuildViewTab::Preview)
         ));
     }
 
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn manage_ops_config_href_forces_preview_tab() {
+    fn manage_ops_config_href_seals_to_access_home() {
         let href = manage_tab_href(
             "zhifa",
             Some(OPS_CONFIG_TARGET),
@@ -449,7 +449,7 @@ mod tests {
             None,
             WorldSemanticQuery::default(),
         );
-        assert!(href.contains("/apps/zhifa/layout"));
+        assert_eq!(href, "/apps/zhifa/home");
     }
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn build_preview_href_includes_scene_export_selector() {
+    fn build_preview_href_seals_board_scene_to_access_home() {
         let href = build_preview_href(
             "zhifa",
             Some("scenes/05-监督预警.board.mei"),
@@ -492,11 +492,11 @@ mod tests {
             WorldSemanticQuery::default(),
             BuildReviewAxes::default(),
         );
-        assert_eq!(href, "/apps/zhifa/layout");
+        assert_eq!(href, "/apps/zhifa/home");
     }
 
     #[test]
-    fn manage_tab_href_encodes_file_value() {
+    fn manage_tab_href_seals_file_target_to_access_home() {
         let href = manage_tab_href(
             "examples/demo",
             Some("docs/README #1.md"),
@@ -507,11 +507,11 @@ mod tests {
             None,
             WorldSemanticQuery::default(),
         );
-        assert!(href.contains("/apps/examples/demo/layout"));
+        assert_eq!(href, "/apps/examples/demo/home");
     }
 
     #[test]
-    fn build_preview_href_includes_world_semantic_query() {
+    fn build_preview_href_seals_world_semantic_to_access_home() {
         let href = build_preview_href(
             "zhifa",
             Some("scenes/07-问题办理.world.mei"),
@@ -525,7 +525,7 @@ mod tests {
             },
             BuildReviewAxes::default(),
         );
-        assert!(href.contains("node=world-explain"));
-        assert!(href.contains("tab=preview"));
+        assert_eq!(href, "/apps/zhifa/home");
+        assert!(!href.contains('?'));
     }
 }

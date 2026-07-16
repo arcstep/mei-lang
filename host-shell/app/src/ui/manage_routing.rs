@@ -341,7 +341,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_board_file_resolves_to_board_file_node_href() {
+    fn legacy_board_file_resolves_to_access_home_href() {
         let href = build_preview_href(
             "zhifa",
             Some("scenes/01-执法要素.board.mei"),
@@ -354,8 +354,7 @@ mod tests {
                 review_projection: Some("plane_region_section"),
             },
         );
-        assert!(href.contains("data_mode=fixture"));
-        assert!(href.contains("review_projection=plane_region_section"));
+        assert_eq!(href, "/apps/zhifa/home");
         let href = build_preview_href(
             "zhifa",
             Some("scenes/01-执法要素.board.mei"),
@@ -365,13 +364,12 @@ mod tests {
             WorldSemanticQuery::default(),
             BuildReviewAxes::default(),
         );
-        assert!(href.contains("node=board-file%3A"));
-        assert!(href.contains("enforcement_units_analytics_board"));
-        assert!(!href.contains("file="));
+        assert_eq!(href, "/apps/zhifa/home");
+        assert!(!href.contains('?'));
     }
 
     #[test]
-    fn legacy_world_metric_resolves_to_node_href() {
+    fn legacy_world_metric_resolves_to_access_home_href() {
         let href = build_preview_href(
             "zhifa",
             Some("metrics.world.mei"),
@@ -385,6 +383,6 @@ mod tests {
             },
             BuildReviewAxes::default(),
         );
-        assert!(href.contains("node=world-metric"));
+        assert_eq!(href, "/apps/zhifa/home");
     }
 }

@@ -271,7 +271,7 @@ mod tests {
     };
 
     #[test]
-    fn single_segment_apps_without_aggregate_group_land_in_misc() {
+    fn single_segment_hyphenated_apps_split_into_prefix_groups() {
         let apps = vec![
             WorkspaceAppMeta {
                 id: "data-demo".to_string(),
@@ -285,9 +285,19 @@ mod tests {
             },
         ];
         let groups = build_topbar_menu_groups(apps.as_slice(), None, UiRouteMode::App);
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].id, "misc");
-        assert_eq!(groups[0].items.len(), 2);
+        assert_eq!(groups.len(), 2);
+        let data = groups
+            .iter()
+            .find(|group| group.id == "data")
+            .expect("data group");
+        let mini = groups
+            .iter()
+            .find(|group| group.id == "mini")
+            .expect("mini group");
+        assert_eq!(data.items.len(), 1);
+        assert_eq!(data.items[0].label, "demo");
+        assert_eq!(mini.items.len(), 1);
+        assert_eq!(mini.items[0].label, "park");
     }
 
     #[test]
@@ -363,7 +373,7 @@ mod tests {
         };
         let groups = build_topbar_menu_groups(apps.as_slice(), Some(&menus), UiRouteMode::App);
         assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].id, "misc");
+        assert_eq!(groups[0].id, "data");
         assert_eq!(groups[0].items[0].label, "Data Demo v2");
     }
 

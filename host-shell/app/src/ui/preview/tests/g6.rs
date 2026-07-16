@@ -97,11 +97,11 @@ fn resolve_panel_card_props_strips_heading_from_card() {
 fn panel_slot_typography_style_maps_theme_font_keys() {
     assert_eq!(
         panel_slot_typography_style(&json!({"font": "4"})),
-        "font-size:var(--mei-font-4,14px);"
+        "font-size:var(--mei-font-4, 14px);"
     );
     assert_eq!(
         panel_slot_typography_style(&json!({"font": 3})),
-        "font-size:var(--mei-font-3,14px);"
+        "font-size:var(--mei-font-3, 14px);"
     );
     assert_eq!(
         panel_slot_typography_style(&json!({"font": "18px"})),

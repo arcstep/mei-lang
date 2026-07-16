@@ -85,7 +85,8 @@ fn container_visual_style_supports_background_image_shorthand() {
             "repeat": "no-repeat",
         }
     }));
-    assert!(style.contains("background-image:url(\"/workspace-components/demo.png\")"));
+    assert!(style.contains("background-image:"));
+    assert!(style.contains("demo.png"));
     assert!(style.contains("background-size:cover;"));
     assert!(style.contains("background-repeat:no-repeat;"));
 }

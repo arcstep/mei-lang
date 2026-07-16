@@ -300,6 +300,71 @@ fn zhifa_assemble_accepts_legacy_assembly_scene_id() {
 }
 
 #[test]
+fn zhifa_home_metric_cards_receive_derived_explain_popups() {
+    let Some(workspace) = ensure_imported() else {
+        eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
+    let contract = outcome.compiled.scene_contract.as_ref().expect("contract");
+
+    fn collect_value_popups(
+        panel: &mei_lang_kernel::UiNodeDecl,
+        out: &mut Vec<(String, serde_json::Value)>,
+    ) {
+        for node in &panel.blocks {
+            match node {
+                mei_lang_kernel::UiTreeNode::Block(block) => {
+                    if block.props.get("metric_role").and_then(|v| v.as_str()) == Some("value") {
+                        if let Some(popup) = block.props.get("popup") {
+                            out.push((
+                                block.id.clone().unwrap_or_else(|| block.use_key.clone()),
+                                popup.clone(),
+                            ));
+                        }
+                    }
+                }
+                mei_lang_kernel::UiTreeNode::Panel(child) => collect_value_popups(child, out),
+                mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => {}
+            }
+        }
+    }
+
+    let mut popups = Vec::new();
+    for panel in &contract.panels {
+        collect_value_popups(panel, &mut popups);
+    }
+    assert!(
+        popups.len() >= 20,
+        "expected many derived home metric popups after removing explicit link_decl; got {}",
+        popups.len()
+    );
+    let derived = popups
+        .iter()
+        .filter(|(_, popup)| popup.get("derived") == Some(&serde_json::json!(true)))
+        .count();
+    assert!(
+        derived >= 20,
+        "expected derived metric_page_adjacency popups; derived={derived}; sample={:?}",
+        popups.iter().take(3).collect::<Vec<_>>()
+    );
+    assert!(
+        popups.iter().any(|(_, popup)| {
+            popup.get("scene_id").and_then(|v| v.as_str()) == Some("warnings_analytics_page")
+                || popup
+                    .get("interaction")
+                    .and_then(|v| v.get("intent"))
+                    .and_then(|v| v.as_str())
+                    == Some("explain_metric")
+        }),
+        "warnings/explain_metric derived popup missing; sample={:?}",
+        popups.iter().take(5).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn zhifa_warnings_drilldown_has_runtime_projection_slots() {
     let Some(workspace) = ensure_imported() else {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
