@@ -1,0 +1,12 @@
+use template "cockpit/layout-defaults" as ui
+
+content_panel(
+    id = "fx_panel",
+    chrome = "bare",
+    blocks = [
+        ui.narrow_metric_card(
+            id = "demo",
+            source = {"label": "Fixture", "value": "1", "unit": "n"},
+        ),
+    ],
+)

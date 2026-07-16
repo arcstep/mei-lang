@@ -1,0 +1,14 @@
+use template "cockpit/layout-defaults" as ui
+
+# Minimal grid-only authoring sample for parser smoke (in-repo; no sibling workspace).
+
+plane_layout(
+    id = "t1",
+    tier = "t1",
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+    ),
+    regions = [],
+)

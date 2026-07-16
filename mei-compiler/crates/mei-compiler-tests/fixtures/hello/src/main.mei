@@ -1,0 +1,6 @@
+app(
+    id = "hello",
+    title = "hello",
+    default_stage = "home",
+    scene = scene_ref(scene_file = "scenes/home.mei"),
+)

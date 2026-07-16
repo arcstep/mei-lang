@@ -31,14 +31,19 @@ pub fn assert_decl_ir_eq(left: &JsonValue, right: &JsonValue) {
     );
 }
 
-pub fn mei_projects_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(4)
-        .expect("mei-projects root")
-        .to_path_buf()
+/// In-repo hello app fixture (no sibling hello workspace required).
+pub fn hello_fixture_app_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/hello")
 }
 
+/// Prefer `MEI_TEST_WORKSPACE/.../apps/hello` when set; otherwise in-repo fixture.
 pub fn ws_hello_hello_app_dir() -> std::path::PathBuf {
-    mei_projects_root().join("workspaces/ws-hello/apps/hello")
+    if let Ok(raw) = std::env::var("MEI_TEST_WORKSPACE") {
+        let ws = std::path::PathBuf::from(raw.trim());
+        let candidate = ws.join("apps/hello");
+        if candidate.join("src/main.mei").is_file() {
+            return candidate;
+        }
+    }
+    hello_fixture_app_dir()
 }

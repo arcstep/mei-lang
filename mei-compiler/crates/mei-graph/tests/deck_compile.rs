@@ -89,12 +89,16 @@ fn compiles_deck_as_single_source_with_order_and_script() {
     let fixture = Fixture::new(VALID_DECK);
     let outcome = compile_app(&fixture.root, "demo").expect("compile deck");
 
-    assert_eq!(outcome.files.len(), 1);
+    let deck_file = outcome
+        .files
+        .iter()
+        .find(|f| f.source_file.ends_with("intro.deck.mdx"))
+        .expect("deck source file");
     assert_eq!(
-        outcome.files[0].source_file,
+        deck_file.source_file,
         "presentation/intro/intro.deck.mdx"
     );
-    assert_eq!(outcome.files[0].blocks.len(), 10);
+    assert_eq!(deck_file.blocks.len(), 10);
     assert_kind_count(&outcome.blocks, "presentation", 1);
     assert_kind_count(&outcome.blocks, "plane_layout", 1);
     assert_kind_count(&outcome.blocks, "slide_layout", 2);

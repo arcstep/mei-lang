@@ -1,0 +1,12 @@
+use template "cockpit/layout-defaults" as ui
+
+template fixture_metric_shell(id):
+    ui.narrow_metric_card(
+        id = id,
+        source = {"label": "Fixture", "value": "2", "unit": "n"},
+    )
+
+scene(
+    id = "metric",
+    profile = "cockpit",
+)

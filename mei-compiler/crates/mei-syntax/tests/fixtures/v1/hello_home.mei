@@ -1,0 +1,27 @@
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+)
+
+world(
+    id = "home_world",
+    resources = [],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main",
+    area = "auto",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "# hello mei-lang !\n\n> {sky:MeiLang} 是面向场景应用的声明式框架：用 `.mei` 把数据、布局与组件写在一起，编译后即可访问、演示与构建——**同一套源码，多种呈现方式**。\n\n{emerald:写场景} → {amber:配组件} → {violet:打开浏览器} · 欢迎从这里开始探索 ✨",
+        ),
+    ],
+)

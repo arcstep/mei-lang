@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn parses_hello_main() {
-        let source = include_str!("../../../../../workspaces/ws-hello/apps/hello/src/main.mei");
+        let source = include_str!("../tests/fixtures/v1/hello_main.mei");
         let file = parse_source(source).expect("parse main.mei");
         assert_eq!(file.statements.len(), 1);
         assert_eq!(file.statements[0].path, vec!["app"]);
@@ -237,8 +237,7 @@ mod tests {
 
     #[test]
     fn parses_hello_home() {
-        let source =
-            include_str!("../../../../../workspaces/ws-hello/apps/hello/src/scenes/home.mei");
+        let source = include_str!("../tests/fixtures/v1/hello_home.mei");
         let file = parse_source(source).expect("parse home.mei");
         assert_eq!(file.statements.len(), 4);
         assert_eq!(file.statements[3].path, vec!["frame", "add_panel"]);

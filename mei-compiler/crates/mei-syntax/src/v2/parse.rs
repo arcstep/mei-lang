@@ -454,22 +454,23 @@ mod tests {
 
     #[test]
     fn parses_metric_card_with_surface() {
+        // `metric_card` is no longer a top-level constructor; exercise a current whitelist name.
         let src2 = r#"
-metric_card(id = "demo", surface = "solid", source = {"label": "A", "value": "1", "unit": "x"})
+content_panel(id = "demo", chrome = "bare", blocks = [])
 "#;
         let file = parse_v2_source(src2).expect("parse");
         let item = &file.items[0];
         match item {
             V2Item::TopLevel { name, args, .. } => {
-                assert_eq!(name, "metric_card");
-                let surface = args
+                assert_eq!(name, "content_panel");
+                let chrome = args
                     .keywords
                     .iter()
-                    .find(|(k, _)| k == "surface")
+                    .find(|(k, _)| k == "chrome")
                     .map(|(_, v)| v)
-                    .expect("surface");
-                match surface {
-                    V2Expr::String(s) => assert_eq!(s, "solid"),
+                    .expect("chrome");
+                match chrome {
+                    V2Expr::String(s) => assert_eq!(s, "bare"),
                     other => panic!("expected String, got {other:?}"),
                 }
             }
@@ -542,10 +543,8 @@ template slot_metric_card(id = "y"):
 
     #[test]
     fn parses_v2_panel_with_refs() {
-        let source = include_str!(
-            "../../../../../../workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-left-rail/s-enforcement/content.mei"
-        );
-        let file = parse_v2_source(source).expect("parse enforcement content.mei");
+        let source = include_str!("../../tests/fixtures/v2/panel_with_refs.mei");
+        let file = parse_v2_source(source).expect("parse panel_with_refs.mei");
         assert!(file
             .items
             .iter()
@@ -558,10 +557,8 @@ template slot_metric_card(id = "y"):
 
     #[test]
     fn parses_cockpit_metric_gallery_scene() {
-        let source = include_str!(
-            "../../../../../../workspaces/ws-demo-v2/stock/templates/cockpit/metric-card.mei"
-        );
-        let file = parse_v2_source(source).expect("parse cockpit metric-card.mei");
+        let source = include_str!("../../tests/fixtures/v2/metric_gallery.mei");
+        let file = parse_v2_source(source).expect("parse metric_gallery.mei");
         assert!(file
             .items
             .iter()
@@ -574,10 +571,8 @@ template slot_metric_card(id = "y"):
 
     #[test]
     fn parses_grid_only_authoring_example() {
-        let source = include_str!(
-            "../../../../../../workspaces/ws-demo-v2/stock/authoring/examples/frame-layout-advanced.mei"
-        );
-        let file = parse_v2_source(source).expect("parse frame-layout-advanced.mei");
+        let source = include_str!("../../tests/fixtures/v2/grid_authoring.mei");
+        let file = parse_v2_source(source).expect("parse grid_authoring.mei");
         assert!(file
             .items
             .iter()

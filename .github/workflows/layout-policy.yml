@@ -1,7 +1,7 @@
 name: Layout Policy
 
-# Standalone mei-lang CI only. Must NOT require sibling workspaces/ws-demo-v2
-# (private demo profile; never published to GitHub). Local monorepo integration
+# Standalone mei-lang CI only. Must NOT require private sibling workspaces
+# (demo profiles are never published to GitHub). Local monorepo integration
 # tests that need that tree must skip when absent — they are not CI gates.
 
 on:
@@ -12,11 +12,13 @@ on:
       - "crates/mei-host-graph/src/assemble.rs"
       - "crates/mei-host-graph/src/artifact_biz_macros.rs"
       - "crates/kernel/src/model/profile_layout_policy.rs"
+      - "mei-compiler/**"
       - ".github/workflows/layout-policy.yml"
   pull_request:
     paths:
       - "crates/kernel/**"
       - "crates/mei-host-graph/**"
+      - "mei-compiler/**"
       - ".github/workflows/layout-policy.yml"
 
 jobs:
@@ -25,15 +27,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Forbid sibling-workspace paths in GitHub Actions
+      - name: Forbid sibling workspace literals (workflows + Rust)
         run: |
-          if rg -n 'workspaces/ws-demo-v2|\.\./workspaces/' .github/workflows; then
-            echo "::error::mei-lang GitHub Actions must not reference private sibling workspaces (ws-demo-v2 is not on GitHub)"
+          set -euo pipefail
+          if rg -n 'checkout:|path:.*workspaces/|\.\./workspaces/' .github/workflows | rg -v '^\S+:\s*#'; then
+            echo "::error::mei-lang GitHub Actions must not reference private sibling workspaces"
             exit 1
           fi
           if rg -n '\.expect\("ws-demo|\.expect\("workspaces/ws-|\.expect\("ws-spbjw' \
-              crates host-shell mei-compiler; then
+              crates host-shell mei-compiler server; then
             echo "::error::hard .expect on sibling workspaces is forbidden"
+            exit 1
+          fi
+          if rg -n 'workspaces/ws-' crates host-shell mei-compiler server --glob '*.rs' \
+              | rg -v 'server/src/cli/args/'; then
+            echo "::error::literal workspaces/ws- paths forbidden outside deferred CLI defaults"
             exit 1
           fi
 
@@ -43,6 +51,9 @@ jobs:
 
       - name: Build mei-lang-server (0 warning gate)
         run: cargo build -p mei-lang-server 2>&1 | tee build.log && ! rg "warning:" build.log
+
+      - name: Syntax/graph standalone tests (no sibling)
+        run: cargo test -p mei-syntax -p mei-graph --lib --tests
 
       - name: Kernel layout_policy unit tests (self-contained)
         run: cargo test -p mei-lang-kernel layout_policy author_

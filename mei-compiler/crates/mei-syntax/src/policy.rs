@@ -6,8 +6,8 @@ const FORBIDDEN_TOKENS: &[&str] = &["for", "while", "lambda", "load", "import", 
 const WORLD_MEI_SUFFIX: &str = ".world.mei";
 const WORLD_ALLOWED_TOKENS: &[&str] = &["for", "enum"];
 const GRID_ONLY_POLICY_ROOTS: &[&str] = &[
-    "/workspaces/ws-demo-v2/apps/zhifa/",
-    "/workspaces/ws-demo-v2/stock/templates/cockpit/",
+    "/stock/templates/cockpit/",
+    "/apps/",
 ];
 /// Author DSL patterns rejected on all paths (Phase 3 layout purge).
 const GLOBAL_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn grid_only_policy_rejects_flex_in_cockpit_templates() {
-        let path = Path::new("/tmp/workspaces/ws-demo-v2/stock/templates/cockpit/example.mei");
+        let path = Path::new("/tmp/fixture/stock/templates/cockpit/example.mei");
         let err = validate_authoring_policy_for_path(
             path,
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn grid_only_policy_keeps_legacy_paths_compatible() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/stock/components/chart/echarts/previews/chart.bar.mei",
+            "/tmp/fixture/stock/components/chart/echarts/previews/chart.bar.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn global_policy_rejects_frame_add_panel() {
-        let path = Path::new("/tmp/workspaces/ws-demo-v2/apps/x/src/scene/home.mei");
+        let path = Path::new("/tmp/fixture/apps/x/src/scene/home.mei");
         let err = validate_authoring_policy_for_path(
             path,
             r#"frame.add_panel(id = "child_panel", area = "auto", blocks = [])"#,
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn region_layout_rejects_direct_contents() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/mini-park/src/scene/home/t1/r-header/layout.mei",
+            "/tmp/fixture/apps/mini-park/src/scene/home/t1/r-header/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn region_layout_rejects_direct_blocks() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn region_layout_rejects_stage_anchor() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t0/r-map-stage/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn region_layout_allows_stage_aperture_frame_without_sections() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn section_layout_rejects_panel_ref_passthrough_contents() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
         );
         let err = validate_authoring_policy_for_path(
             path,
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn section_layout_allows_shell_body_panel_ref() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-left-rail/s-enforcement/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t1/r-left-rail/s-enforcement/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn section_layout_allows_bare_content_panel_shell() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,
@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn section_layout_allows_contents_with_inline_block() {
         let path = Path::new(
-            "/tmp/workspaces/ws-demo-v2/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/s-layout-debug/layout.mei",
+            "/tmp/fixture/apps/zhifa/src/scene/home/t1/r-layout-debug-controller/s-layout-debug/layout.mei",
         );
         validate_authoring_policy_for_path(
             path,

@@ -32,7 +32,7 @@ pub fn package_root() -> PathBuf {
     .clone()
 }
 
-/// Prefer `MEI_TEST_WORKSPACE` / `MEI_TEST_SOURCE_ROOT`; sibling `ws-dev` is `.ok()` only.
+/// Prefer `MEI_TEST_WORKSPACE` / `MEI_TEST_SOURCE_ROOT` only (no sibling default).
 /// Panics only when an explicit env var is set but invalid.
 pub fn workspaces_root() -> Option<PathBuf> {
     let _ = package_root();
@@ -56,10 +56,7 @@ pub fn workspaces_root() -> Option<PathBuf> {
         }
         return Some(path.canonicalize().unwrap_or(path));
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-dev")
-        .canonicalize()
-        .ok()
+    None
 }
 
 pub fn standalone_fixture_root() -> Option<PathBuf> {

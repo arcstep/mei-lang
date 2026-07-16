@@ -5,15 +5,23 @@ use mei_bundle::{
 };
 use mei_graph::compile_app;
 
-fn ws_demo_v2_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../workspaces/ws-demo-v2")
+fn optional_external_workspace() -> Option<std::path::PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = std::path::PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
 }
 
 #[test]
 fn demo_v2_compiles_graph_blocks() {
-    let workspace = ws_demo_v2_root();
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !workspace.join("apps/zhifa/app.toml").is_file() {
-        eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
+        eprintln!("skip: zhifa app missing under MEI_TEST_WORKSPACE");
         return;
     }
     let outcome = compile_app(&workspace, "zhifa").expect("compile zhifa");
@@ -53,9 +61,12 @@ fn demo_v2_compiles_graph_blocks() {
 
 #[test]
 fn demo_v2_meibundle_roundtrip_and_size() {
-    let workspace = ws_demo_v2_root();
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !workspace.join("apps/zhifa/app.toml").is_file() {
-        eprintln!("skip: ws-demo-v2 not present at {}", workspace.display());
+        eprintln!("skip: zhifa app missing under MEI_TEST_WORKSPACE");
         return;
     }
     let outcome = compile_app(&workspace, "zhifa").expect("compile zhifa");

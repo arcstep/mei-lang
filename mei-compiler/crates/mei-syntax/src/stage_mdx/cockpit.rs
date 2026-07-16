@@ -87,14 +87,15 @@ fn parse_cockpit_stage_at(
         .get("profile")
         .map(|(v, _)| v.clone())
         .unwrap_or_else(|| "cockpit".to_string());
-    if !profile.eq_ignore_ascii_case("cockpit") {
+    let profile_norm = profile.to_ascii_lowercase();
+    if profile_norm != "cockpit" && profile_norm != "page" {
         let line = values.get("profile").map(|(_, l)| *l).unwrap_or(1);
         return Err(StageMdxError::new(
             path,
             line,
             1,
             codes::PARSE,
-            format!("cockpit stage mdx requires profile=cockpit, got `{profile}`"),
+            format!("stage mdx requires profile=cockpit|page, got `{profile}`"),
         ));
     }
 
@@ -113,14 +114,14 @@ fn parse_cockpit_stage_at(
             fm_end + 2,
             1,
             codes::PARSE,
-            "cockpit stage mdx requires `@scene(use=\"…\")`",
+            "stage mdx requires `@scene(use=\"…\")`",
         )
     })?;
 
     Ok(CockpitStageFile {
         frontmatter: CockpitFrontmatter {
             stage_id,
-            profile: "cockpit".to_string(),
+            profile: profile_norm,
             title: values.get("title").map(|(v, _)| v.clone()),
             theme: values.get("theme").map(|(v, _)| v.clone()),
         },

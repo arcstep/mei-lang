@@ -26,6 +26,7 @@ pub struct DiscoveredStageProgram {
 pub enum StageProgramProfile {
     Cockpit,
     Slides,
+    Page,
 }
 
 impl StageProgramProfile {
@@ -33,6 +34,7 @@ impl StageProgramProfile {
         match self {
             Self::Cockpit => "cockpit",
             Self::Slides => "slides",
+            Self::Page => "page",
         }
     }
 
@@ -40,6 +42,17 @@ impl StageProgramProfile {
         match self {
             Self::Cockpit => "scene",
             Self::Slides => "presentation",
+            // Product page Stage (not T2 page_instance). Wire as document for Registry.
+            Self::Page => "document",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "cockpit" => Some(Self::Cockpit),
+            "slides" | "presentation" => Some(Self::Slides),
+            "page" => Some(Self::Page),
+            _ => None,
         }
     }
 }
@@ -141,11 +154,13 @@ fn parse_discovered(abs: &Path, rel: &str) -> Option<DiscoveredStageProgram> {
     } else {
         doc.frontmatter.stage_id.clone()
     };
+    let profile = StageProgramProfile::parse(&doc.frontmatter.profile)
+        .unwrap_or(StageProgramProfile::Cockpit);
     let scene_rel = scene_use_to_target(&doc.scene_use);
     let assembly_key = format!("{stage_id}@{scene_rel}");
     Some(DiscoveredStageProgram {
         stage_id,
-        profile: StageProgramProfile::Cockpit,
+        profile,
         program_rel: rel.to_string(),
         title: doc.frontmatter.title.or_else(|| frontmatter_title(abs)),
         assembly_key,

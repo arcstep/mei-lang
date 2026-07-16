@@ -145,9 +145,21 @@ async function measureConcurrent(base, pathName, concurrency) {
 }
 
 async function main() {
-  if (!fs.existsSync(LAUNCH)) {
-    console.error(`missing launch config: ${LAUNCH}`);
-    process.exit(1);
+  // Soft-skip when sibling workspace is absent (standalone mei-lang clone).
+  if (!fs.existsSync(WORKSPACE) || !fs.existsSync(LAUNCH)) {
+    console.log(
+      JSON.stringify(
+        {
+          skip: true,
+          reason: "workspace or launch missing",
+          workspace: WORKSPACE,
+          launch: LAUNCH,
+        },
+        null,
+        2
+      )
+    );
+    process.exit(0);
   }
   console.log(
     JSON.stringify(

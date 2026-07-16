@@ -8,8 +8,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WS_ROOT="$(cd "${ROOT}/../workspaces/ws-demo-v2" && pwd)"
-DOCS_ROOT="$(cd "${ROOT}/../docs" && pwd)"
+WS_CANDIDATE="${ROOT}/../workspaces/ws-demo-v2"
+# Soft-skip when sibling demo workspace is absent (standalone mei-lang clone).
+# Do NOT `cd` before this check — `set -e` would otherwise die on missing path.
+if [[ ! -d "${WS_CANDIDATE}" ]]; then
+  printf 'skip Gate 0: ws-demo-v2 not found at %s\n' "${WS_CANDIDATE}"
+  exit 0
+fi
+WS_ROOT="$(cd "${WS_CANDIDATE}" && pwd)"
+DOCS_CANDIDATE="${ROOT}/../docs"
+if [[ -d "${DOCS_CANDIDATE}" ]]; then
+  DOCS_ROOT="$(cd "${DOCS_CANDIDATE}" && pwd)"
+else
+  DOCS_ROOT="${ROOT}/tmp"
+fi
 EVIDENCE_DIR="${MEI_STAGE_BASELINE_EVIDENCE_DIR:-${DOCS_ROOT}/mei-lang-v2/assets/phase-0-golden}"
 BASE_URL="${MEI_BASE_URL:-http://127.0.0.1:9527}"
 SKIP_BROWSER="${MEI_STAGE_BASELINE_SKIP_BROWSER:-0}"
@@ -285,7 +297,10 @@ main() {
   require_cmd curl
   require_cmd python3
 
-  [[ -d "${WS_ROOT}/apps/mini-grid" ]] || die "missing ws-demo-v2 at ${WS_ROOT}"
+  if [[ ! -d "${WS_ROOT}/apps/mini-grid" ]]; then
+    printf 'skip Gate 0: ws-demo-v2 incomplete (no apps/mini-grid) at %s\n' "${WS_ROOT}"
+    exit 0
+  fi
 
   log "Gate 0 start (repeat=${REPEAT}, skip_browser=${SKIP_BROWSER}, skip_rust=${SKIP_RUST})"
 

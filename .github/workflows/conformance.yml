@@ -1,6 +1,6 @@
 name: conformance
 
-# In-repo Golden Cases. Must NOT require sibling workspaces/ws-demo-v2.
+# In-repo Golden Cases. Must NOT require private sibling workspaces.
 
 on:
   workflow_dispatch:
@@ -12,6 +12,7 @@ on:
       - "crates/mei-plug-ds/**"
       - "host-shell/**"
       - "stock/templates/**"
+      - "mei-compiler/**"
       - ".github/workflows/conformance.yml"
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - "crates/mei-plug-ds/**"
       - "host-shell/**"
       - "stock/templates/**"
+      - "mei-compiler/**"
       - ".github/workflows/conformance.yml"
 
 jobs:
@@ -29,21 +31,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Forbid sibling hard-expect in tests and workflows
+      - name: Forbid sibling workspace literals (workflows + Rust)
         run: |
-          if rg -n 'workspaces/ws-demo-v2|\.\./workspaces/' .github/workflows; then
+          set -euo pipefail
+          # Workflow job steps must never checkout / hard-point private siblings.
+          if rg -n 'checkout:|path:.*workspaces/|\.\./workspaces/' .github/workflows | rg -v '^\S+:\s*#'; then
             echo "::error::workflows must not reference private sibling workspaces"
             exit 1
           fi
           if rg -n '\.expect\("ws-demo|\.expect\("workspaces/ws-|\.expect\("ws-spbjw' \
-              crates host-shell mei-compiler; then
+              crates host-shell mei-compiler server; then
             echo "::error::hard .expect on sibling workspaces is forbidden; use MEI_TEST_WORKSPACE or in-repo fixtures"
+            exit 1
+          fi
+          # Forbid workspaces/ws- literals outside deferred CLI defaults (Round 3).
+          if rg -n 'workspaces/ws-' crates host-shell mei-compiler server --glob '*.rs' \
+              | rg -v 'server/src/cli/args/'; then
+            echo "::error::literal workspaces/ws- paths forbidden outside deferred CLI defaults; use MEI_TEST_WORKSPACE or in-repo fixtures"
             exit 1
           fi
           test -f tests/fixtures/ws-conformance/workspace.json
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Syntax/graph standalone tests (no sibling)
+        run: cargo test -p mei-syntax -p mei-graph --lib --tests
 
       - name: Conformance tests (must be green; no fake skip)
         run: |
