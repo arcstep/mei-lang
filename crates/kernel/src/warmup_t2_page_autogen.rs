@@ -7,7 +7,7 @@ use std::path::Path;
 use anyhow::Result;
 use walkdir::WalkDir;
 
-use crate::mei_config::WorkspaceWarmupDatasetConfig;
+use crate::mei_config::{is_plane_structure_mei_path, WorkspaceWarmupDatasetConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuggestedWarmupDatasetRequest {
@@ -53,18 +53,33 @@ pub fn discover_board_warmup_suggestions(
         let Some(rel) = path.strip_prefix(app_root).ok().and_then(|p| p.to_str()) else {
             continue;
         };
-        if !is_t2_page_capsule(rel) {
+        let focus = rel.replace('\\', "/");
+        let legacy_capsule = is_legacy_t2_page_capsule(focus.as_str());
+        let plane_capsule = is_plane_structure_mei_path(focus.as_str());
+        if !legacy_capsule && !plane_capsule {
             continue;
         }
-        let focus = rel.replace('\\', "/");
         let source = fs::read_to_string(path)?;
-        for block in split_scene_export_blocks(source.as_str()) {
-            let Some(scene_id) = extract_quoted_after_key(block, "id") else {
+        if plane_capsule && !legacy_capsule && !source.contains("page_instance(") {
+            // Pure plane layout files (no page_instance) are not T2 warmup capsules.
+            continue;
+        }
+        let blocks = if legacy_capsule {
+            split_named_blocks(source.as_str(), "scene_export")
+        } else {
+            split_named_blocks(source.as_str(), "page_instance")
+        };
+        for block in blocks {
+            let scene_id = if legacy_capsule {
+                extract_quoted_after_key(block, "id")
+            } else {
+                extract_quoted_after_key(block, "scene")
+                    .or_else(|| extract_quoted_after_key(block, "id"))
+            };
+            let Some(scene_id) = scene_id else {
                 continue;
             };
-            let Some(dataset_id) = extract_example_rowset_dataset_id(block) else {
-                continue;
-            };
+            let dataset_id = extract_example_rowset_dataset_id(block).unwrap_or_default();
             let metric_id = extract_example_metric_ref(block);
             let key = format!("{scene_id}|{focus}|{dataset_id}");
             if !seen.insert(key) {
@@ -105,6 +120,9 @@ pub fn merge_workspace_and_board_warmup_requests(
         }
     }
     for suggestion in discover_board_warmup_suggestions(app_root)? {
+        if suggestion.dataset_id.trim().is_empty() {
+            continue;
+        }
         let key = format!("{}|{}", suggestion.scene_id, suggestion.dataset_id);
         if override_keys.contains(key.as_str()) {
             continue;
@@ -121,12 +139,13 @@ pub fn merge_workspace_and_board_warmup_requests(
     Ok(merged)
 }
 
-fn split_scene_export_blocks(source: &str) -> Vec<&str> {
+fn split_named_blocks<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
+    let needle = format!("{name}(");
     let mut blocks = Vec::new();
     let mut rest = source;
-    while let Some(idx) = rest.find("scene_export(") {
+    while let Some(idx) = rest.find(needle.as_str()) {
         let tail = &rest[idx..];
-        let end = find_matching_paren_end(tail, "scene_export(".len() - 1).unwrap_or(tail.len());
+        let end = find_matching_paren_end(tail, needle.len() - 1).unwrap_or(tail.len());
         blocks.push(&tail[..end]);
         rest = &tail[end..];
     }
@@ -189,13 +208,15 @@ fn extract_example_metric_ref(block: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-fn is_t2_page_capsule(rel: &str) -> bool {
+fn is_legacy_t2_page_capsule(rel: &str) -> bool {
     rel.ends_with(".page.mei") || rel.ends_with(".board.mei")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn extracts_t2_page_export_fields_from_block() {
@@ -224,5 +245,100 @@ scene_export(
             extract_example_metric_ref(block).as_deref(),
             Some("penalties_total_count")
         );
+    }
+
+    fn temp_app_root(tag: &str) -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "mei-warmup-t2-{}-{}-{}",
+            tag,
+            std::process::id(),
+            stamp
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("app root");
+        root
+    }
+
+    #[test]
+    fn discover_suggests_plane_page_instance_and_skips_pure_plane() {
+        let app_root = temp_app_root("plane-pi");
+        let section = app_root.join("src/scene/home/t1/region-main/section-metric");
+        fs::create_dir_all(&section).expect("section dir");
+        fs::write(
+            section.join("plane-analytics.mei"),
+            r#"
+plane_layout(id = "p-analytics", key = "demo/plane-analytics", tier = "t2", layout = grid(rows = ["1fr"], columns = ["1fr"], areas = [["main"]]), regions = [])
+page_instance(
+    key = "demo/plane-analytics",
+    scene = "fx_analytics_page",
+    examples = [
+        {
+            "params": {
+                "rowset_dataset_id": "fx_rows",
+            },
+        },
+    ],
+)
+"#,
+        )
+        .expect("plane-analytics");
+        fs::create_dir_all(app_root.join("src/scene/home/t1")).expect("t1 dir");
+        fs::write(
+            app_root.join("src/scene/home/t1/plane.mei"),
+            r#"
+plane_layout(
+    id = "t1",
+    key = "demo/home/t1",
+    tier = "t1",
+    layout = grid(rows = ["1fr"], columns = ["1fr"], areas = [["main"]]),
+    regions = [],
+)
+"#,
+        )
+        .expect("pure plane");
+        fs::create_dir_all(app_root.join("src/overlay")).expect("overlay");
+        fs::write(
+            app_root.join("src/overlay/legacy.board.mei"),
+            r#"
+scene_export(
+    id = "legacy_board_page",
+    examples = [
+        {
+            "params": {
+                "rowset_dataset_id": "legacy_ds",
+            },
+        },
+    ],
+)
+"#,
+        )
+        .expect("legacy board");
+
+        let suggestions = discover_board_warmup_suggestions(&app_root).expect("discover");
+        assert!(
+            suggestions.iter().any(|s| {
+                s.scene_id == "fx_analytics_page"
+                    && s.focus.ends_with("plane-analytics.mei")
+                    && s.dataset_id == "fx_rows"
+            }),
+            "plane page_instance should be suggested: {suggestions:?}"
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|s| s.scene_id == "legacy_board_page" && s.focus.ends_with(".board.mei")),
+            "legacy board should still work: {suggestions:?}"
+        );
+        assert!(
+            suggestions
+                .iter()
+                .all(|s| !s.focus.ends_with("/plane.mei")),
+            "pure plane.mei must be skipped: {suggestions:?}"
+        );
+        let _ = fs::remove_dir_all(app_root);
     }
 }
