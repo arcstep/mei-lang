@@ -1,9 +1,13 @@
 //! Normalize v2 `page_instance` payloads for frontend drilldown (`scene_projection_assembly_by_id`).
-//!
-//! Compiled artifacts keep `frame_ref(template=frame_export(...))` and v2 `__call` panel AST.
-//! Access drilldown JS expects `shell_contract` with `layout_mode: analytics` and zone roles.
 
+use mei_lang_kernel::{Diagnostic, Severity};
 use serde_json::{json, Map, Value};
+
+use crate::frame_derive::{
+    derive_frame_for_page_instance, frame_exports_are_isomorphic, has_plane_layout_for_key,
+    is_standard_analytics_plane, legacy_bindings_analytics_frame_export, FrameDeriveContext,
+    FrameDeriveResult,
+};
 
 fn v2_call_name(value: &Value) -> Option<&str> {
     value
@@ -243,11 +247,16 @@ fn build_shell_contract(payload: &Map<String, Value>) -> Option<Value> {
     Some(contract)
 }
 
-pub fn normalize_page_instance_payload(mut payload: Value) -> Value {
+pub fn normalize_page_instance_payload(
+    mut payload: Value,
+    derive_ctx: Option<&FrameDeriveContext<'_>>,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: Option<&str>,
+) -> Value {
     let Some(map) = payload.as_object_mut() else {
         return payload;
     };
-    maybe_derive_standard_analytics_frame(map);
+    apply_frame_derivation(map, derive_ctx, diagnostics, source_path);
     unwrap_frame_export(map);
     if let Some(shell_contract) = build_shell_contract(map) {
         map.insert("shell_contract".to_string(), shell_contract);
@@ -255,22 +264,126 @@ pub fn normalize_page_instance_payload(mut payload: Value) -> Value {
     Value::Object(std::mem::take(map))
 }
 
-/// 0335：标准 analytics T2（bindings 含 filter_schema + chart + detail）在省略
-/// `frame = frame_ref(template = analytics_frame())` 时可机械推导壳布局。
-/// 特殊页（case / AI / mechanism 等）继续显式 `frame`，不走本推导。
-fn maybe_derive_standard_analytics_frame(map: &mut Map<String, Value>) {
-    if !is_standard_analytics_bindings(map) {
+fn apply_frame_derivation(
+    map: &mut Map<String, Value>,
+    derive_ctx: Option<&FrameDeriveContext<'_>>,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: Option<&str>,
+) {
+    let frame_policy = map
+        .get("frame_policy")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if frame_policy == "override" {
+        // Author-declared special shell; keep explicit frame as-is.
         return;
     }
-    if let Some(frame) = map.get("frame") {
-        if is_default_analytics_frame_ref(frame) {
-            // 显式 dual-write 与推导结果一致：保留，由 unwrap_frame_export 展开。
+
+    let Some(page_key) = map
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        // No key: still allow bindings fallback when frame omitted.
+        if derive_ctx.is_none() {
+            legacy_bindings_fallback(map, diagnostics, source_path);
+        }
+        return;
+    };
+    let Some(ctx) = derive_ctx else {
+        legacy_bindings_fallback(map, diagnostics, source_path);
+        return;
+    };
+
+    let derived = derive_frame_for_page_instance(ctx, page_key.as_str());
+    let derived_frame = match &derived {
+        FrameDeriveResult::Derived(frame) => Some(frame.clone()),
+        FrameDeriveResult::Unavailable => None,
+    };
+    let plane_is_standard = is_standard_analytics_plane(ctx, page_key.as_str());
+
+    if let Some(frame) = map.get("frame").cloned() {
+        if is_default_analytics_frame_ref(&frame) {
+            if let Some(derived_frame) = derived_frame {
+                map.insert("frame".to_string(), derived_frame);
+            }
             return;
         }
-        // 非默认 frame：作者 override，不覆盖。
+        if let Some(derived_frame) = derived_frame {
+            if !frame_exports_are_isomorphic(&frame, &derived_frame) {
+                if is_standard_analytics_bindings(map) {
+                    push_diagnostic(
+                        diagnostics,
+                        Severity::Error,
+                        "frame_derivation_conflict",
+                        format!(
+                            "page_instance `{page_key}` explicit frame conflicts with plane-derived topology"
+                        ),
+                        source_path,
+                    );
+                } else {
+                    push_diagnostic(
+                        diagnostics,
+                        Severity::Warning,
+                        "frame_topology_split",
+                        format!(
+                            "special page_instance `{page_key}` frame differs from plane; declare frame_policy=\"override\" when intentional"
+                        ),
+                        source_path,
+                    );
+                }
+            } else {
+                // Prefer plane-derived ids / spacing when isomorphic.
+                map.insert("frame".to_string(), derived_frame);
+            }
+        }
         return;
     }
-    map.insert("frame".to_string(), derived_analytics_frame_export());
+
+    match derived {
+        FrameDeriveResult::Derived(frame) => {
+            map.insert("frame".to_string(), frame);
+        }
+        FrameDeriveResult::Unavailable => {
+            if has_plane_layout_for_key(ctx, page_key.as_str()) && !plane_is_standard {
+                push_diagnostic(
+                    diagnostics,
+                    Severity::Warning,
+                    "frame_topology_split",
+                    format!(
+                        "page_instance `{page_key}` has non-standard plane topology without explicit frame override"
+                    ),
+                    source_path,
+                );
+            }
+            legacy_bindings_fallback(map, diagnostics, source_path);
+        }
+    }
+}
+
+fn legacy_bindings_fallback(
+    map: &mut Map<String, Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: Option<&str>,
+) {
+    if !is_standard_analytics_bindings(map) || map.contains_key("frame") {
+        return;
+    }
+    push_diagnostic(
+        diagnostics,
+        Severity::Warning,
+        "frame_topology_plane_missing",
+        "standard analytics page_instance missing matching plane_layout(tier=t2); using bindings fallback"
+            .to_string(),
+        source_path,
+    );
+    map.insert(
+        "frame".to_string(),
+        legacy_bindings_analytics_frame_export(),
+    );
 }
 
 fn is_standard_analytics_bindings(map: &Map<String, Value>) -> bool {
@@ -298,113 +411,189 @@ fn is_default_analytics_frame_ref(frame: &Value) -> bool {
         .is_some_and(|name| name == "analytics_frame")
 }
 
-fn derived_analytics_frame_export() -> Value {
-    // 与 stock `analytics_frame()` 展开同构：filter | main(chart/detail)。
-    json!({
-        "__call": "frame_export",
-        "__args": {
-            "layout": {
-                "__call": "grid",
-                "__args": {
-                    "columns": ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
-                    "rows": ["minmax(0, 1fr)"],
-                    "areas": [["filter", "main"]],
-                    "gap": "1",
-                    "padding": "1",
-                }
-            },
-            "panels": [
-                {
-                    "__call": "panel",
+fn push_diagnostic(
+    diagnostics: &mut Vec<Diagnostic>,
+    severity: Severity,
+    code: &str,
+    message: impl Into<String>,
+    source_path: Option<&str>,
+) {
+    diagnostics.push(Diagnostic {
+        severity,
+        code: code.to_string(),
+        message: message.into(),
+        source_path: source_path.map(str::to_string),
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content_store::SEMANTIC_SCENE;
+    use crate::frame_derive::FrameDeriveContext;
+    use crate::mcg::registry::{McgNodeRecord, McgRegistry};
+    use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
+    use mei_lang_kernel::HIERARCHY_PX_1;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn analytics_plane_payload(key: &str) -> Value {
+        json!({
+            "__call": "plane_layout",
+            "__args": {
+                "id": "p-analytics",
+                "key": key,
+                "tier": "t2",
+                "layout": {
+                    "__call": "grid",
                     "__args": {
-                        "id": "filter",
-                        "area": "filter",
-                        "slot": { "kind": "filter", "source": "filter_schema" },
-                        "blocks": []
+                        "rows": ["minmax(0, 1fr)"],
+                        "columns": ["1fr"],
+                        "areas": [["main"]],
                     }
                 },
-                {
-                    "__call": "panel",
+                "regions": [{
+                    "__call": "region_layout",
                     "__args": {
                         "id": "main",
                         "area": "main",
                         "layout": {
                             "__call": "grid",
                             "__args": {
-                                "columns": ["1fr"],
-                                "rows": ["minmax(0, 2fr)", "minmax(0, 3fr)"],
-                                "areas": [["chart"], ["detail"]],
-                                "gap": "1"
+                                "columns": ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+                                "rows": ["minmax(0, 1fr)"],
+                                "areas": [["filter", "main"]],
+                                "gap": "1px",
+                                "padding": "1px",
                             }
                         },
-                        "slot": { "kind": "container" },
-                        "blocks": [
+                        "sections": [
                             {
-                                "__call": "panel",
+                                "__call": "section_layout",
                                 "__args": {
-                                    "id": "chart",
-                                    "area": "chart",
-                                    "slot": { "kind": "slots", "accepts": ["chart"], "max": 3 },
-                                    "blocks": []
+                                    "id": "filter",
+                                    "area": "filter",
+                                    "shell": {
+                                        "__call": "content_panel",
+                                        "__args": {
+                                            "id": "filter_body",
+                                            "area": "body",
+                                            "blocks": []
+                                        }
+                                    }
                                 }
                             },
                             {
-                                "__call": "panel",
+                                "__call": "section_layout",
                                 "__args": {
-                                    "id": "detail",
-                                    "area": "detail",
-                                    "slot": {
-                                        "kind": "slots",
-                                        "accepts": ["data_table"],
-                                        "required": true
-                                    },
-                                    "blocks": []
+                                    "id": "main",
+                                    "area": "main",
+                                    "shell": {
+                                        "__call": "content_panel",
+                                        "__args": {
+                                            "id": "main_body",
+                                            "area": "body",
+                                            "layout": {
+                                                "__call": "grid",
+                                                "__args": {
+                                                    "columns": ["1fr"],
+                                                    "rows": ["minmax(0, 2fr)", "minmax(0, 3fr)"],
+                                                    "areas": [["chart"], ["detail"]],
+                                                    "gap": "1px",
+                                                }
+                                            },
+                                            "blocks": [
+                                                {
+                                                    "__call": "content_panel",
+                                                    "__args": {
+                                                        "id": "chart",
+                                                        "area": "chart",
+                                                        "blocks": []
+                                                    }
+                                                },
+                                                {
+                                                    "__call": "content_panel",
+                                                    "__args": {
+                                                        "id": "detail",
+                                                        "area": "detail",
+                                                        "blocks": []
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
                                 }
                             }
                         ]
                     }
-                }
-            ]
-        }
-    })
-}
+                }]
+            }
+        })
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn normalize_warnings_analytics_board_shell_contract() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../workspaces/ws-demo-v2/apps/data-demo/build/active/store/content/projection_assembly/",
-            "852976c410b8a28c298ab14e7698f16adf0cf80950f0058152989b308fa319d2.json"
-        );
-        if !std::path::Path::new(path).is_file() {
-            return;
+    fn registry_with_plane(app_root: &Path, key: &str) -> McgRegistry {
+        let hash = "plane-test-hash";
+        let env_dir = app_root.join("env/WS-20260101.0");
+        let current = app_root.join("env/current");
+        std::fs::create_dir_all(env_dir.join("build/store/content/semantic_scene")).expect("mkdir");
+        std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
+        #[cfg(unix)]
+        {
+            if current.exists() {
+                std::fs::remove_file(&current).ok();
+            }
+            std::os::unix::fs::symlink(&env_dir, &current).expect("symlink env/current");
         }
-        let raw = fs::read_to_string(path).expect("read fixture");
-        let artifact: Value = serde_json::from_str(&raw).expect("parse fixture");
-        let payload = artifact.get("payload").cloned().expect("payload");
-        let normalized = normalize_page_instance_payload(payload);
-        let shell = normalized.get("shell_contract").expect("shell_contract");
-        assert_eq!(
-            shell.get("layout_mode").and_then(Value::as_str),
-            Some("analytics")
-        );
-        let zones = shell.get("zones").and_then(Value::as_array).expect("zones");
-        assert!(zones
-            .iter()
-            .any(|zone| zone.get("role") == Some(&json!("filter"))));
-        assert!(zones
-            .iter()
-            .any(|zone| zone.get("role") == Some(&json!("slots"))));
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir_all(&current).expect("mkdir env/current");
+        }
+        std::fs::write(
+            env_dir
+                .join("build/store/content/semantic_scene")
+                .join(format!("{hash}.json")),
+            serde_json::to_string(&json!({
+                "kind": "plane_layout",
+                "payload": analytics_plane_payload(key),
+            }))
+            .unwrap(),
+        )
+        .expect("write");
+        McgRegistry {
+            schema_version: String::new(),
+            app_id: "fx".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: vec![McgNodeRecord {
+                id: GraphNodeId::new(GraphNodeKind::SemanticGraph, key),
+                revision: String::new(),
+                state: MaterialState::Ready,
+                layer: "test".to_string(),
+                payload_ref: Some(PayloadRef::new(
+                    SEMANTIC_SCENE,
+                    hash,
+                    "mei-scene-layout-fragment-v1",
+                )),
+                deps: Vec::new(),
+                owner_resource_id: None,
+                assembly_inputs: Vec::new(),
+            }],
+        }
     }
 
     #[test]
-    fn derives_analytics_frame_when_standard_bindings_omit_frame() {
+    fn derives_analytics_frame_from_plane_when_frame_omitted() {
+        let key = "fx/home/plane-analytics";
+        let tmp = TempDir::new().expect("tempdir");
+        let app_root = tmp.path().join("apps/fx");
+        std::fs::create_dir_all(&app_root).expect("mkdir");
+        let registry = registry_with_plane(app_root.as_path(), key);
+        let ctx = FrameDeriveContext {
+            app_root: app_root.as_path(),
+            registry: &registry,
+        };
         let payload = json!({
+            "key": key,
             "scene": "warnings_analytics_page",
             "bindings": {
                 "filter_schema": { "fields": [] },
@@ -412,12 +601,130 @@ mod tests {
                 "detail": { "kind": "table" }
             }
         });
-        let normalized = normalize_page_instance_payload(payload);
+        let mut diagnostics = Vec::new();
+        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
         let shell = normalized.get("shell_contract").expect("shell_contract");
         assert_eq!(
             shell.get("layout_mode").and_then(Value::as_str),
             Some("analytics")
         );
         assert!(normalized.get("layout").is_some());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bindings_fallback_when_plane_missing() {
+        let tmp = TempDir::new().expect("tempdir");
+        let app_root = tmp.path().join("apps/fx");
+        std::fs::create_dir_all(&app_root).expect("mkdir");
+        let registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "fx".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: vec![],
+        };
+        let ctx = FrameDeriveContext {
+            app_root: app_root.as_path(),
+            registry: &registry,
+        };
+        let payload = json!({
+            "key": "fx/home/missing-plane",
+            "scene": "warnings_analytics_page",
+            "bindings": {
+                "filter_schema": { "fields": [] },
+                "chart": [],
+                "detail": { "kind": "table" }
+            }
+        });
+        let mut diagnostics = Vec::new();
+        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        assert!(normalized.get("shell_contract").is_some());
+        assert!(diagnostics.iter().any(|d| d.code == "frame_topology_plane_missing"));
+        assert_eq!(
+            normalized
+                .pointer("/layout/gap")
+                .and_then(Value::as_str),
+            Some(HIERARCHY_PX_1)
+        );
+    }
+
+    #[test]
+    fn explicit_isomorphic_frame_passes_without_conflict() {
+        let key = "fx/home/plane-analytics";
+        let tmp = TempDir::new().expect("tempdir");
+        let app_root = tmp.path().join("apps/fx");
+        std::fs::create_dir_all(&app_root).expect("mkdir");
+        let registry = registry_with_plane(app_root.as_path(), key);
+        let ctx = FrameDeriveContext {
+            app_root: app_root.as_path(),
+            registry: &registry,
+        };
+        let FrameDeriveResult::Derived(explicit_frame) =
+            derive_frame_for_page_instance(&ctx, key)
+        else {
+            panic!("expected plane-derived frame for isomorphic explicit test");
+        };
+        let payload = json!({
+            "key": key,
+            "scene": "warnings_analytics_page",
+            "frame": explicit_frame,
+            "bindings": {
+                "filter_schema": { "fields": [] },
+                "chart": [],
+                "detail": { "kind": "table" }
+            }
+        });
+        let mut diagnostics = Vec::new();
+        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        assert!(normalized.get("shell_contract").is_some());
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|d| d.code == "frame_derivation_conflict"),
+            "isomorphic explicit frame should not conflict: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn conflict_diagnostic_when_explicit_frame_differs_from_plane() {
+        let key = "fx/home/plane-analytics";
+        let tmp = TempDir::new().expect("tempdir");
+        let app_root = tmp.path().join("apps/fx");
+        std::fs::create_dir_all(&app_root).expect("mkdir");
+        let registry = registry_with_plane(app_root.as_path(), key);
+        let ctx = FrameDeriveContext {
+            app_root: app_root.as_path(),
+            registry: &registry,
+        };
+        let payload = json!({
+            "key": key,
+            "scene": "warnings_analytics_page",
+            "bindings": {
+                "filter_schema": { "fields": [] },
+                "chart": [],
+                "detail": { "kind": "table" }
+            },
+            "frame": {
+                "__call": "frame_export",
+                "__args": {
+                    "layout": {
+                        "__call": "grid",
+                        "__args": {
+                            "columns": ["1fr"],
+                            "rows": ["1fr"],
+                            "areas": [["preview"]],
+                            "gap": HIERARCHY_PX_1,
+                            "padding": HIERARCHY_PX_1,
+                        }
+                    },
+                    "panels": []
+                }
+            }
+        });
+        let mut diagnostics = Vec::new();
+        let _normalized =
+            normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        assert!(diagnostics.iter().any(|d| d.code == "frame_derivation_conflict"));
     }
 }

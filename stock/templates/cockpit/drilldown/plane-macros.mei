@@ -200,6 +200,145 @@ template case_detail_t2_region(
         ],
     )
 
+# filter | detail 专用页 region（镜像 filter_detail_frame）
+template filter_detail_t2_region(
+    plane_key,
+    region_id = "main",
+    filter_section_id = "filter",
+    detail_section_id = "detail",
+    filter_body_id = "filter_body",
+    detail_body_id = "detail_body",
+):
+    region_layout(
+        id = region_id,
+        key = plane_key + "/r-main",
+        area = "main",
+        budget = budget(width = "100%"),
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "background": "transparent",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+        },
+        layout = grid(
+            columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["filter", "detail"]],
+            gap = ui.frame_gap(),
+        ),
+        sections = [
+            analytics_filter_section(
+                section_id = filter_section_id,
+                section_key = plane_key + "/s-filter",
+                body_id = filter_body_id,
+            ),
+            section_layout(
+                id = detail_section_id,
+                key = plane_key + "/s-detail",
+                area = "detail",
+                budget = budget(width = "100%"),
+                layout = grid(
+                    rows = ["minmax(0, 1fr)"],
+                    columns = ["1fr"],
+                    areas = [["body"]],
+                    gap = "0",
+                ),
+                shell = content_panel(
+                    id = detail_body_id,
+                    area = "body",
+                    variant = "container",
+                    chrome = "bare",
+                    show_heading = False,
+                    props = shell_macros.content_fill_props() | {
+                        "background": "none",
+                        "overflow": "auto",
+                    },
+                    blocks = [],
+                ),
+            ),
+        ],
+    )
+
+# tabs | content 通用下钻 region（镜像 generic_drilldown_frame）
+template generic_drilldown_t2_region(
+    plane_key,
+    region_id = "main",
+    tabs_section_id = "tabs",
+    content_section_id = "content",
+    tabs_body_id = "tabs_body",
+    content_body_id = "content_body",
+):
+    region_layout(
+        id = region_id,
+        key = plane_key + "/r-main",
+        area = "main",
+        budget = budget(width = "100%"),
+        props = {
+            "width": "100%",
+            "height": "100%",
+            "background": "transparent",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+        },
+        layout = grid(
+            rows = ["auto", "minmax(0, 1fr)"],
+            columns = ["1fr"],
+            areas = [["tabs"], ["content"]],
+            gap = ui.frame_gap(),
+        ),
+        sections = [
+            section_layout(
+                id = tabs_section_id,
+                key = plane_key + "/s-tabs",
+                area = "tabs",
+                budget = budget(width = "100%"),
+                layout = grid(
+                    rows = ["auto"],
+                    columns = ["1fr"],
+                    areas = [["body"]],
+                    gap = "0",
+                ),
+                shell = content_panel(
+                    id = tabs_body_id,
+                    area = "body",
+                    variant = "container",
+                    chrome = "bare",
+                    show_heading = False,
+                    props = shell_macros.content_fill_props() | {
+                        "background": "none",
+                        "overflow": "hidden",
+                    },
+                    blocks = [],
+                ),
+            ),
+            section_layout(
+                id = content_section_id,
+                key = plane_key + "/s-content",
+                area = "content",
+                budget = budget(width = "100%"),
+                layout = grid(
+                    rows = ["minmax(0, 1fr)"],
+                    columns = ["1fr"],
+                    areas = [["body"]],
+                    gap = "0",
+                ),
+                shell = content_panel(
+                    id = content_body_id,
+                    area = "body",
+                    variant = "container",
+                    chrome = "bare",
+                    show_heading = False,
+                    props = shell_macros.content_fill_props() | {
+                        "background": "none",
+                        "overflow": "auto",
+                    },
+                    blocks = [],
+                ),
+            ),
+        ],
+    )
+
 template typical_case_t2_region(
     plane_key,
     region_id = "main",

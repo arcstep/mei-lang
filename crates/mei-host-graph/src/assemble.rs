@@ -11,6 +11,7 @@ use mei_lang_kernel::{
 };
 use serde_json::{json, Value};
 
+use crate::frame_derive::FrameDeriveContext;
 use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, flatten_panel_tree, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
@@ -264,6 +265,11 @@ fn assemble_scope_from_registry_uncached(
     let active_target =
         assembly_target_for_key(app_root.as_path(), &registry, assembly_key.as_str());
     let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
+    let frame_derive_ctx = FrameDeriveContext {
+        app_root: app_root.as_path(),
+        registry: &registry,
+    };
+    let mut frame_norm_diags = Vec::new();
     let (
         scene_summary,
         scene_profile,
@@ -288,6 +294,7 @@ fn assemble_scope_from_registry_uncached(
     {
         let semantic_payload =
             load_semantic_scene_payload(app_root.as_path(), &registry, &assembly_key)?;
+        let semantic_source = assembly_source_file_from_payload(&semantic_payload);
         let semantic_ctx = PanelLowerContext {
             app_root: app_root.as_path(),
             app_id,
@@ -295,6 +302,7 @@ fn assemble_scope_from_registry_uncached(
             scene_id: scene_id.as_str(),
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: semantic_source.as_deref(),
         };
         let semantic = assemble_semantic_scene(&semantic_payload, &semantic_ctx)?;
         let t2_page_ids: Vec<String> = semantic
@@ -320,17 +328,21 @@ fn assemble_scope_from_registry_uncached(
             t2_page_ids,
         )
     } else {
-        let assembly_payload = normalize_page_instance_payload(load_assembly_payload(
-            app_root.as_path(),
-            &registry,
-            &assembly_key,
-        )?);
+        let raw_assembly = load_assembly_payload(app_root.as_path(), &registry, &assembly_key)?;
+        let assembly_source = assembly_source_file_from_payload(&raw_assembly);
+        let assembly_payload = normalize_page_instance_payload(
+            raw_assembly,
+            Some(&frame_derive_ctx),
+            &mut frame_norm_diags,
+            assembly_source.as_deref(),
+        );
         let (panels, panel_payloads) = load_panels_for_assembly(
             app_root.as_path(),
             app_id,
             &registry,
             &assembly_payload,
             &scene_id,
+            assembly_source.as_deref(),
         );
         (
             assembly_payload
@@ -368,6 +380,7 @@ fn assemble_scope_from_registry_uncached(
             Vec::new(),
         )
     };
+    panel_diagnostics.extend(frame_norm_diags);
     panel_diagnostics.extend(projection_diagnostics);
     let mei_config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
     let layout_options = LayoutBudgetValidateOptions::for_embedded_scene(
@@ -1088,7 +1101,19 @@ fn load_projection_map(
                     .trim()
                     .to_string();
                 if !scene_id.is_empty() {
-                    let mut normalized = normalize_page_instance_payload(payload);
+                    let derive_ctx = FrameDeriveContext {
+                        app_root,
+                        registry,
+                    };
+                    let mut frame_diagnostics = Vec::new();
+                    let page_source = assembly_source_file_from_payload(&payload);
+                    let mut normalized = normalize_page_instance_payload(
+                        payload,
+                        Some(&derive_ctx),
+                        &mut frame_diagnostics,
+                        page_source.as_deref(),
+                    );
+                    diagnostics.extend(frame_diagnostics);
                     if let Some(assembly) = normalized.as_object_mut() {
                         diagnostics.extend(
                             mei_lang_kernel::enrich_runtime_page_instance_projection_slots(
@@ -1103,7 +1128,122 @@ fn load_projection_map(
             }
         }
     }
+    diagnostics.extend(validate_row_drilldown_filter_keys(
+        app_root, registry, &map,
+    ));
     (map, diagnostics)
+}
+
+fn validate_row_drilldown_filter_keys(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    projection_map: &BTreeMap<String, Value>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for (scene_id, assembly) in projection_map {
+        let Some(local_nav) = assembly.get("local_nav").and_then(Value::as_object) else {
+            continue;
+        };
+        let filter_key = local_nav
+            .get("row_drilldown")
+            .and_then(Value::as_object)
+            .and_then(|spec| spec.get("filter_key"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let Some(filter_key) = filter_key else {
+            continue;
+        };
+        let Some(popup) = local_nav.get("row_drilldown_popup") else {
+            continue;
+        };
+        let Some(link_key) = extract_ref_arg0(popup) else {
+            continue;
+        };
+        let Some(target_scene) =
+            resolve_link_target_scene_id(app_root, registry, link_key)
+        else {
+            continue;
+        };
+        let Some(target_assembly) = projection_map.get(target_scene.as_str()) else {
+            continue;
+        };
+        let field_keys: BTreeSet<String> = target_assembly
+            .pointer("/bindings/filter_schema/fields")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|field| {
+                field
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+            .collect();
+        if field_keys.is_empty() {
+            continue;
+        }
+        if !field_keys.contains(filter_key) {
+            let source_path = assembly_source_file_from_payload(assembly);
+            diagnostics.push(Diagnostic {
+                severity: mei_lang_kernel::Severity::Error,
+                code: "row_drilldown_filter_key_mismatch".to_string(),
+                message: format!(
+                    "scene `{scene_id}` row_drilldown.filter_key `{filter_key}` not found in target `{target_scene}` filter_schema.fields[].key"
+                ),
+                source_path,
+            });
+        }
+    }
+    diagnostics
+}
+
+fn extract_ref_arg0(value: &Value) -> Option<&str> {
+    let name = value
+        .get("__ref")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("__call").and_then(Value::as_str));
+    if !matches!(name, Some("link_ref") | Some("assembly_ref") | None) {
+        // Still try arg0 for expanded forms.
+    }
+    value
+        .get("__args")
+        .and_then(Value::as_object)
+        .and_then(|args| args.get("arg0"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve_link_target_scene_id(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    link_key: &str,
+) -> Option<String> {
+    let normalized = link_key.trim();
+    let node = registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::Navigation
+            && (node.id.key == normalized
+                || node.id.key.ends_with(&format!(":{normalized}"))
+                || node.id.key == format!("overlay/links/{normalized}"))
+    })?;
+    let pref = node.payload_ref.as_ref()?;
+    let artifact = load_block_artifact(app_root, pref).ok()??;
+    let payload = artifact.get("payload")?;
+    let target = payload.get("target")?;
+    let board_key = extract_ref_arg0(target)?;
+    let page_node = registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key
+    })?;
+    let page_pref = page_node.payload_ref.as_ref()?;
+    let page_artifact = load_block_artifact(app_root, page_pref).ok()??;
+    page_artifact
+        .get("payload")
+        .and_then(|payload| payload.get("scene"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn load_scene_examples_by_id(
@@ -1237,8 +1377,12 @@ fn load_panels_for_assembly(
     registry: &crate::mcg::registry::McgRegistry,
     assembly_payload: &Value,
     scene_id: &str,
+    source_file: Option<&str>,
 ) -> (Vec<mei_lang_kernel::UiNodeDecl>, BTreeMap<String, Value>) {
     let _ = crate::v2_lower::take_panel_lower_diagnostics();
+    let assembly_source = source_file
+        .map(str::to_string)
+        .or_else(|| assembly_source_file_from_payload(assembly_payload));
     let lower_ctx = PanelLowerContext {
         app_root,
         app_id,
@@ -1246,6 +1390,7 @@ fn load_panels_for_assembly(
         scene_id,
         panel_constants: BTreeMap::new(),
         assembly_stack_order: None,
+        source_file: assembly_source.as_deref(),
     };
     let mut panels = Vec::new();
     let mut panel_payloads = BTreeMap::new();
@@ -1282,7 +1427,11 @@ fn load_panels_for_assembly(
                 *counter += 1;
                 order
             });
+        let panel_source = assembly_source_file_from_payload(&payload);
         let mut panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
+        if let Some(ref source) = panel_source {
+            panel_ctx = panel_ctx.with_source_file(Some(source.as_str()));
+        }
         if let Some(order) = assembly_order {
             panel_ctx = panel_ctx.with_assembly_stack_order(order);
         }
@@ -1362,8 +1511,9 @@ fn collect_component_assets_for_panels(
 ) -> Result<(Vec<ComponentAsset>, Vec<Diagnostic>)> {
     let asset_map = load_component_assets(source_root)?;
     let mut asset_keys = BTreeSet::new();
+    let mut asset_scopes = BTreeMap::<String, Option<String>>::new();
     for panel in panels {
-        collect_asset_keys_from_panel(panel, &mut asset_keys);
+        collect_asset_keys_from_panel(panel, &mut asset_keys, &mut asset_scopes);
     }
     let mut diagnostics = Vec::new();
     let mut assets = Vec::new();
@@ -1377,7 +1527,7 @@ fn collect_component_assets_for_panels(
                 message: format!(
                     "component `{key}` is not registered in stock/components manifests"
                 ),
-                source_path: None,
+                source_path: asset_scopes.get(&key).cloned().flatten(),
             });
         }
     }
@@ -1472,19 +1622,38 @@ fn scan_value_for_unresolved_link(
     }
 }
 
-fn collect_asset_keys_from_panel(panel: &UiNodeDecl, asset_keys: &mut BTreeSet<String>) {
-    collect_asset_keys_from_nodes(&panel.blocks, asset_keys);
+fn collect_asset_keys_from_panel(
+    panel: &UiNodeDecl,
+    asset_keys: &mut BTreeSet<String>,
+    asset_scopes: &mut BTreeMap<String, Option<String>>,
+) {
+    collect_asset_keys_from_nodes(&panel.blocks, asset_keys, asset_scopes, panel.import_scope.as_deref());
     if let Some(head) = panel.head.as_ref() {
-        collect_asset_keys_from_nodes(std::slice::from_ref(head.as_ref()), asset_keys);
+        collect_asset_keys_from_nodes(
+            std::slice::from_ref(head.as_ref()),
+            asset_keys,
+            asset_scopes,
+            panel.import_scope.as_deref(),
+        );
     }
 }
 
-fn collect_asset_keys_from_nodes(nodes: &[UiTreeNode], asset_keys: &mut BTreeSet<String>) {
+fn collect_asset_keys_from_nodes(
+    nodes: &[UiTreeNode],
+    asset_keys: &mut BTreeSet<String>,
+    asset_scopes: &mut BTreeMap<String, Option<String>>,
+    import_scope: Option<&str>,
+) {
     for node in nodes {
         match node {
-            UiTreeNode::Panel(panel) => collect_asset_keys_from_panel(panel, asset_keys),
+            UiTreeNode::Panel(panel) => {
+                collect_asset_keys_from_panel(panel, asset_keys, asset_scopes)
+            }
             UiTreeNode::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
+                asset_scopes
+                    .entry(block.use_key.clone())
+                    .or_insert_with(|| import_scope.map(str::to_string));
             }
             UiTreeNode::PanelRefEmbed(_) => {}
         }
