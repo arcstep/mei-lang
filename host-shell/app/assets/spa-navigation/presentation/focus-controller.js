@@ -160,11 +160,13 @@
   }
 
   function syncObjectSelectionFromEntry(entry, viewpointId) {
-    const objectId = String(entry?.objectId || entry?.object_id || "").trim();
-    if (!objectId) return false;
+    const resolver = boot.objectResolver || globalThis.MeiObjectResolver;
+    const descriptor =
+      resolver && typeof resolver.resolve === "function" ? resolver.resolve(entry) : null;
+    if (!descriptor) return false;
     const detail = {
-      objectId,
-      primaryObjectId: objectId,
+      descriptor,
+      primaryObjectId: descriptor.objectId,
       source: "viewpoint",
       mode: "replace",
       viewpointId: String(viewpointId || "").trim(),
@@ -189,7 +191,10 @@
       ["meiStageKind", entry.stageKind],
       ["meiWorldRef", entry.worldRef],
       ["meiEntityId", entry.entityId],
+      ["meiObjectType", entry.objectType || entry.object_type],
+      ["meiObjectKey", entry.objectKey || entry.object_key],
       ["meiObjectId", entry.objectId || entry.object_id],
+      ["meiObjectIdentityStatus", entry.objectIdentityStatus],
       ["meiGroupId", entry.groupId],
       ["meiCameraPreset", entry.cameraPreset],
     ];
@@ -200,9 +205,23 @@
   }
 
   function resolveWorldTarget(action, entry) {
-    const objectId = String(
-      action?.objectId || action?.object_id || entry?.objectId || entry?.object_id || "",
-    ).trim();
+    const resolver = boot.objectResolver || globalThis.MeiObjectResolver;
+    const locator = {
+      objectId: action?.objectId || action?.object_id || entry?.objectId || entry?.object_id,
+      objectType:
+        action?.objectType ||
+        action?.object_type ||
+        entry?.objectType ||
+        entry?.object_type,
+      objectKey:
+        action?.objectKey || action?.object_key || entry?.objectKey || entry?.object_key,
+      entityId:
+        action?.entityId || action?.entity_id || entry?.entityId || entry?.entity_id,
+      sourceRef:
+        action?.sourceRef || action?.source_ref || entry?.sourceRef || entry?.source_ref,
+    };
+    const descriptor =
+      resolver && typeof resolver.resolve === "function" ? resolver.resolve(locator) : null;
     const worldTarget = {
       type: String(action?.type || action?.kind || "").trim(),
       viewpointId: String(action?.viewpoint || action?.viewpointId || "").trim(),
@@ -215,8 +234,14 @@
         action?.cameraPreset || action?.camera_preset || entry?.cameraPreset || "",
       ).trim(),
     };
-    if (objectId) {
-      worldTarget.objectId = objectId;
+    if (descriptor) {
+      worldTarget.objectDescriptor = descriptor;
+      worldTarget.objectId = descriptor.objectId;
+      worldTarget.objectIdentityStatus = descriptor.identityStatus;
+      if (descriptor.objectType) worldTarget.objectType = descriptor.objectType;
+      if (descriptor.objectKey !== undefined) worldTarget.objectKey = descriptor.objectKey;
+      if (descriptor.entityId !== undefined) worldTarget.entityId = descriptor.entityId;
+      if (descriptor.sourceRef !== undefined) worldTarget.sourceRef = descriptor.sourceRef;
     }
     return worldTarget;
   }

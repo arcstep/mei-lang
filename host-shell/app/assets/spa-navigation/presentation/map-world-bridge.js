@@ -1,6 +1,7 @@
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   const ENTER_EVENT = "mei:map-world-enter-request";
+  const PICK_EVENT = "mei:map-world-object-pick";
 
   function readPresentationMap() {
     const node = document.getElementById("mei-presentation-map");
@@ -14,10 +15,16 @@
     }
   }
 
-  function resolveWorldEntryViewpoint(entityId, objectId) {
+  function resolveWorldEntryViewpoint(entityId, objectId, objectType, objectKey) {
     const entity = String(entityId || "").trim();
     const object = String(objectId || "").trim();
-    if (!entity && !object) return null;
+    const resolver = boot.objectResolver || window.MeiObjectResolver;
+    const descriptor =
+      resolver && typeof resolver.resolve === "function"
+        ? resolver.resolve({ entityId, objectId, objectType, objectKey })
+        : null;
+    const canonicalObjectId = String(descriptor?.objectId || object).trim();
+    if (!entity && !canonicalObjectId && !objectType && objectKey == null) return null;
     const viewpoints = readPresentationMap()?.viewpoints || {};
     const candidates = Object.entries(viewpoints)
       .map(([viewpointId, entry]) => ({ viewpointId, entry }))
@@ -25,7 +32,10 @@
         const family = String(entry?.viewFamily || entry?.view_family || "").trim();
         const entryEntity = String(entry?.entityId || entry?.entity_id || "").trim();
         const entryObject = String(entry?.objectId || entry?.object_id || "").trim();
-        return family === "world" && (object ? entryObject === object : entryEntity === entity);
+        return (
+          family === "world" &&
+          (canonicalObjectId ? entryObject === canonicalObjectId : entryEntity === entity)
+        );
       });
     if (!candidates.length) return null;
     const entryPreferred = candidates.find(({ viewpointId }) =>
@@ -37,6 +47,8 @@
   function dispatchEnterWorldView(detail) {
     const entityId = String(detail?.entityId || detail?.entity_id || "").trim();
     const objectId = String(detail?.objectId || detail?.object_id || "").trim();
+    const objectType = String(detail?.objectType || detail?.object_type || "").trim();
+    const objectKey = detail?.objectKey ?? detail?.object_key;
     const explicitViewpoint = String(
       detail?.viewpoint ||
         detail?.viewpointId ||
@@ -49,7 +61,7 @@
           viewpointId: explicitViewpoint,
           entry: readPresentationMap()?.viewpoints?.[explicitViewpoint] || null,
         }
-      : resolveWorldEntryViewpoint(entityId, objectId);
+      : resolveWorldEntryViewpoint(entityId, objectId, objectType, objectKey);
     if (!matched?.viewpointId) {
       if (typeof console !== "undefined" && typeof console.warn === "function") {
         console.warn("[mei] map-world-bridge: no world viewpoint for entity", entityId);
@@ -84,11 +96,25 @@
       ).trim(),
       panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
     };
-    const resolvedObjectId = String(
-      objectId || entry.objectId || entry.object_id || "",
-    ).trim();
-    if (resolvedObjectId) {
-      action.objectId = resolvedObjectId;
+    const resolver = boot.objectResolver || window.MeiObjectResolver;
+    const descriptor =
+      resolver && typeof resolver.resolve === "function"
+        ? resolver.resolve({
+            objectId: objectId || entry.objectId || entry.object_id,
+            objectType: objectType || entry.objectType || entry.object_type,
+            objectKey: objectKey ?? entry.objectKey ?? entry.object_key,
+            entityId: entityId || entry.entityId || entry.entity_id,
+            sourceRef: detail?.sourceRef || detail?.source_ref || entry.sourceRef || entry.source_ref,
+          })
+        : null;
+    if (descriptor) {
+      action.objectDescriptor = descriptor;
+      action.objectId = descriptor.objectId;
+      action.objectIdentityStatus = descriptor.identityStatus;
+      if (descriptor.objectType) action.objectType = descriptor.objectType;
+      if (descriptor.objectKey !== undefined) action.objectKey = descriptor.objectKey;
+      if (descriptor.entityId !== undefined) action.entityId = descriptor.entityId;
+      if (descriptor.sourceRef !== undefined) action.sourceRef = descriptor.sourceRef;
     }
     const dispatch = boot.dispatchPresentationAction;
     if (typeof dispatch === "function") {
@@ -104,12 +130,33 @@
     dispatchEnterWorldView(event?.detail || {});
   }
 
+  function dispatchMapWorldObjectPick(detail) {
+    const interaction = boot.interactionRuntime || window.MeiInteraction;
+    if (!interaction || typeof interaction.dispatchMany !== "function") return false;
+    const descriptor =
+      (boot.objectResolver || window.MeiObjectResolver)?.resolve?.(detail || {}) || null;
+    if (!descriptor) return false;
+    const events = interaction.dispatchMany(["select", "focus_viewpoint"], {
+      descriptor,
+      source: detail?.source || "map-world-pick",
+      targetId: detail?.targetId || detail?.target_id,
+      targetRole: detail?.targetRole || detail?.target_role,
+    });
+    return events.length === 2;
+  }
+
+  function onMapWorldObjectPick(event) {
+    dispatchMapWorldObjectPick(event?.detail || {});
+  }
+
   function installMapWorldBridge() {
     if (boot.mapWorldBridgeMounted) return;
     boot.mapWorldBridgeMounted = true;
     window.addEventListener(ENTER_EVENT, onMapWorldEnterRequest);
+    window.addEventListener(PICK_EVENT, onMapWorldObjectPick);
     boot.mapWorldBridge = {
       dispatchEnterWorldView,
+      dispatchMapWorldObjectPick,
       resolveWorldEntryViewpoint,
     };
   }

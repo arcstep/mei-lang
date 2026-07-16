@@ -10,6 +10,30 @@ import vm from "node:vm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const assetsRoot = path.join(__dirname, "../host-shell/app/assets");
+const fixture = JSON.parse(
+  await readFile(
+    path.join(__dirname, "../tests/fixtures/object-identity/runtime-index.json"),
+    "utf8",
+  ),
+);
+const canonicalDescriptor = fixture.objectIndex.descriptors[fixture.objectId];
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
+function resolveFixtureObject(input) {
+  const objectId = String(input?.objectId || input?.object_id || "");
+  const objectType = String(input?.objectType || input?.object_type || "");
+  const objectKey = input?.objectKey ?? input?.object_key;
+  const entityId = input?.entityId ?? input?.entity_id;
+  if (
+    objectId === fixture.objectId ||
+    (objectType === fixture.objectType &&
+      (objectKey === fixture.identityValue || entityId === fixture.identityValue))
+  ) {
+    return { ...canonicalDescriptor, identityStatus: "canonical" };
+  }
+  if (objectId) return { objectId, identityStatus: "legacy" };
+  return null;
+}
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -44,6 +68,7 @@ const focusContext = {
   CSS: { escape: (value) => value },
   HTMLElement,
   boot: {
+    objectResolver: { resolve: resolveFixtureObject },
     objectSelectionRuntime: {
       select(detail) {
         selected.push(detail);
@@ -54,8 +79,10 @@ const focusContext = {
   readViewpointEntry() {
     return {
       tier: "t0",
-      objectId: "domain.object-1",
-      entityId: "entity-1",
+      objectId: fixture.objectId,
+      objectType: fixture.objectType,
+      objectKey: fixture.identityValue,
+      entityId: fixture.identityValue,
     };
   },
   stampWorldTargetDataset(target, entry) {
@@ -84,9 +111,10 @@ vm.runInContext(
 
 assert.equal(focusContext.focusViewpoint("vp-object"), true);
 assert.equal(selected.length, 1);
-assert.equal(selected[0].objectId, "domain.object-1");
+assert.equal(selected[0].descriptor.objectId, fixture.objectId);
+assert.equal(selected[0].descriptor.identityStatus, "canonical");
 assert.equal(selected[0].mode, "replace");
-assert.equal(focusTarget.dataset.meiObjectId, "domain.object-1");
+assert.equal(focusTarget.dataset.meiObjectId, fixture.objectId);
 focusContext.readViewpointEntry = () => ({ tier: "t0", entityId: "entity-only" });
 assert.equal(focusContext.focusViewpoint("vp-legacy"), true);
 assert.equal(selected.length, 1, "viewpoints without objectId must keep legacy focus behavior");
@@ -119,6 +147,7 @@ const bridgeSource = await readFile(
   "utf8",
 );
 let dispatchedAction = null;
+const pickIntents = [];
 class HTMLScriptElement {
   constructor(textContent) {
     this.textContent = textContent;
@@ -129,8 +158,10 @@ const presentationMapNode = new HTMLScriptElement(
     viewpoints: {
       object_world_entry: {
         viewFamily: "world",
-        objectId: "domain.object-1",
-        entityId: "entity-1",
+        objectId: fixture.objectId,
+        objectType: fixture.objectType,
+        objectKey: fixture.identityValue,
+        entityId: fixture.identityValue,
       },
       legacy_world_entry: {
         viewFamily: "world",
@@ -148,35 +179,47 @@ const bridgeContext = {
     },
   },
   boot: {
+    objectResolver: { resolve: resolveFixtureObject },
+    interactionRuntime: {
+      dispatchMany(intents, detail) {
+        pickIntents.push({ intents, detail });
+        return intents.map((intent) => ({ intent }));
+      },
+    },
     dispatchPresentationAction(action) {
       dispatchedAction = action;
       return true;
     },
   },
 };
+bridgeContext.window = bridgeContext;
 vm.createContext(bridgeContext);
 vm.runInContext(
   [
     extractFunction(bridgeSource, "readPresentationMap"),
     extractFunction(bridgeSource, "resolveWorldEntryViewpoint"),
     extractFunction(bridgeSource, "dispatchEnterWorldView"),
+    extractFunction(bridgeSource, "dispatchMapWorldObjectPick"),
     "this.dispatchEnterWorldView = dispatchEnterWorldView;",
+    "this.dispatchMapWorldObjectPick = dispatchMapWorldObjectPick;",
   ].join("\n"),
   bridgeContext,
 );
 assert.equal(
-  bridgeContext.dispatchEnterWorldView({ object_id: "domain.object-1" }),
+  bridgeContext.dispatchEnterWorldView({ object_id: fixture.objectId }),
   true,
 );
 assert.equal(dispatchedAction.viewpoint, "object_world_entry");
-assert.equal(dispatchedAction.objectId, "domain.object-1");
+assert.equal(dispatchedAction.objectId, fixture.objectId);
+assert.equal(dispatchedAction.objectDescriptor.objectType, fixture.objectType);
 
 dispatchedAction = null;
 bridgeContext.dispatchEnterWorldView({
   viewpoint: "object_world_entry",
-  objectId: "domain.detail",
+  objectType: fixture.objectType,
+  objectKey: fixture.identityValue,
 });
-assert.equal(dispatchedAction.objectId, "domain.detail");
+assert.equal(dispatchedAction.objectId, fixture.objectId);
 
 dispatchedAction = null;
 bridgeContext.dispatchEnterWorldView({
@@ -184,6 +227,20 @@ bridgeContext.dispatchEnterWorldView({
   entityId: "entity-legacy",
 });
 assert.equal(Object.hasOwn(dispatchedAction, "objectId"), false);
+
+assert.equal(
+  bridgeContext.dispatchMapWorldObjectPick({
+    objectType: fixture.objectType,
+    objectKey: fixture.identityValue,
+  }),
+  true,
+);
+assert.deepEqual(plain(pickIntents[0].intents), ["select", "focus_viewpoint"]);
+assert.equal(
+  pickIntents[0].intents.includes("open_projection"),
+  false,
+  "map/world pick must never implicitly open T2",
+);
 
 const stepSource = await readFile(
   path.join(assetsRoot, "spa-navigation/presentation/presentation-step-engine.js"),

@@ -306,6 +306,15 @@
     if (!normalized.objectId && normalized.object_id) {
       normalized.objectId = normalized.object_id;
     }
+    if (!normalized.objectType && normalized.object_type) {
+      normalized.objectType = normalized.object_type;
+    }
+    if (normalized.objectKey == null && normalized.object_key != null) {
+      normalized.objectKey = normalized.object_key;
+    }
+    if (!normalized.sourceRef && normalized.source_ref) {
+      normalized.sourceRef = normalized.source_ref;
+    }
     if (!normalized.groupId && normalized.group_id) {
       normalized.groupId = normalized.group_id;
     }
