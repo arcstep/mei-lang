@@ -122,8 +122,17 @@ pub fn word_at_position(source: &str, position: Position) -> Option<String> {
 
 fn declaration_token(trimmed: &str) -> Option<(&'static str, &'static str)> {
     [
-        ("app", "app("),
+        // v2 gold structure
         ("scene", "scene("),
+        ("plane", "plane_layout("),
+        ("region", "region_layout("),
+        ("section", "section_layout("),
+        ("slide", "slide_layout("),
+        ("panel", "panel("),
+        ("link", "link_decl("),
+        ("component", "component("),
+        // Legacy / catalog scaffolds
+        ("app", "app("),
         ("world", "world("),
         ("flow", "flow("),
         ("frame", "frame("),
@@ -135,8 +144,6 @@ fn declaration_token(trimmed: &str) -> Option<(&'static str, &'static str)> {
         ("metric", "world.add_metric("),
         ("metric", "world_add_metric("),
         ("panel", "frame.add_panel("),
-        ("panel", "panel("),
-        ("component", "component("),
     ]
     .into_iter()
     .find(|(_, token)| trimmed.starts_with(*token))
@@ -207,10 +214,15 @@ fn build_symbol(
 ) -> Option<IndexedSymbol> {
     let selection_range = if kind == "component" {
         find_first_string_arg(block, token, start_line)
+    } else if matches!(kind, "plane" | "region" | "section" | "slide" | "link") {
+        // Gold refs use MCG keys (`app/home/t1`); fall back to local id.
+        find_named_string_arg(block, "key", start_line)
+            .or_else(|| find_named_string_arg(block, "id", start_line))
     } else {
         find_named_string_arg(block, "id", start_line)
             .or_else(|| find_named_string_arg(block, "scene_id", start_line))
             .or_else(|| find_named_string_arg(block, "title", start_line))
+            .or_else(|| find_named_string_arg(block, "key", start_line))
     };
     let (name, selection_range) = match selection_range {
         Some((name, range)) => (name, range),
@@ -248,14 +260,25 @@ fn scan_references(block: &str, start_line: usize) -> Vec<IndexedReference> {
 fn scan_inline_references(line: &str, line_index: usize) -> Vec<IndexedReference> {
     let mut refs = Vec::new();
     for (kind, token) in [
+        // v2 gold refs
+        ("plane", "plane_ref("),
+        ("region", "region_ref("),
+        ("section", "section_ref("),
+        ("panel", "panel_ref("),
+        ("theme", "theme_ref("),
+        ("assembly", "assembly_ref("),
+        ("link", "link_ref("),
+        ("object", "object_ref("),
+        ("metric", "metric_ref("),
+        ("dataset", "dataset_ref("),
+        ("field", "field_ref("),
         ("scene_file", "scene_file_ref("),
         ("scene", "scene_ref("),
+        ("component", "component("),
+        // Legacy
         ("world", "world_ref("),
         ("frame", "frame_ref("),
         ("resource", "resource_ref("),
-        ("dataset", "dataset_ref("),
-        ("metric", "metric_ref("),
-        ("component", "component("),
     ] {
         if let Some(reference) = find_call_reference(line, line_index, kind, token) {
             refs.push(reference);
@@ -363,10 +386,15 @@ fn map_symbol_kind(kind: &str) -> SymbolKind {
     match kind {
         "app" => SymbolKind::OBJECT,
         "scene" => SymbolKind::MODULE,
+        "plane" => SymbolKind::STRUCT,
+        "region" => SymbolKind::NAMESPACE,
+        "section" => SymbolKind::FIELD,
+        "slide" => SymbolKind::STRUCT,
         "world" => SymbolKind::NAMESPACE,
         "flow" => SymbolKind::EVENT,
         "frame" => SymbolKind::STRUCT,
         "panel" => SymbolKind::FIELD,
+        "link" => SymbolKind::EVENT,
         "resource" => SymbolKind::VARIABLE,
         "dataset" => SymbolKind::ARRAY,
         "metric" => SymbolKind::PROPERTY,
@@ -385,3 +413,56 @@ fn range_contains(range: Range, position: Position) -> bool {
 fn is_word_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '.'
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indexes_v2_scene_and_plane_ref() {
+        let source = r#"
+scene(
+    id = "home",
+    key = "home@src/scene/home.mei",
+    planes = [
+        plane_ref("fx-structure/home/t1"),
+    ],
+)
+"#;
+        let index = analyze_source(source);
+        assert!(
+            index
+                .symbols
+                .iter()
+                .any(|s| s.kind == "scene" && (s.name == "home" || s.name.contains("home"))),
+            "expected scene symbol, got {:?}",
+            index.symbols
+        );
+        assert!(
+            index.references.iter().any(|r| {
+                r.kind == "plane" && r.value == "fx-structure/home/t1"
+            }),
+            "expected plane_ref, got {:?}",
+            index.references
+        );
+    }
+
+    #[test]
+    fn indexes_plane_layout_by_key() {
+        let source = r#"
+plane_layout(
+    id = "t1",
+    key = "fx-structure/home/t1",
+    tier = "t1",
+)
+"#;
+        let index = analyze_source(source);
+        let plane = index
+            .symbols
+            .iter()
+            .find(|s| s.kind == "plane")
+            .expect("plane symbol");
+        assert_eq!(plane.name, "fx-structure/home/t1");
+    }
+}
+

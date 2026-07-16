@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use mei_lang_kernel::{describe_dsl, load_component_assets};
+use mei_lang_kernel::{describe_dsl, load_component_assets, resolve_app_mei_file_path};
 use mei_lang_toolchain::resolve_components_root;
 use tokio::sync::Mutex;
 use tower_lsp::{
@@ -83,7 +83,7 @@ impl Backend {
                     uri.clone(),
                     vec![compile_failure_diagnostic(
                         "app_root_not_found",
-                        "未找到 app 根目录（缺少 main.mei）".to_string(),
+                        "未找到 app 根目录（需要 app.toml、app.config.json 或 src/main.mei）".to_string(),
                         None,
                     )],
                     None,
@@ -268,10 +268,12 @@ impl LanguageServer for Backend {
         let Some(reference) = source_index::reference_at_position(&index, position) else {
             return Ok(None);
         };
-        if reference.kind == "scene_file" {
-            let target = app_root.join(&reference.value);
-            if let Some(location) = file_location(target.as_path()) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        if reference.kind == "scene_file" || reference.kind == "assembly" {
+            let target = resolve_app_mei_file_path(&app_root, &reference.value);
+            if target.is_file() {
+                if let Some(location) = file_location(target.as_path()) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
             }
         }
         if reference.kind == "component" {
@@ -420,13 +422,22 @@ impl LanguageServer for Backend {
                 }
             }
             for label in [
+                "plane_ref",
+                "region_ref",
+                "section_ref",
+                "panel_ref",
+                "theme_ref",
+                "assembly_ref",
+                "link_ref",
+                "object_ref",
+                "metric_ref",
+                "dataset_ref",
                 "scene_ref",
+                "scene_file_ref",
+                "resource_ref",
+                // Legacy helpers still seen in older scaffolds.
                 "world_ref",
                 "frame_ref",
-                "resource_ref",
-                "dataset_ref",
-                "metric_ref",
-                "scene_file_ref",
             ] {
                 items.push(CompletionItem {
                     label: label.to_string(),
