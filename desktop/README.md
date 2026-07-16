@@ -94,7 +94,26 @@ sidecar 收集与 `scripts/build.sh` 一样会做 **cargo target hygiene**（超
 见 [WINDOWS.md](WINDOWS.md)。在 Windows 本机或 CI runner 上同样 `collect` + `npm run build`。  
 不要在 Mac 上交叉编译正式 Windows 安装包。
 
+## GitHub Release
+
+打 tag（版本需与 `Cargo.toml` `[workspace.package].version` 一致）会触发
+[`.github/workflows/release.yml`](../.github/workflows/release.yml)，自动发布：
+
+- **mei-viewer**：macOS zip、Windows NSIS setup
+- **mei-toolchain**：`host-shell` / `compiler` / `app-runtime` / `plug-ds` / `snapshot` / `mei-lsp` / `mei-toolchain` 多平台归档
+- **VS Code 扩展**：`mei-lang-*.vsix`
+
+也可在 Actions 里手动 `Release` → `workflow_dispatch`（默认 draft）。
+
+本地仅打 toolchain 归档：
+
+```bash
+./scripts/package-toolchain-release.sh
+# → dist/toolchain/mei-toolchain-<ver>-<triple>.tar.gz
+```
+
 ## 快照（GUI 与 CLI）
+
 
 启动器：打开工作区后**多选** app →「导出快照…」（默认打 **portable v2**：含可移植配置、parquet、assets、csv/json，视频/底图外置）；对方「导入快照…」即可。  
 导入后若有外置资源，用「待补齐资源」面板选择文件自动落位。
