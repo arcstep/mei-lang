@@ -1,0 +1,46 @@
+# Diag: link_decl param missing / type mismatch
+
+plane_layout(
+    id = "p-analytics",
+    key = "fx-diag-link-param/home/t1/region-main/section-metric/plane-analytics",
+    tier = "t2",
+    budget = budget(width = "100%"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "0",
+    ),
+    regions = [],
+)
+
+page_instance(
+    key = "fx-diag-link-param/home/t1/region-main/section-metric/plane-analytics",
+    scene = "fx_analytics_page",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Conformance analytics page with accepts",
+    accepts = {
+        "metric": { "type": "string", "required": True },
+        "count": { "type": "number", "required": True },
+    },
+    capabilities = [],
+    bindings = {
+        "projection_slots": [
+            {
+                "id": "main",
+                "layout_zone": "main",
+                "kind": "placeholder",
+            },
+        ],
+    },
+    examples = [
+        {
+            "id": "default",
+            "title": "Default fixture example",
+            "params": {
+                "entry": "detail",
+            },
+        },
+    ],
+)

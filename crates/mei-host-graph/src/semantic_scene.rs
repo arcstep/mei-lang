@@ -15,8 +15,8 @@ use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
-    load_content_panel_payload, lower_frame_from_assembly, lower_layout, lower_panel_payload,
-    PanelLowerContext,
+    load_content_panel_payload, lower_frame_from_assembly, lower_layout_with_source,
+    lower_panel_payload, PanelLowerContext,
 };
 
 /// Catalog entry for an openable T2 page-plane (`scene.t2_pages`).
@@ -154,6 +154,7 @@ pub fn assemble_semantic_scene(
                     Some(grid),
                     plane_args,
                     plane_children,
+                    ctx,
                 )?;
                 apply_padding_profile_body_props(&mut plane_panel);
                 panels.push(plane_panel);
@@ -201,6 +202,7 @@ pub fn assemble_semantic_scene(
                     plane_grid,
                     plane_args,
                     plane_children,
+                    ctx,
                 )?;
                 apply_padding_profile_body_props(&mut plane_panel);
                 panels.push(plane_panel);
@@ -324,6 +326,7 @@ pub fn assemble_semantic_scene(
                 plane_grid,
                 plane_args,
                 plane_children,
+                ctx,
             )?
         } else {
             build_plane_grid_panel(
@@ -336,6 +339,7 @@ pub fn assemble_semantic_scene(
                 })),
                 plane_args,
                 plane_children,
+                ctx,
             )?
         };
         apply_padding_profile_body_props(&mut plane_panel);
@@ -465,6 +469,13 @@ fn build_panel_payload(
     copy_if_present(args, &mut payload, "shell");
     copy_if_present(args, &mut payload, "head_props");
     copy_if_present(args, &mut payload, "body_props");
+    copy_if_present(args, &mut payload, "source_file");
+    // Preserve fragment source_file when the call wrapper is the outer value.
+    if !payload.contains_key("source_file") {
+        if let Some(source_file) = value.get("source_file").cloned() {
+            payload.insert("source_file".to_string(), source_file);
+        }
+    }
     if role == "slide" {
         copy_if_present(args, &mut payload, "pattern");
         copy_if_present(args, &mut payload, "chapter");
@@ -1047,6 +1058,7 @@ fn build_plane_grid_panel(
     plane_grid: Option<&Value>,
     plane_args: Option<&Map<String, Value>>,
     children: Vec<UiNodeDecl>,
+    ctx: &PanelLowerContext<'_>,
 ) -> Result<UiNodeDecl> {
     let mut layout_value = plane_grid.cloned();
     if let Some(layout) = layout_value.as_mut() {
@@ -1056,6 +1068,19 @@ fn build_plane_grid_panel(
             }
         }
     }
+    let plane_source = plane_args
+        .and_then(|map| map.get("source_file"))
+        .and_then(Value::as_str)
+        .map(|source_file| {
+            if source_file.starts_with("src/") {
+                source_file.to_string()
+            } else {
+                format!("src/{source_file}")
+            }
+        });
+    let layout = layout_value.as_ref().and_then(|value| {
+        lower_layout_with_source(value, plane_source.as_deref().or(ctx.source_file), &ctx.diagnostics)
+    });
     let mut props = json!({
         "__mei_ui_role": "plane",
         "__mei_tier": tier,
@@ -1095,14 +1120,14 @@ fn build_plane_grid_panel(
         title: None,
         head: None,
         area: None,
-        layout: layout_value.as_ref().and_then(lower_layout),
+        layout,
         blocks: children.into_iter().map(UiTreeNode::Panel).collect(),
         slot: None,
         props,
         head_props: json!({}),
         body_props: json!({}),
         base: None,
-        import_scope: None,
+        import_scope: plane_source.or_else(|| ctx.source_file.map(str::to_string)),
     })
 }
 

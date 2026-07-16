@@ -1,0 +1,46 @@
+plane_layout(
+    id = "p-target",
+    key = "fx-diag-filter-key/home/t1/region-main/section-metric/plane-target",
+    tier = "t2",
+    budget = budget(width = "100%"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "0",
+    ),
+    regions = [],
+)
+
+page_instance(
+    key = "fx-diag-filter-key/home/t1/region-main/section-metric/plane-target",
+    scene = "fx_target_page",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Target page with filter_schema",
+    capabilities = ["filterable"],
+    bindings = {
+        "filter_schema": {
+            "fields": [
+                {
+                    "key": "warningId",
+                    "label": "预警ID",
+                },
+            ],
+        },
+        "projection_slots": [
+            {
+                "id": "main",
+                "layout_zone": "main",
+                "kind": "placeholder",
+            },
+        ],
+    },
+    examples = [
+        {
+            "id": "default",
+            "title": "Default",
+            "params": {},
+        },
+    ],
+)

@@ -1,0 +1,12 @@
+use template "cockpit/t2/t2-tab-session" as t2_tab
+
+link_decl(
+    key = "fx-diag-grid-track/home/t1/region-main/section-metric/links/fx-analytics",
+    type = "popup",
+    projection = "overlay",
+    overlay_size = "large",
+    overlay_workspace = t2_tab.default_t2_tab_session(size = "large"),
+    title = "Fixture analytics",
+    target = assembly_ref("fx-diag-grid-track/home/t1/region-main/section-metric/plane-analytics"),
+    params = {},
+)

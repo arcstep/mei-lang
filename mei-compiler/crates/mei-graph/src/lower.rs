@@ -60,6 +60,8 @@ fn lower_top_level(
             | "map_spec"
             | "view_spec"
             | "page_instance"
+            | "link_decl"
+            | "navigation"
     ) {
         if let Some(obj) = payload.as_object_mut() {
             obj.entry("source_file".to_string())

@@ -1,0 +1,42 @@
+# Minimal T2 page-plane for catalog discovery + scene examples (no private business macros).
+
+plane_layout(
+    id = "p-analytics",
+    key = "fx-diag-unknown-component/home/t1/region-main/section-metric/plane-analytics",
+    tier = "t2",
+    budget = budget(width = "100%"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "0",
+    ),
+    regions = [],
+)
+
+page_instance(
+    key = "fx-diag-unknown-component/home/t1/region-main/section-metric/plane-analytics",
+    scene = "fx_analytics_page",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Conformance analytics page",
+    capabilities = [],
+    bindings = {
+        "projection_slots": [
+            {
+                "id": "main",
+                "layout_zone": "main",
+                "kind": "placeholder",
+            },
+        ],
+    },
+    examples = [
+        {
+            "id": "default",
+            "title": "Default fixture example",
+            "params": {
+                "entry": "detail",
+            },
+        },
+    ],
+)

@@ -1,0 +1,52 @@
+use template "cockpit/t2/t2-nav" as t2_nav
+
+plane_layout(
+    id = "p-analytics",
+    key = "fx-diag-filter-key/home/t1/region-main/section-metric/plane-analytics",
+    tier = "t2",
+    budget = budget(width = "100%"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "0",
+    ),
+    regions = [],
+)
+
+page_instance(
+    key = "fx-diag-filter-key/home/t1/region-main/section-metric/plane-analytics",
+    scene = "fx_source_page",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Source page with bad filter_key",
+    capabilities = ["row_drilldown"],
+    local_nav = t2_nav.analytics_drilldown_nav_with_row(
+        scene_id = "fx_source_page",
+        row_popup = link_ref("fx-diag-filter-key/home/t1/region-main/section-metric/links/fx-target"),
+        row_spec = {
+            "filter_key": "badKey",
+            "filter_fields": ["bad"],
+            "label_fields": ["bad"],
+            "label_fallback": "bad",
+        },
+    ),
+    bindings = {
+        "projection_slots": [
+            {
+                "id": "main",
+                "layout_zone": "main",
+                "kind": "placeholder",
+            },
+        ],
+    },
+    examples = [
+        {
+            "id": "default",
+            "title": "Default",
+            "params": {
+                "entry": "detail",
+            },
+        },
+    ],
+)

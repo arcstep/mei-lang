@@ -410,6 +410,8 @@ fn author_panel_props_for_shell(
         scene_id,
         panel_constants: std::collections::BTreeMap::new(),
         assembly_stack_order: None,
+        source_file: None,
+        diagnostics: crate::v2_lower::LowerDiagnostics::new(),
     };
     for ref_path in [
         format!("content/{panel_id}"),

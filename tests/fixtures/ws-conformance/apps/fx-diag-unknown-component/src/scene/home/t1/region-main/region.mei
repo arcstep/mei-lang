@@ -1,0 +1,13 @@
+region_layout(
+    id = "main",
+    key = "fx-diag-unknown-component/home/t1/region-main",
+    area = "main",
+    layout = grid(
+        rows = ["1fr"],
+        areas = [["metric"]],
+        gap = "8px",
+    ),
+    sections = [
+        section_ref("fx-diag-unknown-component/home/t1/region-main/section-metric"),
+    ],
+)

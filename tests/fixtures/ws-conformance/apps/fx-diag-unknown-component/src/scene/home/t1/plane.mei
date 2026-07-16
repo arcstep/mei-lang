@@ -1,0 +1,14 @@
+plane_layout(
+    id = "t1",
+    key = "fx-diag-unknown-component/home/t1",
+    tier = "t1",
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr", "520px", "1fr"],
+        areas = [["_", "main", "_"]],
+        gap = "12px",
+    ),
+    regions = [
+        region_ref("fx-diag-unknown-component/home/t1/region-main"),
+    ],
+)

@@ -1,0 +1,26 @@
+use template "cockpit/t2/t2-tab-session" as t2_tab
+
+link_decl(
+    key = "fx-diag-link-param/home/t1/region-main/section-metric/links/fx-analytics",
+    type = "popup",
+    projection = "overlay",
+    overlay_size = "large",
+    overlay_workspace = t2_tab.default_t2_tab_session(size = "large"),
+    title = "Missing required params",
+    target = assembly_ref("fx-diag-link-param/home/t1/region-main/section-metric/plane-analytics"),
+    params = {},
+)
+
+link_decl(
+    key = "fx-diag-link-param/home/t1/region-main/section-metric/links/fx-analytics-type",
+    type = "popup",
+    projection = "overlay",
+    overlay_size = "large",
+    overlay_workspace = t2_tab.default_t2_tab_session(size = "large"),
+    title = "Type mismatch params",
+    target = assembly_ref("fx-diag-link-param/home/t1/region-main/section-metric/plane-analytics"),
+    params = {
+        "metric": "ok",
+        "count": "not-a-number",
+    },
+)

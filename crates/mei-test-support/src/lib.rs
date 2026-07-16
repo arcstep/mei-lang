@@ -3,7 +3,7 @@
 //! - [`conformance_workspace`]: always points at a materialized copy of
 //!   `tests/fixtures/ws-conformance` (must exist; CI fails if missing).
 //! - [`optional_external_workspace`]: only `MEI_TEST_WORKSPACE`; never defaults
-//!   to sibling `../workspaces/ws-demo-v2`.
+//!   to a monorepo sibling path.
 
 use std::collections::HashSet;
 use std::fs;
@@ -163,3 +163,10 @@ pub fn ensure_imported(app_id: &str) -> PathBuf {
 
 pub const APP_STRUCTURE: &str = "fx-structure";
 pub const APP_DATA: &str = "fx-data";
+
+pub const APP_DIAG_LINK_TARGET: &str = "fx-diag-link-target";
+pub const APP_DIAG_LINK_PARAM: &str = "fx-diag-link-param";
+pub const APP_DIAG_GRID_TRACK: &str = "fx-diag-grid-track";
+pub const APP_DIAG_UNKNOWN_COMPONENT: &str = "fx-diag-unknown-component";
+pub const APP_DIAG_WARMUP_FOCUS: &str = "fx-diag-warmup-focus";
+pub const APP_DIAG_FILTER_KEY: &str = "fx-diag-filter-key";

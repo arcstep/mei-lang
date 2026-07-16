@@ -26,7 +26,7 @@ use crate::tier::canonical_tier;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
     find_content_panel_node, lower_frame_from_assembly, lower_panel_payload,
-    lower_v2_inline_panels_from_assembly, PanelLowerContext,
+    lower_v2_inline_panels_from_assembly, LowerDiagnostics, PanelLowerContext,
 };
 use crate::world_plan::build_world_exchange;
 
@@ -270,6 +270,7 @@ fn assemble_scope_from_registry_uncached(
         registry: &registry,
     };
     let mut frame_norm_diags = Vec::new();
+    let lower_diags = LowerDiagnostics::new();
     let (
         scene_summary,
         scene_profile,
@@ -303,6 +304,7 @@ fn assemble_scope_from_registry_uncached(
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: semantic_source.as_deref(),
+            diagnostics: lower_diags.clone(),
         };
         let semantic = assemble_semantic_scene(&semantic_payload, &semantic_ctx)?;
         let t2_page_ids: Vec<String> = semantic
@@ -343,6 +345,7 @@ fn assemble_scope_from_registry_uncached(
             &assembly_payload,
             &scene_id,
             assembly_source.as_deref(),
+            lower_diags.clone(),
         );
         (
             assembly_payload
@@ -406,7 +409,7 @@ fn assemble_scope_from_registry_uncached(
     let (component_assets, component_diagnostics) =
         collect_component_assets_for_panels(source_root, &panels)?;
     panel_diagnostics.extend(component_diagnostics);
-    panel_diagnostics.extend(crate::v2_lower::take_panel_lower_diagnostics());
+    panel_diagnostics.extend(lower_diags.take());
     panel_diagnostics.extend(collect_unresolved_link_diagnostics(&panels));
     if !scene_contract_local_nav_is_empty(&scene_local_nav) {
         scene_local_nav_by_target.insert(active_target.clone(), scene_local_nav.clone());
@@ -1378,8 +1381,8 @@ fn load_panels_for_assembly(
     assembly_payload: &Value,
     scene_id: &str,
     source_file: Option<&str>,
+    diagnostics: LowerDiagnostics,
 ) -> (Vec<mei_lang_kernel::UiNodeDecl>, BTreeMap<String, Value>) {
-    let _ = crate::v2_lower::take_panel_lower_diagnostics();
     let assembly_source = source_file
         .map(str::to_string)
         .or_else(|| assembly_source_file_from_payload(assembly_payload));
@@ -1391,6 +1394,7 @@ fn load_panels_for_assembly(
         panel_constants: BTreeMap::new(),
         assembly_stack_order: None,
         source_file: assembly_source.as_deref(),
+        diagnostics,
     };
     let mut panels = Vec::new();
     let mut panel_payloads = BTreeMap::new();
@@ -1651,9 +1655,16 @@ fn collect_asset_keys_from_nodes(
             }
             UiTreeNode::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
-                asset_scopes
-                    .entry(block.use_key.clone())
-                    .or_insert_with(|| import_scope.map(str::to_string));
+                let from_props = block
+                    .props
+                    .get("__mei_source_file")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                asset_scopes.entry(block.use_key.clone()).or_insert_with(|| {
+                    import_scope
+                        .map(str::to_string)
+                        .or(from_props)
+                });
             }
             UiTreeNode::PanelRefEmbed(_) => {}
         }

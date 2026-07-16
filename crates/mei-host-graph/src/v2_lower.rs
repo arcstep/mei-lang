@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use mei_graph::{
@@ -25,6 +25,29 @@ use crate::tier::{
 };
 use crate::types::GraphNodeKind;
 
+/// Per-assemble diagnostic sink. Clone shares the same buffer (Arc).
+#[derive(Clone, Default)]
+pub struct LowerDiagnostics {
+    inner: Arc<Mutex<Vec<Diagnostic>>>,
+}
+
+impl LowerDiagnostics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&self, diagnostic: Diagnostic) {
+        self.inner
+            .lock()
+            .expect("lower diagnostics")
+            .push(diagnostic);
+    }
+
+    pub fn take(&self) -> Vec<Diagnostic> {
+        std::mem::take(&mut *self.inner.lock().expect("lower diagnostics"))
+    }
+}
+
 pub struct PanelLowerContext<'a> {
     pub app_root: &'a Path,
     pub app_id: &'a str,
@@ -36,28 +59,21 @@ pub struct PanelLowerContext<'a> {
     pub assembly_stack_order: Option<u8>,
     /// Panel / assembly / link `.mei` source path when known (file-level only).
     pub source_file: Option<&'a str>,
-}
-
-thread_local! {
-    static PANEL_LOWER_DIAGNOSTICS: Mutex<Vec<Diagnostic>> = Mutex::new(Vec::new());
-}
-
-pub fn take_panel_lower_diagnostics() -> Vec<Diagnostic> {
-    PANEL_LOWER_DIAGNOSTICS.with(|slot| std::mem::take(&mut *slot.lock().expect("diagnostics")))
+    /// Scoped diagnostic sink for this assemble / lower run.
+    pub diagnostics: LowerDiagnostics,
 }
 
 fn push_panel_lower_diagnostic(
+    diagnostics: &LowerDiagnostics,
     code: &str,
     message: impl Into<String>,
     source_path: Option<&str>,
 ) {
-    PANEL_LOWER_DIAGNOSTICS.with(|slot| {
-        slot.lock().expect("diagnostics").push(Diagnostic {
-            severity: Severity::Error,
-            code: code.to_string(),
-            message: message.into(),
-            source_path: source_path.map(str::to_string),
-        });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Error,
+        code: code.to_string(),
+        message: message.into(),
+        source_path: source_path.map(str::to_string),
     });
 }
 
@@ -71,6 +87,7 @@ impl<'a> PanelLowerContext<'a> {
             panel_constants: load_panel_file_constants(self.app_root, panel_key),
             assembly_stack_order: self.assembly_stack_order,
             source_file: self.source_file,
+            diagnostics: self.diagnostics.clone(),
         }
     }
 
@@ -83,6 +100,7 @@ impl<'a> PanelLowerContext<'a> {
             panel_constants: self.panel_constants.clone(),
             assembly_stack_order: Some(order),
             source_file: self.source_file,
+            diagnostics: self.diagnostics.clone(),
         }
     }
 
@@ -95,6 +113,7 @@ impl<'a> PanelLowerContext<'a> {
             panel_constants: self.panel_constants.clone(),
             assembly_stack_order: self.assembly_stack_order,
             source_file,
+            diagnostics: self.diagnostics.clone(),
         }
     }
 }
@@ -260,6 +279,14 @@ pub fn lower_panel_payload(
     ctx: &PanelLowerContext<'_>,
 ) -> Result<UiNodeDecl> {
     reject_removed_layout_forms(payload)?;
+    let owned_source = assembly_source_file_from_payload(payload);
+    let ctx_with_source;
+    let ctx = if let Some(ref src) = owned_source {
+        ctx_with_source = ctx.with_source_file(Some(src.as_str()));
+        &ctx_with_source
+    } else {
+        ctx
+    };
     let id = payload
         .get("id")
         .and_then(|v| v.as_str())
@@ -330,7 +357,7 @@ pub fn lower_panel_payload(
         head_props: lower_head_props(payload),
         body_props: payload.get("body_props").cloned().unwrap_or(json!({})),
         base: None,
-        import_scope: None,
+        import_scope: ctx.source_file.map(str::to_string),
     })
 }
 
@@ -1249,15 +1276,27 @@ fn dimension_as_text(value: &Value) -> Option<String> {
 }
 
 pub(crate) fn lower_layout(value: &Value) -> Option<LayoutDecl> {
-    lower_layout_inner(value, None)
+    lower_layout_inner(value, None, None)
 }
 
 fn lower_layout_with_ctx(value: &Value, ctx: &PanelLowerContext<'_>) -> Option<LayoutDecl> {
     let resolved = resolve_panel_constant_exprs(value, ctx);
-    lower_layout_inner(&resolved, ctx.source_file)
+    lower_layout_inner(&resolved, ctx.source_file, Some(&ctx.diagnostics))
 }
 
-fn lower_layout_inner(value: &Value, source_file: Option<&str>) -> Option<LayoutDecl> {
+pub(crate) fn lower_layout_with_source(
+    value: &Value,
+    source_file: Option<&str>,
+    diagnostics: &LowerDiagnostics,
+) -> Option<LayoutDecl> {
+    lower_layout_inner(value, source_file, Some(diagnostics))
+}
+
+fn lower_layout_inner(
+    value: &Value,
+    source_file: Option<&str>,
+    diagnostics: Option<&LowerDiagnostics>,
+) -> Option<LayoutDecl> {
     if v2_ref_name(value) == Some("grid_ref") || v2_call_name(value) == Some("grid_ref") {
         return None;
     }
@@ -1273,11 +1312,11 @@ fn lower_layout_inner(value: &Value, source_file: Option<&str>) -> Option<Layout
         columns: obj
             .get("columns")
             .and_then(|v| v.as_array())
-            .map(|items| resolve_layout_track_list(items, source_file)),
+            .map(|items| resolve_layout_track_list(items, source_file, diagnostics)),
         rows: obj
             .get("rows")
             .and_then(|v| v.as_array())
-            .map(|items| resolve_layout_track_list(items, source_file)),
+            .map(|items| resolve_layout_track_list(items, source_file, diagnostics)),
         areas: obj.get("areas").and_then(|v| v.as_array()).map(|rows| {
             rows.iter()
                 .filter_map(|row| {
@@ -1308,7 +1347,11 @@ fn lower_layout_inner(value: &Value, source_file: Option<&str>) -> Option<Layout
 
 /// Resolve grid track items to CSS track strings.
 /// Unresolved exprs emit `grid_track_unresolved` and are omitted from the layout.
-fn resolve_layout_track_list(items: &[Value], source_file: Option<&str>) -> Vec<String> {
+fn resolve_layout_track_list(
+    items: &[Value],
+    source_file: Option<&str>,
+    diagnostics: Option<&LowerDiagnostics>,
+) -> Vec<String> {
     items
         .iter()
         .filter_map(|v| {
@@ -1325,18 +1368,24 @@ fn resolve_layout_track_list(items: &[Value], source_file: Option<&str>) -> Vec<
                     || obj.contains_key("__ref")
                     || obj.contains_key("__call")
             }) {
-                push_panel_lower_diagnostic(
-                    "grid_track_unresolved",
-                    format!("grid track value could not be folded to a string: {v}"),
-                    source_file,
-                );
+                if let Some(diags) = diagnostics {
+                    push_panel_lower_diagnostic(
+                        diags,
+                        "grid_track_unresolved",
+                        format!("grid track value could not be folded to a string: {v}"),
+                        source_file,
+                    );
+                }
                 None
             } else {
-                push_panel_lower_diagnostic(
-                    "grid_track_unresolved",
-                    format!("grid track value is not a string: {v}"),
-                    source_file,
-                );
+                if let Some(diags) = diagnostics {
+                    push_panel_lower_diagnostic(
+                        diags,
+                        "grid_track_unresolved",
+                        format!("grid track value is not a string: {v}"),
+                        source_file,
+                    );
+                }
                 None
             }
         })
@@ -1492,6 +1541,14 @@ pub(crate) fn lower_v2_inline_panels_from_assembly(
 
 fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
     let args = v2_call_args(value).context("panel missing __args")?;
+    let owned_source = assembly_source_file_from_payload(args);
+    let ctx_with_source;
+    let ctx = if let Some(ref src) = owned_source {
+        ctx_with_source = ctx.with_source_file(Some(src.as_str()));
+        &ctx_with_source
+    } else {
+        ctx
+    };
     reject_removed_layout_forms(args)?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
     let id = resolve_panel_id_value(args.get("id"), ctx, "panel");
@@ -1568,7 +1625,7 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNo
         head_props: json!({}),
         body_props: json!({}),
         base: None,
-        import_scope: None,
+        import_scope: ctx.source_file.map(str::to_string),
     })
 }
 
@@ -2857,19 +2914,27 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
     let board_key = v2_ref_arg0(target_ref)?;
     let Some(target) = resolve_page_instance_target(ctx, board_key.as_str()) else {
         push_panel_lower_diagnostic(
+            &ctx.diagnostics,
             "link_decl_target_missing",
             format!("link_decl `{link_key}` target `{board_key}` could not resolve page_instance"),
             link_source,
         );
         return None;
     };
-    diagnose_link_params(link_key, &params, target.accepts.as_ref(), link_source);
+    diagnose_link_params(
+        link_key,
+        &params,
+        target.accepts.as_ref(),
+        link_source,
+        &ctx.diagnostics,
+    );
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
     if !target_scene_file.trim().is_empty() {
         let abs = ctx.app_root.join(target_scene_file.as_str());
         if !abs.is_file() {
             push_panel_lower_diagnostic(
+                &ctx.diagnostics,
                 "scene_file_not_found",
                 format!(
                     "link_decl `{link_key}` target `{board_key}` scene_file `{target_scene_file}` not found under app root"
@@ -3022,6 +3087,7 @@ fn diagnose_link_params(
     params: &Value,
     accepts: Option<&Value>,
     source_path: Option<&str>,
+    diagnostics: &LowerDiagnostics,
 ) {
     let Some(accepts_map) = accepts.and_then(Value::as_object) else {
         return;
@@ -3050,6 +3116,7 @@ fn diagnose_link_params(
         if missing {
             if required {
                 push_panel_lower_diagnostic(
+                    diagnostics,
                     "link_decl_param_missing",
                     format!("link_decl `{link_key}` missing required param `{param_id}`"),
                     source_path,
@@ -3062,6 +3129,7 @@ fn diagnose_link_params(
         };
         if !link_decl_param_value_matches_type(value, param_type) {
             push_panel_lower_diagnostic(
+                diagnostics,
                 "link_decl_param_type_mismatch",
                 format!(
                     "link_decl `{link_key}` param `{param_id}` type mismatch: expected `{param_type}`"
@@ -3500,6 +3568,10 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
                 );
             }
         }
+        if let Some(sf) = ctx.source_file {
+            map.entry("__mei_source_file".to_string())
+                .or_insert_with(|| Value::String(sf.to_string()));
+        }
     }
     Ok(BlockDecl {
         kind: "block".to_string(),
@@ -3705,6 +3777,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let block = lower_component(&value, &ctx).expect("component");
         assert_eq!(block.use_key, "cockpit.header-brand");
@@ -3758,6 +3831,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 1);
@@ -3804,6 +3878,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let block = lower_block_node(&value, &ctx)
             .expect("component block")
@@ -3848,6 +3923,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "home:basemap", &ctx).expect("panel");
         assert_eq!(
@@ -3890,6 +3966,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "home:world_stage", &ctx).expect("panel");
         assert_eq!(
@@ -3930,6 +4007,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "home:viewport_canvas", &ctx).expect("panel");
         assert_eq!(
@@ -3979,6 +4057,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "warning", &ctx).expect("panel");
         assert_eq!(
@@ -4028,6 +4107,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
         assert_eq!(panel.body_props["padding"], json!("8px 4px 2px 4px"));
@@ -4078,6 +4158,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
         assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
@@ -4179,6 +4260,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel =
             lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
@@ -4230,6 +4312,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_inline_panel(&payload, &ctx).expect("panel");
         assert_eq!(panel.id, "enforcement_objects_body");
@@ -4321,6 +4404,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "inspection-stats", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 2, "top-level inline panels");
@@ -4378,6 +4462,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "warnings_detail", &ctx).expect("lower");
         assert_eq!(
@@ -4447,6 +4532,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let nodes = lower_block_node(&value, &ctx).expect("lower nested content_panel");
         assert_eq!(nodes.len(), 1);
@@ -4501,6 +4587,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4586,6 +4673,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4665,6 +4753,7 @@ mod tests {
             panel_constants: constants,
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4712,6 +4801,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4766,6 +4856,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4804,6 +4895,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4864,6 +4956,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4918,6 +5011,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4956,6 +5050,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -5010,6 +5105,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let panel = lower_panel_payload(&payload, "placed", &ctx).expect("panel");
         let UiTreeNode::Block(block) = &panel.blocks[0] else {
@@ -5058,6 +5154,7 @@ mod tests {
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
             source_file: None,
+            diagnostics: LowerDiagnostics::new(),
         };
         let UiTreeNode::Panel(panel) = lower_metric_card(&value, &ctx).expect("metric card") else {
             panic!("expected panel");
@@ -5107,6 +5204,7 @@ mod tests {
                 panel_constants: BTreeMap::new(),
                 assembly_stack_order: None,
                 source_file: None,
+                diagnostics: LowerDiagnostics::new(),
             },
         )
         .expect_err("missing unit must fail");
@@ -5115,18 +5213,73 @@ mod tests {
 
     #[test]
     fn panel_lower_diagnostic_includes_source_path_from_context() {
-        let _ = take_panel_lower_diagnostics();
+        let sink = LowerDiagnostics::new();
         push_panel_lower_diagnostic(
+            &sink,
             "test_source_path",
             "diagnostic for source_path wiring",
             Some("src/scene/home/t1/links.mei"),
         );
-        let diags = take_panel_lower_diagnostics();
+        let diags = sink.take();
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].code, "test_source_path");
         assert_eq!(
             diags[0].source_path.as_deref(),
             Some("src/scene/home/t1/links.mei")
         );
+    }
+
+    #[test]
+    fn lower_diagnostics_sequential_assembles_do_not_leak() {
+        let first = LowerDiagnostics::new();
+        let second = LowerDiagnostics::new();
+        push_panel_lower_diagnostic(&first, "diag_a", "from first", Some("a.mei"));
+        push_panel_lower_diagnostic(&second, "diag_b", "from second", Some("b.mei"));
+        let a = first.take();
+        let b = second.take();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].code, "diag_a");
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].code, "diag_b");
+        assert!(first.take().is_empty());
+        assert!(second.take().is_empty());
+    }
+
+    #[test]
+    fn lower_diagnostics_parallel_assembles_do_not_cross() {
+        use std::thread;
+
+        let left = LowerDiagnostics::new();
+        let right = LowerDiagnostics::new();
+        let left_handle = left.clone();
+        let right_handle = right.clone();
+        let t1 = thread::spawn(move || {
+            for i in 0..50 {
+                push_panel_lower_diagnostic(
+                    &left_handle,
+                    "left",
+                    format!("left-{i}"),
+                    Some("left.mei"),
+                );
+            }
+        });
+        let t2 = thread::spawn(move || {
+            for i in 0..50 {
+                push_panel_lower_diagnostic(
+                    &right_handle,
+                    "right",
+                    format!("right-{i}"),
+                    Some("right.mei"),
+                );
+            }
+        });
+        t1.join().expect("left");
+        t2.join().expect("right");
+        let left_diags = left.take();
+        let right_diags = right.take();
+        assert_eq!(left_diags.len(), 50);
+        assert_eq!(right_diags.len(), 50);
+        assert!(left_diags.iter().all(|d| d.code == "left"));
+        assert!(right_diags.iter().all(|d| d.code == "right"));
     }
 }

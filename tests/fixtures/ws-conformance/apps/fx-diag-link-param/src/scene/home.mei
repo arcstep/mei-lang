@@ -1,0 +1,24 @@
+scene(
+    id = "home",
+    key = "home@src/scene/home.mei",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Conformance: T1 + T2 catalog",
+    canvas = viewport(
+        design_width = 1920,
+        design_height = 1080,
+        aspect_ratio = "16:9",
+        scale_mode = "contain",
+        overflow = "clip",
+        align = "center",
+    ),
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["1fr"],
+        areas = [["body"]],
+        align = "stretch",
+    ),
+    planes = [
+        plane_ref("fx-diag-link-param/home/t1"),
+    ],
+)
