@@ -30,6 +30,7 @@ jobs:
       - name: Forbid sibling workspace literals (workflows + Rust)
         run: |
           set -euo pipefail
+          command -v rg >/dev/null || sudo apt-get install -y ripgrep
           if rg -n 'checkout:|path:.*workspaces/|\.\./workspaces/' .github/workflows | rg -v '^\S+:\s*#'; then
             echo "::error::mei-lang GitHub Actions must not reference private sibling workspaces"
             exit 1
@@ -44,16 +45,31 @@ jobs:
             echo "::error::literal workspaces/ws- paths forbidden outside deferred CLI defaults"
             exit 1
           fi
+          # cargo test accepts a single substring TESTNAME per invocation;
+          # space-separated bare filters are invalid (and | is NOT regex alternation).
+          if rg -n "cargo test[^\n]* -p [^\n]+ [A-Za-z0-9_]+ [A-Za-z0-9_]+" .github/workflows \
+              | rg -v "cargo test -p [^ ]+ -p "; then
+            echo "::error::cargo test workflow lines must use one filter per invocation, not space-separated names"
+            exit 1
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Build mei-lang-server (0 warning gate)
-        run: cargo build -p mei-lang-server 2>&1 | tee build.log && ! rg "warning:" build.log
+        run: |
+          set -euo pipefail
+          command -v rg >/dev/null || sudo apt-get install -y ripgrep
+          cargo build -p mei-lang-server 2>&1 | tee build.log
+          if rg "warning:" build.log; then
+            echo "::error::mei-lang-server build emitted rustc warnings"
+            exit 1
+          fi
 
       - name: Syntax/graph standalone tests (no sibling)
         run: cargo test -p mei-syntax -p mei-graph --lib --tests
 
       - name: Kernel layout_policy unit tests (self-contained)
-        run: cargo test -p mei-lang-kernel layout_policy author_
+        # cargo test accepts a single substring TESTNAME filter per invocation.
+        run: cargo test -p mei-lang-kernel layout_policy

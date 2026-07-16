@@ -538,6 +538,7 @@ fn normalize_unit(workspace: &Path, app_id: &str, scene_id: &str) -> Value {
             let expected = match program.profile {
                 mei_lang_kernel::StageProfile::Cockpit => "viewport",
                 mei_lang_kernel::StageProfile::Slides => "paged",
+                mei_lang_kernel::StageProfile::Page => "document",
             };
             assert_eq!(
                 program.surface.as_str(),

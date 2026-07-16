@@ -34,6 +34,7 @@ jobs:
       - name: Forbid sibling workspace literals (workflows + Rust)
         run: |
           set -euo pipefail
+          command -v rg >/dev/null || sudo apt-get install -y ripgrep
           # Workflow job steps must never checkout / hard-point private siblings.
           if rg -n 'checkout:|path:.*workspaces/|\.\./workspaces/' .github/workflows | rg -v '^\S+:\s*#'; then
             echo "::error::workflows must not reference private sibling workspaces"
@@ -48,6 +49,13 @@ jobs:
           if rg -n 'workspaces/ws-' crates host-shell mei-compiler server --glob '*.rs' \
               | rg -v 'server/src/cli/args/'; then
             echo "::error::literal workspaces/ws- paths forbidden outside deferred CLI defaults; use MEI_TEST_WORKSPACE or in-repo fixtures"
+            exit 1
+          fi
+          # cargo test accepts a single substring TESTNAME per invocation;
+          # space-separated bare filters are invalid (and | is NOT regex alternation).
+          if rg -n "cargo test[^\n]* -p [^\n]+ [A-Za-z0-9_]+ [A-Za-z0-9_]+" .github/workflows \
+              | rg -v "cargo test -p [^ ]+ -p "; then
+            echo "::error::cargo test workflow lines must use one filter per invocation, not space-separated names"
             exit 1
           fi
           test -f tests/fixtures/ws-conformance/workspace.json

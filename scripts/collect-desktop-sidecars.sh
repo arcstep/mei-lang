@@ -101,7 +101,18 @@ fi
 
 if [[ "${SKIP_ASSETS}" != "1" ]]; then
   echo "==> building frontend assets"
-  (cd "${MEI_LANG_ROOT}" && npm run assets:build)
+  (
+    cd "${MEI_LANG_ROOT}"
+    if [[ ! -d node_modules/esbuild ]]; then
+      echo "==> installing root npm deps (esbuild required for assets:build)"
+      if [[ -f package-lock.json ]]; then
+        npm ci || npm install
+      else
+        npm install
+      fi
+    fi
+    npm run assets:build
+  )
 fi
 
 mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/app/assets"
