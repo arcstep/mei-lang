@@ -101,7 +101,18 @@ fi
 
 if [[ "${SKIP_ASSETS}" != "1" ]]; then
   echo "==> building frontend assets"
-  (cd "${MEI_LANG_ROOT}" && npm run assets:build)
+  (
+    cd "${MEI_LANG_ROOT}"
+    if [[ ! -d node_modules/esbuild ]]; then
+      echo "==> installing root npm deps (esbuild required for assets:build)"
+      if [[ -f package-lock.json ]]; then
+        npm ci || npm install
+      else
+        npm install
+      fi
+    fi
+    npm run assets:build
+  )
 fi
 
 mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/app/assets"
@@ -132,33 +143,51 @@ copy_bin mei-plug-ds
 copy_bin mei-snapshot
 copy_bin mei-compiler
 
+# Mirror a directory tree. Prefer rsync; fall back for Windows runners without it.
+sync_tree() {
+  local src="$1"
+  local dest="$2"
+  mkdir -p "${dest}"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete \
+      --exclude 'node_modules' \
+      --exclude '.git' \
+      "${src}/" "${dest}/"
+    return 0
+  fi
+  # Portable fallback (Git Bash / Windows): wipe dest then copy, skipping bulky dirs.
+  python3 - "$src" "$dest" <<'PY'
+import os, shutil, sys
+src, dest = sys.argv[1], sys.argv[2]
+skip = {"node_modules", ".git"}
+
+def ignore(_dir, names):
+    return [n for n in names if n in skip]
+
+if os.path.isdir(dest):
+    shutil.rmtree(dest)
+shutil.copytree(src, dest, ignore=ignore)
+PY
+}
+
 ASSETS_SRC="${MEI_LANG_ROOT}/host-shell/app/assets"
 if [[ -d "${ASSETS_SRC}" ]]; then
   # Always sync full app/assets (host-shell.css, favicon, page-load-progress-shell, dist/, …).
   # Copying dist/ alone breaks shell chrome styles in Viewer sidecar mode.
-  rsync -a --delete \
-    --exclude 'node_modules' \
-    --exclude '.git' \
-    "${ASSETS_SRC}/" "${OUT_DIR}/app/assets/"
+  sync_tree "${ASSETS_SRC}" "${OUT_DIR}/app/assets"
 fi
 
 # Stock components + templates are resolved via MEI_PACKAGE_ROOT/stock when workspace has no override.
 STOCK_COMPONENTS="${MEI_LANG_ROOT}/stock/components"
 if [[ -d "${STOCK_COMPONENTS}" ]]; then
   mkdir -p "${OUT_DIR}/stock"
-  rsync -a --delete \
-    --exclude 'node_modules' \
-    --exclude '.git' \
-    "${STOCK_COMPONENTS}/" "${OUT_DIR}/stock/components/"
+  sync_tree "${STOCK_COMPONENTS}" "${OUT_DIR}/stock/components"
   echo "  + stock/components"
 fi
 STOCK_TEMPLATES="${MEI_LANG_ROOT}/stock/templates"
 if [[ -d "${STOCK_TEMPLATES}" ]]; then
   mkdir -p "${OUT_DIR}/stock"
-  rsync -a --delete \
-    --exclude 'node_modules' \
-    --exclude '.git' \
-    "${STOCK_TEMPLATES}/" "${OUT_DIR}/stock/templates/"
+  sync_tree "${STOCK_TEMPLATES}" "${OUT_DIR}/stock/templates"
   echo "  + stock/templates"
 fi
 

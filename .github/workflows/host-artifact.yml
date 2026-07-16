@@ -33,13 +33,28 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install root npm deps
+        run: npm ci || npm install
+
       - name: Build mei-host-shell (0 warning gate)
-        run: cargo build -p mei-host-shell 2>&1 | tee build.log && ! rg "warning:" build.log
+        run: |
+          set -euo pipefail
+          command -v rg >/dev/null || sudo apt-get install -y ripgrep
+          cargo build -p mei-host-shell 2>&1 | tee build.log
+          if rg "warning:" build.log; then
+            echo "::error::mei-host-shell build emitted rustc warnings"
+            exit 1
+          fi
 
       - name: Rust artifact tests
+        # cargo test accepts a single substring TESTNAME filter per invocation.
         run: |
-          cargo test -p mei-host-graph manifest_revision_digest layout_overlay session_overlay view_revision
-          cargo test -p mei-host-shell scene_manifest artifact_observability inject_scene_manifest view_revision
+          set -euo pipefail
+          cargo test -p mei-host-graph manifest_revision_digest
+          cargo test -p mei-host-graph session_overlay
+          cargo test -p mei-host-graph view_revision
+          cargo test -p mei-host-shell scene_manifest
+          cargo test -p mei-host-shell artifact_observability
 
       - name: Build JS bundles
         run: npm run assets:build

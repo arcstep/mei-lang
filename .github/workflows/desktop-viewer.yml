@@ -10,6 +10,8 @@ on:
       - "crates/mei-app-runtime/**"
       - "crates/mei-plug-ds/**"
       - "scripts/collect-desktop-sidecars.sh"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/desktop-viewer.yml"
 
 jobs:
@@ -21,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install root asset deps
+        run: npm ci || npm install
       - name: Collect sidecars (release)
         run: ./scripts/collect-desktop-sidecars.sh --release
       - name: Install desktop deps
@@ -53,6 +57,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install root asset deps
+        shell: bash
+        run: npm ci || npm install
       - name: Collect sidecars (release)
         shell: bash
         run: ./scripts/collect-desktop-sidecars.sh --release
