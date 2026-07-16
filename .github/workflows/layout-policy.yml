@@ -31,7 +31,11 @@ jobs:
         run: |
           set -euo pipefail
           command -v rg >/dev/null || sudo apt-get install -y ripgrep
-          if rg -n 'checkout:|path:.*workspaces/|\.\./workspaces/' .github/workflows | rg -v '^\S+:\s*#'; then
+          # Hard sibling paths only. Exclude this guard's own rg pattern string
+          # (it embeds the needles and would otherwise false-positive).
+          if rg -n 'path:.*workspaces/|\.\./workspaces/' .github/workflows \
+              | rg -v '^\S+:\s*#' \
+              | rg -v "rg -n '"; then
             echo "::error::mei-lang GitHub Actions must not reference private sibling workspaces"
             exit 1
           fi
