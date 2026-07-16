@@ -417,21 +417,37 @@ mod tests {
 
     #[test]
     fn shell_body_and_scene_viewport_styles_use_separate_var_tracks() {
-        use std::path::Path;
+        use std::path::PathBuf;
 
         use mei_lang_kernel::{
             compile_app_from_root_with_options, load_workspace_config, CompileOptions,
         };
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-hello")
-            .canonicalize()
-            .expect("ws-hello");
-        let app_root = source_root.join("hello");
+        let Some(source_root) = (|| {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        })() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let app_root = source_root.join("apps/hello");
+        let app_root = if app_root.is_dir() {
+            app_root
+        } else {
+            source_root.join("hello")
+        };
+        if !app_root.is_dir() {
+            eprintln!("skip: hello app missing under MEI_TEST_WORKSPACE");
+            return;
+        }
         let workspace = load_workspace_config(&source_root);
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
-                .expect("compile ws-hello");
+                .expect("compile hello");
         let shell_style = shell_body_theme_style(&workspace);
         assert!(
             shell_style.contains("--mei-shell-color-"),

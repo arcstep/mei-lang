@@ -79,10 +79,7 @@ pub async fn redirect_apps_runtime(Path(app_id): Path<String>, uri: OriginalUri)
 
 /// Canonical Access stage href.
 pub fn access_stage_path(app_id: &str, stage_id: &str) -> String {
-    let app = encode_query_component(app_id.trim());
-    let stage = stage_id.trim();
-    let stage = if stage.is_empty() { "home" } else { stage };
-    format!("/apps/{app}/{}", encode_query_component(stage))
+    mei_host_graph::canonical_access_stage_url(app_id, stage_id)
 }
 
 fn query_param(uri: &Uri, key: &str) -> Option<String> {

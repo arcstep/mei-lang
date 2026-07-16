@@ -163,11 +163,17 @@ pub(crate) fn scene_projection_canonical_location(
     review_projection: Option<&str>,
 ) -> String {
     let sid = scene_id.trim();
-    let mut out = format!(
-        "{}{ACCESS_SCENE_PATH_MARK}{}",
-        projection_base_path(route_mode, app_id),
-        percent_encode_query_component(sid)
-    );
+    // Product Access Stage URL aligns with Host: `/apps/{app}/{stage}`.
+    // Other route modes retain mode-first deep paths until those surfaces are retired.
+    let mut out = if matches!(route_mode, UiRouteMode::App) {
+        mei_host_graph::canonical_access_stage_url(app_id, sid)
+    } else {
+        format!(
+            "{}{ACCESS_SCENE_PATH_MARK}{}",
+            projection_base_path(route_mode, app_id),
+            percent_encode_query_component(sid)
+        )
+    };
     let parts = projection_query_parts(route_mode, tab, chrome, data_mode, review_projection);
     if !parts.is_empty() {
         out.push('?');
@@ -176,7 +182,7 @@ pub(crate) fn scene_projection_canonical_location(
     out
 }
 
-/// 应用视图 canonical：`/apps/app/<app>/scene/<scene_id>?tab=…&chrome=…`
+/// 应用视图 canonical：`/apps/<app>/<scene_id>?tab=…&chrome=…`（Host 对齐）。
 pub(crate) fn access_canonical_location(
     app_id: &str,
     scene_id: &str,

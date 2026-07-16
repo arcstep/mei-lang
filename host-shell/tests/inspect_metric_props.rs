@@ -3,12 +3,15 @@ use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
 #[test]
 fn home_inspection_total_card_has_metric_source() {
-    let workspace =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+    let Some(workspace) = mei_test_support::optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !workspace.join("apps/data-demo").is_dir()
         && !workspace.join("apps/data-demo/app.config.json").is_file()
         && !workspace.join("apps/data-demo/app.toml").is_file()
     {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let Ok(Some(outcome)) = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")

@@ -90,7 +90,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     } else {
         let registry =
             crate::graph::mrg::registry::MrgRegistryWriter::load(source_root, app.app_id.as_str());
-        if registry.navigation_by_key("default_access").is_none() {
+        if crate::graph::mrg::registry::navigation_by_key(&registry, "default_access").is_none() {
             warnings.push(build_prebuild_warning(
                 "navigation",
                 None,

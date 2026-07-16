@@ -451,22 +451,44 @@ pub fn render_shell_chrome_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn mei_tutorial_access_href_uses_intro() {
-        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-demo-v2");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        let app_root = workspace.join("apps/mei-tutorial");
+        std::fs::create_dir_all(app_root.join("src/presentation/intro")).expect("mkdir");
+        std::fs::write(
+            app_root.join("app.toml"),
+            r#"
+schema_version = "mei-app-v1"
+default_stage = "intro"
+app_id = "mei-tutorial"
+"#,
+        )
+        .expect("app.toml");
+        std::fs::write(
+            app_root.join("src/presentation/intro/intro.deck.mdx"),
+            r#"---
+id: intro
+title: Intro
+---
+
+# Intro
+"#,
+        )
+        .expect("deck");
+
         assert_eq!(
-            app_access_href(workspace.as_path(), "mei-tutorial"),
+            app_access_href(workspace, "mei-tutorial"),
             "/apps/mei-tutorial/intro"
         );
         assert_eq!(
-            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "home", None),
+            redirect_unknown_access_stage(workspace, "mei-tutorial", "home", None),
             None
         );
         assert_eq!(
-            redirect_unknown_access_stage(workspace.as_path(), "mei-tutorial", "intro", None),
+            redirect_unknown_access_stage(workspace, "mei-tutorial", "intro", None),
             None
         );
     }

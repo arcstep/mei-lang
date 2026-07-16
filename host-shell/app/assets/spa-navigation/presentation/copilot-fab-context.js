@@ -72,7 +72,7 @@
     const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
-    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
+    return String(mei?.active_stage_id || mei?.active_stage || mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
   }
 
   function resolveStageKind() {

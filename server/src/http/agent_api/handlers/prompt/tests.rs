@@ -9,7 +9,10 @@ use crate::{http, test_support};
 
 #[tokio::test]
 async fn context_preview_has_scope_digest_resource_tools_and_boundary() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri = "/api/agent/context/preview?app_id=examples%2Fcore%2F01-single-file-doc&mode=ask&resourceVisibility=allow_direct_refs";
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
@@ -55,7 +58,10 @@ async fn context_preview_has_scope_digest_resource_tools_and_boundary() {
 
 #[tokio::test]
 async fn context_preview_scene_id_matches_query() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&resourceVisibility=allow_direct_refs";
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
@@ -69,7 +75,10 @@ async fn context_preview_scene_id_matches_query() {
 
 #[tokio::test]
 async fn context_preview_invalid_app_id_still_ok_with_empty_inventory() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri = "/api/agent/context/preview?app_id=___not_an_app___&mode=ask&resourceVisibility=allow_direct_refs";
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
@@ -82,7 +91,10 @@ async fn context_preview_invalid_app_id_still_ok_with_empty_inventory() {
 
 #[tokio::test]
 async fn context_preview_sets_preview_error_when_world_snapshot_fails() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri = "/api/agent/context/preview?app_id=examples%2Fcore%2F_invalid%2F07-app-missing-scene&target_file=main.mei&mode=ask&resourceVisibility=allow_direct_refs";
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
@@ -103,7 +115,10 @@ async fn context_preview_sets_preview_error_when_world_snapshot_fails() {
 
 #[tokio::test]
 async fn context_preview_accepts_app_route_mode_alias_as_access() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=app";
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
@@ -122,7 +137,10 @@ async fn context_preview_accepts_app_route_mode_alias_as_access() {
 
 #[tokio::test]
 async fn context_preview_scope_digest_changes_with_browser_context() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri1 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&browser_context=%7B%22schema%22%3A%22access_browser_context_v1%22%2C%22active_query_state_ids%22%3A%5B%22q1%22%5D%7D";
     let req1 = Request::builder().uri(uri1).body(Body::empty()).unwrap();
@@ -153,7 +171,10 @@ async fn context_preview_scope_digest_changes_with_browser_context() {
 
 #[tokio::test]
 async fn context_preview_echoes_host_protocol_and_affects_scope_digest() {
-    let state = test_support::test_app_state().expect("app state");
+    let Some(state) = test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = http::router().with_state(state);
     let uri1 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&host_protocol=%7B%22schema%22%3A%22mei-host-runtime-protocol-v1%22%2C%22surface%22%3A%22access_host%22%2C%22route_mode%22%3A%22access%22%2C%22mode%22%3A%22ask%22%7D&host_contract_schema=mei-host-runtime-contract-v1";
     let req1 = Request::builder().uri(uri1).body(Body::empty()).unwrap();

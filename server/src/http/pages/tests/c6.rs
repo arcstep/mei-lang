@@ -294,7 +294,10 @@ async fn dataset_query_api_echoes_scene_id() {
     };
     use tower::ServiceExt;
 
-    let state = crate::test_support::test_app_state().expect("app state");
+    let Some(state) = crate::test_support::test_app_state() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = crate::http::router().with_state(state);
     let payload = serde_json::json!({
         "scene_id": "home",

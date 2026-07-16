@@ -67,8 +67,13 @@
 
   function readAotDefaultManifest() {
     if (state.aotSuppressed) return null;
+    const PRESENTATION_MAP_SCHEMA = "mei-presentation-map-v1";
     const mei = typeof window !== "undefined" ? window.__mei : null;
     const map = mei?.presentation_map;
+    if (map && typeof map === "object" && Object.keys(map).length) {
+      const ver = String(map.schemaVersion || map.schema_version || "").trim();
+      if (ver !== PRESENTATION_MAP_SCHEMA) return null;
+    }
     const manifest = map?.defaultScript || map?.default_script || null;
     return normalizeSteps(manifest).length ? manifest : null;
   }

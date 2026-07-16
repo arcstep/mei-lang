@@ -460,10 +460,17 @@
   }
 
   function readPresentationDeck() {
-    const map =
+    const PRESENTATION_MAP_SCHEMA = "mei-presentation-map-v1";
+    const raw =
       (globalThis.__mei && globalThis.__mei.presentation_map) ||
       (typeof window !== "undefined" && window.__mei && window.__mei.presentation_map) ||
       null;
+    if (!raw || typeof raw !== "object") return null;
+    if (Object.keys(raw).length) {
+      const ver = String(raw.schemaVersion || raw.schema_version || "").trim();
+      if (ver !== PRESENTATION_MAP_SCHEMA) return null;
+    }
+    const map = raw;
     const deck = map && typeof map === "object" ? map.deck || map.presentation_deck : null;
     if (!deck || typeof deck !== "object") return null;
     const slides = Array.isArray(deck.slides) ? deck.slides : [];

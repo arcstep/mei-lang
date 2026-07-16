@@ -476,10 +476,7 @@ mod cross_surface_manifest_tests {
     use std::path::PathBuf;
 
     fn ws_demo_workspace() -> Option<PathBuf> {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-demo-v2")
-            .canonicalize()
-            .ok()?;
+        let root = mei_test_support::optional_external_workspace()?;
         let registry = root.join("apps/data-demo/build/active/registry/mcg-registry.json");
         if !registry.is_file() {
             return None;

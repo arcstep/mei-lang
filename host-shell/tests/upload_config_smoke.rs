@@ -9,8 +9,7 @@ use mei_lang_kernel::{
 use serde_json::json;
 
 fn ws_demo_v2_root() -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-    root.canonicalize().ok().filter(|path| path.is_dir())
+    mei_test_support::optional_external_workspace()
 }
 
 #[test]

@@ -220,7 +220,7 @@ impl IntoResponse for AppError {
     }
 }
 
-/// 集成测试与 HTTP 级用例构造 `AppState`（依赖仓库内 `mei-lang/../ws-dev`）。
+/// 集成测试与 HTTP 级用例构造 `AppState`（仅 `MEI_TEST_WORKSPACE`，无 sibling 默认路径）。
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::{
@@ -229,8 +229,6 @@ pub(crate) mod test_support {
         sync::{Arc, Mutex},
     };
 
-    use anyhow::Context;
-
     pub(crate) fn package_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -238,17 +236,26 @@ pub(crate) mod test_support {
             .to_path_buf()
     }
 
-    pub(crate) fn test_app_state() -> anyhow::Result<super::super::types::AppState> {
+    fn optional_external_workspace() -> Option<PathBuf> {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    }
+
+    pub(crate) fn test_app_state() -> Option<super::super::types::AppState> {
         let package_root = package_root();
-        let source_root = package_root
-            .join("../workspaces/ws-dev")
-            .canonicalize()
-            .context("workspace root (mei-lang/../workspaces/ws-dev)")?;
-        let native_agent = Arc::new(crate::mei_agent::NativeAgent::open_with_resource_tools(
-            source_root.clone(),
-            Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),
-        )?);
-        Ok(super::super::types::AppState {
+        let source_root = optional_external_workspace()?;
+        let native_agent = Arc::new(
+            crate::mei_agent::NativeAgent::open_with_resource_tools(
+                source_root.clone(),
+                Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),
+            )
+            .ok()?,
+        );
+        Some(super::super::types::AppState {
             package_root: Arc::new(package_root),
             source_root: Arc::new(source_root),
             agent_preferred_mode: Arc::new("native".into()),
@@ -278,7 +285,7 @@ mod tests {
 
     fn app_selector() -> CliAppSelectorArgs {
         CliAppSelectorArgs {
-            source_root: PathBuf::from("../workspaces/ws-dev"),
+            source_root: PathBuf::from("/tmp/mei-test-workspace"),
             app: "demo".into(),
             scene: None,
             target_file: None,
@@ -300,7 +307,7 @@ mod tests {
     fn toolchain_entry_rejects_host_commands() {
         let command = Command::Serve(ServeArgs {
             workspace: None,
-            source_root: PathBuf::from("../workspaces/ws-dev"),
+            source_root: PathBuf::from("/tmp/mei-test-workspace"),
             host_surface: "full".into(),
             auth: false,
             host: "127.0.0.1".into(),

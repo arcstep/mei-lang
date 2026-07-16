@@ -985,7 +985,17 @@ pub async fn api_presentation_map(
                 .into_response();
         }
     };
-    Json(outcome.presentation_map).into_response()
+    match mei_host_graph::accept_presentation_map(&outcome.presentation_map) {
+        Ok(_) => Json(outcome.presentation_map).into_response(),
+        Err(message) => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": message,
+                "expectedSchema": mei_host_graph::PRESENTATION_MAP_SCHEMA_VERSION,
+            })),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]

@@ -39,7 +39,7 @@ pub(super) fn try_catalog_redirect(
                     redirected.pack = Some(default_pack.clone());
                     return Some(
                         Redirect::temporary(&format!(
-                            "/apps/{app_id}/layout{}",
+                            "/apps/build/{app_id}{}",
                             build_query_suffix_with_options(
                                 &redirected,
                                 BuildQuerySuffixOptions {
@@ -98,7 +98,7 @@ pub(super) fn try_catalog_redirect(
             }
             return Some(
                 Redirect::temporary(&format!(
-                    "/apps/{catalog_id}/layout{}",
+                    "/apps/build/{catalog_id}{}",
                     build_query_suffix_with_options(
                         &redirected,
                         BuildQuerySuffixOptions {

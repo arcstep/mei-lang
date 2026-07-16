@@ -337,19 +337,22 @@ fn render_artifact_unavailable(
     ];
     if is_build {
         actions.push(HostShellAction {
-            href: format!("/apps/{app_id}/layout?tab=overview"),
+            href: format!("/apps/build/{app_id}"),
             label: "打开构建概览".to_string(),
             primary: false,
         });
     } else if let Some(scene_id) = scene_hint.map(str::trim).filter(|value| !value.is_empty()) {
         actions.push(HostShellAction {
-            href: format!("/apps/app/{app_id}/scene/{scene_id}?chrome=none"),
+            href: format!(
+                "{}?chrome=none",
+                mei_host_graph::canonical_access_stage_url(app_id, scene_id)
+            ),
             label: "重试当前场景".to_string(),
             primary: false,
         });
     } else if let Some(target) = target_hint.map(str::trim).filter(|value| !value.is_empty()) {
         actions.push(HostShellAction {
-            href: format!("/apps/{app_id}/layout?file={target}"),
+            href: format!("/apps/build/{app_id}?file={target}"),
             label: "打开构建视图".to_string(),
             primary: false,
         });

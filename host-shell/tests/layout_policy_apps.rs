@@ -1,7 +1,7 @@
 //! Strict layout policy compile gate for local cockpit apps.
 //!
-//! Requires a sibling monorepo checkout of `workspaces/ws-demo-v2` (not on GitHub).
-//! When absent, all tests in this file skip — never fail CI for a standalone mei-lang clone.
+//! Requires `MEI_TEST_WORKSPACE` pointing at a private demo workspace.
+//! When unset/absent, all tests in this file skip — never fail CI for a standalone mei-lang clone.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -14,15 +14,7 @@ use mei_lang_kernel::Severity;
 static INIT: Once = Once::new();
 
 fn ws_demo_v2() -> Option<PathBuf> {
-    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-    let Ok(root) = candidate.canonicalize() else {
-        return None;
-    };
-    if root.join("workspace.json").is_file() {
-        Some(root)
-    } else {
-        None
-    }
+    mei_test_support::optional_external_workspace()
 }
 
 fn mei_lang_root() -> PathBuf {

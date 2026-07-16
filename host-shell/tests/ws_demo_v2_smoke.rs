@@ -484,8 +484,12 @@ fn ws_demo_v2_assemble_without_reimport() {
 
 #[test]
 fn ws_demo_v2_assemble_relative_workspace_path() {
-    let rel = std::path::PathBuf::from("../workspaces/ws-demo-v2");
+    let Some(rel) = mei_test_support::optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !rel.join("apps/data-demo").is_dir() {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     if !rel

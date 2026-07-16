@@ -45,7 +45,8 @@ impl StageKind {
     /// Map product StageProfile → host StageKind.
     pub fn from_stage_profile(profile: StageProfile) -> Self {
         match profile {
-            StageProfile::Cockpit => Self::Scene,
+            // Page uses the scene chrome shell; document scroll is a surface policy.
+            StageProfile::Cockpit | StageProfile::Page => Self::Scene,
             StageProfile::Slides => Self::Presentation,
         }
     }
@@ -54,7 +55,11 @@ impl StageKind {
     pub fn from_route_meta(kind: &str, target_file: &str) -> Self {
         let profile = StageProfile::from_route_meta(kind, target_file);
         let kind = Self::from_stage_profile(profile);
-        debug_assert_eq!(kind.to_stage_profile(), profile);
+        // Page shares Scene chrome; StageKind cannot round-trip Page.
+        debug_assert!(
+            kind.to_stage_profile() == profile
+                || (profile == StageProfile::Page && kind == Self::Scene)
+        );
         kind
     }
 

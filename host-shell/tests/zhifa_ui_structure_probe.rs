@@ -9,15 +9,7 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 
 fn ws_demo_v2() -> Option<PathBuf> {
-    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-    let Ok(root) = candidate.canonicalize() else {
-        return None;
-    };
-    if root.join("workspace.json").is_file() {
-        Some(root)
-    } else {
-        None
-    }
+    mei_test_support::optional_external_workspace()
 }
 
 /// Local monorepo optional. Returns `None` when `ws-demo-v2` is not beside mei-lang.

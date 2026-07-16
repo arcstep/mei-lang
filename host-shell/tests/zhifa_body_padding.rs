@@ -11,15 +11,7 @@ use mei_lang_kernel::WorkspaceAppMeta;
 static INIT: Once = Once::new();
 
 fn ws_demo_v2() -> Option<PathBuf> {
-    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-    let Ok(root) = candidate.canonicalize() else {
-        return None;
-    };
-    if root.join("workspace.json").is_file() {
-        Some(root)
-    } else {
-        None
-    }
+    mei_test_support::optional_external_workspace()
 }
 
 fn zhifa_bundle(workspace: &std::path::Path) -> PathBuf {

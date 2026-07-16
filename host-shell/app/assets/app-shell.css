@@ -5696,6 +5696,91 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   min-height: 0;
   box-sizing: border-box;
 }
+/* Role/profile stretch chain: plane → region → section → slot → content.
+   Background only decorates an already-allocated box; single-layer SVG skins
+   stretch via data-mei-slot-bg-stretch, layered icon/corner stacks do not. */
+.mei-compose-scene-root [data-mei-ui-role="plane"],
+.mei-compose-scene-root [data-mei-ui-role="region"],
+.mei-compose-scene-root [data-mei-ui-role="section"],
+.mei-compose-scene-root [data-mei-ui-role="slot"],
+.mei-compose-scene-root [data-mei-ui-role="content"] {
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.mei-compose-scene-root [data-mei-ui-role="region"],
+.mei-compose-scene-root [data-mei-ui-role="section"],
+.mei-compose-scene-root [data-mei-ui-role="slot"],
+.mei-compose-scene-root [data-mei-ui-role="content"],
+.mei-compose-scene-root [data-mei-layout-fill="true"] > .mei-compose-slot,
+.mei-compose-scene-root [data-mei-layout-fill="true"] > .mei-compose-content,
+.mei-compose-scene-root [data-mei-layout-fill="true"] > .mei-compose-block,
+.mei-compose-scene-root [data-mei-layout-fill="true"] > .preview-card,
+.mei-compose-scene-root [data-mei-layout-fill="true"] > .component-host {
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+}
+body[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="region"],
+body[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="section"],
+body[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="slot"],
+body[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="content"],
+#mei-compose-root[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="region"],
+#mei-compose-root[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="section"],
+#mei-compose-root[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="slot"],
+#mei-compose-root[data-mei-stage-profile="cockpit"] .mei-compose-scene-root [data-mei-ui-role="content"] {
+  height: 100%;
+  max-height: 100%;
+}
+.mei-compose-scene-root [data-mei-slot-bg-stretch="true"] {
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
+  background-origin: border-box;
+  background-clip: border-box;
+}
+/* Page Stage Profile: document flow — width constrained, block intrinsic,
+   stage viewport owns vertical scroll. Do not apply cockpit fixed-height Fill-down. */
+body[data-mei-stage-profile="page"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-profile="page"] .mei-compose-scene-root,
+body[data-mei-stage-surface="document"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-surface="document"] .mei-compose-scene-root {
+  height: auto;
+  min-height: 100%;
+  max-height: none;
+}
+body[data-mei-stage-profile="page"] .mei-compose-scene-viewport,
+#mei-compose-root[data-mei-stage-profile="page"] .mei-compose-scene-viewport,
+body[data-mei-stage-surface="document"] .mei-compose-scene-viewport,
+#mei-compose-root[data-mei-stage-surface="document"] .mei-compose-scene-viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body[data-mei-stage-profile="page"] .mei-compose-scene-root .mei-compose-node.mei-compose-plane,
+#mei-compose-root[data-mei-stage-profile="page"] .mei-compose-scene-root .mei-compose-node.mei-compose-plane,
+body[data-mei-stage-surface="document"] .mei-compose-scene-root .mei-compose-node.mei-compose-plane,
+#mei-compose-root[data-mei-stage-surface="document"] .mei-compose-scene-root .mei-compose-node.mei-compose-plane {
+  position: relative;
+  inset: auto;
+  height: auto;
+  min-height: 0;
+}
+body[data-mei-stage-profile="page"] .mei-compose-scene-root [data-mei-ui-role="region"],
+body[data-mei-stage-profile="page"] .mei-compose-scene-root [data-mei-ui-role="section"],
+#mei-compose-root[data-mei-stage-profile="page"] .mei-compose-scene-root [data-mei-ui-role="region"],
+#mei-compose-root[data-mei-stage-profile="page"] .mei-compose-scene-root [data-mei-ui-role="section"],
+body[data-mei-stage-surface="document"] .mei-compose-scene-root [data-mei-ui-role="region"],
+body[data-mei-stage-surface="document"] .mei-compose-scene-root [data-mei-ui-role="section"] {
+  height: auto;
+  max-height: none;
+}
+/* Slides keep paged aperture; do not share cockpit fixed-height Fill-down CSS. */
+body[data-mei-stage-profile="slides"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-compose-scene-root,
+body[data-mei-stage-surface="paged"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-surface="paged"] .mei-compose-scene-root {
+  overflow: hidden;
+}
 .mei-compose-content-group,
 .mei-compose-block,
 .mei-compose-region > .mei-compose-block,
@@ -6320,14 +6405,15 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   width: 100%;
   min-height: 0;
 }
-/* bare + panel-body-cell 单组件全高（如 map.maplibre；勿用 area=body 以免挤到嵌套 grid 右下） */
-.preview-card.preview-card-bare[style*="height:"] {
+/* bare + Fill-down shell 单组件全高（如 map.maplibre；勿用 area=body 以免挤到嵌套 grid 右下）
+   尺寸契约走 data-mei-layout-fill，禁止依赖 [style*="height"] / :has 推断。 */
+.preview-card.preview-card-bare[data-mei-layout-fill="true"] {
   display: flex;
   flex-direction: column;
   min-height: 0;
   box-sizing: border-box;
 }
-.preview-card.preview-card-bare[style*="height:"] > .panel-body-cell:has(> .component-card) {
+.preview-card.preview-card-bare[data-mei-layout-fill="true"] > .panel-body-cell {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -6335,7 +6421,7 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   min-height: 0;
   overflow: hidden;
 }
-.preview-card.preview-card-bare[style*="height:"] > .panel-body-cell > .component-card {
+.preview-card.preview-card-bare[data-mei-layout-fill="true"] > .panel-body-cell > .component-card {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -6343,7 +6429,7 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   height: 100%;
   min-height: 0;
 }
-.preview-card.preview-card-bare[style*="height:"] > .panel-body-cell > .component-card > .component-host {
+.preview-card.preview-card-bare[data-mei-layout-fill="true"] > .panel-body-cell > .component-card > .component-host {
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
@@ -6361,15 +6447,8 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   height: 100%;
   min-height: 0;
 }
-/* slot skin：定高 shell 内嵌套 bare panel（metric slot）占满 body */
-.preview-card.preview-card-bare[style*="height:"] > .panel-body-cell:has(> .preview-card.preview-card-bare) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-.preview-card.preview-card-bare[style*="height:"] > .panel-body-cell > .preview-card.preview-card-bare {
+/* slot skin：Fill-down shell 内嵌套 bare panel（metric slot）占满 body */
+.preview-card.preview-card-bare[data-mei-layout-fill="true"] > .panel-body-cell > .preview-card.preview-card-bare {
   flex: 1 1 auto;
   grid-column: 1 / -1;
   width: 100%;
@@ -6563,7 +6642,9 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   min-height: 0;
 }
 /* 扁平 component 叶子（slot > preview-card > component-host）：
-   铺满定高 grid 行，取消默认 80px / panel padding，避免被 section overflow 裁切。 */
+   铺满定高 grid 行，取消默认 80px / panel padding，避免被 section overflow 裁切。
+   契约标记优先；无 :has 尺寸推断。 */
+.mei-compose-slot > .preview-card.mei-compose-block[data-mei-layout-fill="true"],
 .mei-compose-slot > .preview-card.mei-compose-block:has(> .component-host) {
   height: 100%;
   min-height: 0;

@@ -28,7 +28,12 @@
       ]);
       if (seg && !reserved.has(seg.toLowerCase())) return seg;
     }
-    return String(window.__mei?.active_scene_id || "home").trim() || "home";
+    return String(
+      window.__mei?.active_stage_id ||
+        window.__mei?.active_stage ||
+        window.__mei?.active_scene_id ||
+        "home",
+    ).trim() || "home";
   }
 
   function resolveStageMeta(stageId) {
@@ -37,32 +42,56 @@
       (s) => String(s?.stage_id || "") === id,
     );
     if (fromReg) {
+      const profile = String(fromReg.profile || "cockpit");
+      const surface =
+        String(fromReg.surface || "").trim() ||
+        (profile === "slides"
+          ? "paged"
+          : profile === "page"
+            ? "document"
+            : "viewport");
       return {
         stageId: id,
-        profile: String(fromReg.profile || "cockpit"),
-        surface: String(fromReg.surface || (fromReg.profile === "slides" ? "paged" : "viewport")),
+        profile,
+        surface,
       };
     }
     const programs = window.__mei?.stage_programs || {};
     const program = programs[id];
     if (program) {
+      const profile = String(program.profile || "cockpit");
+      const surface =
+        String(program.surface || "").trim() ||
+        (profile === "slides"
+          ? "paged"
+          : profile === "page"
+            ? "document"
+            : "viewport");
       return {
         stageId: id,
-        profile: String(program.profile || "cockpit"),
-        surface: String(program.surface || "viewport"),
+        profile,
+        surface,
       };
     }
     const routes = Array.isArray(window.__mei?.scene_routes)
       ? window.__mei.scene_routes
       : [];
-    const route = routes.find((r) => String(r?.scene_id || "") === id);
+    const route = routes.find(
+      (r) => String(r?.stage_id || r?.scene_id || "") === id,
+    );
     if (route) {
       const kind = String(route.kind || "").toLowerCase();
-      const slides = kind === "presentation";
+      const profile = String(route.profile || "").toLowerCase();
+      if (kind === "presentation" || profile === "slides") {
+        return { stageId: id, profile: "slides", surface: "paged" };
+      }
+      if (kind === "document" || profile === "page") {
+        return { stageId: id, profile: "page", surface: "document" };
+      }
       return {
         stageId: id,
-        profile: slides ? "slides" : "cockpit",
-        surface: slides ? "paged" : "viewport",
+        profile: "cockpit",
+        surface: "viewport",
       };
     }
     return { stageId: id, profile: "cockpit", surface: "viewport" };

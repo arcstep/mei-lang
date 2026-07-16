@@ -2347,6 +2347,10 @@
     );
   }
 
+  /**
+   * Legacy scope→grid heuristic. Normal path must use compiled/SSR grid
+   * templates; this only runs when the contract is missing (compat/diagnose).
+   */
   function inferT1PlaneGrid(regionScopes) {
     const scopes = regionScopes.map((scope) => String(scope || "").toLowerCase());
     const hasLeft = scopes.some((scope) => scope.includes("left_rail"));
@@ -2377,20 +2381,38 @@
     return null;
   }
 
+  function hasAuthoredGridContract(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    const rows = String(el.style.gridTemplateRows || "").trim();
+    const cols = String(el.style.gridTemplateColumns || "").trim();
+    const areas = String(el.style.gridTemplateAreas || "").trim();
+    const template = String(el.style.gridTemplate || "").trim();
+    return Boolean(rows || cols || areas || template);
+  }
+
   function applyT1GridLayout(container, units, grid) {
     if (!(container instanceof HTMLElement) || !units.length || !grid) return;
     container.style.display = "grid";
     container.style.width = "100%";
     container.style.height = "100%";
     container.style.minHeight = "0";
-    container.style.gridTemplateRows = grid.rows;
-    container.style.gridTemplateColumns = grid.columns;
-    container.style.gridTemplateAreas = grid.areas;
+    // Prefer compiled/SSR contract; never overwrite authored tracks with scope inference.
+    if (!String(container.style.gridTemplateRows || "").trim()) {
+      container.style.gridTemplateRows = grid.rows;
+    }
+    if (!String(container.style.gridTemplateColumns || "").trim()) {
+      container.style.gridTemplateColumns = grid.columns;
+    }
+    if (!String(container.style.gridTemplateAreas || "").trim()) {
+      container.style.gridTemplateAreas = grid.areas;
+    }
 
     units.forEach((unit) => {
       const scope = unit.getAttribute("data-preview-scope") || "";
       if (isOverlayRegionScope(scope)) {
-        unit.style.gridArea = grid.overlayArea;
+        if (!String(unit.style.gridArea || "").trim()) {
+          unit.style.gridArea = grid.overlayArea;
+        }
         unit.style.position = "relative";
         unit.style.pointerEvents = "none";
         unit.style.minHeight = "0";
@@ -2398,7 +2420,9 @@
         return;
       }
       const area = resolveRegionGridArea(scope);
-      if (area) unit.style.gridArea = area;
+      if (area && !String(unit.style.gridArea || "").trim()) {
+        unit.style.gridArea = area;
+      }
       unit.style.minHeight = "0";
       unit.style.minWidth = "0";
     });
@@ -2411,6 +2435,24 @@
     });
     if (!layoutRegions.length) return null;
 
+    // Normal path: compiled plane/region already carries grid tracks.
+    if (hasAuthoredGridContract(planeEl)) {
+      return { container: planeEl, units: layoutRegions, grid: null, authored: true };
+    }
+    if (layoutRegions.length === 1 && hasAuthoredGridContract(layoutRegions[0])) {
+      const region = layoutRegions[0];
+      const nested = layoutUnitsFor(region).filter((unit) => {
+        const scope = unit.getAttribute("data-preview-scope") || "";
+        return !isLayoutDebugScope(scope);
+      });
+      return {
+        container: region,
+        units: nested.length ? nested : layoutRegions,
+        grid: null,
+        authored: true,
+      };
+    }
+
     if (layoutRegions.length === 1) {
       const region = layoutRegions[0];
       const nested = layoutUnitsFor(region).filter((unit) => {
@@ -2420,7 +2462,13 @@
       const nestedScopes = nested.map((unit) => unit.getAttribute("data-preview-scope") || "");
       const nestedGrid = inferT1PlaneGrid(nestedScopes);
       if (nestedGrid && nested.length > 1) {
-        return { container: region, units: nested, grid: nestedGrid };
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn(
+            "[mei-layout] missing compiled T1 grid; falling back to scope inference",
+            nestedScopes,
+          );
+        }
+        return { container: region, units: nested, grid: nestedGrid, authored: false };
       }
     }
 
@@ -2429,7 +2477,13 @@
     );
     const multiRegionGrid = inferT1PlaneGrid(regionScopes);
     if (multiRegionGrid && layoutRegions.length > 1) {
-      return { container: planeEl, units: layoutRegions, grid: multiRegionGrid };
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn(
+          "[mei-layout] missing compiled T1 grid; falling back to scope inference",
+          regionScopes,
+        );
+      }
+      return { container: planeEl, units: layoutRegions, grid: multiRegionGrid, authored: false };
     }
 
     if (layoutRegions.length === 1) {
@@ -2443,12 +2497,18 @@
       );
       const sectionGrid = inferT1PlaneGrid(sectionScopes);
       if (sectionGrid && sections.length > 1) {
-        return { container: region, units: sections, grid: sectionGrid };
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn(
+            "[mei-layout] missing compiled T1 grid; falling back to scope inference",
+            sectionScopes,
+          );
+        }
+        return { container: region, units: sections, grid: sectionGrid, authored: false };
       }
     }
 
     if (multiRegionGrid) {
-      return { container: planeEl, units: layoutRegions, grid: multiRegionGrid };
+      return { container: planeEl, units: layoutRegions, grid: multiRegionGrid, authored: false };
     }
     return null;
   }
@@ -2472,9 +2532,13 @@
       planeEl.style.width = "100%";
       planeEl.style.height = "100%";
       planeEl.style.minHeight = "0";
-      planeEl.style.gridTemplate = '"stage" 1fr / 1fr';
+      if (!hasAuthoredGridContract(planeEl)) {
+        planeEl.style.gridTemplate = '"stage" 1fr / 1fr';
+      }
       regions.forEach((region) => {
-        region.style.gridArea = "stage";
+        if (!String(region.style.gridArea || "").trim()) {
+          region.style.gridArea = "stage";
+        }
         region.style.width = "100%";
         region.style.height = "100%";
         region.style.minHeight = "0";
@@ -2488,9 +2552,13 @@
       planeEl.style.width = "100%";
       planeEl.style.height = "100%";
       planeEl.style.minHeight = "0";
-      planeEl.style.gridTemplate = '"main" 1fr / 1fr';
+      if (!hasAuthoredGridContract(planeEl)) {
+        planeEl.style.gridTemplate = '"main" 1fr / 1fr';
+      }
       regions.forEach((region) => {
-        region.style.gridArea = "main";
+        if (!String(region.style.gridArea || "").trim()) {
+          region.style.gridArea = "main";
+        }
         region.style.width = "100%";
         region.style.height = "100%";
         region.style.minHeight = "0";
@@ -2518,7 +2586,15 @@
       region.style.minHeight = "0";
       region.style.minWidth = "0";
     });
-    applyT1GridLayout(layout.container, layout.units, layout.grid);
+    if (layout.grid) {
+      applyT1GridLayout(layout.container, layout.units, layout.grid);
+    } else if (layout.authored && layout.container instanceof HTMLElement) {
+      layout.container.style.display = "grid";
+      layout.units.forEach((unit) => {
+        unit.style.minHeight = "0";
+        unit.style.minWidth = "0";
+      });
+    }
   }
 
   function wrapStructureTreeInSceneViewport(root, tree, structureDoc) {
@@ -2731,7 +2807,8 @@
       rail.style.height = "100%";
       rail.style.overflow = "hidden";
       if (!rail.style.rowGap && !rail.style.gap) {
-        rail.style.rowGap = "12px";
+        // Cockpit StageLayoutProfile region→section default (omit-inject parity).
+        rail.style.rowGap = "1px";
       }
       sections.forEach((section) => {
         section.style.minHeight = "0";
@@ -3823,8 +3900,19 @@
   }
 
   async function ensurePresentationMap(ctx) {
-    const existing = global.__mei?.presentation_map;
-    if (existing && typeof existing === "object" && Object.keys(existing).length > 0) {
+    const PRESENTATION_MAP_SCHEMA = "mei-presentation-map-v1";
+    const acceptPresentationMap = (map) => {
+      if (!map || typeof map !== "object") return null;
+      if (!Object.keys(map).length) return null;
+      const ver = String(map.schemaVersion || map.schema_version || "").trim();
+      if (ver !== PRESENTATION_MAP_SCHEMA) {
+        console.warn("[preview-materializer] unsupported presentation_map schema", ver);
+        return null;
+      }
+      return map;
+    };
+    const existing = acceptPresentationMap(global.__mei?.presentation_map);
+    if (existing) {
       return;
     }
     const appId = String(ctx?.app_id || ctx?.appId || "").trim();
@@ -3835,8 +3923,10 @@
       const response = await global.fetch(url, { credentials: "same-origin" });
       if (!response.ok) return;
       const payload = await response.json();
-      const map = payload?.presentation_map || payload?.map || payload;
-      if (!map || typeof map !== "object") return;
+      const map = acceptPresentationMap(
+        payload?.presentation_map || payload?.map || payload,
+      );
+      if (!map) return;
       global.__mei = global.__mei || {};
       global.__mei.presentation_map = map;
     } catch (error) {

@@ -41,7 +41,7 @@
     const match = path.match(/\/scene\/([^/?#]+)/);
     if (match) return String(match[1] || "").trim();
     const mei = window.__mei;
-    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
+    return String(mei?.active_stage_id || mei?.active_stage || mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
   }
 
   function resolveAppId(appId) {
@@ -69,6 +69,10 @@
       }
     }
     const map = window.__mei?.presentation_map;
+    if (map && typeof map === "object" && Object.keys(map).length) {
+      const ver = String(map.schemaVersion || map.schema_version || "").trim();
+      if (ver !== "mei-presentation-map-v1") return null;
+    }
     const manifest = map?.defaultScript || map?.default_script || null;
     return manifest && Array.isArray(manifest.steps) && manifest.steps.length ? manifest : null;
   }
@@ -80,6 +84,12 @@
     }
     const sceneId = parseSceneIdFromPath();
     const map = window.__mei?.presentation_map;
+    if (map && typeof map === "object" && Object.keys(map).length) {
+      const ver = String(map.schemaVersion || map.schema_version || "").trim();
+      if (ver !== "mei-presentation-map-v1") {
+        return `scene/${sceneId}`;
+      }
+    }
     const kind = map?.deck ? "presentation" : "scene";
     return `${kind}/${sceneId}`;
   }

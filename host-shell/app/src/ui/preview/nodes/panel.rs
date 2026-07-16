@@ -234,6 +234,21 @@ pub(crate) fn panel_view(
         .filter(|value| *value)
         .map(|_| "true");
 
+    let layout_fill_attr = props_truthy_attr(&card_props, "__mei_layout_fill")
+        .or_else(|| slot_frame_bg_attr.map(|_| "true"));
+
+    let slot_bg_stretch_attr = if slot_frame_bg_attr.is_some() {
+        if props_truthy_attr(&card_props, "__mei_slot_bg_stretch").is_some()
+            || slot_frame_background_needs_stretch(card_props.get("background"))
+        {
+            Some("true")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let metric_card_attr = card_props
         .get("__mei_metric_card")
         .and_then(|v| v.as_bool())
@@ -394,6 +409,8 @@ pub(crate) fn panel_view(
             data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
             data-mei-t2-page=t2_page_attr.unwrap_or_default()
             data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
+            data-mei-layout-fill=layout_fill_attr.unwrap_or_default()
+            data-mei-slot-bg-stretch=slot_bg_stretch_attr.unwrap_or_default()
             data-mei-metric-card=metric_card_attr.unwrap_or_default()
         >
             {if has_head {
@@ -461,6 +478,8 @@ pub(crate) fn panel_view(
                     data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
                     data-mei-t2-page=t2_page_attr.unwrap_or_default()
                     data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
+                    data-mei-layout-fill=layout_fill_attr.unwrap_or_default()
+                    data-mei-slot-bg-stretch=slot_bg_stretch_attr.unwrap_or_default()
                     data-mei-metric-card=metric_card_attr.unwrap_or_default()
                 >
                     {if has_head {
@@ -582,6 +601,78 @@ pub(super) fn block_ordinal_in_panel(panel: &UiNodeDecl, block: &BlockDecl) -> u
         }
     }
     ord
+}
+
+fn props_truthy_attr<'a>(props: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    let value = props.get(key)?;
+    if value.as_bool() == Some(true) {
+        return Some("true");
+    }
+    match value.as_str().map(str::trim) {
+        Some("true") | Some("1") => Some("true"),
+        _ => None,
+    }
+}
+
+/// Mirror JS `slotFrameBackgroundNeedsStretch`: single-layer SVG/url skins stretch;
+/// layered corner/icon stacks do not.
+fn slot_frame_background_needs_stretch(background: Option<&serde_json::Value>) -> bool {
+    let Some(background) = background else {
+        return false;
+    };
+    match background {
+        serde_json::Value::String(raw) => {
+            let text = raw.trim();
+            !text.is_empty()
+                && (text.contains("metric-bg-") || text.contains("url("))
+                && !text.contains(',')
+        }
+        serde_json::Value::Object(map) => {
+            let images = match map.get("image") {
+                Some(serde_json::Value::String(s)) => {
+                    let t = s.trim();
+                    if t.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![t.to_string()]
+                    }
+                }
+                Some(serde_json::Value::Array(items)) => items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::trim))
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if images.len() != 1 {
+                return false;
+            }
+            let sizes = match map.get("size") {
+                Some(serde_json::Value::String(s)) => {
+                    let t = s.trim();
+                    if t.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![t.to_string()]
+                    }
+                }
+                Some(serde_json::Value::Array(items)) => items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::trim))
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if !sizes.is_empty() && sizes.iter().any(|size| size != "100% 100%") {
+                return false;
+            }
+            let image = images[0].as_str();
+            image.contains("metric-bg-") || image.contains("url(")
+        }
+        _ => false,
+    }
 }
 
 fn node_view(
