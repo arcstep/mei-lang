@@ -52,7 +52,7 @@ mei-lang/desktop/dist/mei-viewer.app
 
 # 分发用 zip
 mei-lang/desktop/dist/mei-viewer-<version>-aarch64-apple-darwin.zip
-mei-lang/desktop/dist/MANIFEST.json
+mei-lang/desktop/dist/mei-viewer-<version>-aarch64-apple-darwin.manifest.json
 
 # Tauri 原始 bundle（也不会被 package 脚本删掉）
 mei-lang/desktop/src-tauri/target/release/bundle/macos/mei-viewer.app
@@ -100,16 +100,19 @@ sidecar 收集与 `scripts/build.sh` 一样会做 **cargo target hygiene**（超
 [`.github/workflows/release.yml`](../.github/workflows/release.yml)，自动发布：
 
 - **mei-viewer**：macOS zip、Windows NSIS setup
-- **mei-toolchain**：`host-shell` / `compiler` / `app-runtime` / `plug-ds` / `snapshot` / `mei-lsp` / `mei-toolchain` 多平台归档
+- **mei-runtime**：服务运行所需四个二进制及 app/stock 资源
+- **mei-toolchain**：runtime + `snapshot` / `mei-lsp` / `mei-toolchain` 及 app/stock 资源
 - **VS Code 扩展**：`mei-lang-*.vsix`
+- **发布元数据**：release manifest、SHA-256、SPDX SBOM 与 GitHub attestation
 
-也可在 Actions 里手动 `Release` → `workflow_dispatch`（默认 draft）。
+Actions 中手动执行 `Release` 只构建并验收候选产物，不创建 GitHub
+Release；只有来自默认分支、且与 Cargo 版本完全一致的 `v*` tag 才会正式发布。
 
-本地仅打 toolchain 归档：
+本地打 runtime + toolchain 归档：
 
 ```bash
-./scripts/package-toolchain-release.sh
-# → dist/toolchain/mei-toolchain-<ver>-<triple>.tar.gz
+./scripts/package-release-bundles.sh
+# → dist/bundles/mei-{runtime,toolchain}-<ver>-<triple>.tar.gz|zip
 ```
 
 ## 快照（GUI 与 CLI）

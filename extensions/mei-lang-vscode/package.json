@@ -24,7 +24,7 @@
   "activationEvents": [
     "onLanguage:mei"
   ],
-  "main": "./extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -68,13 +68,17 @@
     }
   },
   "scripts": {
-    "sync-version": "node ./scripts/sync-version.js",
-    "package": "npm run sync-version && npx --yes @vscode/vsce package"
+    "sync-version": "node ../../scripts/release/sync-versions.mjs --write",
+    "check-version": "node ../../scripts/release/sync-versions.mjs --check",
+    "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "package": "npm run check-version && npm run build && vsce package"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0"
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1"
   }
 }

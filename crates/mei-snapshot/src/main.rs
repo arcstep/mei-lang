@@ -6,7 +6,11 @@ use mei_snapshot::{
 };
 
 #[derive(Parser, Debug)]
-#[command(name = "mei-snapshot", about = "Pack/unpack Mei Viewer snapshot archives")]
+#[command(
+    name = "mei-snapshot",
+    about = "Pack/unpack Mei Viewer snapshot archives",
+    version
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

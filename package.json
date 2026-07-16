@@ -4,6 +4,10 @@
   "type": "module",
   "scripts": {
     "assets:build": "node ./scripts/lint-theme-css.mjs && node ./scripts/lint-workspace-shell-theme.mjs && node ./scripts/build-assets.mjs && node ./scripts/test-bundle-syntax.mjs",
+    "release:version:check": "node ./scripts/release/sync-versions.mjs --check",
+    "release:version:sync": "node ./scripts/release/sync-versions.mjs --write",
+    "release:test": "node ./scripts/release/test-release-manifest.mjs",
+    "release:verify": "node ./scripts/release/verify-release.mjs --assets-dir dist/release",
     "mcp:author-adapter": "node ./scripts/mcp/mei-author-stdio-adapter.mjs",
     "mcp:access-adapter": "node ./scripts/mcp/mei-access-stdio-adapter.mjs",
     "perf:sample": "node ./scripts/host-perf-sample.mjs",

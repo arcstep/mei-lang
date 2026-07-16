@@ -1,32 +1,13 @@
 name: Release
 
-# Build and publish GitHub Release assets:
-#   - mei-viewer (macOS zip, Windows NSIS setup)
-#   - mei-toolchain archives (linux / macOS / Windows)
-#   - VS Code extension .vsix
-#
-# Trigger:
-#   - push tag v*          → publish release for that tag
-#   - workflow_dispatch    → draft release (optional tag override)
-
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag (e.g. v2.5.19). Empty = v{Cargo.toml version}."
-        required: false
-        type: string
-      draft:
-        description: "Create as draft release"
-        required: false
-        type: boolean
-        default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -38,266 +19,252 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
-      draft: ${{ steps.meta.outputs.draft }}
+      channel: ${{ steps.meta.outputs.channel }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Resolve version / tag
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Check release versions and provenance
         id: meta
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          node scripts/release/sync-versions.mjs --check
+          npm run release:test
+          VERSION="$(node scripts/release/sync-versions.mjs --print-version)"
+          TAG=""
+          CHANNEL="dry-run"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            if [[ "${VERSION}" == *-* ]]; then
+              CHANNEL="beta"
+            else
+              CHANNEL="stable"
+            fi
+            if [[ "${TAG}" != "v${VERSION}" ]]; then
+              echo "::error::tag ${TAG} must exactly match Cargo.toml version v${VERSION}"
+              exit 1
+            fi
+            git fetch --no-tags origin \
+              "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${DEFAULT_BRANCH}"; then
+              echo "::error::release tag commit must be reachable from ${DEFAULT_BRANCH}"
+              exit 1
+            fi
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "channel=${CHANNEL}" >> "${GITHUB_OUTPUT}"
+
+  viewer:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            id: macos-arm64
+          - runner: macos-15-intel
+            id: macos-x64
+          - runner: windows-latest
+            id: windows-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Collect release sidecars
+        shell: bash
+        run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Install locked desktop dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Build and package Viewer
+        working-directory: desktop
+        run: npm run build
+      - name: Check Viewer release metadata
         shell: bash
         run: |
           set -euo pipefail
-          CARGO_VER="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' Cargo.toml | head -1)"
-          if [[ -z "${CARGO_VER}" ]]; then
-            echo "::error::could not read workspace version from Cargo.toml"
-            exit 1
-          fi
-
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-            DRAFT="false"
-          else
-            TAG_INPUT="${{ inputs.tag }}"
-            if [[ -n "${TAG_INPUT}" ]]; then
-              TAG="${TAG_INPUT}"
-            else
-              TAG="v${CARGO_VER}"
-            fi
-            DRAFT="${{ inputs.draft }}"
-            DRAFT="${DRAFT:-true}"
-          fi
-
-          TAG_VER="${TAG#v}"
-          if [[ "${TAG_VER}" != "${CARGO_VER}" ]]; then
-            if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-              echo "::error::tag ${TAG} does not match Cargo.toml version ${CARGO_VER}. Bump versions before tagging."
-              exit 1
-            fi
-            echo "::warning::requested tag ${TAG} differs from Cargo.toml (${CARGO_VER}); artifacts use Cargo.toml version"
-          fi
-
-          echo "version=${CARGO_VER}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "draft=${DRAFT}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version=${CARGO_VER} tag=${TAG} draft=${DRAFT}"
-
-  viewer-macos:
-    needs: meta
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+          test -n "$(find desktop/dist -maxdepth 1 -type f -name 'mei-viewer-*' ! -name '*.manifest.json' -print -quit)"
+          test -n "$(find desktop/dist -maxdepth 1 -type f -name 'mei-viewer-*.manifest.json' -print -quit)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          node-version: "22"
-      - name: Install root asset deps
-        run: npm ci || npm install
-      - name: Collect sidecars (release)
-        run: ./scripts/collect-desktop-sidecars.sh --release
-      - name: Install desktop deps
-        working-directory: desktop
-        run: npm ci || npm install
-      - name: Build + versioned package
-        working-directory: desktop
-        run: npm run build
-      - name: Upload viewer macOS
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-viewer-macos
+          name: release-viewer-${{ matrix.id }}
           path: |
             desktop/dist/mei-viewer-*.zip
-            desktop/dist/MANIFEST.json
+            desktop/dist/mei-viewer-*-setup.exe
+            desktop/dist/mei-viewer-*.manifest.json
           if-no-files-found: error
 
-  viewer-windows:
+  bundles:
     needs: meta
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            id: linux-x64
+          - runner: macos-15
+            id: macos-arm64
+          - runner: macos-15-intel
+            id: macos-x64
+          - runner: windows-latest
+            id: windows-x64
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - name: Install root asset deps
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Package Runtime and Toolchain
         shell: bash
-        run: npm ci || npm install
-      - name: Collect sidecars (release)
-        shell: bash
-        run: ./scripts/collect-desktop-sidecars.sh --release
-      - name: Install desktop deps
-        working-directory: desktop
-        run: npm ci || npm install
-      - name: Build + versioned package
-        working-directory: desktop
-        run: npm run build
-      - name: Upload viewer Windows
-        uses: actions/upload-artifact@v4
+        run: ./scripts/package-release-bundles.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-viewer-windows
+          name: release-bundles-${{ matrix.id }}
           path: |
-            desktop/dist/mei-viewer-*-setup.exe
-            desktop/dist/MANIFEST.json
-          if-no-files-found: error
-
-  toolchain-linux:
-    needs: meta
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Package toolchain
-        run: |
-          chmod +x ./scripts/package-toolchain-release.sh
-          ./scripts/package-toolchain-release.sh
-      - name: Upload toolchain linux
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-toolchain-linux
-          path: |
-            dist/toolchain/mei-toolchain-*.tar.gz
-            dist/toolchain/MANIFEST.json
-          if-no-files-found: error
-
-  toolchain-macos:
-    needs: meta
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Package toolchain
-        run: |
-          chmod +x ./scripts/package-toolchain-release.sh
-          ./scripts/package-toolchain-release.sh
-      - name: Upload toolchain macOS
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-toolchain-macos
-          path: |
-            dist/toolchain/mei-toolchain-*.tar.gz
-            dist/toolchain/MANIFEST.json
-          if-no-files-found: error
-
-  toolchain-windows:
-    needs: meta
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Package toolchain
-        shell: bash
-        run: |
-          chmod +x ./scripts/package-toolchain-release.sh
-          ./scripts/package-toolchain-release.sh
-      - name: Upload toolchain Windows
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-toolchain-windows
-          path: |
-            dist/toolchain/mei-toolchain-*.zip
-            dist/toolchain/MANIFEST.json
+            dist/bundles/mei-runtime-*
+            dist/bundles/mei-toolchain-*
           if-no-files-found: error
 
   vscode:
     needs: meta
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - name: Install extension deps + package VSIX
+          cache: npm
+          cache-dependency-path: extensions/mei-lang-vscode/package-lock.json
+      - name: Install locked extension dependencies
         working-directory: extensions/mei-lang-vscode
-        run: |
-          npm install
-          npm run package
-      - name: Upload VSIX
-        uses: actions/upload-artifact@v4
+        run: npm ci
+      - name: Package VSIX
+        working-directory: extensions/mei-lang-vscode
+        run: npm run package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-vscode
           path: extensions/mei-lang-vscode/mei-lang-*.vsix
           if-no-files-found: error
 
-  publish:
-    needs:
-      - meta
-      - viewer-macos
-      - viewer-windows
-      - toolchain-linux
-      - toolchain-macos
-      - toolchain-windows
-      - vscode
+  sbom:
+    needs: meta
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/sbom/mei-lang-${{ needs.meta.outputs.version }}.spdx.json
+          upload-artifact: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sbom
+          path: dist/sbom/mei-lang-*.spdx.json
+          if-no-files-found: error
 
-      - name: Download all release artifacts
-        uses: actions/download-artifact@v4
+  assemble:
+    needs:
+      - meta
+      - viewer
+      - bundles
+      - vscode
+      - sbom
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-*
-          path: release-assets
-          merge-multiple: false
-
-      - name: Flatten assets + checksums
-        id: assets
-        shell: bash
+          path: dist/release
+          merge-multiple: true
+      - name: Generate and verify release contract
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.meta.outputs.channel }}
         run: |
-          set -euo pipefail
-          mkdir -p dist/release
-          # Collect files; keep unique basenames (viewer manifests would collide).
-          find release-assets -type f | while read -r f; do
-            base="$(basename "$f")"
-            parent="$(basename "$(dirname "$f")")"
-            case "$base" in
-              MANIFEST.json)
-                cp -f "$f" "dist/release/${parent}-MANIFEST.json"
-                ;;
-              *)
-                cp -f "$f" "dist/release/${base}"
-                ;;
-            esac
-          done
-          (
-            cd dist/release
-            sha256sum * > SHA256SUMS.txt
-          )
-          echo "Listing dist/release:"
-          ls -la dist/release
-          {
-            echo "files<<EOF"
-            find dist/release -type f -print
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          node scripts/release/generate-release-manifest.mjs \
+            --assets-dir dist/release \
+            --version "${VERSION}" \
+            --git-sha "${GITHUB_SHA}" \
+            --tag "${RELEASE_TAG}" \
+            --channel "${RELEASE_CHANNEL}"
+          node scripts/release/verify-release.mjs --assets-dir dist/release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-candidate-${{ needs.meta.outputs.version }}-${{ github.run_id }}
+          path: dist/release/*
+          if-no-files-found: error
+      - name: Attest release assets
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: |
+            dist/release/*.zip
+            dist/release/*.tar.gz
+            dist/release/*.exe
+            dist/release/*.vsix
+            dist/release/*.spdx.json
+      - name: Refuse to overwrite a published release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::release ${RELEASE_TAG} already exists; published versions are immutable"
+            exit 1
+          fi
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.meta.outputs.tag }}
-          name: mei-lang ${{ needs.meta.outputs.version }}
-          draft: ${{ needs.meta.outputs.draft == 'true' }}
+          name: MeiLang ${{ needs.meta.outputs.version }}
+          prerelease: ${{ needs.meta.outputs.channel == 'beta' }}
+          make_latest: ${{ needs.meta.outputs.channel == 'stable' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: dist/release/*
           body: |
-            ## mei-lang ${{ needs.meta.outputs.version }}
+            Automated MeiLang release.
 
-            ### 产物
+            Assets:
+            - Viewer installers for Windows x64 and macOS arm64/x64
+            - Runtime and Toolchain bundles for Windows, macOS and Linux x64
+            - VS Code extension
+            - Release manifest, SHA-256 checksums and SPDX SBOM
 
-            | 组件 | 文件 |
-            |---|---|
-            | **mei-viewer** (macOS) | `mei-viewer-*-apple-darwin.zip` |
-            | **mei-viewer** (Windows) | `mei-viewer-*-setup.exe` |
-            | **Toolchain** (host-shell / compiler / runtime / lsp …) | `mei-toolchain-*.tar.gz` / `.zip` |
-            | **VS Code 扩展** | `mei-lang-*.vsix` |
-            | 校验 | `SHA256SUMS.txt` |
-
-            ### 使用提示
-
-            - **Viewer**：解压/安装后打开含 `workspace.json` 的工作区目录。
-            - **Toolchain**：解压后将 `bin/` 加入 `PATH`，或按工作区 `deploy/install.sh --from release` 约定放置。
-            - **编辑器**：`code --install-extension mei-lang-*.vsix`；LSP 二进制见 toolchain 包中的 `mei-lsp`（扩展设置 `mei.lsp.path`）。
-
-            > 本仓库公开 CI / Release **不依赖** 私有 sibling workspaces。
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            Platform code signing is not configured yet. Verify SHA256SUMS.txt
+            and the GitHub artifact attestations before installation.

@@ -4,11 +4,11 @@
  *
  * macOS:
  *   dist/mei-viewer.app                          # stable, open without unzip (gitignored)
- *   dist/mei-viewer-<ver>-<arch>-apple-darwin.zip
+ *   dist/mei-viewer-<ver>-<target-triple>.zip
  * Windows:
- *   dist/mei-viewer-<ver>-x64-setup.exe
+ *   dist/mei-viewer-<ver>-<target-triple>-setup.exe
  *
- * Version = tauri.conf.json#version + optional +gitShortSha
+ * Version = tauri.conf.json#version. Git SHA is recorded in the side manifest.
  *
  * Does NOT delete the Tauri-built .app under src-tauri/target/.../bundle/macos/.
  */
@@ -21,6 +21,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -62,20 +63,25 @@ function resolveReleaseTargetRoot() {
 }
 function readVersion() {
   const conf = JSON.parse(readFileSync(confPath, "utf8"));
-  let ver = String(conf.version || "0.0.0").trim();
+  return String(conf.version || "0.0.0").trim();
+}
+
+function readGitSha() {
   const git = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
     cwd: resolve(desktopRoot, ".."),
     encoding: "utf8",
   });
-  if (git.status === 0) {
-    const sha = git.stdout.trim();
-    if (sha) ver = `${ver}+${sha}`;
-  }
-  return ver.replace(/[^A-Za-z0-9._+-]/g, "-");
+  return git.status === 0 ? git.stdout.trim() || null : null;
 }
 
-function darwinArchLabel() {
-  return arch() === "arm64" ? "aarch64" : "x86_64";
+function targetTriple() {
+  if (platform() === "darwin") {
+    return arch() === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+  }
+  if (platform() === "win32" && arch() === "x64") {
+    return "x86_64-pc-windows-msvc";
+  }
+  throw new Error(`unsupported release target ${platform()}-${arch()}`);
 }
 
 function run(cmd, args) {
@@ -103,7 +109,7 @@ function cleanDistArtifacts() {
   for (const name of readdirSync(distRoot)) {
     // Keep dist/mei-viewer.app across rebuilds until we replace it.
     if (name === "mei-viewer.app") continue;
-    if (name.startsWith("mei-viewer-") || name === "MANIFEST.json") {
+    if (name.startsWith("mei-viewer-") || name.endsWith(".manifest.json")) {
       rmSync(join(distRoot, name), { recursive: true, force: true });
     }
   }
@@ -111,11 +117,14 @@ function cleanDistArtifacts() {
 
 function main() {
   const version = readVersion();
+  const gitSha = readGitSha();
+  const target = targetTriple();
   const targetRoot = resolveReleaseTargetRoot();
   mkdirSync(distRoot, { recursive: true });
   cleanDistArtifacts();
 
   const wrote = [];
+  let artifact = null;
   let openHint = null;
 
   if (platform() === "darwin") {
@@ -129,10 +138,11 @@ function main() {
     wrote.push(stableApp);
     openHint = stableApp;
 
-    const zipName = `mei-viewer-${version}-${darwinArchLabel()}-apple-darwin.zip`;
+    const zipName = `mei-viewer-${version}-${target}.zip`;
     const outZip = join(distRoot, zipName);
     zipMacApp(appPath, outZip);
     wrote.push(outZip);
+    artifact = zipName;
   } else if (platform() === "win32") {
     const nsisDir = join(targetRoot, "bundle", "nsis");
     if (!existsSync(nsisDir)) {
@@ -143,25 +153,47 @@ function main() {
       throw new Error(`no NSIS .exe under ${nsisDir}`);
     }
     const src = join(nsisDir, exes.find((f) => /setup/i.test(f)) || exes[0]);
-    const outPath = join(distRoot, `mei-viewer-${version}-x64-setup.exe`);
+    const outputName = `mei-viewer-${version}-${target}-setup.exe`;
+    const outPath = join(distRoot, outputName);
     copyFileSync(src, outPath);
     wrote.push(outPath);
+    artifact = outputName;
     openHint = outPath;
   } else {
     console.warn(`[package-release] unsupported platform ${platform()}; nothing packaged`);
   }
 
   const manifest = {
-    format: "mei-viewer-dist",
-    formatVersion: 1,
+    schemaVersion: 1,
+    product: "viewer",
     version,
-    productName: "mei-viewer",
+    gitSha,
+    target,
     platform: platform(),
     arch: arch(),
+    artifact,
     openPath: openHint ? openHint.split(/[/\\]/).pop() : null,
-    files: wrote.map((p) => p.split(/[/\\]/).pop()),
+    includedComponents: [
+      "mei-host-shell",
+      "mei-app-runtime",
+      "mei-plug-ds",
+      "mei-snapshot",
+      "mei-compiler",
+      "app-assets",
+      "stock-components",
+      "stock-templates",
+    ],
   };
-  const manifestPath = join(distRoot, "MANIFEST.json");
+  if (!artifact) {
+    throw new Error(`no viewer artifact produced for ${platform()}-${arch()}`);
+  }
+  const artifactPath = join(distRoot, artifact);
+  manifest.bytes = readFileSync(artifactPath).byteLength;
+  manifest.sha256 = createHash("sha256")
+    .update(readFileSync(artifactPath))
+    .digest("hex");
+  const manifestBase = artifact.replace(/\.(zip|exe)$/, "");
+  const manifestPath = join(distRoot, `${manifestBase}.manifest.json`);
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   wrote.push(manifestPath);
 

@@ -1,3 +1,8 @@
+node_modules/**
+scripts/**
+extension.js
+package-lock.json
+mei-lang-*.vsix
 .vscode/**
 .vscode-test/**
 .gitignore

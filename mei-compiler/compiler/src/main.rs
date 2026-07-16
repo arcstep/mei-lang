@@ -15,7 +15,8 @@ use serde_json::Value as JsonValue;
 #[derive(Parser)]
 #[command(
     name = "mei-compiler",
-    about = "MeiLang 2.0 compiler (.meibundle exchange output)"
+    about = "MeiLang 2.0 compiler (.meibundle exchange output)",
+    version
 )]
 struct Cli {
     #[command(subcommand)]
