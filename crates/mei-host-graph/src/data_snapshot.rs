@@ -5,7 +5,8 @@ use anyhow::Result;
 use mei_host_core::path_for_log;
 use mei_lang_kernel::{
     data_snapshot_import_manifest_path, load_mei_config_for_app, ops_source_entry_to_decl,
-    publish_xlsx_data_snapshots_for_paths, resolve_app_root,
+    parquet_snapshot_path, publish_xlsx_data_snapshots_for_paths, resolve_app_root,
+    resolve_data_snapshot_import_entry,
 };
 use serde::Serialize;
 
@@ -121,6 +122,38 @@ pub fn publish_app_data_snapshots(
         ),
         total_written_bytes,
     })
+}
+
+/// Ensure a hot reload has all parquet imports required by sealed Access traffic.
+///
+/// The common path is metadata-only. XLSX files are republished only when the
+/// active generation has no matching manifest entry or parquet artifact.
+pub fn ensure_app_data_snapshots(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<Option<PublishDataSnapshotsReport>> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let required = collect_app_xlsx_sources(source_root, app_id)?;
+    let ready = required.iter().all(|(path, sheet, header_row)| {
+        resolve_data_snapshot_import_entry(
+            app_root.as_path(),
+            path.as_str(),
+            sheet.as_deref(),
+            *header_row,
+        )
+        .is_some()
+            && parquet_snapshot_path(
+                app_root.as_path(),
+                path.as_str(),
+                sheet.as_deref(),
+                *header_row,
+            )
+            .is_some_and(|artifact| artifact.is_file())
+    });
+    if ready {
+        return Ok(None);
+    }
+    publish_app_data_snapshots(source_root, app_id).map(Some)
 }
 
 #[cfg(test)]

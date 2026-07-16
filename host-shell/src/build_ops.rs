@@ -132,11 +132,29 @@ pub fn import_with_options(
     Ok(report)
 }
 
-/// Import 之后的热重载后半段：清 assemble 缓存、增量失效 eval-cache，并跑 warmup
-/// 把 client-bootstrap 写回。与 prebuild 的 invalidate + warmup 对齐，但不做
-/// data snapshot / finalize。
+/// Import 之后的热重载后半段：补齐缺失 data snapshot、清 assemble 缓存、
+/// 增量失效 eval-cache，并跑 warmup 把 client-bootstrap 写回。
+/// 不替换 active generation，也不执行 build finalize。
 pub fn rewarm_after_import(workspace: &Path, app: &str, policy: &str) -> anyhow::Result<()> {
     let workspace = canonical_workspace(workspace);
+    if let Some(snapshot_report) =
+        mei_host_graph::ensure_app_data_snapshots(workspace.as_path(), app)?
+    {
+        if !snapshot_report.skipped.is_empty() {
+            anyhow::bail!(
+                "reload could not restore required data snapshots for app `{app}`: {}",
+                snapshot_report.skipped.join("; ")
+            );
+        }
+        tracing::info!(
+            app_id = %app,
+            discovered = snapshot_report.discovered_sources.len(),
+            written = snapshot_report.written.len(),
+            total_bytes = snapshot_report.total_written_bytes,
+            manifest = %snapshot_report.manifest_path,
+            "reload restored missing parquet data snapshots"
+        );
+    }
     mei_host_graph::clear_assemble_cache_for_app(app);
 
     let force_clear = std::env::var("MEI_FORCE_EVAL_CACHE_CLEAR")
@@ -222,11 +240,14 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
     let workspace = canonical_workspace(workspace);
     crate::build_info::log_host_identity(Some(workspace.as_path()), "reload");
 
-    let _generation = prepare_dev_build_generation_with_hint(
-        workspace.as_path(),
-        &[app.to_string()],
-        Some(toolchain_hint()),
-    )?;
+    // Reload mutates the active generation in place. Calling build prepare here
+    // would replace same-day env/{ver}/var and delete parquet data snapshots.
+    let app_root = resolve_app_root(workspace.as_path(), app);
+    resolve_app_build_generation_from_current(app_root.as_path()).map_err(|error| {
+        anyhow::anyhow!(
+            "reload requires an active build generation for app `{app}`; start/prebuild the app first: {error}"
+        )
+    })?;
 
     crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
 
@@ -272,8 +293,7 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, scenes: &[String]) -> anyh
             }
         ),
     ];
-    let prebuild_start_refs: Vec<&str> =
-        prebuild_start_lines.iter().map(String::as_str).collect();
+    let prebuild_start_refs: Vec<&str> = prebuild_start_lines.iter().map(String::as_str).collect();
     crate::startup_banner::emit_prebuild_start_banner(prebuild_start_refs.as_slice());
 
     let compile_phase = mei_host_core::ProcessPhaseTimer::start();

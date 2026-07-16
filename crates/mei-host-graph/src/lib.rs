@@ -65,7 +65,8 @@ pub use content_store::{
     NAVIGATION, PROJECTION_ASSEMBLY, WARMUP_POLICY,
 };
 pub use data_snapshot::{
-    collect_app_xlsx_sources, publish_app_data_snapshots, PublishDataSnapshotsReport,
+    collect_app_xlsx_sources, ensure_app_data_snapshots, publish_app_data_snapshots,
+    PublishDataSnapshotsReport,
 };
 pub use enrich_compiled_scope::{enrich_compiled_scope, EnrichCompiledScopeOptions};
 pub use eval_slot_group::{

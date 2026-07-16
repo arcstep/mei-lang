@@ -10,7 +10,13 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-zhifa}"
 parse_common_args "$@"
 
-ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"
+# Reload operates in the running app's active env/current generation.
+# Do not run `build prepare` here: same-generation prepare has replace
+# semantics and would delete var/data-snapshots before Access rewarms.
+if [[ ! -L "${WORKSPACE_ROOT}/apps/${APP}/env/current" ]]; then
+  echo "error: reload requires apps/${APP}/env/current; start or prebuild the app first" >&2
+  exit 1
+fi
 
 echo "==> compile"
 run_mei_compiler "${WORKSPACE_ROOT}" \
@@ -18,4 +24,5 @@ run_mei_compiler "${WORKSPACE_ROOT}" \
 
 echo "==> reload (import)"
 run_mei_host_shell "${WORKSPACE_ROOT}" \
-  reload --workspace "${WORKSPACE_ROOT}" --app "${APP}" "${DEPLOY_CLI_ARGS[@]}"
+  reload --workspace "${WORKSPACE_ROOT}" --app "${APP}" \
+  ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
