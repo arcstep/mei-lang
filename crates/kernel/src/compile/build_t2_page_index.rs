@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use crate::compile::backing_refs_from_block_props;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
+use crate::mei_config::is_plane_structure_mei_path;
 use crate::model::{
     BuildNodeId, BuildT2PageIndex, SceneContract, T2PageFileEntry, T2PageSlotEntry, WorkspaceNode,
 };
@@ -55,12 +56,14 @@ fn collect_page_files(
             );
             continue;
         }
-        if node.kind != "file" || !is_t2_page_capsule(node.path.as_str()) {
+        if node.kind != "file" || !is_indexed_t2_page_file(node) {
             continue;
         }
         let page_file = node.path.clone();
         for export in &node.children {
-            if export.kind != "scene_export" {
+            let is_legacy_scene = export.kind == "scene_export";
+            let is_page_instance = export.kind == "page_instance_export";
+            if !is_legacy_scene && !is_page_instance {
                 continue;
             }
             let Some(scene_id) = export
@@ -156,8 +159,21 @@ pub fn board_tree_root_from_index(index: &BuildT2PageIndex) -> ReachabilityTreeR
     }
 }
 
-fn is_t2_page_capsule(path: &str) -> bool {
+fn is_legacy_board_capsule(path: &str) -> bool {
     path.ends_with(".page.mei") || path.ends_with(".board.mei")
+}
+
+/// Boards index: legacy `.board/.page.mei`, or plane structure files that already
+/// expose `page_instance_export` children (from source-tree enrich).
+fn is_indexed_t2_page_file(node: &WorkspaceNode) -> bool {
+    if is_legacy_board_capsule(node.path.as_str()) {
+        return true;
+    }
+    is_plane_structure_mei_path(node.path.as_str())
+        && node
+            .children
+            .iter()
+            .any(|child| child.kind == "page_instance_export")
 }
 
 fn layout_mode_from_sources(
@@ -360,5 +376,69 @@ mod tests {
             result.tree_root.children[0].children[1].board_layout_zone,
             "hero"
         );
+    }
+
+    #[test]
+    fn board_index_collects_plane_page_instance_exports() {
+        let tree = vec![WorkspaceNode {
+            name: "plane-warnings.mei".to_string(),
+            path: "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei"
+                .to_string(),
+            kind: "file".to_string(),
+            mei_kind: Some("t2_page".to_string()),
+            scene_export_id: None,
+            world_dataset_id: None,
+            world_metric_id: None,
+            explain_block_id: None,
+            semantic_label: None,
+            children: vec![WorkspaceNode {
+                name: "warnings_analytics_page".to_string(),
+                path: "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei"
+                    .to_string(),
+                kind: "page_instance_export".to_string(),
+                mei_kind: Some("t2_page".to_string()),
+                scene_export_id: Some("warnings_analytics_page".to_string()),
+                world_dataset_id: None,
+                world_metric_id: None,
+                explain_block_id: None,
+                semantic_label: Some(
+                    "mini-data/home/t1/region-right-rail/section-warning/plane-warnings".to_string(),
+                ),
+                children: Vec::new(),
+            }],
+        }];
+        let mut assembly = BTreeMap::new();
+        assembly.insert(
+            "warnings_analytics_page".to_string(),
+            serde_json::json!({
+                "shell_contract": { "layout_mode": "analytics" },
+                "projection_slots": [
+                    { "id": "chart", "component": "chart", "layout_zone": "chart" }
+                ]
+            }),
+        );
+        let result = build_t2_page_index(&tree, &BTreeMap::new(), &assembly);
+        assert_eq!(result.index.pages.len(), 1);
+        assert!(result.index.pages.contains_key(
+            "src/scene/home/t1/region-right-rail/section-warning/plane-warnings.mei#warnings_analytics_page"
+        ));
+    }
+
+    #[test]
+    fn board_index_skips_plane_without_page_instance_export() {
+        let tree = vec![WorkspaceNode {
+            name: "plane.mei".to_string(),
+            path: "src/scene/home/t1/plane.mei".to_string(),
+            kind: "file".to_string(),
+            mei_kind: Some("plane".to_string()),
+            scene_export_id: None,
+            world_dataset_id: None,
+            world_metric_id: None,
+            explain_block_id: None,
+            semantic_label: None,
+            children: Vec::new(),
+        }];
+        let result = build_t2_page_index(&tree, &BTreeMap::new(), &BTreeMap::new());
+        assert!(result.index.pages.is_empty());
     }
 }

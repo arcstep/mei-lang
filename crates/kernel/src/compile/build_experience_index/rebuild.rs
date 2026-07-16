@@ -41,7 +41,12 @@ pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
 fn file_tree_has_board_capsules(nodes: &[crate::model::WorkspaceNode]) -> bool {
     nodes.iter().any(|node| {
         if node.kind == "file"
-            && (node.path.ends_with(".board.mei") || node.path.ends_with(".page.mei"))
+            && (node.path.ends_with(".board.mei")
+                || node.path.ends_with(".page.mei")
+                || node
+                    .children
+                    .iter()
+                    .any(|child| child.kind == "page_instance_export"))
         {
             return true;
         }
