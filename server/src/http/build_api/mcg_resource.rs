@@ -207,6 +207,7 @@ fn graph_node_kind_from_slug(slug: &str) -> Option<GraphNodeKind> {
         "workset" => Some(GraphNodeKind::Workset),
         "material_slot" => Some(GraphNodeKind::MaterialSlot),
         "navigation" => Some(GraphNodeKind::Navigation),
+        "object_catalog" => Some(GraphNodeKind::ObjectCatalog),
         _ => None,
     }
 }

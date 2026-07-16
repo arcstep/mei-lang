@@ -303,6 +303,9 @@
     if (!normalized.entityId && normalized.entity_id) {
       normalized.entityId = normalized.entity_id;
     }
+    if (!normalized.objectId && normalized.object_id) {
+      normalized.objectId = normalized.object_id;
+    }
     if (!normalized.groupId && normalized.group_id) {
       normalized.groupId = normalized.group_id;
     }

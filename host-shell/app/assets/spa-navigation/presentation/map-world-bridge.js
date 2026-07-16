@@ -14,16 +14,18 @@
     }
   }
 
-  function resolveWorldEntryViewpoint(entityId) {
-    const id = String(entityId || "").trim();
-    if (!id) return null;
+  function resolveWorldEntryViewpoint(entityId, objectId) {
+    const entity = String(entityId || "").trim();
+    const object = String(objectId || "").trim();
+    if (!entity && !object) return null;
     const viewpoints = readPresentationMap()?.viewpoints || {};
     const candidates = Object.entries(viewpoints)
       .map(([viewpointId, entry]) => ({ viewpointId, entry }))
       .filter(({ entry }) => {
         const family = String(entry?.viewFamily || entry?.view_family || "").trim();
-        const entity = String(entry?.entityId || entry?.entity_id || "").trim();
-        return family === "world" && entity === id;
+        const entryEntity = String(entry?.entityId || entry?.entity_id || "").trim();
+        const entryObject = String(entry?.objectId || entry?.object_id || "").trim();
+        return family === "world" && (object ? entryObject === object : entryEntity === entity);
       });
     if (!candidates.length) return null;
     const entryPreferred = candidates.find(({ viewpointId }) =>
@@ -34,6 +36,7 @@
 
   function dispatchEnterWorldView(detail) {
     const entityId = String(detail?.entityId || detail?.entity_id || "").trim();
+    const objectId = String(detail?.objectId || detail?.object_id || "").trim();
     const explicitViewpoint = String(
       detail?.viewpoint ||
         detail?.viewpointId ||
@@ -46,7 +49,7 @@
           viewpointId: explicitViewpoint,
           entry: readPresentationMap()?.viewpoints?.[explicitViewpoint] || null,
         }
-      : resolveWorldEntryViewpoint(entityId);
+      : resolveWorldEntryViewpoint(entityId, objectId);
     if (!matched?.viewpointId) {
       if (typeof console !== "undefined" && typeof console.warn === "function") {
         console.warn("[mei] map-world-bridge: no world viewpoint for entity", entityId);
@@ -81,6 +84,12 @@
       ).trim(),
       panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
     };
+    const resolvedObjectId = String(
+      objectId || entry.objectId || entry.object_id || "",
+    ).trim();
+    if (resolvedObjectId) {
+      action.objectId = resolvedObjectId;
+    }
     const dispatch = boot.dispatchPresentationAction;
     if (typeof dispatch === "function") {
       return dispatch(action);

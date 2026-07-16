@@ -38,6 +38,8 @@
   "spa-navigation/presentation/viewport-stage-host.js",
   "spa-navigation/spa/stage-surface.js",
   "spa-navigation/presentation/world-stage-runtime.js",
+  "spa-navigation/presentation/object-selection-runtime.js",
+  "spa-navigation/presentation/map-world-bridge.js",
   "spa-navigation/presentation/layer2-workspace.js",
   "spa-navigation/drilldown/storage.js",
   "spa-navigation/drilldown/projection-host.js",

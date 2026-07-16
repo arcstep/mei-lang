@@ -103,7 +103,14 @@ function createRuntime({ aot = null, dom = null, stored = null } = {}) {
         storage.delete(key);
       },
     },
-    __mei: aot ? { presentation_map: { defaultScript: aot } } : {},
+    __mei: aot
+      ? {
+          presentation_map: {
+            schemaVersion: "mei-presentation-map-v1",
+            defaultScript: aot,
+          },
+        }
+      : {},
     __meiLangBoot: {
       nextDeckPage() {
         nextDeckCalls += 1;

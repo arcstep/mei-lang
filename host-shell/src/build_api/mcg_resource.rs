@@ -240,6 +240,7 @@ fn graph_node_kind_from_slug(slug: &str) -> Option<GraphNodeKind> {
         "navigation" => Some(GraphNodeKind::Navigation),
         "warmup_policy" => Some(GraphNodeKind::WarmupPolicy),
         "world_model" => Some(GraphNodeKind::WorldModel),
+        "object_catalog" => Some(GraphNodeKind::ObjectCatalog),
         _ => None,
     }
 }

@@ -5,13 +5,15 @@ use anyhow::{Context, Result};
 use mei_bundle::{read_bundle, MeiCompileExchange};
 use mei_graph::GraphBlock;
 use mei_host_core::{HostContext, ImportReport};
-use mei_lang_kernel::{resolve_app_eval_cache_root, resolve_app_registry_root, resolve_app_root};
+use mei_lang_kernel::{
+    resolve_app_eval_cache_root, resolve_app_registry_root, resolve_app_root, ObjectCatalog,
+};
 use serde_json::{json, Value};
 
 use crate::bridge::export_bridge_from_mcg;
 use crate::content_store::{
-    self, APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, NAVIGATION, PROJECTION_ASSEMBLY,
-    SEMANTIC_SCENE, WARMUP_POLICY,
+    self, APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, NAVIGATION, OBJECT_CATALOG,
+    PROJECTION_ASSEMBLY, SEMANTIC_SCENE, WARMUP_POLICY,
 };
 use crate::mcg::registry::{McgNodeRecord, McgRegistryWriter};
 use crate::types::{stable_hash, GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
@@ -61,6 +63,7 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
     let mut bundle_owners = BTreeMap::new();
 
     for block in &exchange.blocks {
+        validate_object_catalog_block(block)?;
         let (kind, schema_version) = cas_kind_for_block(block);
         let revision = block_revision(block);
         let artifact = wrap_block_artifact(block, &revision);
@@ -155,11 +158,20 @@ fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
         "view_spec" => (SEMANTIC_SCENE, "mei-view-spec-v1"),
         "content_panel" => (CONTENT_PANEL, "mei-panel-contract-artifact-v1"),
         "metric_def_bundle" => (METRIC_DEF_BUNDLE, "mei-metric-def-bundle-artifact-v1"),
+        "object_catalog" => (OBJECT_CATALOG, "mei-object-catalog-v1"),
         "page_instance" => (PROJECTION_ASSEMBLY, "mei-projection-assembly-v1"),
         "navigation" | "link_decl" => (NAVIGATION, "mei-navigation-artifact-v1"),
         "warmup_policy" => (WARMUP_POLICY, "mei-warmup-policy-artifact-v1"),
         _ => (PROJECTION_ASSEMBLY, "mei-graph-block-v2"),
     }
+}
+
+fn validate_object_catalog_block(block: &GraphBlock) -> Result<()> {
+    if block.kind == "object_catalog" {
+        serde_json::from_value::<ObjectCatalog>(block.payload.clone())
+            .context("decode object_catalog payload")?;
+    }
+    Ok(())
 }
 
 fn block_revision(block: &GraphBlock) -> String {
@@ -173,6 +185,11 @@ fn block_revision(block: &GraphBlock) -> String {
 fn node_key_for_block(block: &GraphBlock) -> String {
     if let Some(key) = block.payload.get("key").and_then(|v| v.as_str()) {
         return key.to_string();
+    }
+    if block.kind == "object_catalog" {
+        if let Some(id) = block.payload.get("id").and_then(|value| value.as_str()) {
+            return id.to_string();
+        }
     }
     block.block_id.clone()
 }
@@ -209,6 +226,47 @@ mod tests {
         assert_eq!(
             node_key_for_block(&block),
             "home@src/scene/home/assembly.mei"
+        );
+    }
+
+    #[test]
+    fn object_catalog_has_distinct_mcg_kind_and_valid_contract() {
+        let block = GraphBlock {
+            kind: "object_catalog".to_string(),
+            block_id: "object_catalog:warning_objects".to_string(),
+            schema: "mei-object-catalog-v1".to_string(),
+            payload: json!({
+                "schema_version": "mei-object-catalog-v1",
+                "id": "warning_objects",
+                "types": [{
+                    "id": "zhifa.Warning",
+                    "identity": {
+                        "materialization": "dataset_row",
+                        "fields": ["warning_id"],
+                        "normalization": null
+                    },
+                    "source": {
+                        "role": "source",
+                        "kind": "dataset_ref",
+                        "id": "warning_rows",
+                        "source_anchor": "domain/warnings.objects.mei"
+                    },
+                    "projections": [],
+                    "source_anchor": "domain/warnings.objects.mei"
+                }],
+                "refs": [],
+                "source_anchor": "domain/warnings.objects.mei"
+            }),
+        };
+        validate_object_catalog_block(&block).expect("valid object catalog contract");
+        assert_eq!(node_key_for_block(&block), "warning_objects");
+        assert_eq!(
+            GraphNodeKind::from_block_kind(&block.kind),
+            GraphNodeKind::ObjectCatalog
+        );
+        assert_eq!(
+            cas_kind_for_block(&block),
+            (OBJECT_CATALOG, "mei-object-catalog-v1")
         );
     }
 }

@@ -51,10 +51,6 @@ pub use assemble::{
     assemble_scope_from_registry, collect_all_t2_page_scenes, list_scope_routes,
     t2_page_scenes_for_section_scope, AssembleOutcome, ScopeRoute,
 };
-pub use stage_program_discover::{
-    discover_program_for_stage, discover_stage_programs, scene_use_to_target,
-    DiscoveredStageProgram, StageProgramProfile,
-};
 pub use assemble_cache::{
     assemble_cache_key, assemble_cache_key_partitioned, clear_assemble_cache_for_app,
     clear_assemble_cache_for_partition, store_assemble_outcome, take_assemble_outcome,
@@ -62,7 +58,7 @@ pub use assemble_cache::{
 pub use content_store::{
     content_hash_bytes, get, put_if_absent, read_payload_bytes, read_payload_json,
     resolve_payload_ref, APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, METRIC_RESPONSE,
-    NAVIGATION, PROJECTION_ASSEMBLY, WARMUP_POLICY,
+    NAVIGATION, OBJECT_CATALOG, PROJECTION_ASSEMBLY, WARMUP_POLICY,
 };
 pub use data_snapshot::{
     collect_app_xlsx_sources, ensure_app_data_snapshots, publish_app_data_snapshots,
@@ -93,6 +89,10 @@ pub use manifest_index::{
 pub use mcg::registry::{
     McgNodeRecord, McgRegistry, McgRegistryWriter, MCG_REGISTRY_SCHEMA_VERSION,
 };
+pub use mei_lang_kernel::{
+    accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
+    presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
+};
 pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
@@ -115,8 +115,8 @@ pub use mrg::frontier::{
 pub use mrg::nodes::MrgNodeRecord;
 pub use mrg::registry::{
     MrgEdgeRecord, MrgLastEval, MrgRegistry, MrgRegistryLoadError, MrgRegistryWriter, MrgSlotId,
-    MrgSlotRecord, MrgTelemetrySummary, MRG_REGISTRY_SCHEMA_VERSION, MRG_REGISTRY_SCHEMA_V2,
-    MRG_REGISTRY_SCHEMA_V3,
+    MrgSlotRecord, MrgTelemetrySummary, MRG_REGISTRY_SCHEMA_V2, MRG_REGISTRY_SCHEMA_V3,
+    MRG_REGISTRY_SCHEMA_VERSION,
 };
 pub use mrg::scene_eval_pack::{
     build_scene_eval_pack, SceneEvalPackBuildOptions, SceneEvalPackEvalLayerRef,
@@ -136,10 +136,6 @@ pub use paths::{bridge_path, mcg_registry_path, mrg_registry_path, resolve_graph
 pub use presentation_map::{
     build_presentation_map, presentation_map_to_value, resolve_viewpoint_id, PresentationDeck,
     PresentationDeckSlide, PresentationMapDocument,
-};
-pub use mei_lang_kernel::{
-    accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
-    presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
 };
 pub use runtime_plans::{
     build_runtime_plans_document, empty_runtime_plans_document, ensure_runtime_plans_cached,
@@ -166,13 +162,17 @@ pub use semantic_scene::{
     has_semantic_scene, load_semantic_scene_payload, target_key_from_payload,
     SemanticSceneAssembly, T2PageCatalogEntry,
 };
-pub use stage_bootstrap::{
-    narration_catalogs_bootstrap, stage_programs_bootstrap, stage_registry_bootstrap,
-};
 pub use shell_layer::{
     build_shell_layer_document, ensure_shell_layer_cached, ensure_shell_layer_rendered,
     is_placeholder_shell_document, shell_layer_json, store_shell_layer_document,
     ShellLayerDocument, SHELL_LAYER_SCHEMA,
+};
+pub use stage_bootstrap::{
+    narration_catalogs_bootstrap, stage_programs_bootstrap, stage_registry_bootstrap,
+};
+pub use stage_program_discover::{
+    discover_program_for_stage, discover_stage_programs, scene_use_to_target,
+    DiscoveredStageProgram, StageProgramProfile,
 };
 pub use structure_full::{
     build_structure_full_document, build_structure_index_document, closure_for_node_id,

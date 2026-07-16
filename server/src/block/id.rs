@@ -53,6 +53,7 @@ fn parse_kind_slug(slug: &str) -> Result<GraphNodeKind> {
         "workset" => Ok(GraphNodeKind::Workset),
         "material_slot" => Ok(GraphNodeKind::MaterialSlot),
         "navigation" => Ok(GraphNodeKind::Navigation),
+        "object_catalog" => Ok(GraphNodeKind::ObjectCatalog),
         other => Err(anyhow!("unknown block kind slug `{other}`")),
     }
 }

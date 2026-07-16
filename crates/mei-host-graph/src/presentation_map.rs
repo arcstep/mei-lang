@@ -27,6 +27,8 @@ pub struct ViewpointMapEntry {
     pub world_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "entityId")]
     pub entity_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "objectId")]
+    pub object_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "groupId")]
     pub group_id: Option<String>,
     #[serde(
@@ -93,6 +95,7 @@ struct ViewpointHints {
     stage_kind: Option<String>,
     world_ref: Option<String>,
     entity_id: Option<String>,
+    object_id: Option<String>,
     group_id: Option<String>,
     camera_preset: Option<String>,
 }
@@ -107,6 +110,7 @@ impl ViewpointHints {
             stage_kind: read_string(obj, &["__mei_stage_kind", "stageKind", "stage_kind"]),
             world_ref: read_string(obj, &["__mei_world_ref", "worldRef", "world_ref"]),
             entity_id: read_string(obj, &["entityId", "entity_id"]),
+            object_id: read_string(obj, &["objectId", "object_id"]),
             group_id: read_string(obj, &["groupId", "group_id"]),
             camera_preset: read_string(obj, &["cameraPreset", "camera_preset"]),
         };
@@ -125,6 +129,9 @@ impl ViewpointHints {
             }
             if hints.entity_id.is_none() {
                 hints.entity_id = read_string(args, &["entityId", "entity_id"]);
+            }
+            if hints.object_id.is_none() {
+                hints.object_id = read_string(args, &["objectId", "object_id"]);
             }
             if hints.group_id.is_none() {
                 hints.group_id = read_string(args, &["groupId", "group_id"]);
@@ -148,6 +155,9 @@ impl ViewpointHints {
         }
         if self.entity_id.is_none() {
             self.entity_id = fallback.entity_id.clone();
+        }
+        if self.object_id.is_none() {
+            self.object_id = fallback.object_id.clone();
         }
         if self.group_id.is_none() {
             self.group_id = fallback.group_id.clone();
@@ -187,6 +197,7 @@ fn entry_from_hints(
         stage_kind: hints.stage_kind,
         world_ref: hints.world_ref,
         entity_id: hints.entity_id,
+        object_id: hints.object_id,
         group_id: hints.group_id,
         camera_preset: hints.camera_preset,
     }
@@ -223,6 +234,7 @@ fn merge_viewpoint_entry(
         stage_kind: candidate.stage_kind.or(existing.stage_kind),
         world_ref: candidate.world_ref.or(existing.world_ref),
         entity_id: candidate.entity_id.or(existing.entity_id),
+        object_id: candidate.object_id.or(existing.object_id),
         group_id: candidate.group_id.or(existing.group_id),
         camera_preset: candidate.camera_preset.or(existing.camera_preset),
     }
@@ -240,6 +252,9 @@ fn viewpoint_entry_specificity(entry: &ViewpointMapEntry) -> usize {
         score += 2;
     }
     if entry.entity_id.is_some() {
+        score += 1;
+    }
+    if entry.object_id.is_some() {
         score += 1;
     }
     if entry.group_id.is_some() {
@@ -665,6 +680,7 @@ mod tests {
                     "label": "总览",
                     "worldRef": "park_world",
                     "entityId": "lake_pavilion",
+                    "object_id": "park.lake-pavilion",
                     "groupId": "overview",
                     "cameraPreset": "orbit"
                 }
@@ -685,6 +701,7 @@ mod tests {
         assert_eq!(entry.view_family.as_deref(), Some("map"));
         assert_eq!(entry.world_ref.as_deref(), Some("park_world"));
         assert_eq!(entry.entity_id.as_deref(), Some("lake_pavilion"));
+        assert_eq!(entry.object_id.as_deref(), Some("park.lake-pavilion"));
         assert_eq!(entry.group_id.as_deref(), Some("overview"));
         assert_eq!(entry.camera_preset.as_deref(), Some("orbit"));
     }
@@ -736,6 +753,7 @@ mod tests {
                         "id": "park_point_1_entry",
                         "worldRef": "park_world",
                         "entityId": "lake_pavilion",
+                        "objectId": "park.lake-pavilion",
                         "groupId": "lake_pavilion_story",
                         "cameraPreset": "lake_pavilion_focus"
                     }
@@ -750,6 +768,7 @@ mod tests {
         assert_eq!(entry.view_family.as_deref(), Some("map"));
         assert_eq!(entry.world_ref.as_deref(), Some("park_world"));
         assert_eq!(entry.entity_id.as_deref(), Some("lake_pavilion"));
+        assert_eq!(entry.object_id.as_deref(), Some("park.lake-pavilion"));
         assert_eq!(entry.group_id.as_deref(), Some("lake_pavilion_story"));
         assert_eq!(entry.camera_preset.as_deref(), Some("lake_pavilion_focus"));
         assert_eq!(entry.panel_id, "basemap");
@@ -767,6 +786,7 @@ mod tests {
             stage_kind: Some("map-stage".to_string()),
             world_ref: Some("park_world".to_string()),
             entity_id: Some("lake_pavilion".to_string()),
+            object_id: Some("park.lake-pavilion".to_string()),
             group_id: Some("lake_pavilion_story".to_string()),
             camera_preset: Some("lake_pavilion_focus".to_string()),
         };
@@ -779,6 +799,7 @@ mod tests {
             stage_kind: None,
             world_ref: None,
             entity_id: None,
+            object_id: None,
             group_id: None,
             camera_preset: None,
         };
@@ -786,6 +807,90 @@ mod tests {
         assert_eq!(merged.panel_id, "basemap");
         assert_eq!(merged.tier, "t0");
         assert_eq!(merged.world_ref.as_deref(), Some("park_world"));
+        assert_eq!(merged.object_id.as_deref(), Some("park.lake-pavilion"));
+    }
+
+    #[test]
+    fn object_id_increases_viewpoint_entry_specificity() {
+        let existing = ViewpointMapEntry {
+            tier: "t0".to_string(),
+            panel_id: "generic_panel".to_string(),
+            block_path: None,
+            label: None,
+            view_family: None,
+            stage_kind: None,
+            world_ref: None,
+            entity_id: None,
+            object_id: None,
+            group_id: None,
+            camera_preset: None,
+        };
+        let candidate = ViewpointMapEntry {
+            tier: "t1".to_string(),
+            panel_id: "object_panel".to_string(),
+            block_path: Some("1".to_string()),
+            label: None,
+            view_family: None,
+            stage_kind: None,
+            world_ref: None,
+            entity_id: None,
+            object_id: Some("domain.object-1".to_string()),
+            group_id: None,
+            camera_preset: None,
+        };
+        let merged = merge_viewpoint_entry(Some(existing), candidate);
+        assert_eq!(merged.panel_id, "object_panel");
+        assert_eq!(merged.tier, "t1");
+        assert_eq!(merged.object_id.as_deref(), Some("domain.object-1"));
+    }
+
+    #[test]
+    fn panel_object_id_falls_back_into_viewpoint_entry_and_serializes_camel_case() {
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "object_panel".to_string(),
+            title: None,
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![UiTreeNode::Block(mei_lang_kernel::BlockDecl {
+                kind: "block".to_string(),
+                use_key: "object.detail".to_string(),
+                id: Some("object_detail".to_string()),
+                title: None,
+                area: None,
+                props: json!({ "__mei_viewpoint": "object_detail" }),
+                base: None,
+                layout: None,
+                blocks: Vec::new(),
+                component: None,
+                placement: None,
+                interactions: Vec::new(),
+                lifecycle: None,
+                constraints: None,
+                data: None,
+            })],
+            slot: None,
+            props: json!({ "object_id": "domain.object-1" }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let map = build_presentation_map("home", &[panel], &BTreeMap::new());
+        let entry = map
+            .viewpoints
+            .get("object_detail")
+            .expect("viewpoint entry");
+        assert_eq!(entry.object_id.as_deref(), Some("domain.object-1"));
+        let value = presentation_map_to_value(&map);
+        assert_eq!(
+            value["viewpoints"]["object_detail"]["objectId"],
+            "domain.object-1"
+        );
+        assert!(value["viewpoints"]["object_detail"]
+            .get("object_id")
+            .is_none());
     }
 
     #[test]

@@ -383,3 +383,112 @@ content_panel(
     assert!(dumped.contains("nav_row"), "{dumped}");
     assert!(dumped.contains("filter_key"), "{dumped}");
 }
+
+#[test]
+fn object_defaults_expand_to_thin_object_projection_contracts() {
+    let templates_root = stock_templates_root();
+    let roots = TemplateRoots::stock_only(templates_root.clone());
+    let registry = MacroRegistry::load_dir(&templates_root).expect("load");
+    let parsed = parse_v2_source(
+        r#"
+use template "cockpit/object-defaults" as object_ui
+
+content_panel(
+    id = "object_projection_fixture",
+    props = object_ui.object_binding_props(
+        object_type = "demo.Warning",
+        identity_field = "warning_id",
+        object_id = "props-object-42",
+        entity_id = "props-entity-42",
+    ),
+    viewpoints = [
+        object_ui.object_viewpoint(
+            id = "warning-focus",
+            object_id = "viewpoint-object-42",
+            entity_id = "viewpoint-entity-42",
+            world_ref = "warning-world",
+            view_family = "world",
+            camera_preset = "warning-closeup",
+            group_id = "warning-group",
+        ),
+    ],
+    blocks = [
+        object_ui.object_metric_card(
+            id = "warning-count",
+            viewpoint_id = "warning-card-focus",
+            object_id = "metric-object-42",
+        ),
+    ],
+    actions = [
+        object_ui.object_world_entry_action(
+            object_id = "world-action-object-42",
+            entity_id = "world-action-entity-42",
+            viewpoint = "warning-focus",
+            world_ref = "warning-world",
+            camera_preset = "warning-closeup",
+            group_id = "warning-group",
+        ),
+        object_ui.object_t2_action(
+            object_id = "t2-action-object-42",
+            page_panel_id = "warning-detail-panel",
+            page_scene_id = "warning-detail-scene",
+        ),
+    ],
+    narration_target = object_ui.object_narration_target(
+        object_id = "narration-object-42",
+        viewpoint = "warning-focus",
+    ),
+)
+"#,
+    )
+    .expect("parse object defaults usage");
+    let expanded = expand_v2_file(&parsed, &registry, &roots).expect("expand");
+    let dumped = serde_json::to_string(&expanded).expect("serialize expanded");
+
+    for expected in [
+        "demo.Warning",
+        "warning_id",
+        "props-object-42",
+        "viewpoint-object-42",
+        "metric-object-42",
+        "world-action-object-42",
+        "t2-action-object-42",
+        "narration-object-42",
+        "warning-detail-panel",
+        "warning-detail-scene",
+    ] {
+        assert!(
+            dumped.contains(expected),
+            "expanded object defaults must retain `{expected}`: {dumped}"
+        );
+    }
+    for expected in [
+        "objectType",
+        "identityField",
+        "objectId",
+        "entityId",
+        "worldRef",
+        "viewFamily",
+        "cameraPreset",
+        "groupId",
+        "viewpoint",
+        "enter_world_view",
+        "open_t2_page",
+        "metric-bg-normal",
+    ] {
+        assert!(
+            dumped.contains(expected),
+            "expanded object defaults must emit `{expected}`: {dumped}"
+        );
+    }
+    assert!(
+        !dumped.contains("object_ui") && !dumped.contains("object_defaults"),
+        "all object macros must expand at compile time: {dumped}"
+    );
+    assert!(
+        !dumped.contains("scene_export")
+            && !dumped.contains("scene_ref")
+            && !dumped.contains("page_instance"),
+        "object defaults must not generate editable Scene sources: {dumped}"
+    );
+}

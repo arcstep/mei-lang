@@ -10,6 +10,7 @@ pub const CONTENT_PANEL: &str = "content_panel";
 pub const APP_SKELETON: &str = "app_skeleton";
 pub const SEMANTIC_SCENE: &str = "semantic_scene";
 pub const METRIC_DEF_BUNDLE: &str = "metric_def_bundle";
+pub const OBJECT_CATALOG: &str = "object_catalog";
 pub const METRIC_RESPONSE: &str = "metric_response";
 pub const PROJECTION_ASSEMBLY: &str = "projection_assembly";
 pub const NAVIGATION: &str = "navigation";

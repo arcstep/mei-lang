@@ -181,6 +181,7 @@ fn ref_keyword_parser() -> impl Parser<char, String, Error = Simple<char>> + Clo
         just("dataframe_ref").to("dataframe_ref"),
         just("source_feature_ref").to("source_feature_ref"),
         just("feature_ref").to("feature_ref"),
+        just("object_ref").to("object_ref"),
     ))
     .map(str::to_string)
 }
@@ -581,6 +582,41 @@ template slot_metric_card(id = "y"):
             !file.items.is_empty(),
             "authoring example should produce AST items"
         );
+    }
+
+    #[test]
+    fn parses_object_catalog_and_thin_object_ref() {
+        let source = r#"
+object_catalog(
+    id = "warning_objects",
+    types = [
+        object_type(
+            id = "zhifa.Warning",
+            identity = object_identity(fields = ["warning_id"]),
+            source = dataset_ref("warning_rows"),
+            label = field_ref("title"),
+        ),
+    ],
+    refs = [object_ref("thunder.StormEvent")],
+)
+"#;
+        let file = parse_v2_source(source).expect("object catalog should parse");
+        let V2Item::TopLevel { name, args } = &file.items[0] else {
+            panic!("expected top-level object catalog");
+        };
+        assert_eq!(name, "object_catalog");
+        let refs = args
+            .keywords
+            .iter()
+            .find_map(|(key, value)| (key == "refs").then_some(value))
+            .expect("refs");
+        let V2Expr::List(refs) = refs else {
+            panic!("expected refs list");
+        };
+        assert!(matches!(
+            &refs[0],
+            V2Expr::RefCall { name, .. } if name == "object_ref"
+        ));
     }
 }
 

@@ -33,6 +33,20 @@ const bundleManifestPath = path.join(root, "scripts", "bundle-manifest.json");
 const bundleManifest = JSON.parse(await readFile(bundleManifestPath, "utf8"));
 const accessScripts = bundleManifest.accessScripts || [];
 const manageScripts = bundleManifest.manageScripts || [];
+const objectSelectionModule =
+  "spa-navigation/presentation/object-selection-runtime.js";
+const mapWorldBridgeModule = "spa-navigation/presentation/map-world-bridge.js";
+const focusControllerModule = "spa-navigation/presentation/focus-controller.js";
+for (const scripts of [accessScripts, manageScripts]) {
+  const selectionIndex = scripts.indexOf(objectSelectionModule);
+  const bridgeIndex = scripts.indexOf(mapWorldBridgeModule);
+  const focusIndex = scripts.indexOf(focusControllerModule);
+  assert.ok(selectionIndex >= 0, `bundle must include ${objectSelectionModule}`);
+  assert.ok(
+    selectionIndex < bridgeIndex && selectionIndex < focusIndex,
+    "object selection runtime must load before map-world and focus bridges",
+  );
+}
 const assemblyModules = [
   "spa-navigation/spa/structure-tree-materializer.js",
   "spa-navigation/spa/host-capabilities-ready.js",
@@ -159,6 +173,11 @@ assert.match(
 const modulesPath = path.join(root, "scripts", "spa-navigation-modules.json");
 const moduleList = JSON.parse(await readFile(modulesPath, "utf8"));
 assert.ok(Array.isArray(moduleList) && moduleList.length > 0, "spa-navigation module list required");
+assert.ok(
+  moduleList.indexOf(objectSelectionModule) < moduleList.indexOf(mapWorldBridgeModule) &&
+    moduleList.indexOf(objectSelectionModule) < moduleList.indexOf(focusControllerModule),
+  "static module order must load object selection before map-world and focus bridges",
+);
 
 let src = "";
 for (const rel of moduleList) {
@@ -266,6 +285,24 @@ assert.match(
   focusController,
   /mei:structure-focus/,
   "focusStructure must dispatch mei:structure-focus",
+);
+assert.match(focusController, /meiObjectId/, "focus targets must stamp objectId");
+assert.match(focusController, /worldTarget\.objectId/, "world actions must preserve objectId");
+
+const objectSelectionRuntime = await readFile(
+  path.join(assetsRoot, objectSelectionModule),
+  "utf8",
+);
+assert.match(objectSelectionRuntime, /mei:object-select/, "object select input event required");
+assert.match(
+  objectSelectionRuntime,
+  /mei:object-selection-change/,
+  "object selection change event required",
+);
+assert.doesNotMatch(
+  objectSelectionRuntime,
+  /query_state|queryState/,
+  "object selection must stay separate from query_state",
 );
 
 const copilotToolbar = await readFile(

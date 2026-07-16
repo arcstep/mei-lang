@@ -36,6 +36,7 @@ pub enum GraphNodeKind {
     Navigation,
     WarmupPolicy,
     WorldModel,
+    ObjectCatalog,
 }
 
 impl GraphNodeKind {
@@ -55,6 +56,7 @@ impl GraphNodeKind {
             Self::Navigation => "navigation",
             Self::WarmupPolicy => "warmup_policy",
             Self::WorldModel => "world_model",
+            Self::ObjectCatalog => "object_catalog",
         }
     }
 
@@ -67,6 +69,7 @@ impl GraphNodeKind {
             "navigation" | "link_decl" => Self::Navigation,
             "warmup_policy" => Self::WarmupPolicy,
             "world" => Self::WorldModel,
+            "object_catalog" => Self::ObjectCatalog,
             _ => Self::SemanticGraph,
         }
     }

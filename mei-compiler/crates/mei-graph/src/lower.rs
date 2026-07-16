@@ -1,6 +1,8 @@
-use mei_syntax::v2::{CallArgs, V2Item, V2SourceFile};
+use std::collections::BTreeSet;
+
+use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value as JsonValue};
+use serde_json::{json, Map, Value as JsonValue};
 use thiserror::Error;
 
 use crate::artifact_expand;
@@ -9,6 +11,28 @@ use crate::artifact_expand;
 pub enum LowerGraphError {
     #[error("{0}")]
     Lower(String),
+    #[error("[{code}] {message} @ {source_anchor}")]
+    Diagnostic {
+        code: &'static str,
+        message: String,
+        source_anchor: String,
+    },
+}
+
+impl LowerGraphError {
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::Lower(_) => None,
+            Self::Diagnostic { code, .. } => Some(code),
+        }
+    }
+
+    pub fn source_anchor(&self) -> Option<&str> {
+        match self {
+            Self::Lower(_) => None,
+            Self::Diagnostic { source_anchor, .. } => Some(source_anchor),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +72,11 @@ fn lower_top_level(
     name: &str,
     args: &CallArgs,
 ) -> Result<GraphBlock, LowerGraphError> {
-    let mut payload = call_args_to_json(args)?;
+    let mut payload = if name == "object_catalog" {
+        lower_object_catalog(source_file, args)?
+    } else {
+        call_args_to_json(args)?
+    };
     if matches!(
         name,
         "scene"
@@ -126,6 +154,7 @@ fn schema_for_constructor(name: &str) -> &'static str {
         "metric_def_bundle" => "mei-metric-def-bundle-artifact-v1",
         "navigation" | "link_decl" => "mei-navigation-artifact-v1",
         "warmup_policy" => "mei-warmup-policy-artifact-v1",
+        "object_catalog" => "mei-object-catalog-v1",
         _ => "mei-graph-block-v2",
     }
 }
@@ -173,6 +202,7 @@ fn derive_block_id(
             }
         }
         "metric_def_bundle" => kw_string(obj, "key").map(|key| format!("metric_def_bundle:{key}")),
+        "object_catalog" => kw_string(obj, "id").map(|id| format!("object_catalog:{id}")),
         "world" => kw_string(obj, "id").map(|id| format!("world_model:{id}")),
         "warmup_policy" => {
             let scope = obj.get("scope").cloned().unwrap_or(JsonValue::Null);
@@ -206,6 +236,387 @@ fn call_args_to_json(args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
         );
     }
     Ok(JsonValue::Object(map))
+}
+
+fn lower_object_catalog(
+    source_anchor: &str,
+    args: &CallArgs,
+) -> Result<JsonValue, LowerGraphError> {
+    let id = required_keyword_string(
+        args,
+        "id",
+        "object_catalog_missing_id",
+        "object_catalog must declare a non-empty string `id`",
+        source_anchor,
+    )?;
+    let mut seen_type_ids = BTreeSet::new();
+    let mut types = Vec::new();
+    if let Some(types_expr) = keyword(args, "types") {
+        let V2Expr::List(type_exprs) = types_expr else {
+            return Err(diagnostic(
+                "object_type_shape_invalid",
+                "object_catalog `types` must be a list of object_type(...) calls",
+                source_anchor,
+            ));
+        };
+        for type_expr in type_exprs {
+            let object_type = lower_object_type(type_expr, source_anchor)?;
+            let type_id = object_type["id"].as_str().unwrap_or_default();
+            if !seen_type_ids.insert(type_id.to_string()) {
+                return Err(diagnostic(
+                    "object_type_duplicate_id",
+                    format!("duplicate object type id `{type_id}`"),
+                    source_anchor,
+                ));
+            }
+            types.push(object_type);
+        }
+    }
+
+    let mut refs = Vec::new();
+    if let Some(refs_expr) = keyword(args, "refs") {
+        let V2Expr::List(ref_exprs) = refs_expr else {
+            return Err(diagnostic(
+                "object_ref_shape_invalid",
+                "object_catalog `refs` must be a list of object_ref(...) calls",
+                source_anchor,
+            ));
+        };
+        for expr in ref_exprs {
+            refs.push(lower_explicit_object_ref(expr, source_anchor)?);
+        }
+    }
+
+    Ok(json!({
+        "schema_version": "mei-object-catalog-v1",
+        "id": id,
+        "types": types,
+        "refs": refs,
+        "source_anchor": source_anchor,
+    }))
+}
+
+fn lower_object_type(expr: &V2Expr, source_anchor: &str) -> Result<JsonValue, LowerGraphError> {
+    let V2Expr::Call { path, args } = expr else {
+        return Err(diagnostic(
+            "object_type_shape_invalid",
+            "catalog types must contain object_type(...) calls",
+            source_anchor,
+        ));
+    };
+    if path.as_slice() != ["object_type"] {
+        return Err(diagnostic(
+            "object_type_shape_invalid",
+            "catalog types must contain object_type(...) calls",
+            source_anchor,
+        ));
+    }
+
+    let id = required_keyword_string(
+        args,
+        "id",
+        "object_type_missing_id",
+        "object_type must declare a non-empty string `id`",
+        source_anchor,
+    )?;
+    let source = lower_object_source(keyword(args, "source"), source_anchor)?;
+    let materialization = match source["kind"].as_str() {
+        Some("dataset_ref" | "dataframe_ref") => "dataset_row",
+        _ => "declared",
+    };
+    let identity =
+        lower_object_identity(keyword(args, "identity"), materialization, source_anchor)?;
+    let label = keyword(args, "label")
+        .and_then(expr_string)
+        .map(str::to_string);
+    let capabilities = optional_non_empty_string_list(
+        keyword(args, "capabilities"),
+        "object_capabilities_invalid",
+        "object_type capabilities must be a list of non-empty strings",
+        source_anchor,
+    )?;
+
+    let mut projections = Vec::new();
+    for (role, value) in &args.keywords {
+        if matches!(
+            role.as_str(),
+            "id" | "label" | "identity" | "source" | "capabilities"
+        ) {
+            continue;
+        }
+        collect_projection_refs(value, role, source_anchor, &mut projections)?;
+    }
+    if let Some(label_expr) = keyword(args, "label") {
+        if !matches!(label_expr, V2Expr::String(_)) {
+            collect_projection_refs(label_expr, "label", source_anchor, &mut projections)?;
+        }
+    }
+
+    Ok(json!({
+        "id": id,
+        "label": label,
+        "identity": identity,
+        "source": source,
+        "capabilities": capabilities,
+        "projections": projections,
+        "source_anchor": source_anchor,
+    }))
+}
+
+fn lower_object_identity(
+    identity: Option<&V2Expr>,
+    materialization: &str,
+    source_anchor: &str,
+) -> Result<JsonValue, LowerGraphError> {
+    let Some(V2Expr::Call { path, args }) = identity else {
+        return Err(diagnostic(
+            "object_identity_missing_fields",
+            "object_type identity must be object_identity(fields = [non-empty strings])",
+            source_anchor,
+        ));
+    };
+    if path.as_slice() != ["object_identity"] {
+        return Err(diagnostic(
+            "object_identity_missing_fields",
+            "object_type identity must be object_identity(fields = [non-empty strings])",
+            source_anchor,
+        ));
+    }
+    let fields = keyword(args, "fields")
+        .and_then(|value| match value {
+            V2Expr::List(items) => Some(
+                items
+                    .iter()
+                    .filter_map(expr_string)
+                    .map(str::trim)
+                    .filter(|field| !field.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .filter(|fields| {
+            keyword(args, "fields").and_then(|value| match value {
+                V2Expr::List(items) => Some(items.len()),
+                _ => None,
+            }) == Some(fields.len())
+                && !fields.is_empty()
+        })
+        .ok_or_else(|| {
+            diagnostic(
+                "object_identity_missing_fields",
+                "object_identity requires at least one non-empty string field",
+                source_anchor,
+            )
+        })?;
+    let normalization = keyword(args, "normalization")
+        .or_else(|| keyword(args, "normalize"))
+        .and_then(expr_string);
+    let aliases = optional_non_empty_string_list(
+        keyword(args, "aliases"),
+        "object_identity_aliases_invalid",
+        "object_identity aliases must be a list of non-empty strings",
+        source_anchor,
+    )?;
+    Ok(json!({
+        "materialization": materialization,
+        "fields": fields,
+        "aliases": aliases,
+        "normalization": normalization,
+    }))
+}
+
+fn lower_object_source(
+    source: Option<&V2Expr>,
+    source_anchor: &str,
+) -> Result<JsonValue, LowerGraphError> {
+    let Some(source) = source else {
+        return Err(diagnostic(
+            "object_type_missing_source",
+            "object_type must declare a thin `source = *_ref(...)`",
+            source_anchor,
+        ));
+    };
+    lower_projection_ref(
+        source,
+        "source",
+        source_anchor,
+        "object_type_source_invalid",
+    )?
+    .ok_or_else(|| {
+        diagnostic(
+            "object_type_source_invalid",
+            "object_type source must be a thin `*_ref(...)` with one string id",
+            source_anchor,
+        )
+    })
+}
+
+fn lower_explicit_object_ref(
+    expr: &V2Expr,
+    source_anchor: &str,
+) -> Result<JsonValue, LowerGraphError> {
+    let V2Expr::RefCall { name, args } = expr else {
+        return Err(diagnostic(
+            "object_ref_shape_invalid",
+            "catalog refs must contain object_ref(\"Type.Id\") or object_ref(id = \"Type.Id\")",
+            source_anchor,
+        ));
+    };
+    if name != "object_ref" {
+        return Err(diagnostic(
+            "object_ref_shape_invalid",
+            "catalog refs must contain object_ref(\"Type.Id\") or object_ref(id = \"Type.Id\")",
+            source_anchor,
+        ));
+    }
+    let id = thin_ref_id(args).ok_or_else(|| {
+        diagnostic(
+            "object_ref_shape_invalid",
+            "object_ref requires exactly one non-empty string id",
+            source_anchor,
+        )
+    })?;
+    Ok(projection_ref_json("catalog", name, id, source_anchor))
+}
+
+fn collect_projection_refs(
+    expr: &V2Expr,
+    role: &str,
+    source_anchor: &str,
+    output: &mut Vec<JsonValue>,
+) -> Result<(), LowerGraphError> {
+    if let Some(reference) = lower_projection_ref(
+        expr,
+        role,
+        source_anchor,
+        "object_projection_ref_shape_invalid",
+    )? {
+        output.push(reference);
+        return Ok(());
+    }
+    match expr {
+        V2Expr::List(items) => {
+            for item in items {
+                collect_projection_refs(item, role, source_anchor, output)?;
+            }
+        }
+        V2Expr::Dict(entries) => {
+            for (_, value) in entries {
+                collect_projection_refs(value, role, source_anchor, output)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn lower_projection_ref(
+    expr: &V2Expr,
+    role: &str,
+    source_anchor: &str,
+    invalid_code: &'static str,
+) -> Result<Option<JsonValue>, LowerGraphError> {
+    let (kind, args) = match expr {
+        V2Expr::RefCall { name, args } => (name.as_str(), args),
+        V2Expr::Call { path, args } if path.len() == 1 && path[0].ends_with("_ref") => {
+            (path[0].as_str(), args)
+        }
+        _ => return Ok(None),
+    };
+    let id = thin_ref_id(args).ok_or_else(|| {
+        diagnostic(
+            invalid_code,
+            format!("{kind} requires exactly one non-empty string id"),
+            source_anchor,
+        )
+    })?;
+    Ok(Some(projection_ref_json(role, kind, id, source_anchor)))
+}
+
+fn projection_ref_json(role: &str, kind: &str, id: &str, source_anchor: &str) -> JsonValue {
+    json!({
+        "role": role,
+        "kind": kind,
+        "id": id,
+        "source_anchor": source_anchor,
+    })
+}
+
+fn thin_ref_id(args: &CallArgs) -> Option<&str> {
+    match (args.positional.as_slice(), args.keywords.as_slice()) {
+        ([value], []) => expr_string(value)
+            .map(str::trim)
+            .filter(|id| !id.is_empty()),
+        ([], [(key, value)]) if key == "id" => expr_string(value)
+            .map(str::trim)
+            .filter(|id| !id.is_empty()),
+        _ => None,
+    }
+}
+
+fn required_keyword_string(
+    args: &CallArgs,
+    key: &str,
+    code: &'static str,
+    message: &str,
+    source_anchor: &str,
+) -> Result<String, LowerGraphError> {
+    keyword(args, key)
+        .and_then(expr_string)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| diagnostic(code, message, source_anchor))
+}
+
+fn optional_non_empty_string_list(
+    value: Option<&V2Expr>,
+    code: &'static str,
+    message: &str,
+    source_anchor: &str,
+) -> Result<Vec<String>, LowerGraphError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let V2Expr::List(items) = value else {
+        return Err(diagnostic(code, message, source_anchor));
+    };
+    items
+        .iter()
+        .map(|item| {
+            expr_string(item)
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| diagnostic(code, message, source_anchor))
+        })
+        .collect()
+}
+
+fn keyword<'a>(args: &'a CallArgs, key: &str) -> Option<&'a V2Expr> {
+    args.keywords
+        .iter()
+        .find_map(|(name, value)| (name == key).then_some(value))
+}
+
+fn expr_string(expr: &V2Expr) -> Option<&str> {
+    match expr {
+        V2Expr::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn diagnostic(
+    code: &'static str,
+    message: impl Into<String>,
+    source_anchor: &str,
+) -> LowerGraphError {
+    LowerGraphError::Diagnostic {
+        code,
+        message: message.into(),
+        source_anchor: source_anchor.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -262,5 +673,256 @@ slide_layout(
             msg.contains("unknown pattern") && msg.contains("two_columns"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn lowers_object_catalog_to_structured_row_free_payload() {
+        let source = r#"
+object_catalog(
+    id = "warning_objects",
+    types = [
+        object_type(
+            id = "zhifa.Warning",
+            label = "Warning",
+            identity = object_identity(
+                fields = ["warning_id"],
+                aliases = ["warningId", "legacy_warning_id"],
+                normalization = "trim",
+            ),
+            source = dataset_ref("warning_rows"),
+            capabilities = ["select", "explain"],
+            label_field = field_ref("title"),
+            metrics = [metric_ref("warning_metrics::detail")],
+            relations = [object_ref("zhifa.Entity")],
+            mirrors = [scene_ref("home::warning_detail")],
+        ),
+    ],
+    refs = [object_ref("thunder.StormEvent")],
+)
+"#;
+        let file = parse_v2_source(source).expect("parse");
+        let outcome =
+            lower_v2_file("domain/warnings.objects.mei", &file).expect("lower object catalog");
+        let block = &outcome.blocks[0];
+        assert_eq!(block.kind, "object_catalog");
+        assert_eq!(block.block_id, "object_catalog:warning_objects");
+        assert_eq!(block.schema, "mei-object-catalog-v1");
+        assert_eq!(
+            block.payload["source_anchor"],
+            "domain/warnings.objects.mei"
+        );
+        assert_eq!(block.payload["types"][0]["id"], "zhifa.Warning");
+        assert_eq!(
+            block.payload["types"][0]["identity"]["fields"][0],
+            "warning_id"
+        );
+        assert_eq!(
+            block.payload["types"][0]["identity"]["materialization"],
+            "dataset_row"
+        );
+        assert_eq!(
+            block.payload["types"][0]["identity"]["aliases"][1],
+            "legacy_warning_id"
+        );
+        assert_eq!(
+            block.payload["types"][0]["capabilities"],
+            json!(["select", "explain"])
+        );
+        assert_eq!(block.payload["types"][0]["source"]["kind"], "dataset_ref");
+        assert_eq!(
+            block.payload["types"][0]["projections"][0]["kind"],
+            "field_ref"
+        );
+        assert_eq!(block.payload["refs"][0]["kind"], "object_ref");
+        assert_eq!(
+            block.payload["types"][0]["projections"][1]["id"],
+            "warning_metrics::detail"
+        );
+        assert_eq!(
+            block.payload["types"][0]["projections"][1]["role"],
+            "metrics"
+        );
+        assert_eq!(
+            block.payload["types"][0]["projections"][3]["role"],
+            "mirrors"
+        );
+        assert!(block.payload["types"][0].get("rows").is_none());
+        assert!(block.payload["types"][0].get("schema").is_none());
+    }
+
+    #[test]
+    fn diagnoses_missing_catalog_and_type_contract_fields() {
+        let missing_catalog =
+            parse_v2_source(r#"object_catalog(types = [])"#).expect("parse missing catalog id");
+        let error = lower_v2_file("missing.objects.mei", &missing_catalog)
+            .expect_err("catalog id must be required");
+        assert_eq!(error.code(), Some("object_catalog_missing_id"));
+        assert_eq!(error.source_anchor(), Some("missing.objects.mei"));
+
+        let missing_type_id = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            identity = object_identity(fields = ["id"]),
+            source = dataset_ref("rows"),
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse missing type id");
+        let error = lower_v2_file("missing.objects.mei", &missing_type_id)
+            .expect_err("type id must be required");
+        assert_eq!(error.code(), Some("object_type_missing_id"));
+
+        let missing_identity = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(id = "demo.Type", source = dataset_ref("rows")),
+    ],
+)
+"#,
+        )
+        .expect("parse missing identity");
+        let error = lower_v2_file("missing.objects.mei", &missing_identity)
+            .expect_err("identity fields must be required");
+        assert_eq!(error.code(), Some("object_identity_missing_fields"));
+
+        let missing_source = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["id"]),
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse missing source");
+        let error = lower_v2_file("missing.objects.mei", &missing_source)
+            .expect_err("source must be required");
+        assert_eq!(error.code(), Some("object_type_missing_source"));
+    }
+
+    #[test]
+    fn diagnoses_duplicate_type_and_malformed_object_ref() {
+        let duplicate = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["id"]),
+            source = dataset_ref("rows"),
+        ),
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["other_id"]),
+            source = dataset_ref("other_rows"),
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse duplicate");
+        let error = lower_v2_file("duplicate.objects.mei", &duplicate)
+            .expect_err("duplicate type must fail");
+        assert_eq!(error.code(), Some("object_type_duplicate_id"));
+
+        let malformed_ref = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    refs = [object_ref(id = "demo.Type", alias = "bad")],
+)
+"#,
+        )
+        .expect("parse malformed ref");
+        let error = lower_v2_file("bad-ref.objects.mei", &malformed_ref)
+            .expect_err("malformed object_ref must fail");
+        assert_eq!(error.code(), Some("object_ref_shape_invalid"));
+    }
+
+    #[test]
+    fn diagnoses_invalid_aliases_capabilities_and_ref_bundle_kwargs() {
+        let invalid_aliases = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["id"], aliases = [""]),
+            source = dataset_ref("rows"),
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse invalid aliases");
+        let error = lower_v2_file("bad-alias.objects.mei", &invalid_aliases)
+            .expect_err("empty alias must fail");
+        assert_eq!(error.code(), Some("object_identity_aliases_invalid"));
+
+        let invalid_capabilities = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["id"]),
+            source = dataset_ref("rows"),
+            capabilities = "select",
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse invalid capabilities");
+        let error = lower_v2_file("bad-capability.objects.mei", &invalid_capabilities)
+            .expect_err("capabilities scalar must fail");
+        assert_eq!(error.code(), Some("object_capabilities_invalid"));
+
+        let bundled_ref = parse_v2_source(
+            r#"
+object_catalog(
+    id = "objects",
+    types = [
+        object_type(
+            id = "demo.Type",
+            identity = object_identity(fields = ["id"]),
+            source = dataset_ref("rows"),
+            metrics = [metric_ref(id = "detail", bundle = "metrics")],
+        ),
+    ],
+)
+"#,
+        )
+        .expect("parse bundled ref");
+        let error = lower_v2_file("bundled-ref.objects.mei", &bundled_ref)
+            .expect_err("thin ref must reject bundle kwargs");
+        assert_eq!(error.code(), Some("object_projection_ref_shape_invalid"));
+    }
+
+    #[test]
+    fn keeps_legacy_top_level_lowering_compatible() {
+        let file = parse_v2_source(
+            r#"
+content_panel(id = "legacy", chrome = "bare", blocks = [])
+"#,
+        )
+        .expect("parse old input");
+        let outcome = lower_v2_file("scene/legacy.mei", &file).expect("lower old input");
+        assert_eq!(outcome.blocks[0].kind, "content_panel");
+        assert_eq!(outcome.blocks[0].schema, "mei-panel-contract-artifact-v1");
     }
 }

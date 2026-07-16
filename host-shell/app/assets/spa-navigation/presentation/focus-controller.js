@@ -159,6 +159,26 @@
     return map?.viewpoints?.[id] || null;
   }
 
+  function syncObjectSelectionFromEntry(entry, viewpointId) {
+    const objectId = String(entry?.objectId || entry?.object_id || "").trim();
+    if (!objectId) return false;
+    const detail = {
+      objectId,
+      primaryObjectId: objectId,
+      source: "viewpoint",
+      mode: "replace",
+      viewpointId: String(viewpointId || "").trim(),
+    };
+    const selectionApi = boot.objectSelectionRuntime || globalThis.MeiObjectSelection;
+    if (selectionApi && typeof selectionApi.select === "function") {
+      selectionApi.select(detail);
+      return true;
+    }
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    root.dispatchEvent(new CustomEvent("mei:object-select", { detail }));
+    return true;
+  }
+
   function stampWorldTargetDataset(target, entry) {
     if (!(target instanceof HTMLElement) || !entry || typeof entry !== "object") {
       return;
@@ -169,6 +189,7 @@
       ["meiStageKind", entry.stageKind],
       ["meiWorldRef", entry.worldRef],
       ["meiEntityId", entry.entityId],
+      ["meiObjectId", entry.objectId || entry.object_id],
       ["meiGroupId", entry.groupId],
       ["meiCameraPreset", entry.cameraPreset],
     ];
@@ -179,6 +200,9 @@
   }
 
   function resolveWorldTarget(action, entry) {
+    const objectId = String(
+      action?.objectId || action?.object_id || entry?.objectId || entry?.object_id || "",
+    ).trim();
     const worldTarget = {
       type: String(action?.type || action?.kind || "").trim(),
       viewpointId: String(action?.viewpoint || action?.viewpointId || "").trim(),
@@ -191,6 +215,9 @@
         action?.cameraPreset || action?.camera_preset || entry?.cameraPreset || "",
       ).trim(),
     };
+    if (objectId) {
+      worldTarget.objectId = objectId;
+    }
     return worldTarget;
   }
 
@@ -202,6 +229,7 @@
       !worldTarget.stageKind &&
       !worldTarget.worldRef &&
       !worldTarget.entityId &&
+      !worldTarget.objectId &&
       !worldTarget.groupId &&
       !worldTarget.cameraPreset
     ) {
@@ -382,6 +410,7 @@
   function focusViewpoint(viewpointId) {
     const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
+    syncObjectSelectionFromEntry(entry, viewpointId);
     clearViewpointFocus();
     let target = null;
     const anchorApi = globalThis.MeiStructureAnchor;

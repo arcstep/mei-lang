@@ -52,7 +52,8 @@ impl BlockId {
             | GraphNodeKind::SemanticGraph
             | GraphNodeKind::PageInstance
             | GraphNodeKind::WarmupPolicy
-            | GraphNodeKind::WorldModel => BlockLayer::L3,
+            | GraphNodeKind::WorldModel
+            | GraphNodeKind::ObjectCatalog => BlockLayer::L3,
             GraphNodeKind::DataSource
             | GraphNodeKind::EvalPlan
             | GraphNodeKind::Workset

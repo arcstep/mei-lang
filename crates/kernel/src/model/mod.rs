@@ -8,6 +8,7 @@ mod dataset;
 mod diagnostic;
 mod layout;
 mod narration_abi;
+mod object_catalog;
 mod presentation_map_schema;
 mod resource;
 mod review_modes;
@@ -56,6 +57,11 @@ pub use abi_project::{
 pub use content_capability_abi::{ContentCapability, ContentCapabilityId, ContentCapabilityKind};
 pub use narration_abi::{
     NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
+};
+pub use object_catalog::{
+    ObjectCatalog, ObjectDescriptor, ObjectIdentityContract, ObjectIdentityMaterialization,
+    ObjectMaterializationError, ObjectProjectionRef, ObjectTypeContract,
+    OBJECT_CATALOG_SCHEMA_VERSION,
 };
 pub use presentation_map_schema::{
     accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,

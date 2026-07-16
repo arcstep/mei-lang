@@ -60,6 +60,7 @@ async function main() {
 
   helpers.globalThis.__mei = {
     presentation_map: {
+      schemaVersion: "mei-presentation-map-v1",
       deck: {
         stage_kind: "presentation",
         active_slide_id: "slide-02-why",

@@ -9,6 +9,7 @@ templates/cockpit/
 ├── main.mei              # 入口说明（scene: home）
 ├── metric-card.mei       # 指标卡预览（scene: metric）
 ├── map.mei               # GIS 主图预览（scene: map）
+├── object-defaults.mei   # 领域对象默认投影宏（props / viewpoint / action）
 ├── map/README.md         # 地图模板包说明（资产 + mapSpec 分工）
 ├── business-layouts.mei  # 业务语义布局宏（Fill-down）
 ├── assets/
@@ -88,6 +89,18 @@ templates/cockpit/
 | `macros.mei` | — | 指标内容模板真源 |
 | `metric-card-*.mei` / `metric-*-compound.mei` | 各 preset | legacy 预设；新样板优先 `business-layouts.mei` + macros |
 
+### `object-defaults.mei`
+
+提供确定性、薄、可组合的领域对象默认投影宏：
+
+- `object_binding_props`：生成 WC 可消费的 `objectType` / `objectId` / `identityField` / `entityId` metadata；
+- `object_viewpoint`：生成带对象、world、视图族、相机和分组提示的 `viewpoint(...)`；
+- `object_metric_card`：包装 `layout-defaults.narrow_metric_card`，通过 `object_viewpoint` 绑定对象或 viewpoint；
+- `object_world_entry_action` / `object_t2_action`：生成既有 action 字典；
+- `object_narration_target`：生成可组合进 action / step 的对象叙事目标。
+
+这些宏不会生成 Scene 源，也不会在关键 id 为空时推断或伪造 id。
+
 ### `drilldown/`
 
 | 文件 | 说明 |
@@ -111,12 +124,19 @@ templates/cockpit/
 ```mei
 use template "cockpit/panel/shell-macros"
 use template "cockpit/business-layouts" as biz
+use template "cockpit/object-defaults" as object_ui
 
 # section 壳
 shell = section_shell(title = "板块", body = panel_ref("content/..."))
 
 # content fill（禁止 row_budgets）
 props = content_fill_props()
+
+# 对象投影 metadata；object_id / entity_id 未知时保持空字符串
+object_props = object_ui.object_binding_props(
+    object_type = "demo.Warning",
+    identity_field = "warning_id",
+)
 ```
 
 GIS 地图模板只管 **底图 + GeoJSON 图层**（`map/README.md`）；`chart.*` 由业务应用自行编排。
