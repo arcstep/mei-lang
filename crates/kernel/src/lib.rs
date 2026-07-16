@@ -244,7 +244,7 @@ pub use typed_refs::{
 };
 pub use warmup_manifest::{
     build_runtime_warmup_manifest, enrich_runtime_warmup_app, resolve_runtime_warmup_manifest,
-    WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
+    take_warmup_build_diagnostics, WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
 };
 pub use warmup_t2_page_autogen::{
     discover_board_warmup_suggestions, merge_workspace_and_board_warmup_requests,

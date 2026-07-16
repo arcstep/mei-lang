@@ -34,6 +34,8 @@ pub struct PanelLowerContext<'a> {
     pub panel_constants: BTreeMap<String, Value>,
     /// Assembly `panels` list order within the same tier (0-based).
     pub assembly_stack_order: Option<u8>,
+    /// Panel / assembly / link `.mei` source path when known (file-level only).
+    pub source_file: Option<&'a str>,
 }
 
 thread_local! {
@@ -44,13 +46,17 @@ pub fn take_panel_lower_diagnostics() -> Vec<Diagnostic> {
     PANEL_LOWER_DIAGNOSTICS.with(|slot| std::mem::take(&mut *slot.lock().expect("diagnostics")))
 }
 
-fn push_panel_lower_diagnostic(code: &str, message: impl Into<String>) {
+fn push_panel_lower_diagnostic(
+    code: &str,
+    message: impl Into<String>,
+    source_path: Option<&str>,
+) {
     PANEL_LOWER_DIAGNOSTICS.with(|slot| {
         slot.lock().expect("diagnostics").push(Diagnostic {
             severity: Severity::Error,
             code: code.to_string(),
             message: message.into(),
-            source_path: None,
+            source_path: source_path.map(str::to_string),
         });
     });
 }
@@ -64,6 +70,7 @@ impl<'a> PanelLowerContext<'a> {
             scene_id: self.scene_id,
             panel_constants: load_panel_file_constants(self.app_root, panel_key),
             assembly_stack_order: self.assembly_stack_order,
+            source_file: self.source_file,
         }
     }
 
@@ -75,6 +82,19 @@ impl<'a> PanelLowerContext<'a> {
             scene_id: self.scene_id,
             panel_constants: self.panel_constants.clone(),
             assembly_stack_order: Some(order),
+            source_file: self.source_file,
+        }
+    }
+
+    pub fn with_source_file(&self, source_file: Option<&'a str>) -> Self {
+        Self {
+            app_root: self.app_root,
+            app_id: self.app_id,
+            registry: self.registry,
+            scene_id: self.scene_id,
+            panel_constants: self.panel_constants.clone(),
+            assembly_stack_order: self.assembly_stack_order,
+            source_file,
         }
     }
 }
@@ -1234,11 +1254,10 @@ pub(crate) fn lower_layout(value: &Value) -> Option<LayoutDecl> {
 
 fn lower_layout_with_ctx(value: &Value, ctx: &PanelLowerContext<'_>) -> Option<LayoutDecl> {
     let resolved = resolve_panel_constant_exprs(value, ctx);
-    lower_layout_inner(&resolved, Some(ctx.app_root))
+    lower_layout_inner(&resolved, ctx.source_file)
 }
 
-fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDecl> {
-    let _ = app_root;
+fn lower_layout_inner(value: &Value, source_file: Option<&str>) -> Option<LayoutDecl> {
     if v2_ref_name(value) == Some("grid_ref") || v2_call_name(value) == Some("grid_ref") {
         return None;
     }
@@ -1254,11 +1273,11 @@ fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDe
         columns: obj
             .get("columns")
             .and_then(|v| v.as_array())
-            .map(|items| resolve_layout_track_list(items)),
+            .map(|items| resolve_layout_track_list(items, source_file)),
         rows: obj
             .get("rows")
             .and_then(|v| v.as_array())
-            .map(|items| resolve_layout_track_list(items)),
+            .map(|items| resolve_layout_track_list(items, source_file)),
         areas: obj.get("areas").and_then(|v| v.as_array()).map(|rows| {
             rows.iter()
                 .filter_map(|row| {
@@ -1289,7 +1308,7 @@ fn lower_layout_inner(value: &Value, app_root: Option<&Path>) -> Option<LayoutDe
 
 /// Resolve grid track items to CSS track strings.
 /// Unresolved exprs emit `grid_track_unresolved` and are omitted from the layout.
-fn resolve_layout_track_list(items: &[Value]) -> Vec<String> {
+fn resolve_layout_track_list(items: &[Value], source_file: Option<&str>) -> Vec<String> {
     items
         .iter()
         .filter_map(|v| {
@@ -1309,12 +1328,14 @@ fn resolve_layout_track_list(items: &[Value]) -> Vec<String> {
                 push_panel_lower_diagnostic(
                     "grid_track_unresolved",
                     format!("grid track value could not be folded to a string: {v}"),
+                    source_file,
                 );
                 None
             } else {
                 push_panel_lower_diagnostic(
                     "grid_track_unresolved",
                     format!("grid track value is not a string: {v}"),
+                    source_file,
                 );
                 None
             }
@@ -2775,6 +2796,8 @@ struct BoardSceneTarget {
 
 fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {
     let payload = load_link_decl_payload(ctx, link_key)?;
+    let link_source_file = assembly_source_file_from_payload(&payload);
+    let link_source = link_source_file.as_deref().or(ctx.source_file);
     let target_ref = payload.get("target").or_else(|| payload.get("board"))?;
     let params = payload
         .get("params")
@@ -2836,12 +2859,25 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         push_panel_lower_diagnostic(
             "link_decl_target_missing",
             format!("link_decl `{link_key}` target `{board_key}` could not resolve page_instance"),
+            link_source,
         );
         return None;
     };
-    diagnose_link_params(link_key, &params, target.accepts.as_ref());
+    diagnose_link_params(link_key, &params, target.accepts.as_ref(), link_source);
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
+    if !target_scene_file.trim().is_empty() {
+        let abs = ctx.app_root.join(target_scene_file.as_str());
+        if !abs.is_file() {
+            push_panel_lower_diagnostic(
+                "scene_file_not_found",
+                format!(
+                    "link_decl `{link_key}` target `{board_key}` scene_file `{target_scene_file}` not found under app root"
+                ),
+                link_source,
+            );
+        }
+    }
     let mut target_json = json!({
         "kind": "page_instance",
         "legacy_kind": "board",
@@ -2981,7 +3017,12 @@ fn resolve_page_instance_target(
     })
 }
 
-fn diagnose_link_params(link_key: &str, params: &Value, accepts: Option<&Value>) {
+fn diagnose_link_params(
+    link_key: &str,
+    params: &Value,
+    accepts: Option<&Value>,
+    source_path: Option<&str>,
+) {
     let Some(accepts_map) = accepts.and_then(Value::as_object) else {
         return;
     };
@@ -2994,9 +3035,12 @@ fn diagnose_link_params(link_key: &str, params: &Value, accepts: Option<&Value>)
             .get("required")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        if !required {
-            continue;
-        }
+        let param_type = decl
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("string");
         let missing = match params_map.get(param_id) {
             None => true,
             Some(Value::Null) => true,
@@ -3004,11 +3048,38 @@ fn diagnose_link_params(link_key: &str, params: &Value, accepts: Option<&Value>)
             _ => false,
         };
         if missing {
+            if required {
+                push_panel_lower_diagnostic(
+                    "link_decl_param_missing",
+                    format!("link_decl `{link_key}` missing required param `{param_id}`"),
+                    source_path,
+                );
+            }
+            continue;
+        }
+        let Some(value) = params_map.get(param_id) else {
+            continue;
+        };
+        if !link_decl_param_value_matches_type(value, param_type) {
             push_panel_lower_diagnostic(
-                "link_decl_param_missing",
-                format!("link_decl `{link_key}` missing required param `{param_id}`"),
+                "link_decl_param_type_mismatch",
+                format!(
+                    "link_decl `{link_key}` param `{param_id}` type mismatch: expected `{param_type}`"
+                ),
+                source_path,
             );
         }
+    }
+}
+
+fn link_decl_param_value_matches_type(value: &Value, param_type: &str) -> bool {
+    match param_type {
+        "string" => value.is_string(),
+        "number" | "float" | "int" | "integer" => value.is_number(),
+        "bool" | "boolean" => value.is_boolean(),
+        "dict" | "object" | "map" => value.is_object(),
+        "list" | "array" => value.is_array(),
+        _ => true,
     }
 }
 
@@ -3633,6 +3704,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let block = lower_component(&value, &ctx).expect("component");
         assert_eq!(block.use_key, "cockpit.header-brand");
@@ -3685,6 +3757,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 1);
@@ -3730,6 +3803,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let block = lower_block_node(&value, &ctx)
             .expect("component block")
@@ -3773,6 +3847,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "home:basemap", &ctx).expect("panel");
         assert_eq!(
@@ -3814,6 +3889,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "home:world_stage", &ctx).expect("panel");
         assert_eq!(
@@ -3853,6 +3929,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "home:viewport_canvas", &ctx).expect("panel");
         assert_eq!(
@@ -3901,6 +3978,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "warning", &ctx).expect("panel");
         assert_eq!(
@@ -3949,6 +4027,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
         assert_eq!(panel.body_props["padding"], json!("8px 4px 2px 4px"));
@@ -3998,6 +4077,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
         assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
@@ -4098,6 +4178,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel =
             lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
@@ -4148,6 +4229,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_inline_panel(&payload, &ctx).expect("panel");
         assert_eq!(panel.id, "enforcement_objects_body");
@@ -4238,6 +4320,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "inspection-stats", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 2, "top-level inline panels");
@@ -4294,6 +4377,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "warnings_detail", &ctx).expect("lower");
         assert_eq!(
@@ -4362,6 +4446,7 @@ mod tests {
             scene_id: "supervision",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let nodes = lower_block_node(&value, &ctx).expect("lower nested content_panel");
         assert_eq!(nodes.len(), 1);
@@ -4415,6 +4500,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4499,6 +4585,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4577,6 +4664,7 @@ mod tests {
             scene_id: "home",
             panel_constants: constants,
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4623,6 +4711,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4676,6 +4765,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4713,6 +4803,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
@@ -4772,6 +4863,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4825,6 +4917,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4862,6 +4955,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -4915,6 +5009,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let panel = lower_panel_payload(&payload, "placed", &ctx).expect("panel");
         let UiTreeNode::Block(block) = &panel.blocks[0] else {
@@ -4962,6 +5057,7 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
             assembly_stack_order: None,
+            source_file: None,
         };
         let UiTreeNode::Panel(panel) = lower_metric_card(&value, &ctx).expect("metric card") else {
             panic!("expected panel");
@@ -5010,9 +5106,27 @@ mod tests {
                 scene_id: "home",
                 panel_constants: BTreeMap::new(),
                 assembly_stack_order: None,
+                source_file: None,
             },
         )
         .expect_err("missing unit must fail");
         assert!(error.to_string().contains("area `unit`"));
+    }
+
+    #[test]
+    fn panel_lower_diagnostic_includes_source_path_from_context() {
+        let _ = take_panel_lower_diagnostics();
+        push_panel_lower_diagnostic(
+            "test_source_path",
+            "diagnostic for source_path wiring",
+            Some("src/scene/home/t1/links.mei"),
+        );
+        let diags = take_panel_lower_diagnostics();
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].code, "test_source_path");
+        assert_eq!(
+            diags[0].source_path.as_deref(),
+            Some("src/scene/home/t1/links.mei")
+        );
     }
 }

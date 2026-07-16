@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 
@@ -11,9 +12,31 @@ use crate::mei_config::{
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
     LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
+use crate::model::{Diagnostic, Severity};
 use crate::workspace::discover_build_apps;
 
 pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str = "mei-runtime-warmup-manifest-v2";
+
+thread_local! {
+    static WARMUP_BUILD_DIAGNOSTICS: Mutex<Vec<Diagnostic>> = Mutex::new(Vec::new());
+}
+
+/// Diagnostics emitted while building the runtime warmup manifest (e.g. missing focus files).
+pub fn take_warmup_build_diagnostics() -> Vec<Diagnostic> {
+    WARMUP_BUILD_DIAGNOSTICS
+        .with(|slot| std::mem::take(&mut *slot.lock().expect("warmup diagnostics")))
+}
+
+fn push_warmup_build_diagnostic(code: &str, message: impl Into<String>, source_path: Option<&str>) {
+    WARMUP_BUILD_DIAGNOSTICS.with(|slot| {
+        slot.lock().expect("warmup diagnostics").push(Diagnostic {
+            severity: Severity::Error,
+            code: code.to_string(),
+            message: message.into(),
+            source_path: source_path.map(str::to_string),
+        });
+    });
+}
 
 fn resolve_warmup_manifest_path(source_root: &Path) -> PathBuf {
     let primary = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
@@ -246,11 +269,19 @@ fn validate_warmup_focus_paths(app_root: &Path, focuses: &[String]) -> Result<()
     if missing.is_empty() {
         return Ok(());
     }
-    anyhow::bail!(
+    let message = format!(
         "warmup focus file(s) missing under `{}`: {}",
         app_root.display(),
         missing.join(", ")
-    )
+    );
+    for focus in &missing {
+        push_warmup_build_diagnostic(
+            "warmup_focus_not_found",
+            format!("warmup focus file missing under `{}`: {focus}", app_root.display()),
+            Some(focus),
+        );
+    }
+    anyhow::bail!("warmup_focus_not_found: {message}")
 }
 
 fn merge_warmup_scenes(default_scene: Option<&str>, hot_scenes: &[String]) -> Vec<String> {
