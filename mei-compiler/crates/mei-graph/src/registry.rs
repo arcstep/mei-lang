@@ -10,6 +10,8 @@ pub struct MacroDef {
     pub params: Vec<TemplateParam>,
     pub body: V2Expr,
     pub module_consts: BTreeMap<String, V2Expr>,
+    /// `use template` imports from the defining file (alias → import path).
+    pub module_imports: BTreeMap<String, String>,
 }
 
 /// Template search roots for `use template` (app-first, then workspace stock).
@@ -64,8 +66,10 @@ impl TemplateRoots {
 
 #[derive(Debug, Default, Clone)]
 pub struct MacroRegistry {
+    /// Global name → def (app-first overwrite on layered load).
     by_name: BTreeMap<String, MacroDef>,
-    by_import_path: BTreeMap<String, String>,
+    /// import path → (template name → def); keeps every export in a module.
+    by_module: BTreeMap<String, BTreeMap<String, MacroDef>>,
 }
 
 impl MacroRegistry {
@@ -76,33 +80,39 @@ impl MacroRegistry {
     pub fn register_file(&mut self, rel_path: &str, file: &V2SourceFile) {
         let file_path = normalize_template_path(rel_path);
         let mut module_consts = BTreeMap::new();
+        let mut module_imports = BTreeMap::new();
         for item in &file.items {
-            if let V2Item::ModuleConst { name, value } = item {
-                module_consts.insert(name.clone(), value.clone());
+            match item {
+                V2Item::ModuleConst { name, value } => {
+                    module_consts.insert(name.clone(), value.clone());
+                }
+                V2Item::UseTemplate { path, alias } => {
+                    let norm = normalize_template_path(path);
+                    let import_name = alias
+                        .clone()
+                        .unwrap_or_else(|| norm.rsplit('/').next().unwrap_or(&norm).to_string());
+                    module_imports.insert(import_name, norm);
+                }
+                _ => {}
             }
         }
-        let mut names = Vec::new();
+        let mut module_map = BTreeMap::new();
         for item in &file.items {
             if let V2Item::TemplateDecl { name, params, body } = item {
-                names.push(name.clone());
-                self.by_name.insert(
-                    name.clone(),
-                    MacroDef {
-                        file_path: file_path.clone(),
-                        name: name.clone(),
-                        params: params.clone(),
-                        body: body.clone(),
-                        module_consts: module_consts.clone(),
-                    },
-                );
+                let def = MacroDef {
+                    file_path: file_path.clone(),
+                    name: name.clone(),
+                    params: params.clone(),
+                    body: body.clone(),
+                    module_consts: module_consts.clone(),
+                    module_imports: module_imports.clone(),
+                };
+                module_map.insert(name.clone(), def.clone());
+                self.by_name.insert(name.clone(), def);
             }
         }
-        if !names.is_empty() {
-            // Multi-template files (e.g. geometry.mei) must still resolve by import path
-            // so `use template "scene/.../geometry" as geo` succeeds; qualified calls
-            // then resolve via template name (`geo.focus_inset`).
-            self.by_import_path
-                .insert(file_path.clone(), names[0].clone());
+        if !module_map.is_empty() {
+            self.by_module.insert(file_path, module_map);
         }
     }
 
@@ -130,8 +140,13 @@ impl MacroRegistry {
 
     pub fn resolve_path(&self, path: &str) -> Option<&MacroDef> {
         let norm = normalize_template_path(path);
-        if let Some(name) = self.by_import_path.get(&norm) {
-            return self.by_name.get(name);
+        if let Some(module) = self.by_module.get(&norm) {
+            // Prefer a template whose name matches the leaf path segment when present.
+            let leaf = norm.rsplit('/').next().unwrap_or(norm.as_str());
+            if let Some(def) = module.get(leaf) {
+                return Some(def);
+            }
+            return module.values().next();
         }
         let leaf = norm.rsplit('/').next().unwrap_or(norm.as_str());
         self.by_name.get(leaf)
@@ -141,8 +156,12 @@ impl MacroRegistry {
         self.by_name.get(name)
     }
 
-    pub fn resolve_qualified(&self, _alias: &str, method: &str) -> Option<&MacroDef> {
-        self.by_name.get(method)
+    /// Resolve `alias.method` via import path: `imports[alias] → method` in that module.
+    pub fn resolve_in_module(&self, import_path: &str, method: &str) -> Option<&MacroDef> {
+        let norm = normalize_template_path(import_path);
+        self.by_module
+            .get(&norm)
+            .and_then(|module| module.get(method))
     }
 }
 
@@ -168,10 +187,7 @@ fn load_dir_into(
                 .replace('\\', "/");
             if rel_check == "templates"
                 || rel_check.starts_with("templates/")
-                || rel_check
-                    .split('/')
-                    .next()
-                    .is_some_and(|seg| seg == "templates")
+                || rel_check.contains("/templates/")
             {
                 continue;
             }
@@ -181,33 +197,34 @@ fn load_dir_into(
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        let rel = rel.strip_suffix(".mei").unwrap_or(&rel).to_string();
+        let import_path = rel
+            .trim_end_matches(".mei")
+            .trim_end_matches("/mod")
+            .to_string();
         let source = std::fs::read_to_string(path)?;
-        if let Ok(file) = mei_syntax::v2::parse_v2_source(&source) {
-            registry.register_file(&rel, &file);
-        }
+        let Ok(file) = mei_syntax::v2::parse_v2_source(&source) else {
+            continue;
+        };
+        registry.register_file(&import_path, &file);
     }
     Ok(())
 }
 
-pub fn normalize_template_path(path: &str) -> String {
-    path.trim()
-        .replace('\\', "/")
-        .trim_end_matches(".mei")
-        .to_string()
+fn template_file_path(root: &Path, import_path: &str) -> PathBuf {
+    let norm = normalize_template_path(import_path);
+    let direct = root.join(format!("{norm}.mei"));
+    if direct.is_file() {
+        return direct;
+    }
+    root.join(norm).join("mod.mei")
 }
 
-pub fn template_file_path(stock_templates: &Path, import_path: &str) -> PathBuf {
-    let rel = import_path.trim().trim_matches('"');
-    let mut path = stock_templates.to_path_buf();
-    for segment in rel.split('/') {
-        if segment.is_empty() || segment == "." {
-            continue;
-        }
-        path.push(segment);
-    }
-    if path.extension().is_none() {
-        path.set_extension("mei");
-    }
-    path
+pub fn normalize_template_path(path: &str) -> String {
+    path.trim()
+        .trim_matches('"')
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_end_matches(".mei")
+        .trim_end_matches('/')
+        .to_string()
 }

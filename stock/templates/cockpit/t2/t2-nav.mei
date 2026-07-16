@@ -1,7 +1,6 @@
 # T2 page_instance local_nav 窄模板（跨应用共享）
 # 应用侧只保留域 filter/row_spec/popup；勿把整页 plane+page+link 收成黑盒。
-# 注意：应用 `shared/drilldown-local-nav` 若需同名 API，请内联同构字典，
-# 不要 `t2_nav.analytics_drilldown_nav*` 同名转发（宏会解析成自身并栈溢出）。
+# 应用 `shared/drilldown-local-nav` 可经 `use … as t2_nav` 转发本模板（勿省略别名）。
 
 template analytics_drilldown_nav(scene_id):
     {

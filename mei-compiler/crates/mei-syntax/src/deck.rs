@@ -179,11 +179,16 @@ fn parse_frontmatter(
         };
         let key = key.trim();
         if !allowed.contains(&key) {
+            let hint = match key {
+                "deck_id" => " (use `id`)",
+                "default_template" => " (use `default_for_stage`)",
+                _ => "",
+            };
             return Err(DeckParseError::new(
                 path,
                 line_number,
                 1,
-                format!("unknown frontmatter field `{key}`"),
+                format!("unknown frontmatter field `{key}`{hint}"),
             ));
         }
         let value = unquote(value.trim());
@@ -945,5 +950,30 @@ default_for_stage: true
         let directive = VALID_DECK.replace("@chapter(动机)", "@layout(grid)");
         let error = parse_deck_source(&directive).expect_err("legacy directive");
         assert!(error.to_string().contains("unknown or malformed directive"));
+    }
+
+    #[test]
+    fn rejects_legacy_frontmatter_and_h2_without_viewpoint_id_with_hints() {
+        let deck_id = VALID_DECK.replace("id: intro", "deck_id: intro");
+        let error = parse_deck_source(&deck_id).expect_err("deck_id");
+        let message = error.to_string();
+        assert!(message.contains("unknown frontmatter field `deck_id`"), "{message}");
+        assert!(message.contains("use `id`"), "{message}");
+
+        let default_template =
+            VALID_DECK.replace("default_for_stage: true", "default_template: claim_evidence");
+        let error = parse_deck_source(&default_template).expect_err("default_template");
+        let message = error.to_string();
+        assert!(
+            message.contains("unknown frontmatter field `default_template`"),
+            "{message}"
+        );
+        assert!(message.contains("use `default_for_stage`"), "{message}");
+
+        let bare_h2 = VALID_DECK.replace("## claim {#vp_claim}", "## claim");
+        let error = parse_deck_source(&bare_h2).expect_err("h2");
+        assert!(error
+            .to_string()
+            .contains("expected `## slot-name {#viewpoint-id}`"));
     }
 }

@@ -17,6 +17,8 @@ pub struct ExpandContext<'a> {
     pub registry: &'a MacroRegistry,
     pub imports: BTreeMap<String, String>,
     pub module_consts: BTreeMap<String, V2Expr>,
+    /// `(file_path, template_name)` stack for cycle detection.
+    pub expand_stack: Vec<(String, String)>,
 }
 
 pub fn expand_artifact_expr(
@@ -29,6 +31,7 @@ pub fn expand_artifact_expr(
         registry,
         imports: imports.clone(),
         module_consts: module_consts.clone(),
+        expand_stack: Vec::new(),
     };
     expand_expr(expr, &ctx)
 }
@@ -69,6 +72,7 @@ pub fn expand_v2_file(
         registry: registry_ref,
         imports,
         module_consts,
+        expand_stack: Vec::new(),
     };
 
     let mut out = Vec::new();
@@ -211,12 +215,10 @@ fn try_expand_macro_call(
             Ok(None)
         }
         [alias, method] => {
-            if let Some(def) = ctx.registry.resolve_qualified(alias, method) {
-                return Ok(Some(apply_macro(def, args, ctx)?));
-            }
+            // Qualified calls must resolve via import path first. Never ignore alias
+            // by looking up `method` in the global by_name map (same-name recursion).
             if let Some(import_path) = ctx.imports.get(alias) {
-                let qualified = format!("{import_path}/{method}");
-                if let Some(def) = ctx.registry.resolve_path(&qualified) {
+                if let Some(def) = ctx.registry.resolve_in_module(import_path, method) {
                     return Ok(Some(apply_macro(def, args, ctx)?));
                 }
             }
@@ -243,6 +245,22 @@ fn apply_macro(
     args: &CallArgs,
     ctx: &ExpandContext<'_>,
 ) -> Result<V2Expr, ExpandError> {
+    let frame = (def.file_path.clone(), def.name.clone());
+    if ctx.expand_stack.iter().any(|item| item == &frame) {
+        let chain = ctx
+            .expand_stack
+            .iter()
+            .chain(std::iter::once(&frame))
+            .map(|(path, name)| format!("{path}::{name}"))
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        return Err(ExpandError::Expand(format!(
+            "macro_expansion_cycle: {chain}"
+        )));
+    }
+    let mut expand_stack = ctx.expand_stack.clone();
+    expand_stack.push(frame);
+
     let mut bindings = def.module_consts.clone();
     bindings.extend(ctx.module_consts.clone());
     for param in &def.params {
@@ -253,6 +271,7 @@ fn apply_macro(
                 registry: ctx.registry,
                 imports: ctx.imports.clone(),
                 module_consts: bindings.clone(),
+                expand_stack: expand_stack.clone(),
             };
             bindings.insert(param.name.clone(), expand_expr(default, &local)?);
         } else if let Some(value) = args.positional.get(
@@ -269,10 +288,12 @@ fn apply_macro(
             )));
         }
     }
+    // Expand the defining module's body with THAT module's imports, not the caller's.
     let local = ExpandContext {
         registry: ctx.registry,
-        imports: ctx.imports.clone(),
+        imports: def.module_imports.clone(),
         module_consts: bindings.clone(),
+        expand_stack,
     };
     substitute_expr(&def.body, &bindings, &local)
 }

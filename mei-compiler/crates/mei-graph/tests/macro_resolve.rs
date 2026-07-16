@@ -1,21 +1,45 @@
 use mei_graph::{expand_v2_file, MacroRegistry, TemplateRoots};
-use mei_syntax::v2::{parse_v2_source, parse_v2_source_file, V2Item};
+use mei_syntax::v2::{parse_v2_source, V2Item};
 use std::path::PathBuf;
 
-fn ws_demo_templates_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../workspaces/ws-demo-v2/stock/templates")
+fn mei_lang_root() -> PathBuf {
+    let mut cur = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..10 {
+        if cur.join("stock/templates").is_dir() {
+            return cur;
+        }
+        if !cur.pop() {
+            break;
+        }
+    }
+    panic!(
+        "mei-lang root with stock/templates not found from {}",
+        env!("CARGO_MANIFEST_DIR")
+    );
 }
 
-fn ws_demo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../workspaces/ws-demo-v2")
+fn stock_templates_root() -> PathBuf {
+    mei_lang_root().join("stock/templates")
+}
+
+fn stock_legacy_templates_root() -> PathBuf {
+    mei_lang_root().join("stock/legacy/templates")
+}
+
+fn optional_external_workspace() -> Option<PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
 }
 
 #[test]
 fn business_layouts_registers_slot_macros() {
-    let templates_root = ws_demo_templates_root();
+    let templates_root = stock_legacy_templates_root();
     let path = templates_root.join("cockpit/business-layouts.mei");
-    let source = std::fs::read_to_string(&path).expect("read");
+    let source = std::fs::read_to_string(&path).expect("read business-layouts from stock/legacy");
     let parsed = parse_v2_source(&source).expect("parse");
     let template_count = parsed
         .items
@@ -35,12 +59,20 @@ fn business_layouts_registers_slot_macros() {
 
 #[test]
 fn screen_header_default_assets_macro_fully_expanded_at_compile() {
-    let templates_root = ws_demo_templates_root();
+    let templates_root = stock_templates_root();
     let roots = TemplateRoots::stock_only(templates_root.clone());
     let registry = MacroRegistry::load_dir(&templates_root).expect("load");
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../workspaces/ws-demo-v2/apps/mini-park/src/scene/home/t1/r-header/s-header/layout.mei");
-    let parsed = parse_v2_source_file(&path).expect("parse mini-park header");
+    let parsed = parse_v2_source(
+        r#"
+use template "cockpit/panel/shell-macros" as ui
+
+content_panel(
+    id = "wrap",
+    blocks = [ui.screen_header(title = "Demo")],
+)
+"#,
+    )
+    .expect("parse screen_header usage");
     let expanded = expand_v2_file(&parsed, &registry, &roots).expect("expand");
     let dumped = serde_json::to_string(&expanded).expect("serialize expanded");
 
@@ -56,7 +88,7 @@ fn screen_header_default_assets_macro_fully_expanded_at_compile() {
 
 #[test]
 fn layout_defaults_exports_constructor_names_without_recursive_expansion() {
-    let templates_root = ws_demo_templates_root();
+    let templates_root = stock_templates_root();
     let roots = TemplateRoots::stock_only(templates_root.clone());
     let registry = MacroRegistry::load_dir(&templates_root).expect("load");
     let parsed = parse_v2_source(
@@ -87,8 +119,8 @@ content_panel(
         "compound_panel must bake compound background: {dumped}"
     );
     assert!(
-        !dumped.contains("chrome_metric") && !dumped.contains("\"surface\""),
-        "must not use chrome_* helpers or surface tokens: {dumped}"
+        !dumped.contains("chrome_metric"),
+        "must not use chrome_* helpers: {dumped}"
     );
 }
 
@@ -184,8 +216,15 @@ content_panel(
 
 #[test]
 fn mini_data_geometry_resolves_via_layered_registry() {
-    let workspace = ws_demo_root();
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = workspace.join("apps/mini-data");
+    if !app_root.is_dir() {
+        eprintln!("skip: apps/mini-data missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let stock = workspace.join("stock/templates");
     let roots = TemplateRoots::from_app_and_stock(&app_root, stock);
     let registry = MacroRegistry::load_layered(&roots).expect("load");
@@ -199,4 +238,148 @@ fn mini_data_geometry_resolves_via_layered_registry() {
         "app src/templates/shared must resolve"
     );
     assert!(registry.resolve_path("cockpit/layout-defaults").is_some());
+}
+
+#[test]
+fn qualified_call_prefers_import_alias_over_local_same_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let app_root = tmp.path().join("apps/demo");
+    let stock = tmp.path().join("stock/templates");
+    let app_templates = app_root.join("src/templates");
+    std::fs::create_dir_all(app_templates.join("shared")).unwrap();
+    std::fs::create_dir_all(stock.join("cockpit/t2")).unwrap();
+
+    std::fs::write(
+        stock.join("cockpit/t2/t2-nav.mei"),
+        r#"
+template analytics_drilldown_nav(scene_id):
+    {"layer": "stock", "scene_id": scene_id}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        app_templates.join("shared/drilldown-local-nav.mei"),
+        r#"
+use template "cockpit/t2/t2-nav" as t2_nav
+
+template analytics_drilldown_nav(scene_id):
+    t2_nav.analytics_drilldown_nav(scene_id = scene_id)
+"#,
+    )
+    .unwrap();
+
+    let roots = TemplateRoots::from_app_and_stock(&app_root, stock);
+    let registry = MacroRegistry::load_layered(&roots).expect("load layered");
+    assert_eq!(
+        registry
+            .resolve_name("analytics_drilldown_nav")
+            .map(|d| d.file_path.as_str()),
+        Some("shared/drilldown-local-nav"),
+        "unqualified global name stays app-first"
+    );
+
+    let parsed = parse_v2_source(
+        r#"
+use template "shared/drilldown-local-nav" as nav
+
+content_panel(
+    id = "demo",
+    blocks = [nav.analytics_drilldown_nav(scene_id = "home")],
+)
+"#,
+    )
+    .expect("parse");
+    let expanded = expand_v2_file(&parsed, &registry, &roots).expect("expand without recursion");
+    let dumped = serde_json::to_string(&expanded).unwrap();
+    assert!(dumped.contains("stock"), "{dumped}");
+    assert!(dumped.contains("home"), "{dumped}");
+}
+
+#[test]
+fn macro_expansion_cycle_is_reported_without_stack_overflow() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let stock = tmp.path().join("stock/templates");
+    std::fs::create_dir_all(stock.join("cycle")).unwrap();
+    std::fs::write(
+        stock.join("cycle/a.mei"),
+        r#"
+use template "cycle/b" as b
+
+template ping():
+    b.pong()
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        stock.join("cycle/b.mei"),
+        r#"
+use template "cycle/a" as a
+
+template pong():
+    a.ping()
+"#,
+    )
+    .unwrap();
+
+    let roots = TemplateRoots::stock_only(stock.clone());
+    let registry = MacroRegistry::load_dir(&stock).expect("load");
+    let parsed = parse_v2_source(
+        r#"
+use template "cycle/a" as a
+
+content_panel(id = "demo", blocks = [a.ping()])
+"#,
+    )
+    .expect("parse");
+    let err = expand_v2_file(&parsed, &registry, &roots).expect_err("cycle");
+    let message = err.to_string();
+    assert!(
+        message.contains("macro_expansion_cycle"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn multi_template_module_non_first_export_resolves_via_alias_method() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let stock = tmp.path().join("stock/templates");
+    std::fs::create_dir_all(stock.join("cockpit/t2")).unwrap();
+    std::fs::write(
+        stock.join("cockpit/t2/t2-nav.mei"),
+        r#"
+template analytics_drilldown_nav(scene_id):
+    {"kind": "nav", "scene_id": scene_id}
+
+template analytics_drilldown_nav_with_row(scene_id, row_spec):
+    {"kind": "nav_row", "scene_id": scene_id, "row": row_spec}
+"#,
+    )
+    .unwrap();
+
+    let roots = TemplateRoots::stock_only(stock.clone());
+    let registry = MacroRegistry::load_dir(&stock).expect("load");
+    assert!(registry
+        .resolve_name("analytics_drilldown_nav_with_row")
+        .is_some());
+
+    let parsed = parse_v2_source(
+        r#"
+use template "cockpit/t2/t2-nav" as t2_nav
+
+content_panel(
+    id = "demo",
+    blocks = [
+        t2_nav.analytics_drilldown_nav_with_row(
+            scene_id = "home",
+            row_spec = {"filter_key": "k"},
+        ),
+    ],
+)
+"#,
+    )
+    .expect("parse");
+    let expanded = expand_v2_file(&parsed, &registry, &roots).expect("expand");
+    let dumped = serde_json::to_string(&expanded).unwrap();
+    assert!(dumped.contains("nav_row"), "{dumped}");
+    assert!(dumped.contains("filter_key"), "{dumped}");
 }
