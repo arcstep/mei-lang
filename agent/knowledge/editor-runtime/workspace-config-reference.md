@@ -71,22 +71,26 @@ Create a new app after the workspace exists:
 mei-toolchain workspace create-app my-app --source-root /path/to/workspace --json
 ```
 
-The current scaffold writes this minimal file layout:
+The current gold scaffold is:
 
 ```text
 my-app/
-  main.mei
-  .mei-config.json
-  scenes/
-    home.mei
+  app.toml                 # App root (title / default_stage)
+  src/
+    stage/home.stage.mdx   # Stage Registry
+    scene/
+      home.mei             # scene(...) entry
+      home/t1/plane.mei    # plane_layout(...)
 ```
+
+Classic catalog / legacy scaffolds may still use `src/main.mei` or a flat `main.mei`; product gold apps do **not** require `main.mei`.
 
 Recommended next steps:
 
-1. Keep `main.mei` as the app entry.
-2. Keep `scenes/` for additional scene files.
-3. Expand from `scene_ref(...)` and `app_add_scene(...)` when the app grows beyond one scene.
-4. Keep app-specific `ops.*` and upload/prototype paths in the app-local `.mei-config.json`.
+1. Keep `app.toml` as the app root marker (plus Stage MDX).
+2. Author scene structure under `src/scene/` (`home.mei`, planes, regions, sections).
+3. Prefer `plane_ref` / `panel_ref` / `theme_ref` over legacy `world` / `frame` helpers.
+4. Keep app-specific `ops.*` and upload/prototype paths in app-local config when needed.
 
 ## Config boundary
 
