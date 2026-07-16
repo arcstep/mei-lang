@@ -285,6 +285,27 @@ pub fn canonical_temp_stage_path(app_id: &str, target: &ScopeTarget) -> String {
     format!("/apps/{app}/~/node/{node}")
 }
 
+fn encode_path_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => ch.to_string(),
+            _ => format!("%{:02X}", ch as u32),
+        })
+        .collect()
+}
+
+/// Product Access Stage URL: `/apps/{app_id}/{stage_id}` (default stage `home`).
+///
+/// Shared by Host redirects, MRG navigation sync, and `list_scope_routes`.
+/// Does not generate legacy `/apps/app/.../scene/...` or `/layout?...` deep URLs.
+pub fn canonical_access_stage_url(app_id: &str, stage_id: &str) -> String {
+    let app = encode_path_segment(app_id.trim());
+    let stage = stage_id.trim();
+    let stage = if stage.is_empty() { "home" } else { stage };
+    format!("/apps/{app}/{}", encode_path_segment(stage))
+}
+
 /// Compatibility alias — same as [`canonical_temp_stage_path`].
 pub fn canonical_scoped_path(app_id: &str, target: &ScopeTarget) -> String {
     canonical_temp_stage_path(app_id, target)

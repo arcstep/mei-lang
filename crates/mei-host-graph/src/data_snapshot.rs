@@ -127,11 +127,23 @@ pub fn publish_app_data_snapshots(
 mod tests {
     use super::*;
 
+    fn optional_external_workspace() -> Option<std::path::PathBuf> {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = std::path::PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    }
+
     #[test]
     fn collect_xlsx_sources_from_ws_demo_v2_config() {
-        let workspace =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+        let Some(workspace) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         if !workspace.join("apps/data-demo/app.config.json").is_file() {
+            eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
             return;
         }
         let sources = collect_app_xlsx_sources(workspace.as_path(), "data-demo").expect("collect");

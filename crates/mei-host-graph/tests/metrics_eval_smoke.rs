@@ -1,9 +1,13 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use mei_host_graph::{assemble_scope_from_registry, publish_app_data_snapshots};
 use mei_lang_datasets::{evaluate_runtime_metrics, RuntimeMetricEvalMode};
 use mei_lang_kernel::QueryState;
 use serde_json::Value;
+
+fn optional_external_workspace() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
+}
 
 fn skip_if_data_demo_missing(workspace: &Path) -> bool {
     let app = workspace.join("apps/data-demo");
@@ -14,8 +18,12 @@ fn skip_if_data_demo_missing(workspace: &Path) -> bool {
 
 #[test]
 fn home_realtime_warning_detail_evaluates_with_data() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -72,8 +80,12 @@ fn home_realtime_warning_detail_evaluates_with_data() {
 
 #[test]
 fn board_explain_metrics_resolve_after_v2_hydrate_expand() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -133,8 +145,12 @@ fn board_explain_metrics_resolve_after_v2_hydrate_expand() {
 
 #[test]
 fn issue_verification_rate_detail_rowset_evaluates_after_v2_hydrate() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -187,8 +203,12 @@ fn issue_verification_rate_detail_rowset_evaluates_after_v2_hydrate() {
 
 #[test]
 fn warning_detail_card_board_has_preview_projection_slot() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -223,8 +243,12 @@ fn warning_detail_card_board_has_preview_projection_slot() {
 
 #[test]
 fn mechanism_documents_board_has_list_preview_projection_slots() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -290,8 +314,12 @@ fn mechanism_documents_board_has_list_preview_projection_slots() {
 
 #[test]
 fn inspection_trend_year_compare_evaluates_after_bundle_constant_resolve() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
@@ -333,8 +361,12 @@ fn inspection_trend_year_compare_evaluates_after_bundle_constant_resolve() {
 
 #[test]
 fn indicator_calendar_year_metrics_evaluate_non_zero() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if skip_if_data_demo_missing(&workspace) {
+        eprintln!("skip: apps/data-demo missing under MEI_TEST_WORKSPACE");
         return;
     }
     let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");

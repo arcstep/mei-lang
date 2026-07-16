@@ -97,18 +97,43 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
         }
         routes.push(ScopeRoute {
             scene_id: prog.stage_id.clone(),
-            url: format!("/apps/{app_id}/{}", prog.stage_id),
+            url: crate::canonical_access_stage_url(app_id, prog.stage_id.as_str()),
             assembly_key: prog.assembly_key.clone(),
         });
     }
     if routes.is_empty() {
         routes.push(ScopeRoute {
             scene_id: "home".to_string(),
-            url: format!("/apps/{app_id}/home"),
+            url: crate::canonical_access_stage_url(app_id, "home"),
             assembly_key: mei_lang_kernel::default_scene_assembly_key(app_root.as_path(), "home"),
         });
     }
-    Ok(routes)
+    Ok(dedupe_scope_routes_by_stage(app_id, routes))
+}
+
+/// Keep one route per `stage_id`, always rewriting URL to the product canonical form.
+fn dedupe_scope_routes_by_stage(app_id: &str, routes: Vec<ScopeRoute>) -> Vec<ScopeRoute> {
+    let mut by_stage = BTreeMap::<String, ScopeRoute>::new();
+    for route in routes {
+        let stage_id = route.scene_id.trim().to_string();
+        if stage_id.is_empty() {
+            continue;
+        }
+        let url = crate::canonical_access_stage_url(app_id, stage_id.as_str());
+        by_stage
+            .entry(stage_id.clone())
+            .and_modify(|existing| {
+                if existing.assembly_key.is_empty() && !route.assembly_key.is_empty() {
+                    existing.assembly_key = route.assembly_key.clone();
+                }
+            })
+            .or_insert(ScopeRoute {
+                scene_id: stage_id,
+                url,
+                assembly_key: route.assembly_key,
+            });
+    }
+    by_stage.into_values().collect()
 }
 
 /// Board page scene ids (`page_instance.scene`) under a T2 section scope path.
@@ -602,6 +627,13 @@ fn stage_slide_inputs_from_presentation_map(
     presentation_map: &Value,
 ) -> BTreeMap<String, Vec<StageSlideInput>> {
     let mut out = BTreeMap::new();
+    if mei_lang_kernel::accept_presentation_map(presentation_map)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return out;
+    }
     let Some(scene) = presentation_map
         .get("scene")
         .and_then(|v| v.as_str())
@@ -961,6 +993,19 @@ fn route_kind_for_target(target_file: &str) -> String {
     }
 }
 
+fn route_kind_for_stage(
+    stage_id: &str,
+    target_file: &str,
+    programs: &[crate::DiscoveredStageProgram],
+) -> String {
+    if let Some(prog) =
+        crate::stage_program_discover::discover_program_for_stage(programs, stage_id)
+    {
+        return prog.profile.route_kind().to_string();
+    }
+    route_kind_for_target(target_file)
+}
+
 fn scene_title_from_assembly(
     app_root: &Path,
     registry: &crate::mcg::registry::McgRegistry,
@@ -981,6 +1026,7 @@ fn build_scene_routes(
     registry: &crate::mcg::registry::McgRegistry,
 ) -> Result<Vec<CompiledSceneRoute>> {
     let app_root = resolve_app_root(source_root, app_id);
+    let programs = crate::stage_program_discover::discover_stage_programs(app_root.as_path());
     let mut routes = Vec::new();
     let mut seen_scenes = BTreeSet::new();
     for route in list_scope_routes(source_root, app_id)? {
@@ -989,7 +1035,7 @@ fn build_scene_routes(
         }
         let target_file =
             assembly_target_for_key(app_root.as_path(), registry, route.assembly_key.as_str());
-        let kind = route_kind_for_target(target_file.as_str());
+        let kind = route_kind_for_stage(route.scene_id.as_str(), target_file.as_str(), &programs);
         let title =
             scene_title_from_assembly(app_root.as_path(), registry, route.assembly_key.as_str());
         routes.push(CompiledSceneRoute {

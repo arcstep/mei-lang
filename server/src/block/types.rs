@@ -50,7 +50,9 @@ impl BlockId {
             | GraphNodeKind::CatalogResource
             | GraphNodeKind::MetricDefBundle
             | GraphNodeKind::SemanticGraph
-            | GraphNodeKind::PageInstance => BlockLayer::L3,
+            | GraphNodeKind::PageInstance
+            | GraphNodeKind::WarmupPolicy
+            | GraphNodeKind::WorldModel => BlockLayer::L3,
             GraphNodeKind::DataSource
             | GraphNodeKind::EvalPlan
             | GraphNodeKind::Workset

@@ -1,6 +1,7 @@
 pub mod client_bootstrap;
 pub mod eval_cache_plan;
 pub mod frontier;
+pub mod nodes;
 pub mod registry;
 pub mod scene_eval_pack;
 pub mod slots;

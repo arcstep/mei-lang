@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode, PRESENTATION_MAP_SCHEMA_VERSION};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -501,7 +501,7 @@ pub fn build_presentation_map_with_default_script(
     }
     let deck = build_presentation_deck(panels);
     PresentationMapDocument {
-        schema_version: "mei-presentation-map-v1".to_string(),
+        schema_version: PRESENTATION_MAP_SCHEMA_VERSION.to_string(),
         scene: scene_id.to_string(),
         viewpoints,
         deck,

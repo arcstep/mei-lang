@@ -10,14 +10,14 @@ use crate::graph::mrg::navigation::NavigationResolveOpts;
 
 use crate::graph::mcg::app_skeleton::load_app_skeleton_from_mcg;
 use crate::graph::mrg::navigation::types::{NavigationEntry, NavigationMatch};
-use crate::graph::mrg::registry::MrgRegistryWriter;
+use crate::graph::mrg::registry::{navigation_by_key, navigation_entries, MrgRegistryWriter};
 use crate::http::pages::AppQuery;
 use crate::readiness::reachability::legacy_resolve_access_entry;
 use crate::readiness::types::{ScopeCoords, UiMode};
 
 pub fn list_navigation_entries(source_root: &Path, app_id: &str) -> Vec<NavigationEntry> {
     let registry = MrgRegistryWriter::load(source_root, app_id);
-    registry.navigation_entries().into_iter().collect()
+    navigation_entries(&registry)
 }
 
 pub fn find_navigation_by_key(
@@ -26,7 +26,7 @@ pub fn find_navigation_by_key(
     key: &str,
 ) -> Option<NavigationEntry> {
     let registry = MrgRegistryWriter::load(source_root, app_id);
-    registry.navigation_by_key(key)
+    navigation_by_key(&registry, key)
 }
 
 fn default_scene_navigation_alias(

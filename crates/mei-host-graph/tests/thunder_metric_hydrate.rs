@@ -1,14 +1,24 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use mei_host_graph::assemble_scope_from_registry;
 use mei_lang_datasets::{evaluate_runtime_metrics, RuntimeMetricEvalMode};
 use mei_lang_kernel::QueryState;
 
+fn optional_external_workspace() -> Option<PathBuf> {
+    mei_test_support::optional_external_workspace()
+}
+
 #[test]
 fn thunder_devices_online_evaluates_from_app_toml_fixture() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    let Some(workspace) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app = workspace.join("apps/thunder");
-    assert!(app.join("app.toml").is_file(), "thunder app.toml missing");
+    if !app.join("app.toml").is_file() {
+        eprintln!("skip: apps/thunder missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     assert!(
         !app.join("app.config.json").is_file(),
         "thunder should be toml-only for this regression"

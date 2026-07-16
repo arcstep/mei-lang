@@ -40,6 +40,7 @@ pub struct MrgStatusSummary {
     pub slot_ready: usize,
     pub slot_stale: usize,
     pub slot_failed: usize,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -90,7 +91,7 @@ fn graph_app_status(source_root: &Path, app_id: &str) -> GraphAppStatus {
     let app_root = resolve_app_root(source_root, app_id);
     let mcg = McgRegistryWriter::load(source_root, app_id);
     let mrg = MrgRegistryWriter::load(source_root, app_id);
-    let bridge_path = app_root.join("build/active/graph/bridge.json");
+    let bridge = crate::graph::paths::bridge_path(source_root, app_id);
     GraphAppStatus {
         app_id: app_id.to_string(),
         mcg: McgStatusSummary {
@@ -127,9 +128,12 @@ fn graph_app_status(source_root: &Path, app_id: &str) -> GraphAppStatus {
                 .iter()
                 .filter(|slot| slot.state == MaterialState::Failed)
                 .count(),
+            path: crate::graph::paths::mrg_registry_path(source_root, app_id)
+                .display()
+                .to_string(),
         },
         bridge: BridgeStatusSummary {
-            present: bridge_path.is_file(),
+            present: bridge.is_file(),
         },
         content_store: scan_content_store_summary(app_root.as_path()),
     }
@@ -156,6 +160,19 @@ pub fn run_graph_doctor(source_root: &Path, app_id: &str) -> GraphDoctorReport {
             message: format!(
                 "registry schema {} != expected {}",
                 mrg.schema_version, MRG_REGISTRY_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    let canonical_mrg = crate::graph::paths::mrg_registry_path(source_root, app_id);
+    let legacy_mrg = crate::graph::paths::legacy_workspace_graph_root(source_root, app_id)
+        .join("mrg-registry.json");
+    if !canonical_mrg.is_file() && legacy_mrg.is_file() {
+        alerts.push(GraphDoctorAlert {
+            layer: "MRG".to_string(),
+            message: format!(
+                "legacy MRG registry present without canonical path: {}",
+                legacy_mrg.display()
             ),
         });
     }

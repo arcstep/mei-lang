@@ -16,7 +16,6 @@ pub fn stage_registry_bootstrap(compiled: &CompiledApp) -> Value {
                 "surface": mei_lang_kernel::StageSurface::from_profile(s.profile).as_str(),
                 "title": s.title,
                 "is_default": s.is_default,
-                "legacy_scene_id": s.legacy_scene_id,
                 "source_anchor": s.source_anchor.replace('\\', "/"),
             })
         })

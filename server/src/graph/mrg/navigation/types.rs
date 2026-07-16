@@ -7,6 +7,8 @@ use crate::readiness::types::{ScopeCoords, UiMode};
 pub struct NavigationEntry {
     pub key: String,
     pub url: String,
+    /// Access Stage id (wire: `stageId`; still accepts legacy `sceneId`).
+    #[serde(rename = "stageId", alias = "sceneId")]
     pub scene_id: String,
     pub target_file: String,
     pub state: MaterialState,
@@ -45,45 +47,4 @@ impl NavigationMatch {
     pub fn navigation_key(&self) -> Option<String> {
         self.entry.as_ref().map(|entry| entry.key.clone())
     }
-}
-
-pub fn parse_navigation_node(value: &serde_json::Value) -> Option<NavigationEntry> {
-    use crate::graph::types::GraphNodeKind;
-    let id = value.get("id")?;
-    let kind = id.get("kind")?.as_str()?;
-    if kind != GraphNodeKind::Navigation.slug() {
-        return None;
-    }
-    let key = id.get("key")?.as_str()?.to_string();
-    let url = value.get("url")?.as_str()?.to_string();
-    let scene_id = value
-        .get("sceneId")
-        .or_else(|| value.get("scene_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let target_file = value
-        .get("targetFile")
-        .or_else(|| value.get("target_file"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let state = value
-        .get("state")
-        .and_then(|v| v.as_str())
-        .map(|text| match text {
-            "ready" => MaterialState::Ready,
-            "stale" => MaterialState::Stale,
-            "warming" => MaterialState::Warming,
-            "failed" => MaterialState::Failed,
-            _ => MaterialState::Missing,
-        })
-        .unwrap_or(MaterialState::Ready);
-    Some(NavigationEntry {
-        key,
-        url,
-        scene_id,
-        target_file,
-        state,
-    })
 }

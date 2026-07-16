@@ -650,7 +650,7 @@ fn stage_architecture_runtime_baseline_assembles_golden_units() {
         return;
     };
     if !workspace.join("apps/mini-grid/app.toml").is_file() {
-        eprintln!("skip: ws-demo-v2 missing at {}", workspace.display());
+        eprintln!("skip: apps/mini-grid missing under MEI_TEST_WORKSPACE");
         return;
     }
 

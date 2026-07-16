@@ -1,6 +1,6 @@
 //! 0332 层级边距 / 边框 / 圆角：省略即默认（显式值含 `"0"` 覆盖）。
 
-use mei_lang_kernel::hierarchy_spacing_defaults;
+use mei_lang_kernel::{hierarchy_spacing_defaults_for, StageProfile};
 use serde_json::{Map, Value};
 
 const REGION_BORDER_DEFAULT: &str = "none";
@@ -13,7 +13,16 @@ pub fn apply_hierarchy_spacing_defaults(
     payload: &mut Map<String, Value>,
     props: &mut Map<String, Value>,
 ) {
-    if let Some(defaults) = hierarchy_spacing_defaults(role) {
+    apply_hierarchy_spacing_defaults_for(role, StageProfile::Cockpit, payload, props);
+}
+
+pub fn apply_hierarchy_spacing_defaults_for(
+    role: &str,
+    profile: StageProfile,
+    payload: &mut Map<String, Value>,
+    props: &mut Map<String, Value>,
+) {
+    if let Some(defaults) = hierarchy_spacing_defaults_for(role, profile) {
         if let Some(gap) = defaults.gap {
             if let Some(layout) = payload.get_mut("layout") {
                 ensure_layout_gap(layout, gap);
@@ -26,12 +35,20 @@ pub fn apply_hierarchy_spacing_defaults(
             }
         }
     }
-    apply_hierarchy_chrome_defaults(role, payload, props);
+    apply_hierarchy_chrome_defaults(role, profile, payload, props);
 }
 
 /// 无 `__mei_ui_role` 的叶子 / 嵌套 panel：按 content（section 内网格）默认注入。
 pub fn apply_leaf_content_spacing_defaults(mut layout: Option<&mut Value>, props: &mut Value) {
-    let Some(defaults) = hierarchy_spacing_defaults("content") else {
+    apply_leaf_content_spacing_defaults_for(StageProfile::Cockpit, layout.as_deref_mut(), props);
+}
+
+pub fn apply_leaf_content_spacing_defaults_for(
+    profile: StageProfile,
+    mut layout: Option<&mut Value>,
+    props: &mut Value,
+) {
+    let Some(defaults) = hierarchy_spacing_defaults_for("content", profile) else {
         return;
     };
     if let Some(layout_value) = layout.as_mut() {
@@ -45,11 +62,12 @@ pub fn apply_leaf_content_spacing_defaults(mut layout: Option<&mut Value>, props
     if let Some(padding) = defaults.padding {
         ensure_props_padding(map, padding);
     }
-    apply_content_fill_defaults(layout, map);
+    apply_content_fill_defaults(profile, layout, map);
 }
 
 fn apply_hierarchy_chrome_defaults(
     role: &str,
+    profile: StageProfile,
     payload: &mut Map<String, Value>,
     props: &mut Map<String, Value>,
 ) {
@@ -63,15 +81,28 @@ fn apply_hierarchy_chrome_defaults(
             ensure_props_string(props, "border", SECTION_BORDER_DEFAULT);
         }
         "content" => {
-            apply_content_fill_defaults(payload.get_mut("layout"), props);
+            apply_content_fill_defaults(profile, payload.get_mut("layout"), props);
         }
         _ => {}
     }
 }
 
-fn apply_content_fill_defaults(layout: Option<&mut Value>, props: &mut Map<String, Value>) {
+fn apply_content_fill_defaults(
+    profile: StageProfile,
+    layout: Option<&mut Value>,
+    props: &mut Map<String, Value>,
+) {
     ensure_props_string(props, "radius", RADIUS_DEFAULT);
     ensure_props_string(props, "border", CONTENT_BORDER_DEFAULT);
+    // Page document flow: width constrained, height intrinsic (no fill-down height:100%).
+    if matches!(profile, StageProfile::Page) {
+        ensure_props_string(props, "width", "100%");
+        ensure_props_string(props, "min_height", "0");
+        if let Some(layout) = layout {
+            ensure_layout_align_justify(layout, "start", "stretch");
+        }
+        return;
+    }
     if !props.contains_key("__mei_layout_fill") {
         props.insert("__mei_layout_fill".to_string(), Value::Bool(true));
     }

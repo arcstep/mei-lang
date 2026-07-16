@@ -6,7 +6,7 @@ use mei_lang_kernel::resolve_app_root;
 
 use crate::graph::mcg::app_skeleton::load_app_skeleton_from_mcg;
 use crate::graph::mrg::navigation::list_navigation_entries;
-use crate::graph::mrg::registry::MrgRegistryWriter;
+use crate::graph::mrg::registry::{navigation_entries, MrgRegistryWriter};
 
 #[derive(Debug, Clone, Default)]
 pub struct NavigationContractReport {
@@ -71,7 +71,7 @@ pub fn verify_navigation_contract(source_root: &Path, app_id: &str) -> Navigatio
 
 pub fn navigation_drift_metrics(source_root: &Path, app_id: &str) -> (usize, usize, usize) {
     let registry = MrgRegistryWriter::load(source_root, app_id);
-    let entries = registry.navigation_entries();
+    let entries = navigation_entries(&registry);
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for entry in &entries {
         *counts.entry(entry.key.clone()).or_default() += 1;

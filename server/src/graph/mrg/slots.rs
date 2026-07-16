@@ -32,26 +32,26 @@ fn record_mrg_slot(
         "json_walk",
     );
     let mut registry = MrgRegistryWriter::load(source_root, app_id);
-    registry.upsert_slot(MrgSlotRecord {
-        slot_id: MrgSlotId {
+    registry.upsert_slot(MrgSlotRecord::lean(
+        MrgSlotId {
             node: GraphNodeId::new(GraphNodeKind::MaterialSlot, slot_node_key.to_string()),
             scope_key: scope_key.to_string(),
         },
         slot_revision,
-        state: MaterialState::Ready,
-        owner_resource_id: owner_resource_id.to_string(),
-        metric_def_bundle_revision: metric_def_bundle_revision.to_string(),
-        data_source_revision: data_source_revision.to_string(),
-        payload_ref: Some(PayloadRef::new(payload_kind, content_hash, schema_version)),
-        cache_policy: "artifact_sealed".to_string(),
-        eval_engine: "json_walk".to_string(),
-        last_eval: Some(MrgLastEval {
+        MaterialState::Ready,
+        owner_resource_id.to_string(),
+        metric_def_bundle_revision.to_string(),
+        data_source_revision.to_string(),
+        Some(PayloadRef::new(payload_kind, content_hash, schema_version)),
+        "artifact_sealed".to_string(),
+        "json_walk".to_string(),
+        Some(MrgLastEval {
             at_ms: current_time_ms(),
             wall_ms,
             artifact_hit,
             cache_layer: if artifact_hit { "disk" } else { "compute" }.to_string(),
         }),
-    });
+    ));
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
 }
@@ -146,26 +146,26 @@ pub fn record_mrg_slot_failed(
         "json_walk",
     );
     let mut registry = MrgRegistryWriter::load(source_root, app_id);
-    registry.upsert_slot(MrgSlotRecord {
-        slot_id: MrgSlotId {
+    registry.upsert_slot(MrgSlotRecord::lean(
+        MrgSlotId {
             node: GraphNodeId::new(GraphNodeKind::MaterialSlot, slot_node_key.to_string()),
             scope_key: scope_key.to_string(),
         },
         slot_revision,
-        state: MaterialState::Failed,
-        owner_resource_id: owner_resource_id.to_string(),
-        metric_def_bundle_revision: metric_def_bundle_revision.to_string(),
-        data_source_revision: data_source_revision.to_string(),
-        payload_ref: None,
-        cache_policy: "artifact_sealed".to_string(),
-        eval_engine: "json_walk".to_string(),
-        last_eval: Some(MrgLastEval {
+        MaterialState::Failed,
+        owner_resource_id.to_string(),
+        metric_def_bundle_revision.to_string(),
+        data_source_revision.to_string(),
+        None,
+        "artifact_sealed".to_string(),
+        "json_walk".to_string(),
+        Some(MrgLastEval {
             at_ms: current_time_ms(),
             wall_ms: 0,
             artifact_hit: false,
             cache_layer: error_message.chars().take(32).collect(),
         }),
-    });
+    ));
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
 }

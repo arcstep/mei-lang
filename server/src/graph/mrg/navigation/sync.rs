@@ -4,9 +4,10 @@ use mei_lang_kernel::{
     load_workspace_config, resolve_app_id, resolve_app_root, resolve_default_scene_from_root,
 };
 
-use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter};
+use crate::graph::mrg::registry::{upsert_navigation_node, MrgRegistryWriter};
 use crate::graph::mrg::warmup::record_navigation_edge;
 use crate::graph::types::{stable_hash, MaterialState};
+use mei_host_graph::canonical_access_stage_url;
 
 /// Minimal scene×target pair for MRG navigation sync (prebuild compile scopes).
 #[derive(Debug, Clone)]
@@ -52,24 +53,23 @@ pub fn sync_navigation_registry(
         if scene_id.is_empty() || target_file.is_empty() {
             continue;
         }
-        let access_url = format!("/apps/app/{canonical_app}/scene/{scene_id}");
-        let layout_url = format!(
-            "/apps/{canonical_app}/layout?scene={scene_id}&file={}",
-            urlencoding_path_segment(target_file)
-        );
+        let access_url = canonical_access_stage_url(canonical_app.as_str(), scene_id);
         upsert_navigation_node(
             &mut registry,
             &format!("access:{scene_id}"),
             &access_url,
             scene_id,
             target_file,
+            MaterialState::Ready,
         );
+        // layout:* kept as a key for older readers, but URL is product canonical (no /layout deep URL).
         upsert_navigation_node(
             &mut registry,
             &format!("layout:{scene_id}"),
-            &layout_url,
+            &access_url,
             scene_id,
             target_file,
+            MaterialState::Ready,
         );
         if scene_id != default_scene.as_str() {
             record_navigation_edge(&mut registry, default_scene.as_str(), scene_id);
@@ -90,19 +90,22 @@ pub fn sync_navigation_registry(
         })
         .or_else(|| scene_routes.first().map(|(_, target)| target.as_str()))
         .unwrap_or("src/scenes/home.mei");
+    let default_url = canonical_access_stage_url(canonical_app.as_str(), default_scene.as_str());
     upsert_navigation_node(
         &mut registry,
         "default_access",
-        &format!("/apps/app/{canonical_app}/scene/{default_scene}"),
+        &default_url,
         default_scene.as_str(),
         default_target,
+        MaterialState::Ready,
     );
     upsert_navigation_node(
         &mut registry,
         "default_layout",
-        &format!("/apps/{canonical_app}/layout"),
+        &default_url,
         default_scene.as_str(),
         default_target,
+        MaterialState::Ready,
     );
 
     registry.finalize();
@@ -133,24 +136,22 @@ pub fn sync_navigation_for_compile_scopes(
         if !seen.insert(dedupe_key) {
             continue;
         }
-        let access_url = format!("/apps/app/{canonical_app}/scene/{scene_id}");
-        let layout_url = format!(
-            "/apps/{canonical_app}/layout?scene={scene_id}&file={}",
-            urlencoding_path_segment(target_file)
-        );
+        let access_url = canonical_access_stage_url(canonical_app.as_str(), scene_id);
         upsert_navigation_node(
             &mut registry,
             &format!("access:{scene_id}"),
             &access_url,
             scene_id,
             target_file,
+            MaterialState::Ready,
         );
         upsert_navigation_node(
             &mut registry,
             &format!("layout:{scene_id}"),
-            &layout_url,
+            &access_url,
             scene_id,
             target_file,
+            MaterialState::Ready,
         );
         let scope_key = format!(
             "scope:{scene_id}:{}",
@@ -162,6 +163,7 @@ pub fn sync_navigation_for_compile_scopes(
             &access_url,
             scene_id,
             target_file,
+            MaterialState::Ready,
         );
     }
 
@@ -205,37 +207,26 @@ pub fn sync_navigation_for_compile_scopes(
         })
         .or_else(|| scopes.first().map(|scope| scope.target_file.as_str()))
         .unwrap_or("src/scenes/home.mei");
+    let default_url = canonical_access_stage_url(canonical_app.as_str(), default_scene.as_str());
     upsert_navigation_node(
         &mut registry,
         "default_access",
-        &format!("/apps/app/{canonical_app}/scene/{default_scene}"),
+        &default_url,
         default_scene.as_str(),
         default_target,
+        MaterialState::Ready,
     );
     upsert_navigation_node(
         &mut registry,
         "default_layout",
-        &format!("/apps/{canonical_app}/layout"),
+        &default_url,
         default_scene.as_str(),
         default_target,
+        MaterialState::Ready,
     );
 
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
-}
-
-fn upsert_navigation_node(
-    registry: &mut MrgRegistry,
-    key: &str,
-    url: &str,
-    scene_id: &str,
-    target_file: &str,
-) {
-    registry.upsert_navigation_node(key, url, scene_id, target_file, MaterialState::Ready);
-}
-
-fn urlencoding_path_segment(value: &str) -> String {
-    value.replace(' ', "%20")
 }
 
 #[cfg(test)]

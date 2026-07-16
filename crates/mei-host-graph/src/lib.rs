@@ -111,14 +111,19 @@ pub use mrg::frontier::{
     collect_eval_frontier, collect_eval_frontier_with_hops, linked_t2_page_pack_scopes,
     linked_t2_page_scenes_for_scope, record_navigation_edges_for_scope, FrontierMetric,
 };
-pub use mrg::registry::{MrgRegistry, MrgRegistryWriter};
+pub use mrg::nodes::MrgNodeRecord;
+pub use mrg::registry::{
+    MrgEdgeRecord, MrgLastEval, MrgRegistry, MrgRegistryLoadError, MrgRegistryWriter, MrgSlotId,
+    MrgSlotRecord, MrgTelemetrySummary, MRG_REGISTRY_SCHEMA_VERSION, MRG_REGISTRY_SCHEMA_V2,
+    MRG_REGISTRY_SCHEMA_V3,
+};
 pub use mrg::scene_eval_pack::{
     build_scene_eval_pack, SceneEvalPackBuildOptions, SceneEvalPackEvalLayerRef,
     SceneEvalPackResponse, SceneEvalPackStatus,
 };
 pub use mrg::slots::{
     default_metric_response_descriptor, mark_slots_stale_for_bundles, record_slot_failed,
-    record_slot_from_descriptor, record_slots_from_descriptors, MRG_REGISTRY_SCHEMA_V3,
+    record_slot_from_descriptor, record_slots_from_descriptors,
 };
 pub use mrg::telemetry::{
     flush_telemetry_to_registry, mrg_status_json, record_access, record_scope_activation,
@@ -131,6 +136,10 @@ pub use presentation_map::{
     build_presentation_map, presentation_map_to_value, resolve_viewpoint_id, PresentationDeck,
     PresentationDeckSlide, PresentationMapDocument,
 };
+pub use mei_lang_kernel::{
+    accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
+    presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
+};
 pub use runtime_plans::{
     build_runtime_plans_document, empty_runtime_plans_document, ensure_runtime_plans_cached,
     persist_runtime_plans, runtime_plans_cache_key, runtime_plans_from_outcome,
@@ -142,10 +151,10 @@ pub use scene_materialize::{
     ArtifactHitMatrix, ShellChromeRenderArgs, ShellChromeRenderer,
 };
 pub use scope_target::{
-    canonical_scoped_path, canonical_t2_page_path, canonical_temp_stage_path,
-    infer_stage_from_temp_target, parse_scoped_route_tail, parse_temp_stage_target,
-    resolve_scope_target, ScopeTarget, ScopeTargetHint, ScopeTargetResolveError, ScopedRouteParse,
-    SCOPED_ROUTE_ROLES,
+    canonical_access_stage_url, canonical_scoped_path, canonical_t2_page_path,
+    canonical_temp_stage_path, infer_stage_from_temp_target, parse_scoped_route_tail,
+    parse_temp_stage_target, resolve_scope_target, ScopeTarget, ScopeTargetHint,
+    ScopeTargetResolveError, ScopedRouteParse, SCOPED_ROUTE_ROLES,
 };
 pub use semantic_cache::{
     build_page_render_view_axes, build_semantic_cache_core, page_render_view_signature,

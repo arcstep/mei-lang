@@ -10,8 +10,6 @@ use crate::types::{
     current_time_ms, stable_hash, GraphNodeId, GraphNodeKind, MaterialState, PayloadRef,
 };
 
-pub const MRG_REGISTRY_SCHEMA_V3: &str = crate::mrg::registry::MRG_REGISTRY_SCHEMA_VERSION;
-
 pub fn record_slot_from_descriptor(
     source_root: &Path,
     app_id: &str,

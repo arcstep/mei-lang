@@ -233,14 +233,19 @@ mod graph_mcg_tests {
 
     #[test]
     fn assemble_board_scope_hydrates_runtime_metric_defs() {
-        use std::path::Path;
+        use std::path::PathBuf;
 
         use mei_lang_datasets::locate_runtime_metric_resource;
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let source_root = PathBuf::from(raw.trim());
         // Phase 5: apps live under apps/; v1 *.board.mei removed.
         let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {
+            eprintln!("skip: zhifa mcg missing under MEI_TEST_WORKSPACE");
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
@@ -265,11 +270,16 @@ mod graph_mcg_tests {
 
     #[test]
     fn assemble_home_scene_payload_without_mcg_registry() {
-        use std::path::Path;
+        use std::path::PathBuf;
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let source_root = PathBuf::from(raw.trim());
         let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {
+            eprintln!("skip: zhifa mcg missing under MEI_TEST_WORKSPACE");
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
@@ -287,11 +297,16 @@ mod graph_mcg_tests {
 
     #[test]
     fn assemble_penalty_board_backfills_runtime_catalog() {
-        use std::path::Path;
+        use std::path::PathBuf;
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let source_root = PathBuf::from(raw.trim());
         let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {
+            eprintln!("skip: zhifa mcg missing under MEI_TEST_WORKSPACE");
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
