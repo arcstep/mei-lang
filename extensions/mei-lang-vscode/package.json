@@ -2,7 +2,7 @@
   "name": "mei-lang",
   "displayName": "MeiLang",
   "description": "MeiLang (.mei) language support: TextMate highlighting and mei-lsp.",
-  "version": "2.5.21",
+  "version": "2.5.22",
   "publisher": "mei-lang",
   "license": "MIT",
   "repository": {
@@ -36,7 +36,11 @@
         "extensions": [
           ".mei"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/mei.svg",
+          "dark": "./icons/mei.svg"
+        }
       }
     ],
     "grammars": [

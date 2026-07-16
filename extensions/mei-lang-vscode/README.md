@@ -55,8 +55,9 @@ cargo build -p mei-lang-lsp
 
 ```bash
 npm run package
+# CLI（若未装到 PATH，用 Cursor.app 内完整路径）：
 cursor --install-extension ./mei-lang-*.vsix
-# 或：Extensions → Install from VSIX…
+# 或：Cmd+Shift+P → Extensions: Install from VSIX…
 # 或：Install from Location… 指向本目录（需已 npm install）
 ```
 
@@ -72,6 +73,7 @@ cursor --install-extension ./mei-lang-*.vsix
 ## 当前范围
 
 - ✅ `.mei` language id + TextMate + language-configuration
+- ✅ 资源管理器语言默认图标（梅花铜钱 `icons/mei.svg`；需 File Icon Theme 非 `None`/`Minimal`，推荐 `Seti`）
 - ✅ 挂载 `mei-lsp`
 - ❌ Stage MDX（`*.stage.mdx` / `*.deck.mdx`）专用 grammar / LSP
 - ❌ Marketplace / Open VSX 发布（后续）
