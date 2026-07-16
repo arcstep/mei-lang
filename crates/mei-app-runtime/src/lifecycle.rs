@@ -5,7 +5,8 @@ use mei_lang_datasets::{
 };
 use mei_lang_kernel::{load_mei_config_for_app, runtime_plan_requires_warm};
 use mei_plug_ds::{
-    collect_warmup_targets_for_scopes, hydrate_existing_l1_slots, run_warmup_targets_with_tier,
+    collect_warmup_targets_for_scopes_with_filter, hydrate_existing_l1_slots,
+    run_warmup_targets_with_tier, WarmupScopeFilter,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -78,7 +79,17 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
     let scenes = launch_hot_scenes(&state.spec.config_snapshot.warmup, state.app_id());
     let required_datasets =
         launch_required_datasets(&state.spec.config_snapshot.warmup, state.app_id());
-    let targets = collect_warmup_targets_for_scopes(ctx, Some(scenes.as_slice()))?;
+    // Use THIS candidate instance's runtime plan. Active disk pointer still points at the
+    // previous instance until cutover, so resolve_for_app would wrongly apply lazy/scoped.
+    let warmup_filter = WarmupScopeFilter::from_runtime_plan(
+        &state.spec.config_snapshot.runtime_plan,
+        state.app_id(),
+    );
+    let targets = collect_warmup_targets_for_scopes_with_filter(
+        ctx,
+        Some(scenes.as_slice()),
+        &warmup_filter,
+    )?;
     if targets.is_empty() {
         anyhow::bail!(
             "no warmup targets for hotScenes={:?}; check launch warmup manifest",

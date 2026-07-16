@@ -3,8 +3,9 @@
 # 不要再「通用 metric_card + chrome_* props」叠两层。
 # 用法：use template "cockpit/layout-defaults" as ui
 #
-# 层级边距：**省略即默认**（semantic_scene / section_shell lower 注入）。
-# 下列宏仅供显式覆盖或文档对照；金样不要再到处抄写默认值。
+# 尺寸 Fill-down / 层级 1px 边距：由 StageLayoutProfile(cockpit) 在作者省略时注入。
+# 下列宏只保留稳定外观与真正的视觉差异（背景、字段内排、特殊 padding）。
+# 勿再声明与系统默认重复的 width/height/min_height/__mei_layout_fill。
 
 METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
 
@@ -16,12 +17,12 @@ CORNER_DECOR_BG = "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat
     + "rgba(98,190,235,0.10)"
 SOLID_PLAIN_BG = {"color": "rgba(98,190,235,0.10)"}
 
-# --- 层级边距规范（0332）：字面 1px ---
+# --- 层级边距规范（0332）：字面 1px；省略时由平台注入 ---
 # plane  gap→region 外边距 1px / padding 1px
 # region gap→section 外边距 1px / padding 1px / border 0 / radius 0
 # section gap→内网格外边距 1px / padding 1px / border 1px / radius 0
 # content（section 内网格）padding 0 / border 0 / align+justify stretch
-# 省略时由平台注入；显式 gap/padding（含 "0"）覆盖。
+# 显式 gap/padding（含 "0"）覆盖系统默认。
 LAYOUT_SPACE_1 = "1px"
 SECTION_MARGIN = "1px"
 REGION_MARGIN = "1px"
@@ -66,7 +67,7 @@ template frame_gap():
 template bg_panel_glow():
     "linear-gradient(180deg, rgba(32, 96, 168, 0.72) 0%, rgba(14, 48, 92, 0.88) 100%)"
 
-# --- 窄指标卡（显式 SVG 底；充满父 grid 格）---
+# --- 窄指标卡（显式 SVG 底；外壳拥有背景）---
 template narrow_metric_card(
     id = "metric_card",
     area = None,
@@ -87,10 +88,6 @@ template narrow_metric_card(
         layout = layout,
         placements = placements,
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": {
                 "image": "url(" + METRICS_ASSET + "/metric-bg-normal@3x.svg)",
                 "size": "100% 100%",
@@ -103,7 +100,6 @@ template narrow_metric_card(
             "radius": "0",
             "border": "none",
             "__mei_slot_frame_bg": True,
-            "__mei_layout_fill": True,
         },
     )
 
@@ -124,15 +120,10 @@ template corner_metric_card(
         popup = popup,
         surface = "solid_stack",
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": CORNER_DECOR_BG,
             "border": "1px solid rgba(98,190,235,0.35)",
             "padding": "4px 8px",
             "radius": "0",
-            "__mei_layout_fill": True,
             "label_vertical_align": "center",
         },
     )
@@ -153,15 +144,10 @@ template plain_solid_metric_card(
         popup = popup,
         surface = "solid_stack",
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": SOLID_PLAIN_BG,
             "border": "1px solid rgba(98,190,235,0.35)",
             "padding": "4px 8px",
             "radius": "0",
-            "__mei_layout_fill": True,
             "label_vertical_align": "center",
         },
     )
@@ -193,13 +179,8 @@ template row_metric_card(
             justify = "center",
         ),
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "padding": LAYOUT_SPACE_1,
             "border": "none",
-            "__mei_layout_fill": True,
             "__mei_metric_inline_align": "compact",
         },
     )
@@ -226,17 +207,12 @@ template plain_metric_card(
         patch = patch,
         surface = "compound_sub_stack",
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "padding": "0",
             "border": "none",
-            "__mei_layout_fill": True,
         },
     )
 
-# --- 复合框 panel（显式 target SVG 底；充满父 grid 格）---
+# --- 复合框 panel（显式 target SVG 底；外壳拥有背景）---
 template compound_panel(
     id = "panel",
     area = None,
@@ -251,10 +227,6 @@ template compound_panel(
         chrome = "bare",
         show_heading = False,
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": {
                 "image": "url(" + METRICS_ASSET + "/metric-bg-target@3x.svg)",
                 "size": "100% 100%",
@@ -267,7 +239,6 @@ template compound_panel(
             "radius": "0",
             "border": "none",
             "__mei_slot_frame_bg": True,
-            "__mei_layout_fill": True,
         },
         layout = layout,
         blocks = blocks,
@@ -288,10 +259,6 @@ template long_compound_panel(
         chrome = "bare",
         show_heading = False,
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": {
                 "color": "rgba(98,190,235,0.10)",
                 "image": "url(" + METRICS_ASSET + "/metric-bg-long@3x.svg)",
@@ -306,13 +273,12 @@ template long_compound_panel(
             "border": "none",
             "__mei_slot_frame_bg": True,
             "__mei_slot_bg_stretch": True,
-            "__mei_layout_fill": True,
         },
         layout = layout,
         blocks = blocks,
     )
 
-# --- 带目标说明的指标卡（stack_desc；充满父格）---
+# --- 带目标说明的指标卡（stack_desc）---
 template desc_metric_card(
     id = "metric_card",
     area = None,
@@ -332,10 +298,6 @@ template desc_metric_card(
         surface = "stack_desc",
         desc = desc,
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": {
                 "image": "url(" + METRICS_ASSET + "/metric-bg-mid@3x.svg)",
                 "size": "100% 100%",
@@ -348,11 +310,10 @@ template desc_metric_card(
             "radius": "0",
             "border": "none",
             "__mei_slot_frame_bg": True,
-            "__mei_layout_fill": True,
         },
     )
 
-# --- 左侧图标状态卡（icon_left；充满父格）---
+# --- 左侧图标状态卡（icon_left；图标层保留固有尺寸，不 stretch）---
 template icon_metric_card(
     id = "metric_card",
     area = None,
@@ -372,10 +333,6 @@ template icon_metric_card(
         popup = popup,
         surface = surface,
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "padding": padding,
             "background": {
                 "color": "rgba(98,190,235,0.10)",
@@ -386,7 +343,6 @@ template icon_metric_card(
             },
             "radius": "0",
             "border": "none",
-            "__mei_layout_fill": True,
         },
     )
 
@@ -453,10 +409,6 @@ template row_solid_metric_card(
             justify = "start",
         ),
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
-            "box_sizing": "border-box",
             "background": {
                 "color": "rgba(98,190,235,0.10)",
                 "size": "100% 100%",
@@ -466,7 +418,6 @@ template row_solid_metric_card(
             "padding": "0 4px",
             "radius": "0",
             "border": border,
-            "__mei_layout_fill": True,
             "label_vertical_align": "center",
             "value_vertical_align": "center",
             "unit_vertical_align": "center",
@@ -522,11 +473,7 @@ template progress_metric_card(
             justify = "center",
         ),
         props = {
-            "width": "100%",
-            "height": "100%",
-            "min_height": "0",
             "max_height": "100%",
-            "box_sizing": "border-box",
             "overflow": "hidden",
             "background": {
                 "color": "transparent",
@@ -542,7 +489,6 @@ template progress_metric_card(
             "border": "none",
             "__mei_slot_frame_bg": True,
             "__mei_slot_bg_stretch": True,
-            "__mei_layout_fill": True,
             "__mei_metric_template": "stack_desc",
             "__mei_metric_density": "compact",
             "__mei_metric_inline_align": "compact",

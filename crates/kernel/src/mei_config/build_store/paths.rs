@@ -145,6 +145,15 @@ pub fn resolve_app_var_root_following_active(app_root: &Path) -> PathBuf {
     if let Some(instance_var) = app_runtime_var_root_override(app_root) {
         return instance_var;
     }
+    resolve_app_build_var_root_following_active(app_root)
+}
+
+/// Read-only build var under pinned/active env generation (parquet snapshots, import manifest).
+/// Does not follow `MEI_APP_RUNTIME_VAR_ROOT` instance ephemeral overlay.
+pub fn resolve_app_build_var_root_following_active(app_root: &Path) -> PathBuf {
+    if let Some(override_root) = prebuild_var_root_override() {
+        return override_root;
+    }
     require_app_env_dir_following_current(app_root)
         .map(|env_dir| env_dir.join(APP_ENV_VAR_REL))
         .unwrap_or_else(|err| {

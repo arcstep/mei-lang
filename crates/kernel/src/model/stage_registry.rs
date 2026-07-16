@@ -40,12 +40,18 @@ impl std::fmt::Display for StageId {
     }
 }
 
-/// Stage Profile (Phase 1: Cockpit + Slides only).
+/// Stage Profile (cockpit / slides / page).
+///
+/// `page` is a product Stage for content-driven long documents.
+/// It is distinct from T2 `page_instance` (cockpit-internal drilldown), which
+/// still uses route kind `"page"` and is excluded from the Stage Registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StageProfile {
     Cockpit,
     Slides,
+    /// Content-driven long page: inline constrained, block intrinsic, stage viewport scrolls.
+    Page,
 }
 
 impl StageProfile {
@@ -53,14 +59,30 @@ impl StageProfile {
         match self {
             Self::Cockpit => "cockpit",
             Self::Slides => "slides",
+            Self::Page => "page",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "cockpit" => Some(Self::Cockpit),
+            "slides" | "presentation" => Some(Self::Slides),
+            "page" => Some(Self::Page),
+            _ => None,
         }
     }
 
     /// Infer from legacy route kind / target_file (same rules as Access StageKind).
+    ///
+    /// Explicit frontmatter `profile: page` is applied by Stage Program discovery;
+    /// path inference alone cannot distinguish page from cockpit scene stages.
     pub fn from_route_meta(kind: &str, target_file: &str) -> Self {
         let kind = kind.trim().to_ascii_lowercase();
         if kind == "presentation" {
             return Self::Slides;
+        }
+        if kind == "document" {
+            return Self::Page;
         }
         let target = target_file.replace('\\', "/").to_ascii_lowercase();
         if target.contains("/presentation/")
@@ -224,6 +246,7 @@ pub fn is_stage_registry_candidate(route: &CompiledSceneRoute) -> bool {
     }
     kind == "scene"
         || kind == "presentation"
+        || kind == "document"
         || kind == "file_ref"
         || kind == "declarative"
         || kind.is_empty()

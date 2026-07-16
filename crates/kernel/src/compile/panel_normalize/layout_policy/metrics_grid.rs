@@ -27,7 +27,8 @@ pub(super) fn default_metrics_2x2_layout(panel: &UiNodeDecl) -> LayoutDecl {
             None => Some(value),
         })
         .map(px_track)
-        .unwrap_or_else(|| "auto".to_string());
+        // Fill-down: omit fixed height → absorb parent fr cell (not content-sized auto).
+        .unwrap_or_else(|| "minmax(0, 1fr)".to_string());
     let bottom_row = panel
         .blocks
         .iter()
@@ -39,7 +40,7 @@ pub(super) fn default_metrics_2x2_layout(panel: &UiNodeDecl) -> LayoutDecl {
             None => Some(value),
         })
         .map(px_track)
-        .unwrap_or_else(|| "auto".to_string());
+        .unwrap_or_else(|| "minmax(0, 1fr)".to_string());
     LayoutDecl {
         layout_type: "grid".to_string(),
         direction: None,
@@ -57,7 +58,7 @@ pub(super) fn default_metrics_2x2_layout(panel: &UiNodeDecl) -> LayoutDecl {
         gap: Some(spacing.gap),
         padding: Some(spacing.padding),
         align: Some("stretch".to_string()),
-        justify: None,
+        justify: Some("stretch".to_string()),
     }
 }
 
@@ -88,7 +89,8 @@ pub(super) fn default_metrics_2_1_layout(panel: &UiNodeDecl) -> LayoutDecl {
         layout_type: "grid".to_string(),
         direction: None,
         columns: Some(columns),
-        rows: Some(vec!["auto".to_string()]),
+        // Fill-down: strip fills parent body cell on the block axis.
+        rows: Some(vec!["minmax(0, 1fr)".to_string()]),
         areas: Some(vec![vec![
             "m0".to_string(),
             "m1".to_string(),
@@ -97,7 +99,7 @@ pub(super) fn default_metrics_2_1_layout(panel: &UiNodeDecl) -> LayoutDecl {
         gap: Some(spacing.gap),
         padding: Some(spacing.padding),
         align: Some("stretch".to_string()),
-        justify: None,
+        justify: Some("stretch".to_string()),
     }
 }
 
@@ -233,6 +235,6 @@ pub(super) fn default_metric_compound_2_1_layout(panel: &UiNodeDecl) -> LayoutDe
         gap: Some(spacing.gap),
         padding: Some(spacing.padding),
         align: Some("stretch".to_string()),
-        justify: None,
+        justify: Some("stretch".to_string()),
     }
 }

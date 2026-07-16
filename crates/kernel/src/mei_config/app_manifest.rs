@@ -1,5 +1,8 @@
-//! Unified `app.toml` manifest (0540) with dual-read fallback to
-//! `app.config.json` + `launch.json`.
+//! Unified `app.toml` manifest (0540).
+//!
+//! Runtime loading is **toml-only**. `app.config.json` + `launch.json` remain available
+//! only through [`migrate_json_pair_to_toml`] / [`load_app_manifest_from_json_pair`] for
+//! one-shot migration tooling.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -238,12 +241,24 @@ pub fn load_app_manifest(app_root: &Path) -> AppManifest {
     let toml_path = AppManifest::app_toml_path(app_root);
     if toml_path.is_file() {
         return load_app_manifest_from_toml(&toml_path).unwrap_or_else(|_| {
-            let mut m = load_app_manifest_from_json_pair(app_root);
-            m.source_path = Some(toml_path);
+            let mut m = AppManifest {
+                default_stage: default_stage_from_registry(app_root),
+                title: default_title_from_registry(app_root),
+                generation: "current".to_string(),
+                source_path: Some(toml_path.clone()),
+                ..AppManifest::default()
+            };
+            m.mei = MeiConfig::default();
             m
         });
     }
-    load_app_manifest_from_json_pair(app_root)
+    // Hard cut (0121 A6): do not dual-read app.config.json / launch.json.
+    AppManifest {
+        default_stage: default_stage_from_registry(app_root),
+        title: default_title_from_registry(app_root),
+        generation: "current".to_string(),
+        ..AppManifest::default()
+    }
 }
 
 pub fn load_app_manifest_from_toml(path: &Path) -> Result<AppManifest, String> {

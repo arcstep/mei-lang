@@ -5,8 +5,15 @@ use super::super::harness::{dev_examples_root, dev_workspace_root};
 
 #[test]
 fn compile_cockpit_templates_preview() {
-    let source_root = dev_workspace_root();
+    let Some(source_root) = dev_workspace_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join(".stock/templates/cockpit");
+    if !app_root.is_dir() {
+        eprintln!("skip: .stock/templates/cockpit missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -214,7 +221,15 @@ fn compile_cockpit_templates_preview() {
 
 #[test]
 fn compile_cockpit_panel_example() {
-    let source_root = dev_examples_root().join("cockpit");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("cockpit");
+    if !source_root.is_dir() {
+        eprintln!("skip: examples/cockpit missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 05-panel failed: {error}"));
@@ -366,7 +381,15 @@ fn compile_cockpit_panel_example() {
 
 #[test]
 fn compile_cockpit_metric_gallery_example() {
-    let source_root = dev_examples_root().join("cockpit");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("cockpit");
+    if !source_root.is_dir() {
+        eprintln!("skip: examples/cockpit missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root_with_options(
         &source_root,

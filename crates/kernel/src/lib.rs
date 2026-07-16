@@ -35,8 +35,9 @@ pub use catalog_app::{
     StockCatalogRouteEntry, StockCatalogRouteKind,
 };
 pub use compile::layout_budget::{
-    hierarchy_spacing_defaults, padding_profile_css, HierarchySpacingDefaults, HIERARCHY_PX_1,
-    HIERARCHY_REGION_OUTER, HIERARCHY_SECTION_OUTER, HIERARCHY_SPACE_1,
+    hierarchy_spacing_defaults, hierarchy_spacing_defaults_for, padding_profile_css,
+    HierarchySpacingDefaults, HIERARCHY_PX_1, HIERARCHY_REGION_OUTER, HIERARCHY_SECTION_OUTER,
+    HIERARCHY_SPACE_1,
 };
 pub use compile::{
     access_parquet_import_required, block_instance_id, build_experience_index,
@@ -202,11 +203,14 @@ pub use model::{
     StageUnitKind, SurfacePreviewPolicy, T2PageFileEntry, ThemeDecl, UiBudgetSummary,
     UiLayoutIndex, UiNodeDecl, ContentCapability, ContentCapabilityId, ContentCapabilityKind,
     FillDownPolicy, NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
-    ProfileLayoutPolicy, SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SizeAxisPolicy,
-    SlotCardinality, bind_programs_to_abi, compute_narration_digest, compute_structure_digest,
-    diagnose_slot_missing, profile_layout_policy_digest, project_abi,
-    validate_abi_against_programs, apply_cockpit_stage_decl, CockpitFillDecl, CockpitStageDecl,
-    CockpitStepDecl, AbiProjection, AbiProjectionInput,
+    ProfileLayoutPolicy, ProfileSpacingTokens, SceneSlotModule, SceneSlotModuleId, ScrollOwnership,
+    SemanticSlotDecl, SizeAxisPolicy,
+    SlotCardinality, accept_presentation_map, bind_programs_to_abi, compute_narration_digest,
+    compute_structure_digest, diagnose_slot_missing, presentation_map_is_absent,
+    presentation_map_schema_ok, presentation_map_schema_version, profile_layout_policy_digest,
+    project_abi, validate_abi_against_programs, apply_cockpit_stage_decl, CockpitFillDecl,
+    CockpitStageDecl, CockpitStepDecl, AbiProjection, AbiProjectionInput,
+    PRESENTATION_MAP_SCHEMA_VERSION,
     UiScopeNode, UiScopeRole, UiSourceAnchor, UiTreeNode, WorkspaceAppMeta, WorkspaceNode,
     WorldCellDecl, WorldMetricLedgerEntry, WorldSemanticDataset, WorldSemanticExplainBlock,
     WorldSemanticFileIndex, WorldSemanticMetric,

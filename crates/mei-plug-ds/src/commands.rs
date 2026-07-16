@@ -5,8 +5,8 @@ use mei_lang_kernel::load_mei_config_for_app;
 
 use crate::cli::WarmupArgs;
 use crate::{
-    collect_warmup_targets, frontier_targets_from_metrics, run_warmup_targets_with_tier,
-    WarmupScopeFilter,
+    collect_warmup_targets_for_scopes_with_filter, frontier_targets_from_metrics,
+    run_warmup_targets_with_tier, WarmupScopeFilter,
 };
 
 pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
@@ -35,7 +35,7 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         },
         warmup_scopes_label,
     );
-    let targets = resolve_warmup_targets(&ctx, &args)?;
+    let targets = resolve_warmup_targets_with_filter(&ctx, &args, &dev_eval)?;
     println!(
         "[{}] warmup start: app={} policy={} tier={} worksets={}",
         log_timestamp_rfc3339(),
@@ -132,6 +132,15 @@ pub fn resolve_warmup_targets(
     ctx: &HostContext,
     args: &WarmupArgs,
 ) -> anyhow::Result<Vec<crate::WarmupTarget>> {
+    let filter = WarmupScopeFilter::from_env();
+    resolve_warmup_targets_with_filter(ctx, args, &filter)
+}
+
+fn resolve_warmup_targets_with_filter(
+    ctx: &HostContext,
+    args: &WarmupArgs,
+    filter: &WarmupScopeFilter,
+) -> anyhow::Result<Vec<crate::WarmupTarget>> {
     if let Some(board) = args
         .board
         .as_deref()
@@ -150,7 +159,12 @@ pub fn resolve_warmup_targets(
         let metrics = mei_host_graph::collect_eval_frontier_with_hops(ctx, frontier, args.hops)?;
         return Ok(frontier_targets_from_metrics(frontier, &metrics));
     }
-    collect_warmup_targets(ctx, Some(args.policy.as_str()))
+    let scopes = if args.policy.trim() == "all" {
+        None
+    } else {
+        Some(vec![args.policy.trim().to_string()])
+    };
+    collect_warmup_targets_for_scopes_with_filter(ctx, scopes.as_deref(), filter)
 }
 
 pub async fn run_serve(args: crate::cli::ServeArgs) -> anyhow::Result<()> {

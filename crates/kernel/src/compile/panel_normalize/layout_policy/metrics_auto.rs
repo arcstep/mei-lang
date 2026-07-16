@@ -368,7 +368,8 @@ fn metric_auto_row_track(items: &[MetricAutoItem], row: &MetricAutoRow) -> Strin
             None => Some(value),
         })
         .map(px_track)
-        .unwrap_or_else(|| "auto".to_string())
+        // Fill-down: rows without explicit height absorb parent budget.
+        .unwrap_or_else(|| "minmax(0, 1fr)".to_string())
 }
 
 pub(super) fn default_metrics_auto_layout(panel: &UiNodeDecl) -> LayoutDecl {

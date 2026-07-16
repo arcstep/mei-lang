@@ -34,10 +34,24 @@ fn xlsx_table_snapshot_singleflight_deduplicates_parallel_cold_loads() {
     use std::thread;
 
     clear_materialize_cache_for_tests();
-    let source =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-spbjw/zhifa");
+    let Some(ws) = (|| {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = std::path::PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    })() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source = if ws.join("zhifa/upload/8.行政处罚结果清单.xlsx").is_file() {
+        ws.join("zhifa")
+    } else {
+        ws.clone()
+    };
     if !source.join("upload/8.行政处罚结果清单.xlsx").is_file() {
-        eprintln!("skip xlsx singleflight test: zhifa fixture missing");
+        eprintln!("skip xlsx singleflight test: zhifa fixture missing under MEI_TEST_WORKSPACE");
         return;
     }
     let root = std::env::temp_dir().join(format!("mei-xlsx-sf-{}", std::process::id()));

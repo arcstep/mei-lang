@@ -39,7 +39,11 @@ fn compile_examples_regressions() {
 
 #[test]
 fn compile_core_examples_baselines() {
-    let source_root = dev_examples_root().join("core");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("core");
     for app_id in [
         "01-single-file-doc",
         "02-external-scene-file",
@@ -65,7 +69,11 @@ fn compile_core_examples_baselines() {
 
 #[test]
 fn compile_sim_examples_baselines() {
-    let source_root = dev_examples_root().join("sim");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("sim");
     for app_id in [
         "01-fire-baseline",
         "02-fire-minimal",
@@ -91,7 +99,11 @@ fn compile_sim_examples_baselines() {
 
 #[test]
 fn compile_core_invalid_examples_report_expected_errors() {
-    let source_root = dev_examples_root().join("core/_invalid");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("core/_invalid");
     let cases = [
         ("01-multiple-apps", "multiple_apps"),
         ("02-multiple-scenes", "multiple_scenes"),
@@ -132,7 +144,11 @@ fn compile_core_invalid_examples_report_expected_errors() {
 
 #[test]
 fn compile_refs_examples_baselines() {
-    let source_root = dev_examples_root().join("refs");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("refs");
     for app_id in [
         "01-local-ids-in-props",
         "02-metric-from-local-dataset",
@@ -166,7 +182,11 @@ fn compile_refs_examples_baselines() {
 
 #[test]
 fn compile_scene_export_preview_enriches_file_tree_children() {
-    let source_root = dev_examples_root().join("core");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("core");
     let app_root = source_root.join("08-scene-export-resource");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -216,7 +236,11 @@ fn walk_file_tree<'a>(nodes: &'a [crate::WorkspaceNode], out: &mut Vec<&'a crate
 
 #[test]
 fn compile_scene_export_preview_target_selects_requested_export() {
-    let source_root = dev_examples_root().join("core");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("core");
     let app_root = source_root.join("08-scene-export-resource");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -248,7 +272,11 @@ fn compile_scene_export_preview_target_selects_requested_export() {
 
 #[test]
 fn compile_refs_invalid_examples_report_expected_errors() {
-    let source_root = dev_examples_root().join("refs/_invalid");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("refs/_invalid");
     let cases = [
         (
             "01-props-external-dataset",
@@ -274,7 +302,11 @@ fn compile_refs_invalid_examples_report_expected_errors() {
 
 #[test]
 fn compile_capability_examples_baselines() {
-    let source_root = dev_examples_root().join("capability");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("capability");
     for app_id in ["01-file-query"] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)
@@ -295,7 +327,11 @@ fn compile_capability_examples_baselines() {
 
 #[test]
 fn compile_ds_04_data_table_features_example() {
-    let source_root = dev_examples_root().join("ds");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("ds");
     let app_root = source_root.join("04-data-table-features");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile ds-04-data-table-features failed: {error}"));
@@ -351,7 +387,11 @@ fn parse_cockpit_default_compare_scene_file() {
 
 #[test]
 fn compile_cockpit_header_title_draw_example() {
-    let source_root = dev_examples_root().join("cockpit");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("cockpit");
     let app_root = source_root.join("04-header-title-draw");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 04-header-title-draw failed: {error}"));
@@ -377,7 +417,11 @@ fn compile_cockpit_header_title_draw_example() {
 
 #[test]
 fn compile_cockpit_section_panel_draw_example() {
-    let source_root = dev_examples_root().join("cockpit");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("cockpit");
     let app_root = source_root.join("05-section-panel-draw");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 05-section-panel-draw failed: {error}"));
@@ -429,7 +473,10 @@ fn compile_cockpit_section_panel_draw_example() {
 
 #[test]
 fn compile_cockpit_panel_screen_header_preview() {
-    let source_root = dev_workspace_root();
+    let Some(source_root) = dev_workspace_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join(".stock/templates/cockpit");
     let compiled = compile_app_from_root_with_options(
         &source_root,

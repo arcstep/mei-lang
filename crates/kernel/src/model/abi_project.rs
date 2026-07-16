@@ -14,10 +14,11 @@ use super::diagnostic::{Diagnostic, Severity};
 use super::narration_abi::{
     NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
 };
+use super::presentation_map_schema::accept_presentation_map;
 use super::scene_slot_abi::{
     SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality,
 };
-use super::stage_program::{StageProgramIndex, StageUnitKind};
+use super::stage_program::StageProgramIndex;
 use super::stage_registry::StageProfile;
 use super::ui::UiTreeNode;
 use super::ui_layout_index::{UiLayoutIndex, UiScopeRole};
@@ -188,6 +189,26 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
     let module_id = SceneSlotModuleId::for_stage(stage_id);
     let profile = input.profile.unwrap_or(StageProfile::Cockpit);
 
+    let presentation_map = match input.presentation_map {
+        Some(value) => match accept_presentation_map(value) {
+            Ok(accepted) => accepted,
+            Err(message) => {
+                out.diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "presentation_map.schema".to_string(),
+                    message,
+                    source_path: if source_anchor.is_empty() {
+                        None
+                    } else {
+                        Some(source_anchor.clone())
+                    },
+                });
+                None
+            }
+        },
+        None => None,
+    };
+
     let mut slots = Vec::new();
     let mut capabilities: BTreeMap<String, ContentCapability> = BTreeMap::new();
     let mut seen_slots = BTreeSet::new();
@@ -332,7 +353,7 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
 
     // Slides: project viewpoints as slide-local slots when layout had none.
     if profile == StageProfile::Slides {
-        if let Some(map) = input.presentation_map {
+        if let Some(map) = presentation_map {
             if let Some(viewpoints) = map.get("viewpoints").and_then(|v| v.as_object()) {
                 for vp_id in viewpoints.keys() {
                     if !seen_slots.insert(vp_id.clone()) {
@@ -402,7 +423,7 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
     let catalog = project_narration_catalog(
         &catalog_id,
         &source_anchor,
-        input.presentation_map,
+        presentation_map,
         &out.scene_slot_modules,
         &out.content_capabilities,
         &mut out.diagnostics,
@@ -671,21 +692,30 @@ pub fn validate_abi_against_programs(
                 });
             }
         }
-        // Program unit referencing unknown slide-local slot (Slides).
-        if program.profile == StageProfile::Slides {
-            for unit in &program.units {
-                if unit.kind != StageUnitKind::Slide {
-                    continue;
+        // Slot-targeted narration cues that miss public slots carry author source_path.
+        if let Some(catalog) = narration_catalogs.get(&format!("narration:{}", program.stage_id)) {
+            for track in &catalog.tracks {
+                for cue in &track.cues {
+                    let NarrationCueTarget::Slot(target_id) = &cue.target else {
+                        continue;
+                    };
+                    if capabilities.contains_key(target_id) {
+                        continue;
+                    }
+                    if module.get_slot(target_id).is_some() {
+                        continue;
+                    }
+                    if let Some(diag) = diagnose_slot_missing(
+                        module,
+                        target_id.as_str(),
+                        Some(program.source_anchor.as_str()),
+                    ) {
+                        diagnostics.push(diag);
+                    }
                 }
-                // Units themselves are slides, not slots — skip slot_missing for unit ids.
-                let _ = unit;
             }
         }
-        let _ = program;
-        let _ = narration_catalogs;
     }
-    // Explicit slot_missing helper for tests / future Stage MDX fills.
-    let _ = capabilities;
     diagnostics
 }
 

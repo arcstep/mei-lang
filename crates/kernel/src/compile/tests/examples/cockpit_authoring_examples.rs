@@ -4,15 +4,12 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn ws_demo_v2_root() -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2")
-        .canonicalize()
-        .ok()?;
-    if root.join("workspace.json").is_file() {
-        Some(root)
-    } else {
-        None
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
     }
+    Some(path.canonicalize().unwrap_or(path))
 }
 
 fn mei_lang_root() -> PathBuf {

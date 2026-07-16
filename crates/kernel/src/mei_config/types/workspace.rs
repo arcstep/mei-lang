@@ -9,7 +9,7 @@ use serde_json::Value;
 use super::app::{DiscoverConfig, RuntimeConfig, WorkspacePathsConfig};
 use super::paths::DEFAULT_STOCK_AUTHORING_REL;
 
-/// 工作区 profile 元数据（`workspaces/ws-*` 根目录 `.mei-workspace.json`）。
+/// 工作区 profile 元数据（`ws-*` profile 根目录 `.mei-workspace.json`）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceProfile {
     /// 启动时 `--workspace` 使用的短名，如 `ws-spbjw`。

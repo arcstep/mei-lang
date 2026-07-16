@@ -48,12 +48,13 @@ pub(crate) fn default_layout_single_slot(slot: &str) -> LayoutDecl {
         layout_type: "grid".to_string(),
         direction: None,
         columns: Some(vec!["1fr".to_string()]),
-        rows: Some(vec!["auto".to_string()]),
+        // Fill-down: body/content must absorb the parent fr cell, not size to content.
+        rows: Some(vec!["minmax(0, 1fr)".to_string()]),
         areas: Some(vec![vec![slot.to_string()]]),
         gap: Some("0".to_string()),
         padding: Some("0".to_string()),
-        align: None,
-        justify: None,
+        align: Some("stretch".to_string()),
+        justify: Some("stretch".to_string()),
     }
 }
 
@@ -68,12 +69,12 @@ pub(crate) fn default_metrics_strip_layout(count: usize, spacing: &PolicySpacing
         layout_type: "grid".to_string(),
         direction: None,
         columns: Some(columns),
-        rows: Some(vec!["auto".to_string()]),
+        rows: Some(vec!["minmax(0, 1fr)".to_string()]),
         areas: Some(vec![areas]),
         gap: Some(spacing.gap.clone()),
         padding: Some(spacing.padding.clone()),
         align: Some("stretch".to_string()),
-        justify: None,
+        justify: Some("stretch".to_string()),
     }
 }
 pub(crate) fn layout_has_slot(layout: Option<&LayoutDecl>, slot: &str) -> bool {

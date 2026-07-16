@@ -1,17 +1,27 @@
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use crate::compile::build_experience::preview_target_from_build_node_with_app;
     use crate::model::BuildNodeId;
     use crate::CompiledApp;
 
     #[test]
     fn ws_hello_home_artifact_resolves_component_authoring_without_template_index() {
-        let artifact = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join("workspaces/ws-hello/apps/hello/build/active/artifacts/compiled_app/compiled_app__default-scene__default-target.json");
+        let Some(ws) = (|| {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = std::path::PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        })() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let artifact = ws.join(
+            "apps/hello/build/active/artifacts/compiled_app/compiled_app__default-scene__default-target.json",
+        );
         if !artifact.is_file() {
+            eprintln!("skip: hello compiled_app artifact missing under MEI_TEST_WORKSPACE");
             return;
         }
         let text = std::fs::read_to_string(&artifact).expect("artifact json");

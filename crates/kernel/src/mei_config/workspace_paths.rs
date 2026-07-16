@@ -454,9 +454,10 @@ pub fn resolve_app_eval_cache_root(app_root: &Path) -> PathBuf {
     resolve_app_var_root(app_root).join("eval-cache")
 }
 
-/// xlsx parquet 快照根：`apps/{appId}/var/active/data-snapshots/`。
+/// xlsx parquet 快照根：`apps/{appId}/env/{ver}/var/data-snapshots/`（只读构建产物，不经 instance var）。
 pub fn resolve_app_data_snapshot_root(app_root: &Path) -> PathBuf {
-    resolve_app_var_root(app_root).join("data-snapshots")
+    crate::mei_config::build_store::resolve_app_build_var_root_following_active(app_root)
+        .join("data-snapshots")
 }
 
 /// MCG/MRG registry 根：`apps/{appId}/env/current/build/registry/`。
@@ -656,12 +657,19 @@ mod tests {
 
     #[test]
     fn resolve_spbjw_legacy_panel_template_when_workspace_present() {
-        let ws = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join("workspaces/ws-spbjw");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let ws = PathBuf::from(raw.trim());
+        if !ws.is_dir() {
+            eprintln!("skip: MEI_TEST_WORKSPACE is not a directory");
+            return;
+        }
         let app = ws.join("apps/zhifa");
         let tpl = ws.join("stock/templates/cockpit/panel/panel-screen-header.mei");
         if !app.is_dir() || !tpl.is_file() {
+            eprintln!("skip: zhifa template missing under MEI_TEST_WORKSPACE");
             return;
         }
         let resolved = resolve_app_mei_file_path(

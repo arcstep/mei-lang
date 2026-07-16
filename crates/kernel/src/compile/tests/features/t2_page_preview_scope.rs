@@ -6,7 +6,17 @@ use crate::compile::{
 };
 use crate::Severity;
 
-use super::super::harness::workspace_root;
+use super::super::harness::optional_external_workspace;
+
+fn zhifa_roots() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let source_root = optional_external_workspace()?;
+    let app_root = source_root.join("zhifa");
+    if !app_root.is_dir() {
+        eprintln!("skip: zhifa app missing under MEI_TEST_WORKSPACE");
+        return None;
+    }
+    Some((source_root, app_root))
+}
 
 fn route_precompile_attempted(compiled: &crate::CompiledApp) -> Option<usize> {
     compiled.diagnostics.iter().find_map(|diag| {
@@ -23,9 +33,10 @@ fn route_precompile_attempted(compiled: &crate::CompiledApp) -> Option<usize> {
 
 #[test]
 fn t2_page_preview_scope_compiles_single_export_when_scene_set() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/01-执法要素.board.mei";
     let scene_id = "enforcement_personnel_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -74,9 +85,10 @@ fn t2_page_preview_scope_compiles_single_export_when_scene_set() {
 
 #[test]
 fn board_build_node_compile_options_produce_board_resources() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let node = crate::model::BuildNodeId::board_file(
         "scenes/01-执法要素.board.mei#enforcement_units_analytics_board",
     );
@@ -122,9 +134,10 @@ fn board_build_node_compile_options_produce_board_resources() {
 
 #[test]
 fn t2_page_preview_scope_requires_scene_for_multi_export_file() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/01-执法要素.board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -147,9 +160,10 @@ fn t2_page_preview_scope_requires_scene_for_multi_export_file() {
 
 #[test]
 fn t2_page_preview_scope_single_scene_capsule_without_scene_still_works() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -173,9 +187,10 @@ fn t2_page_preview_scope_single_scene_capsule_without_scene_still_works() {
 
 #[test]
 fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_boards() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
 
     let penalty_node = crate::model::BuildNodeId::board_file(
         "scenes/04-行政处罚.board.mei#penalty_today_analytics_board",
@@ -259,9 +274,10 @@ fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_board
 
 #[test]
 fn board_scoped_compile_lists_only_entry_scenes_not_board_exports() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let node = crate::model::BuildNodeId::board_file(
         "scenes/01-执法要素.board.mei#enforcement_personnel_analytics_board",
     );
@@ -305,9 +321,10 @@ fn board_scoped_compile_lists_only_entry_scenes_not_board_exports() {
 
 #[test]
 fn board_scoped_compile_does_not_mount_stock_templates_group() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let node = crate::model::BuildNodeId::board_file(
         "scenes/01-执法要素.board.mei#enforcement_personnel_analytics_board",
     );
@@ -338,9 +355,10 @@ fn board_scoped_compile_does_not_mount_stock_templates_group() {
 
 #[test]
 fn parent_scene_preview_still_hydrates_referenced_board_assemblies() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -366,9 +384,10 @@ fn parent_scene_preview_still_hydrates_referenced_board_assemblies() {
 
 #[test]
 fn zhifa_compile_includes_boards_group_with_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled =
         compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
             .expect("compile zhifa");
@@ -408,9 +427,10 @@ fn zhifa_compile_includes_boards_group_with_slots() {
 
 #[test]
 fn single_export_board_mei_is_listed_in_boards_group() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let compiled =
         compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
             .expect("compile zhifa");
@@ -439,9 +459,10 @@ fn single_export_board_mei_is_listed_in_boards_group() {
 
 #[test]
 fn world_file_board_node_resolves_default_export_scene_for_multi_export_file() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let board_target = "scenes/02-行政检查.board.mei";
     let baseline = compile_app_from_root_with_options(
         &source_root,

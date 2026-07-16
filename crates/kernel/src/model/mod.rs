@@ -8,6 +8,7 @@ mod dataset;
 mod diagnostic;
 mod layout;
 mod narration_abi;
+mod presentation_map_schema;
 mod resource;
 mod review_modes;
 mod scene_slot_abi;
@@ -56,6 +57,10 @@ pub use content_capability_abi::{ContentCapability, ContentCapabilityId, Content
 pub use narration_abi::{
     NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
 };
+pub use presentation_map_schema::{
+    accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
+    presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
+};
 pub use scene_slot_abi::{
     SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality,
 };
@@ -67,7 +72,8 @@ pub use stage_program::{
     StageUnitKind,
 };
 pub use profile_layout_policy::{
-    profile_layout_policy_digest, FillDownPolicy, ProfileLayoutPolicy, SizeAxisPolicy,
+    profile_layout_policy_digest, FillDownPolicy, ProfileLayoutPolicy, ProfileSpacingTokens,
+    ScrollOwnership, SizeAxisPolicy,
 };
 pub use stage_registry::{
     is_stage_registry_candidate, StageDescriptor, StageId, StageProfile, StageRegistry, StageRoute,

@@ -165,13 +165,11 @@ template content_strip_bare_props(
     }
 
 # Fill-down body：section 高度由 region fr 分配，content 水平+垂直撑满（stretch）。
+# Fill-down 尺寸由 StageLayoutProfile(cockpit) 在作者省略时注入。
+# 本宏仅作显式「需要 fill」标记；勿再叠 width/height/min_height。
 template content_fill_props():
-    content_strip_bare_props() | {
+    {
         "__mei_layout_fill": True,
-        "height": "100%",
-        "width": "100%",
-        "min_height": "0",
-        "box_sizing": "border-box",
     }
 
 template content_strip(

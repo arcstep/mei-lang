@@ -19,24 +19,31 @@ pub(super) fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("write file");
 }
 
+/// Optional private workspace (`MEI_TEST_WORKSPACE` only; never sibling join).
+pub(super) fn optional_external_workspace() -> Option<PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
+}
+
+/// Package / monorepo root used only for in-repo temp fixtures (not sibling workspaces).
 pub(super) fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
+        .join("../..")
         .canonicalize()
-        .expect("workspace root")
+        .expect("mei-lang package root")
 }
 
-pub(super) fn workspaces_root() -> PathBuf {
-    workspace_root().join("workspaces")
+/// 开发 profile：由 `MEI_TEST_WORKSPACE` 注入（通常指向本地 `ws-dev`）。
+pub(super) fn dev_workspace_root() -> Option<PathBuf> {
+    optional_external_workspace()
 }
 
-/// 开发 profile：`workspaces/ws-dev`（示例应用位于其下 `examples/`）。
-pub(super) fn dev_workspace_root() -> PathBuf {
-    workspaces_root().join("ws-dev")
-}
-
-pub(super) fn dev_examples_root() -> PathBuf {
-    dev_workspace_root().join("examples")
+pub(super) fn dev_examples_root() -> Option<PathBuf> {
+    Some(dev_workspace_root()?.join("examples"))
 }
 
 pub(super) fn build_regression_workspace_root() -> PathBuf {

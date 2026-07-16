@@ -1,7 +1,16 @@
 use super::*;
 
 use crate::model::{BlockDecl, BuildNodeId};
-use std::path::Path;
+use std::path::PathBuf;
+
+fn optional_external_workspace() -> Option<PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
+}
 
 #[test]
 fn backing_refs_from_metric_binding() {
@@ -250,24 +259,22 @@ fn block_instance_id_always_includes_ordinal() {
 
 #[test]
 fn ws_hello_chart_bar_resolves_authoring_example_preview() {
-    use std::path::Path;
-
     use crate::compile::build_experience::preview_target_from_build_node_with_app;
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
     use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+        eprintln!("skip: workspace config missing under MEI_TEST_WORKSPACE");
         return;
     }
     let app_root = source_root.join("apps").join("hello");
     if !app_root.is_dir() {
+        eprintln!("skip: apps/hello missing under MEI_TEST_WORKSPACE");
         return;
     }
     let compiled =
@@ -284,8 +291,6 @@ fn ws_hello_chart_bar_resolves_authoring_example_preview() {
 
 #[test]
 fn ws_hello_doc_markdown_resolves_scene_consumer_preview() {
-    use std::path::Path;
-
     use crate::compile::build_experience::{
         compile_coordinate_for_node, preview_target_from_build_node_with_app,
     };
@@ -294,17 +299,17 @@ fn ws_hello_doc_markdown_resolves_scene_consumer_preview() {
     use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+        eprintln!("skip: workspace config missing under MEI_TEST_WORKSPACE");
         return;
     }
     let app_root = source_root.join("apps").join("hello");
     if !app_root.is_dir() {
+        eprintln!("skip: apps/hello missing under MEI_TEST_WORKSPACE");
         return;
     }
     let compiled =
@@ -346,17 +351,17 @@ fn v2_template_file_preview_resolves_stock_templates_path() {
     use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+        eprintln!("skip: workspace config missing under MEI_TEST_WORKSPACE");
         return;
     }
     let app_root = source_root.join("apps").join("hello");
     if !app_root.is_dir() {
+        eprintln!("skip: apps/hello missing under MEI_TEST_WORKSPACE");
         return;
     }
     let template_key = "cockpit/metric-card.mei";
@@ -365,6 +370,7 @@ fn v2_template_file_preview_resolves_stock_templates_path() {
         .join(template_key)
         .is_file()
     {
+        eprintln!("skip: stock template missing under MEI_TEST_WORKSPACE");
         return;
     }
     let compiled =

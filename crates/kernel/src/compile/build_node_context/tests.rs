@@ -1,8 +1,16 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use super::*;
 use crate::model::{BuildNodeId, CompiledApp, CompiledSceneRoute};
+
+fn optional_external_workspace() -> Option<std::path::PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = std::path::PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
+}
 
 fn sample_compiled() -> CompiledApp {
     CompiledApp {
@@ -65,15 +73,14 @@ fn component_authoring_preview_panel_scope_targets_host_panel() {
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
     use crate::BuildPreviewKind;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps/hello");
     let example = source_root.join("stock/authoring/examples/chart-baseline.mei");
     if !app_root.is_dir() || !example.is_file() {
+        eprintln!("skip: apps/hello or chart-baseline missing under MEI_TEST_WORKSPACE");
         return;
     }
     let home =

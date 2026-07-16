@@ -244,11 +244,20 @@ mod tests {
         std::env::set_var("MEI_APP_RUNTIME_VAR_ROOT", &instance_var);
         assert_eq!(
             resolve_app_env_dir_following_current(app_root.as_path()),
-            Some(candidate)
+            Some(candidate.clone())
         );
         assert_eq!(
             super::super::paths::resolve_app_var_root_following_active(app_root.as_path()),
             instance_var
+        );
+        let generation_var = candidate.join(APP_ENV_VAR_REL);
+        assert_eq!(
+            super::super::paths::resolve_app_build_var_root_following_active(app_root.as_path()),
+            generation_var
+        );
+        assert_eq!(
+            crate::mei_config::resolve_app_data_snapshot_root(app_root.as_path()),
+            generation_var.join("data-snapshots")
         );
         std::env::remove_var(APP_RUNTIME_APP_ID_ENV);
         std::env::remove_var(APP_RUNTIME_GENERATION_ENV);

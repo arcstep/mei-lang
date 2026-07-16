@@ -9,7 +9,17 @@ use crate::workspace::source_tree;
 use crate::MetricShape;
 use crate::WorkspaceNode;
 
-use super::super::harness::workspace_root;
+use super::super::harness::optional_external_workspace;
+
+fn zhifa_roots() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let source_root = optional_external_workspace()?;
+    let app_root = source_root.join("zhifa");
+    if !app_root.is_dir() {
+        eprintln!("skip: zhifa app missing under MEI_TEST_WORKSPACE");
+        return None;
+    }
+    Some((source_root, app_root))
+}
 
 fn walk_file_tree<'a>(nodes: &'a [WorkspaceNode], out: &mut Vec<&'a WorkspaceNode>) {
     for node in nodes {
@@ -20,8 +30,10 @@ fn walk_file_tree<'a>(nodes: &'a [WorkspaceNode], out: &mut Vec<&'a WorkspaceNod
 
 #[test]
 fn enrich_board_capsule_scene_exports_have_board_mei_kind() {
-    let root = workspace_root();
-    let app_root = root.join("workspaces").join("ws-spbjw").join("zhifa");
+    let Some((_source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.board.mei";
     let mut tree = source_tree(app_root.as_path()).expect("source tree");
     enrich_source_tree_with_scene_exports(app_root.as_path(), &mut tree);
@@ -47,9 +59,10 @@ fn enrich_board_capsule_scene_exports_have_board_mei_kind() {
 
 #[test]
 fn enrich_source_tree_world_capsule_children() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/07-问题办理.world.mei";
     let mut tree = source_tree(app_root.as_path()).expect("source tree");
     let mut index_cache = BTreeMap::new();
@@ -117,9 +130,10 @@ fn enrich_source_tree_world_capsule_children() {
 
 #[test]
 fn build_world_semantic_index_explain_blocks() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/07-问题办理.world.mei";
     let index = build_world_semantic_index(app_root.as_path(), target)
         .unwrap_or_else(|| panic!("index for `{target}`"));
@@ -163,9 +177,10 @@ fn build_world_semantic_index_explain_blocks() {
 
 #[test]
 fn compile_world_capsule_preview_materializes_world_metrics() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/07-问题办理.world.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -200,9 +215,10 @@ fn compile_world_capsule_preview_materializes_world_metrics() {
 
 #[test]
 fn compile_world_capsule_preview_includes_dataset_table_component_assets() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.world.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -236,9 +252,10 @@ fn compile_world_capsule_preview_includes_dataset_table_component_assets() {
 
 #[test]
 fn compile_world_capsule_preview_materializes_explain_dataframe_metrics() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let Some((source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.world.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -291,8 +308,10 @@ fn compile_world_capsule_preview_materializes_explain_dataframe_metrics() {
 
 #[test]
 fn build_world_semantic_index_01_enforcement_dataset_labels() {
-    let root = workspace_root();
-    let app_root = root.join("workspaces").join("ws-spbjw").join("zhifa");
+    let Some((_source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.world.mei";
     let index = build_world_semantic_index(app_root.as_path(), target)
         .unwrap_or_else(|| panic!("index for `{target}`"));
@@ -336,8 +355,10 @@ fn build_world_semantic_index_01_enforcement_dataset_labels() {
 
 #[test]
 fn build_world_semantic_index_01_enforcement_explain_ids() {
-    let root = workspace_root();
-    let app_root = root.join("workspaces").join("ws-spbjw").join("zhifa");
+    let Some((_source_root, app_root)) = zhifa_roots() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let target = "scenes/01-执法要素.world.mei";
     let index = build_world_semantic_index(app_root.as_path(), target)
         .unwrap_or_else(|| panic!("index for `{target}`"));

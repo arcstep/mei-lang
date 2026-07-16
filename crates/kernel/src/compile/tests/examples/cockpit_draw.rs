@@ -5,7 +5,15 @@ use super::super::harness::dev_examples_root;
 
 #[test]
 fn compile_cockpit_metric_data_example() {
-    let source_root = dev_examples_root().join("cockpit");
+    let Some(examples) = dev_examples_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let source_root = examples.join("cockpit");
+    if !source_root.is_dir() {
+        eprintln!("skip: examples/cockpit missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root_with_options(
         &source_root,

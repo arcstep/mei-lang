@@ -370,14 +370,18 @@ app_add_scene(
     fn catalog_scene_route_resolves_preview_target_for_scene_node() {
         use crate::compile::catalog_preview_target_for_build_node;
 
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .canonicalize()
-            .expect("workspace root")
-            .join("workspaces")
-            .join("ws-hello");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let source_root = PathBuf::from(raw.trim());
+        if source_root.as_os_str().is_empty() || !source_root.is_dir() {
+            eprintln!("skip: MEI_TEST_WORKSPACE is not a directory");
+            return;
+        }
         let app_root = source_root.join("apps/_stock-catalog");
         if !app_root.is_dir() {
+            eprintln!("skip: apps/_stock-catalog missing under MEI_TEST_WORKSPACE");
             return;
         }
         let node = BuildNodeId::scene("analytics-drilldown-board");

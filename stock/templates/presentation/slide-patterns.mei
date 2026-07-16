@@ -63,9 +63,12 @@ template matrix_layout():
         align = "stretch",
     )
 
-# slide shell padding（页边距 / 留白）
+# slide shell padding — 必须与 StageLayoutProfile(slides).spacing.slide_shell_padding 一致
+# （profile_layout_policy.rs SSOT）；此处只作作者引用 token，勿另开平行数值。
+SLIDE_SHELL_PADDING = "48px 72px"
+
 template slide_shell_padding():
-    "48px 72px"
+    SLIDE_SHELL_PADDING
 
 template slide_shell_padding_bleed():
     "0"

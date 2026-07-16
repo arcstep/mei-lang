@@ -79,17 +79,38 @@ pub fn materialize_xlsx_column_headers(raw_headers: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::PathBuf;
 
     use super::materialize_xlsx_column_headers;
+
+    fn optional_external_workspace() -> Option<PathBuf> {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    }
+
+    fn zhifa_upload(rel: &str) -> Option<PathBuf> {
+        let ws = optional_external_workspace()?;
+        let candidates = [
+            ws.join("zhifa").join(rel),
+            ws.join(rel),
+            ws.join("apps/zhifa").join(rel),
+        ];
+        candidates.into_iter().find(|p: &PathBuf| p.is_file())
+    }
 
     #[test]
     fn load_spbjw_penalty_legacy_xls_coerces_date_columns_in_schema() {
         use crate::compile::analysis::dates::coerce_rows_to_schema;
         use crate::model::ColumnSchema;
 
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/zhifa/upload/8.行政处罚结果清单.xlsx");
+        let Some(path) = zhifa_upload("upload/8.行政处罚结果清单.xlsx") else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE with zhifa upload xlsx");
+            return;
+        };
         let rows = super::load_legacy_xlsx_rows(&path, None, 1, Some(20))
             .expect("load spbjw penalty result list");
         assert!(!rows.is_empty(), "penalty rows should not be empty");
@@ -141,8 +162,10 @@ mod tests {
         use crate::compile::analysis::dates::coerce_rows_to_schema;
         use crate::model::ColumnSchema;
 
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/zhifa/upload/5.行政检查结果清单.xlsx");
+        let Some(path) = zhifa_upload("upload/5.行政检查结果清单.xlsx") else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE with zhifa upload xlsx");
+            return;
+        };
         let rows = super::load_legacy_xlsx_rows(&path, Some("总表"), 1, Some(20))
             .expect("load spbjw inspection list");
         let schema = vec![ColumnSchema {
@@ -169,9 +192,12 @@ mod tests {
 
     #[test]
     fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../workspaces/ws-spbjw/zhifa/upload/11.预警清单、问题跟踪清单20260606.xlsx",
-        );
+        let Some(path) =
+            zhifa_upload("upload/11.预警清单、问题跟踪清单20260606.xlsx")
+        else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE with zhifa upload xlsx");
+            return;
+        };
         let rows = super::load_legacy_xlsx_rows(&path, None, 4, Some(20))
             .expect("load spbjw warning list xlsx");
         let row = rows

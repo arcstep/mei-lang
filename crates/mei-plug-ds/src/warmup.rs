@@ -35,9 +35,24 @@ pub fn collect_warmup_targets(
 
 /// Collect warmup targets whose `scope_key` is in `scopes`.
 /// When `scopes` is `None`, all WarmupPolicy scopes are accepted (same as policy=`all`).
+///
+/// Filter preference: active InstanceSpec on disk (via [`WarmupScopeFilter::resolve_for_app`]).
+/// App Runtime bootstrap must pass [`collect_warmup_targets_for_scopes_with_filter`] with the
+/// candidate instance's own plan — active pointer is not updated until cutover.
 pub fn collect_warmup_targets_for_scopes(
     ctx: &HostContext,
     scopes: Option<&[String]>,
+) -> anyhow::Result<Vec<WarmupTarget>> {
+    let warmup_filter = WarmupScopeFilter::resolve_for_app(ctx);
+    collect_warmup_targets_for_scopes_with_filter(ctx, scopes, &warmup_filter)
+}
+
+/// Same as [`collect_warmup_targets_for_scopes`], but uses an explicit filter
+/// (e.g. the candidate InstanceSpec's runtime plan during hot bootstrap).
+pub fn collect_warmup_targets_for_scopes_with_filter(
+    ctx: &HostContext,
+    scopes: Option<&[String]>,
+    warmup_filter: &WarmupScopeFilter,
 ) -> anyhow::Result<Vec<WarmupTarget>> {
     let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let app_root = ctx.app_root();
@@ -53,7 +68,6 @@ pub fn collect_warmup_targets_for_scopes(
             .filter(|item| !item.is_empty())
             .collect()
     });
-    let warmup_filter = WarmupScopeFilter::resolve_for_app(ctx);
     let mut targets = Vec::new();
 
     for node in registry
@@ -100,7 +114,7 @@ pub fn collect_warmup_targets_for_scopes(
             }
         }
     }
-    expand_board_scope_frontier_targets(ctx, &mut targets, &configured_scopes, &warmup_filter)?;
+    expand_board_scope_frontier_targets(ctx, &mut targets, &configured_scopes, warmup_filter)?;
     Ok(targets)
 }
 

@@ -539,14 +539,28 @@ pub fn publish_xlsx_data_snapshots_for_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn parquet_roundtrip_matches_calamine_snapshot() {
-        let app_root =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-spbjw/zhifa");
+        let Some(ws) = (|| {
+            let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+            let path = std::path::PathBuf::from(raw.trim());
+            if path.as_os_str().is_empty() || !path.is_dir() {
+                return None;
+            }
+            Some(path.canonicalize().unwrap_or(path))
+        })() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let app_root = if ws.join("zhifa").is_dir() {
+            ws.join("zhifa")
+        } else {
+            ws.clone()
+        };
         let rel = "upload/8.行政处罚结果清单.xlsx";
         if !app_root.join(rel).is_file() {
+            eprintln!("skip: zhifa xlsx missing under MEI_TEST_WORKSPACE");
             return;
         }
         let written = write_xlsx_parquet_snapshot(app_root.as_path(), rel, None, 1).expect("write");

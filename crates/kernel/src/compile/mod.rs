@@ -230,21 +230,29 @@ pub use projection_assembly::enrich_runtime_page_instance_projection_slots;
 
 #[cfg(test)]
 mod mcg_index_tests {
-    use std::path::Path;
+    use std::path::PathBuf;
 
     use crate::compile::build_mcg_index::build_mcg_tree_root;
     use crate::compile::build_ui_layout_index::filter_roots_for_tree_mode;
     use crate::compile::reachability_tree::ReachabilityTreeRoot;
 
+    fn optional_external_workspace() -> Option<PathBuf> {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+        let path = PathBuf::from(raw.trim());
+        if path.as_os_str().is_empty() || !path.is_dir() {
+            return None;
+        }
+        Some(path.canonicalize().unwrap_or(path))
+    }
+
     #[test]
     fn mcg_tree_includes_semantic_graph_nodes() {
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .canonicalize()
-            .expect("workspace root")
-            .join("workspaces")
-            .join("ws-demo-v2");
-        if !source_root.is_dir() {
+        let Some(source_root) = optional_external_workspace() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        if !source_root.join("apps/zhifa").is_dir() && !source_root.join("zhifa").is_dir() {
+            eprintln!("skip: zhifa missing under MEI_TEST_WORKSPACE");
             return;
         }
         let root = build_mcg_tree_root(source_root.as_path(), "zhifa");

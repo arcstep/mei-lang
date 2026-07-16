@@ -7,6 +7,25 @@ use crate::model::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+
+fn optional_external_workspace() -> Option<std::path::PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = std::path::PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
+}
+
+fn ws_hello_root() -> Option<std::path::PathBuf> {
+    let ws = optional_external_workspace()?;
+    if ws.join("workspace.json").is_file() || ws.join("apps").is_dir() {
+        Some(ws)
+    } else {
+        None
+    }
+}
+
 fn sample_scene_contract(panels: Vec<UiNodeDecl>) -> SceneContract {
     SceneContract {
         scene: SceneDecl {
@@ -68,7 +87,6 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
             title: Some("首页".to_string()),
             is_default: true,
             access_export: true,
-        t2_pages: Vec::new(),
         },
         CompiledSceneRoute {
             scene_id: "home".to_string(),
@@ -78,7 +96,6 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
             title: Some("首页副本".to_string()),
             is_default: false,
             access_export: true,
-        t2_pages: Vec::new(),
         },
     ];
     let compiled_stub = CompiledApp {
@@ -129,17 +146,17 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
 
 #[test]
 fn business_app_strips_legacy_templates_snapshot_on_read() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps").join("hello");
+    if !app_root.is_dir() {
+        eprintln!("skip: apps/hello missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let compiled =
         compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
             .expect("compile hello");
@@ -177,17 +194,17 @@ fn business_app_strips_legacy_templates_snapshot_on_read() {
 
 #[test]
 fn stale_snapshot_rebuilds_boards_and_templates_groups() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps").join("hello");
+    if !app_root.is_dir() {
+        eprintln!("skip: apps/hello missing under MEI_TEST_WORKSPACE");
+        return;
+    }
     let compiled =
         compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
             .expect("compile hello");
@@ -218,16 +235,12 @@ fn stale_snapshot_rebuilds_boards_and_templates_groups() {
 
 #[test]
 fn partial_snapshot_restores_templates_from_component_assets() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps").join("_stock-catalog");
     if !app_root.is_dir() {
         return;
@@ -259,16 +272,12 @@ fn partial_snapshot_restores_templates_from_component_assets() {
 
 #[test]
 fn empty_templates_snapshot_is_treated_as_stale() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps").join("_stock-catalog");
     if !app_root.is_dir() {
         return;
@@ -302,17 +311,13 @@ fn empty_templates_snapshot_is_treated_as_stale() {
 
 #[test]
 fn v2_app_root_hydrates_stock_components_and_templates_in_build_tree() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
     use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
         return;
     }
@@ -336,17 +341,13 @@ fn v2_app_root_hydrates_stock_components_and_templates_in_build_tree() {
 
 #[test]
 fn stock_catalog_app_hydrates_components_and_templates_in_build_tree() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
     use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
         return;
     }
@@ -378,16 +379,12 @@ fn stock_catalog_app_hydrates_components_and_templates_in_build_tree() {
 
 #[test]
 fn templates_group_renders_as_components_label() {
-    use std::path::Path;
-
     use crate::compile::{compile_app_from_root_with_options, CompileOptions};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = ws_hello_root() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("apps").join("_stock-catalog");
     if !app_root.is_dir() {
         return;

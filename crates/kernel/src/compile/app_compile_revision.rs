@@ -584,13 +584,37 @@ mod tests {
 #[cfg(test)]
 mod default_scene_v2_tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::fs;
 
     #[test]
     fn mei_tutorial_resolves_intro_default_scene() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-demo-v2/apps/mei-tutorial");
-        assert!(root.join("app.toml").is_file(), "missing {}", root.display());
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().to_path_buf();
+        fs::write(
+            root.join("app.toml"),
+            r#"
+schema_version = "mei-app-v1"
+title = "MeiLang Tutorial Fixture"
+default_stage = "intro"
+app_id = "mei-tutorial"
+"#,
+        )
+        .expect("write app.toml");
+        let deck = root.join("src/presentation/intro/intro.deck.mdx");
+        fs::create_dir_all(deck.parent().expect("parent")).expect("mkdir");
+        fs::write(
+            &deck,
+            r#"---
+id: intro
+title: Intro
+theme: presentation
+---
+
+# Intro
+"#,
+        )
+        .expect("write deck");
+
         let scene = resolve_default_scene_from_root(&root)
             .expect("resolve")
             .expect("default scene");

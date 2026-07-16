@@ -2,7 +2,16 @@ use super::*;
 
 use crate::model::{BlockDecl, ComponentAsset, SceneContract, TemplateConsumerAnchor, UiNodeDecl};
 use std::collections::BTreeMap;
-use std::path::Path;
+
+
+fn optional_external_workspace() -> Option<std::path::PathBuf> {
+    let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
+    let path = std::path::PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() || !path.is_dir() {
+        return None;
+    }
+    Some(path.canonicalize().unwrap_or(path))
+}
 
 #[test]
 fn template_index_lists_metric_card_assets() {
@@ -102,20 +111,17 @@ fn template_index_collects_consumer_anchors() {
 
 #[test]
 fn js_component_authoring_preview_targets_stock_example() {
-    use std::path::Path;
-
     use crate::compile::{
         compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
         CompileOptions,
     };
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-spbjw");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    // expected workspace kind: ws-spbjw
     let app_root = source_root.join("zhifa");
     let preview = source_root.join("stock/components/chart/echarts/previews/chart.area.mei");
     if !app_root.is_dir() || !preview.is_file() {
@@ -166,20 +172,17 @@ fn js_component_authoring_preview_targets_stock_example() {
 
 #[test]
 fn ws_hello_chart_area_authoring_preview_coordinate() {
-    use std::path::Path;
-
     use crate::compile::{
         compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
         CompileOptions,
     };
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("repo root")
-        .join("workspaces")
-        .join("ws-hello");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    // expected workspace kind: ws-hello
     let app_root = source_root.join("apps").join("hello");
     let preview = source_root.join("stock/components/chart/echarts/previews/chart.area.mei");
     if !app_root.is_dir() || !preview.is_file() {
@@ -232,20 +235,17 @@ fn components_tree_groups_by_pack_path() {
 
 #[test]
 fn template_preview_targets_primary_consumer_scene() {
-    use std::path::Path;
-
     use crate::compile::{
         compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
         CompileOptions,
     };
     use crate::model::BuildNodeId;
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("workspace root")
-        .join("workspaces")
-        .join("ws-spbjw");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    // expected workspace kind: ws-spbjw
     let app_root = source_root.join("zhifa");
     if !app_root.is_dir() {
         return;
@@ -277,13 +277,14 @@ fn template_file_authoring_preview_targets_template_mei() {
 
     use crate::model::{BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry};
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .join("workspaces")
-        .join("ws-spbjw");
+    let Some(source_root) = optional_external_workspace() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
     let app_root = source_root.join("zhifa");
     let template_mei = source_root.join("stock/templates/cockpit/main.mei");
     if !app_root.is_dir() || !template_mei.is_file() {
+        eprintln!("skip: zhifa templates missing under MEI_TEST_WORKSPACE");
         return;
     }
 
@@ -319,7 +320,6 @@ fn template_file_authoring_preview_targets_template_mei() {
             title: Some("Home".to_string()),
             is_default: true,
             access_export: true,
-        t2_pages: Vec::new(),
         }],
         active_scene: Some("home".to_string()),
         stage_registry: Default::default(),

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::stage_registry::{StageDescriptor, StageId, StageProfile, StageRegistry};
 
-/// Stage Surface (Phase 5: viewport / paged; Access kept as wire-compat alias).
+/// Stage Surface (viewport / paged / document; Access kept as wire-compat alias).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StageSurface {
@@ -20,6 +20,8 @@ pub enum StageSurface {
     Viewport,
     /// Slides paged deck surface.
     Paged,
+    /// Page document flow (width constrained; block intrinsic; stage scrolls).
+    Document,
 }
 
 impl StageSurface {
@@ -27,6 +29,7 @@ impl StageSurface {
         match self {
             Self::Access | Self::Viewport => "viewport",
             Self::Paged => "paged",
+            Self::Document => "document",
         }
     }
 
@@ -34,6 +37,7 @@ impl StageSurface {
         match profile {
             StageProfile::Cockpit => Self::Viewport,
             StageProfile::Slides => Self::Paged,
+            StageProfile::Page => Self::Document,
         }
     }
 }
@@ -119,6 +123,15 @@ impl StageProgram {
 
     /// Adapt a Cockpit StageDescriptor → StageProgram with a single SceneRef unit.
     pub fn from_cockpit(desc: &StageDescriptor) -> Self {
+        Self::from_scene_ref_profile(desc, StageProfile::Cockpit)
+    }
+
+    /// Adapt a Page StageDescriptor → StageProgram with a single SceneRef unit.
+    pub fn from_page(desc: &StageDescriptor) -> Self {
+        Self::from_scene_ref_profile(desc, StageProfile::Page)
+    }
+
+    fn from_scene_ref_profile(desc: &StageDescriptor, profile: StageProfile) -> Self {
         let stage_id = desc.id.as_str();
         let unit = StageUnit {
             id: stage_id.to_string(),
@@ -131,8 +144,8 @@ impl StageProgram {
         };
         Self {
             stage_id: desc.id.clone(),
-            profile: StageProfile::Cockpit,
-            surface: StageSurface::from_profile(StageProfile::Cockpit),
+            profile,
+            surface: StageSurface::from_profile(profile),
             units: vec![unit],
             state_namespace: Self::state_namespace_for(stage_id),
             source_anchor: desc.source_anchor.clone(),
@@ -199,6 +212,7 @@ impl StageProgram {
     ) -> Self {
         match desc.profile {
             StageProfile::Cockpit => Self::from_cockpit(desc),
+            StageProfile::Page => Self::from_page(desc),
             StageProfile::Slides => {
                 let slides = slides_by_stage
                     .get(desc.id.as_str())

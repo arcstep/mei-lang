@@ -43,7 +43,13 @@ pub struct CompiledApp {
     pub app_root: String,
     #[serde(default)]
     pub scene_routes: Vec<CompiledSceneRoute>,
-    #[serde(default)]
+    /// Active Access Stage id (wire: `active_stage`; still accepts `active_scene`).
+    #[serde(
+        default,
+        rename = "active_stage",
+        alias = "active_scene",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub active_scene: Option<String>,
     /// Phase 1 additive Stage product registry (derived from routes; T2 excluded).
     #[serde(default)]
