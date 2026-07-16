@@ -7,6 +7,8 @@ use mei_graph::GraphBlock;
 use mei_host_core::{HostContext, ImportReport};
 use mei_lang_kernel::{
     resolve_app_eval_cache_root, resolve_app_registry_root, resolve_app_root, ObjectCatalog,
+    ObjectCatalogAuthoringMode, DEFAULT_OBJECT_ASSEMBLY_KIND, OBJECT_INDEX_ENTRY_KIND,
+    OBJECT_RECIPE_SCHEMA_VERSION,
 };
 use serde_json::{json, Value};
 
@@ -63,7 +65,7 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
     let mut bundle_owners = BTreeMap::new();
 
     for block in &exchange.blocks {
-        validate_object_catalog_block(block)?;
+        let object_catalog = decode_object_catalog_block(block)?;
         let (kind, schema_version) = cas_kind_for_block(block);
         let revision = block_revision(block);
         let artifact = wrap_block_artifact(block, &revision);
@@ -93,7 +95,7 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
             id: GraphNodeId::new(node_kind, node_key),
             revision,
             state: MaterialState::Ready,
-            layer: "import".to_string(),
+            layer: import_layer_for_object_catalog(object_catalog.as_ref()).to_string(),
             payload_ref: Some(PayloadRef::new(kind, put.content_hash, schema_version)),
             deps: Vec::new(),
             owner_resource_id: owner,
@@ -166,12 +168,84 @@ fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
     }
 }
 
-fn validate_object_catalog_block(block: &GraphBlock) -> Result<()> {
-    if block.kind == "object_catalog" {
-        serde_json::from_value::<ObjectCatalog>(block.payload.clone())
-            .context("decode object_catalog payload")?;
+fn decode_object_catalog_block(block: &GraphBlock) -> Result<Option<ObjectCatalog>> {
+    if block.kind != "object_catalog" {
+        return Ok(None);
     }
-    Ok(())
+    let catalog = serde_json::from_value::<ObjectCatalog>(block.payload.clone())
+        .context("decode object_catalog payload")?;
+    if catalog.authoring_mode == ObjectCatalogAuthoringMode::AuthorIntent {
+        anyhow::ensure!(
+            !catalog.intents.is_empty(),
+            "author_intent object catalog must contain ObjectIntent"
+        );
+        anyhow::ensure!(
+            !catalog.index.is_empty()
+                && catalog
+                    .index
+                    .iter()
+                    .all(|entry| entry.kind == OBJECT_INDEX_ENTRY_KIND),
+            "author_intent object catalog must contain internal object index entries"
+        );
+        anyhow::ensure!(
+            !catalog.default_assemblies.is_empty()
+                && catalog
+                    .default_assemblies
+                    .iter()
+                    .all(|assembly| assembly.kind == DEFAULT_OBJECT_ASSEMBLY_KIND),
+            "author_intent object catalog must contain default object assemblies"
+        );
+        for intent in &catalog.intents {
+            anyhow::ensure!(
+                catalog.types.iter().any(|object_type| {
+                    object_type.id == intent.object_type_id
+                        && object_type.intent_id.as_deref() == Some(intent.intent_id.as_str())
+                }),
+                "ObjectIntent `{}` has no matching ObjectTypeContract",
+                intent.intent_id
+            );
+            anyhow::ensure!(
+                catalog.index.iter().any(|entry| {
+                    entry.intent_id == intent.intent_id
+                        && entry.object_type_id == intent.object_type_id
+                        && entry.source == intent.source
+                        && entry.recipe == intent.recipe
+                }),
+                "ObjectIntent `{}` has no matching internal ObjectIndexEntry",
+                intent.intent_id
+            );
+            anyhow::ensure!(
+                catalog.default_assemblies.iter().any(|assembly| {
+                    assembly.intent_id == intent.intent_id
+                        && assembly.recipe == intent.recipe
+                        && assembly.recipe_contract.as_ref().is_some_and(|contract| {
+                            contract.schema_version == OBJECT_RECIPE_SCHEMA_VERSION
+                                && contract.id == format!("cockpit.{}", intent.recipe.id)
+                                && contract.identity_locked
+                        })
+                }),
+                "ObjectIntent `{}` has no matching DefaultObjectAssembly",
+                intent.intent_id
+            );
+            anyhow::ensure!(
+                intent.owner_hints.contains(&intent.source)
+                    && intent.owner_hints.contains(&intent.recipe),
+                "ObjectIntent `{}` owner hints must retain source and recipe owners",
+                intent.intent_id
+            );
+        }
+    }
+    Ok(Some(catalog))
+}
+
+fn import_layer_for_object_catalog(catalog: Option<&ObjectCatalog>) -> &'static str {
+    match catalog.map(|catalog| &catalog.authoring_mode) {
+        Some(ObjectCatalogAuthoringMode::AuthorIntent) => {
+            "import:object_author_intent:internal_index"
+        }
+        Some(ObjectCatalogAuthoringMode::Legacy) => "import:object_catalog_legacy",
+        None => "import",
+    }
 }
 
 fn block_revision(block: &GraphBlock) -> String {
@@ -258,7 +332,11 @@ mod tests {
                 "source_anchor": "domain/warnings.objects.mei"
             }),
         };
-        validate_object_catalog_block(&block).expect("valid object catalog contract");
+        let catalog = decode_object_catalog_block(&block).expect("valid object catalog contract");
+        assert_eq!(
+            import_layer_for_object_catalog(catalog.as_ref()),
+            "import:object_catalog_legacy"
+        );
         assert_eq!(node_key_for_block(&block), "warning_objects");
         assert_eq!(
             GraphNodeKind::from_block_kind(&block.kind),
@@ -268,5 +346,109 @@ mod tests {
             cas_kind_for_block(&block),
             (OBJECT_CATALOG, "mei-object-catalog-v1")
         );
+    }
+
+    #[test]
+    fn author_intent_catalog_is_recognized_with_internal_index_layer() {
+        let source_anchor = "domain/alerts.objects.mei";
+        let source = json!({
+            "role": "source",
+            "kind": "dataset_ref",
+            "id": "alerts",
+            "source_anchor": source_anchor
+        });
+        let identity_ref = json!({
+            "role": "identity",
+            "kind": "field_ref",
+            "id": "alert_id",
+            "source_anchor": source_anchor
+        });
+        let recipe = json!({
+            "role": "recipe",
+            "kind": "stock_ref",
+            "id": "alert",
+            "source_anchor": source_anchor
+        });
+        let identity = json!({
+            "materialization": "dataset_row",
+            "fields": ["alert_id"],
+            "locator": identity_ref,
+            "aliases": [],
+            "normalization": null
+        });
+        let block = GraphBlock {
+            kind: "object_catalog".to_string(),
+            block_id: "object_catalog:objects_stable".to_string(),
+            schema: "mei-object-catalog-v1".to_string(),
+            payload: json!({
+                "schema_version": "mei-object-catalog-v1",
+                "id": "objects_stable",
+                "authoring_mode": "author_intent",
+                "types": [{
+                    "id": "ops.Alert",
+                    "intent_id": "intent_stable",
+                    "identity": identity,
+                    "source": source,
+                    "projections": [recipe],
+                    "source_anchor": source_anchor
+                }],
+                "refs": [],
+                "intents": [{
+                    "intent_id": "intent_stable",
+                    "object_type_id": "ops.Alert",
+                    "source": source,
+                    "identity": identity,
+                    "recipe": recipe,
+                    "owner_hints": [source, identity_ref, recipe],
+                    "source_anchor": source_anchor
+                }],
+                "index": [{
+                    "kind": "internal_object_index",
+                    "key": "ops.Alert::dataset_ref:alerts::field_ref:alert_id",
+                    "intent_id": "intent_stable",
+                    "object_type_id": "ops.Alert",
+                    "source": source,
+                    "identity": identity_ref,
+                    "recipe": recipe,
+                    "owner_hints": [source, identity_ref, recipe],
+                    "source_anchor": source_anchor
+                }],
+                "default_assemblies": [{
+                    "kind": "default_object_assembly",
+                    "id": "assembly_stable",
+                    "intent_id": "intent_stable",
+                    "recipe": recipe,
+                    "recipe_contract": {
+                        "schema_version": "mei-stock-object-recipe-v1",
+                        "id": "cockpit.alert",
+                        "slots": [],
+                        "projections": [],
+                        "interactions": [],
+                        "responders": [],
+                        "override_precedence": [
+                            "local",
+                            "domain",
+                            "app",
+                            "stock",
+                            "placeholder",
+                            "no_projection"
+                        ],
+                        "identity_locked": true,
+                        "source_anchor": "stock/templates/cockpit/object-recipes.mei"
+                    },
+                    "source_anchor": source_anchor
+                }],
+                "source_anchor": source_anchor
+            }),
+        };
+
+        let catalog = decode_object_catalog_block(&block)
+            .expect("decode author intent")
+            .expect("object catalog");
+        assert_eq!(
+            import_layer_for_object_catalog(Some(&catalog)),
+            "import:object_author_intent:internal_index"
+        );
+        assert_eq!(catalog.index[0].kind, OBJECT_INDEX_ENTRY_KIND);
     }
 }

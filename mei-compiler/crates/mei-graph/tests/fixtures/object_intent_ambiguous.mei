@@ -1,0 +1,17 @@
+object(
+    type = "ops.Event",
+    source = dataset_ref("events"),
+    identity = field_ref("event_id"),
+    recipe = stock_ref("event"),
+    slots = {
+        "label": field_ref("title"),
+        "occurredAt": field_ref("occurred_at"),
+        "severity": field_ref("severity"),
+        "playbackAt": field_ref("playback_at"),
+        "media": media_ref("event_media"),
+        "place": viewpoint_ref("event_map"),
+        "chart": metric_ref("event_metrics"),
+        "t2": page_ref("event_t2"),
+        "detail": page_ref("event_detail"),
+    },
+)

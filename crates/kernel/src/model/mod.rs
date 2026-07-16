@@ -10,11 +10,11 @@ mod layout;
 mod narration_abi;
 mod object_catalog;
 mod presentation_map_schema;
+mod profile_layout_policy;
 mod resource;
 mod review_modes;
 mod scene_slot_abi;
 mod stage_mdx_apply;
-mod profile_layout_policy;
 mod stage_program;
 mod stage_registry;
 mod ui;
@@ -24,6 +24,11 @@ mod workspace;
 mod world;
 mod world_semantic;
 
+pub use abi_project::{
+    bind_programs_to_abi, compute_narration_digest, compute_structure_digest,
+    diagnose_slot_missing, project_abi, validate_abi_against_programs, AbiProjection,
+    AbiProjectionInput,
+};
 pub use build_node::{
     resolve_build_view_query, tab_visible_for_node, tabs_for_node_kind, BuildExecScope,
     BuildNodeId, BuildNodeKind, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
@@ -35,6 +40,7 @@ pub use build_view_index::{
     T2PageSlotEntry, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
+pub use content_capability_abi::{ContentCapability, ContentCapabilityId, ContentCapabilityKind};
 pub use contract::SceneContract;
 pub use dataset::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, ColumnSchema, DataRef, DataTransform,
@@ -44,42 +50,40 @@ pub use dataset::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
-pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
-pub use review_modes::{
-    ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
-    SurfacePreviewPolicy,
-};
-pub use abi_project::{
-    bind_programs_to_abi, compute_narration_digest, compute_structure_digest,
-    diagnose_slot_missing, project_abi, validate_abi_against_programs, AbiProjection,
-    AbiProjectionInput,
-};
-pub use content_capability_abi::{ContentCapability, ContentCapabilityId, ContentCapabilityKind};
-pub use narration_abi::{
-    NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
-};
+pub use narration_abi::{NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack};
 pub use object_catalog::{
-    ObjectCatalog, ObjectDescriptor, ObjectIdentityContract, ObjectIdentityMaterialization,
-    ObjectMaterializationError, ObjectProjectionRef, ObjectTypeContract,
-    OBJECT_CATALOG_SCHEMA_VERSION,
+    DefaultObjectAssembly, InteractionBinding, InteractionEvent, InteractionIntent,
+    InteractionSubject, ObjectCatalog, ObjectCatalogAuthoringMode, ObjectCatalogDiagnostic,
+    ObjectDescriptor, ObjectFocus, ObjectFocusCardinality, ObjectIdentityContract,
+    ObjectIdentityMaterialization, ObjectIndexEntry, ObjectIntent, ObjectLocator,
+    ObjectMaterializationError, ObjectProjectionRef, ObjectRecipeContract,
+    ObjectRecipeInteractionContract, ObjectRecipeProjectionAssembly,
+    ObjectRecipeProjectionContract, ObjectRecipeProjectionState, ObjectRecipeResponderContract,
+    ObjectRecipeSlotContract, ObjectRecipeSlotRequirement, ObjectResolver, ObjectSet,
+    ObjectTypeContract, Responder, RuntimeObjectIndex, RuntimeObjectIndexEntry,
+    DEFAULT_OBJECT_ASSEMBLY_KIND, INTERACTION_PROTOCOL_SCHEMA_VERSION,
+    OBJECT_CATALOG_SCHEMA_VERSION, OBJECT_INDEX_ENTRY_KIND, OBJECT_RECIPE_SCHEMA_VERSION,
 };
 pub use presentation_map_schema::{
     accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
     presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
 };
-pub use scene_slot_abi::{
-    SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality,
+pub use profile_layout_policy::{
+    profile_layout_policy_digest, FillDownPolicy, ProfileLayoutPolicy, ProfileSpacingTokens,
+    ScrollOwnership, SizeAxisPolicy,
 };
+pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
+pub use review_modes::{
+    ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
+    SurfacePreviewPolicy,
+};
+pub use scene_slot_abi::{SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality};
 pub use stage_mdx_apply::{
     apply_cockpit_stage_decl, CockpitFillDecl, CockpitStageDecl, CockpitStepDecl,
 };
 pub use stage_program::{
     StageProgram, StageProgramIndex, StageProgramSummary, StageSlideInput, StageSurface, StageUnit,
     StageUnitKind,
-};
-pub use profile_layout_policy::{
-    profile_layout_policy_digest, FillDownPolicy, ProfileLayoutPolicy, ProfileSpacingTokens,
-    ScrollOwnership, SizeAxisPolicy,
 };
 pub use stage_registry::{
     is_stage_registry_candidate, StageDescriptor, StageId, StageProfile, StageRegistry, StageRoute,

@@ -108,6 +108,7 @@ pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
     "link_decl",
     "warmup_policy",
     "world",
+    "object",
     "object_catalog",
 ];
 
@@ -134,6 +135,9 @@ pub const V2_REF_KEYWORDS: &[&str] = &[
     "param_ref",
     "dataset_ref",
     "dataframe_ref",
+    "field_ref",
+    "entity_ref",
+    "stock_ref",
     "source_feature_ref",
     "feature_ref",
     "object_ref",

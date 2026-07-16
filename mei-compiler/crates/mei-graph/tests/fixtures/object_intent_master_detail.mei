@@ -1,0 +1,15 @@
+object(
+    type = "ops.Case",
+    source = dataset_ref("cases"),
+    identity = field_ref("case_id"),
+    recipe = stock_ref("case"),
+    slots = {
+        "label": field_ref("title"),
+        "status": field_ref("status"),
+        "occurredAt": field_ref("occurred_at"),
+        "attachments": dataset_ref("case_attachments"),
+        "evidence": dataset_ref("case_evidence"),
+        "result": field_ref("result"),
+        "detail": page_ref("case_detail"),
+    },
+)

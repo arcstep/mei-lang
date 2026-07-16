@@ -1,11 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::artifact_expand;
+use crate::{artifact_expand, object_recipes};
 
 #[derive(Debug, Error)]
 pub enum LowerGraphError {
@@ -72,10 +73,10 @@ fn lower_top_level(
     name: &str,
     args: &CallArgs,
 ) -> Result<GraphBlock, LowerGraphError> {
-    let mut payload = if name == "object_catalog" {
-        lower_object_catalog(source_file, args)?
-    } else {
-        call_args_to_json(args)?
+    let (kind, mut payload) = match name {
+        "object" => ("object_catalog", lower_object_intent(source_file, args)?),
+        "object_catalog" => ("object_catalog", lower_object_catalog(source_file, args)?),
+        _ => (name, call_args_to_json(args)?),
     };
     if matches!(
         name,
@@ -115,10 +116,10 @@ fn lower_top_level(
     if name == "slide_layout" {
         validate_slide_layout_payload(&payload)?;
     }
-    let block_id = derive_block_id(name, source_file, &payload)?;
-    let schema = schema_for_constructor(name);
+    let block_id = derive_block_id(kind, source_file, &payload)?;
+    let schema = schema_for_constructor(kind);
     Ok(GraphBlock {
-        kind: name.to_string(),
+        kind: kind.to_string(),
         block_id,
         schema: schema.to_string(),
         payload,
@@ -238,6 +239,443 @@ fn call_args_to_json(args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
     Ok(JsonValue::Object(map))
 }
 
+fn lower_object_intent(source_anchor: &str, args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
+    if !args.positional.is_empty() {
+        return Err(diagnostic(
+            "object_intent_shape_invalid",
+            "object(...) accepts keyword arguments only",
+            source_anchor,
+        ));
+    }
+    reject_duplicate_object_keywords(args, source_anchor)?;
+    if keyword(args, "objectId")
+        .or_else(|| keyword(args, "object_id"))
+        .is_some()
+    {
+        return Err(diagnostic(
+            "object_intent_object_id_forbidden",
+            "objectId is compiler-owned and cannot be authored",
+            source_anchor,
+        ));
+    }
+    for (name, _) in &args.keywords {
+        if !matches!(
+            name.as_str(),
+            "type"
+                | "source"
+                | "identity"
+                | "recipe"
+                | "slots"
+                | "relations"
+                | "override"
+                | "objectId"
+                | "object_id"
+        ) {
+            return Err(diagnostic(
+                "object_intent_unknown_field",
+                format!("object(...) has unknown field `{name}`"),
+                source_anchor,
+            ));
+        }
+    }
+
+    let object_type_id = required_keyword_string(
+        args,
+        "type",
+        "object_intent_missing_type",
+        "object(...) must declare a non-empty string `type`",
+        source_anchor,
+    )?;
+    let source = lower_intent_ref(
+        keyword(args, "source"),
+        "source",
+        &[
+            "dataset_ref",
+            "dataframe_ref",
+            "world_ref",
+            "world",
+            "entity_ref",
+        ],
+        "object_intent_missing_source",
+        "object source must be dataset_ref(...), world_ref(...), or entity_ref(...)",
+        source_anchor,
+    )?;
+    let identity = lower_intent_ref(
+        keyword(args, "identity"),
+        "identity",
+        &[
+            "field_ref",
+            "object_key",
+            "objectKey",
+            "entity_id",
+            "entityId",
+        ],
+        "object_intent_missing_identity",
+        "object identity must be field_ref(...), objectKey(...), or entityId(...)",
+        source_anchor,
+    )?;
+    let recipe = lower_intent_ref(
+        keyword(args, "recipe"),
+        "recipe",
+        &["stock_ref"],
+        "object_intent_invalid_recipe",
+        "object recipe must be stock_ref(\"alert\"|\"case\"|\"place\"|\"event\")",
+        source_anchor,
+    )?;
+    let recipe_id = recipe["id"].as_str().unwrap_or_default();
+    if !matches!(recipe_id, "alert" | "case" | "place" | "event") {
+        return Err(diagnostic(
+            "object_intent_invalid_recipe",
+            format!("unknown object recipe `{recipe_id}`; expected alert, case, place, or event"),
+            source_anchor,
+        ));
+    }
+
+    let mut diagnostics = Vec::new();
+    let slots = lower_intent_slots(
+        keyword(args, "slots"),
+        recipe_id,
+        source_anchor,
+        &mut diagnostics,
+    )?;
+    let relations = lower_intent_relations(keyword(args, "relations"), source_anchor)?;
+    let override_props = match keyword(args, "override") {
+        None => JsonValue::Null,
+        Some(value @ V2Expr::Dict(_)) => artifact_expand::expr_to_json(value)
+            .map_err(|error| LowerGraphError::Lower(error.to_string()))?,
+        Some(_) => {
+            return Err(diagnostic(
+                "object_intent_override_invalid",
+                "object override must be a map",
+                source_anchor,
+            ))
+        }
+    };
+
+    let identity_kind = identity["kind"].as_str().unwrap_or_default();
+    let identity_id = identity["id"].as_str().unwrap_or_default();
+    let source_kind = source["kind"].as_str().unwrap_or_default();
+    let source_id = source["id"].as_str().unwrap_or_default();
+    let mut effective_slots = slots.clone();
+    if recipe_id == "place" && identity_kind == "entity_id" && !slots.contains_key("entityId") {
+        effective_slots.insert(
+            "entityId".to_string(),
+            projection_ref_json("slot:entityId", identity_kind, identity_id, source_anchor),
+        );
+    }
+    let slots_fingerprint = serde_json::to_string(&effective_slots).unwrap_or_default();
+    let relations_fingerprint = serde_json::to_string(&relations).unwrap_or_default();
+    let override_fingerprint = serde_json::to_string(&override_props).unwrap_or_default();
+    let digest = stable_object_intent_digest(&[
+        source_anchor,
+        object_type_id.as_str(),
+        source_kind,
+        source_id,
+        identity_kind,
+        identity_id,
+        recipe_id,
+        slots_fingerprint.as_str(),
+        relations_fingerprint.as_str(),
+        override_fingerprint.as_str(),
+    ]);
+    let intent_id = format!("intent_{digest}");
+    let catalog_id = format!("objects_{digest}");
+    let assembly_id = format!("assembly_{digest}");
+
+    let mut owner_hints = vec![source.clone(), identity.clone(), recipe.clone()];
+    owner_hints.extend(effective_slots.values().cloned());
+    for refs in relations.values() {
+        owner_hints.extend(refs.iter().cloned());
+    }
+    deduplicate_projection_refs(&mut owner_hints);
+
+    let materialization = match source_kind {
+        "dataset_ref" | "dataframe_ref" if identity_kind == "field_ref" => "dataset_row",
+        _ => "declared",
+    };
+    let identity_contract = json!({
+        "materialization": materialization,
+        "fields": [identity_id],
+        "locator": identity,
+        "aliases": [],
+        "normalization": null,
+    });
+    let projections = owner_hints
+        .iter()
+        .filter(|projection| projection["role"] != "source" && projection["role"] != "identity")
+        .cloned()
+        .collect::<Vec<_>>();
+    let object_type = json!({
+        "id": object_type_id,
+        "intent_id": intent_id,
+        "label": null,
+        "identity": identity_contract,
+        "source": source,
+        "capabilities": [],
+        "projections": projections,
+        "source_anchor": source_anchor,
+    });
+    let intent = json!({
+        "intent_id": intent_id,
+        "object_type_id": object_type_id,
+        "source": source,
+        "identity": identity_contract,
+        "recipe": recipe,
+        "slots": slots,
+        "relations": relations,
+        "override": override_props,
+        "owner_hints": owner_hints,
+        "source_anchor": source_anchor,
+    });
+    let index_entry = json!({
+        "kind": "internal_object_index",
+        "key": format!("{object_type_id}::{source_kind}:{source_id}::{identity_kind}:{identity_id}"),
+        "intent_id": intent_id,
+        "object_type_id": object_type_id,
+        "source": source,
+        "identity": identity,
+        "recipe": recipe,
+        "owner_hints": owner_hints,
+        "source_anchor": source_anchor,
+    });
+    let recipe_assembly = object_recipes::assemble(
+        recipe_id,
+        object_type_id.as_str(),
+        intent_id.as_str(),
+        source_anchor,
+        &effective_slots,
+        &override_props,
+    )
+    .map_err(|message| {
+        diagnostic(
+            "object_intent_identity_override_forbidden",
+            message,
+            source_anchor,
+        )
+    })?;
+    diagnostics.extend(recipe_assembly.diagnostics);
+    let default_assembly = json!({
+        "kind": "default_object_assembly",
+        "id": assembly_id,
+        "intent_id": intent_id,
+        "recipe": recipe,
+        "recipe_contract": recipe_assembly.contract,
+        "slots": effective_slots,
+        "relations": relations,
+        "override": override_props,
+        "effective_override": recipe_assembly.effective_override,
+        "override_sources": recipe_assembly.override_sources,
+        "projections": recipe_assembly.projections,
+        "source_anchor": source_anchor,
+    });
+
+    Ok(json!({
+        "schema_version": "mei-object-catalog-v1",
+        "id": catalog_id,
+        "authoring_mode": "author_intent",
+        "types": [object_type],
+        "refs": [],
+        "intents": [intent],
+        "index": [index_entry],
+        "default_assemblies": [default_assembly],
+        "interaction_bindings": recipe_assembly.interaction_bindings,
+        "responders": recipe_assembly.responders,
+        "diagnostics": diagnostics,
+        "source_anchor": source_anchor,
+    }))
+}
+
+fn reject_duplicate_object_keywords(
+    args: &CallArgs,
+    source_anchor: &str,
+) -> Result<(), LowerGraphError> {
+    let mut seen = BTreeSet::new();
+    for (name, _) in &args.keywords {
+        if !seen.insert(name.as_str()) {
+            let code = if matches!(name.as_str(), "source" | "identity" | "recipe") {
+                "object_intent_ambiguous_owner"
+            } else {
+                "object_intent_duplicate_field"
+            };
+            return Err(diagnostic(
+                code,
+                format!("object(...) field `{name}` is declared more than once"),
+                source_anchor,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn lower_intent_ref(
+    expr: Option<&V2Expr>,
+    role: &str,
+    allowed_kinds: &[&str],
+    code: &'static str,
+    message: &str,
+    source_anchor: &str,
+) -> Result<JsonValue, LowerGraphError> {
+    let Some(expr) = expr else {
+        return Err(diagnostic(code, message, source_anchor));
+    };
+    let Some((kind, args)) = thin_ref_parts(expr) else {
+        return Err(diagnostic(code, message, source_anchor));
+    };
+    if !allowed_kinds.contains(&kind) {
+        return Err(diagnostic(code, message, source_anchor));
+    }
+    let id = thin_ref_id(args).ok_or_else(|| diagnostic(code, message, source_anchor))?;
+    let canonical_kind = match kind {
+        "world" => "world_ref",
+        "objectKey" => "object_key",
+        "entityId" => "entity_id",
+        other => other,
+    };
+    Ok(projection_ref_json(role, canonical_kind, id, source_anchor))
+}
+
+fn lower_intent_slots(
+    expr: Option<&V2Expr>,
+    recipe: &str,
+    source_anchor: &str,
+    diagnostics: &mut Vec<JsonValue>,
+) -> Result<BTreeMap<String, JsonValue>, LowerGraphError> {
+    let Some(expr) = expr else {
+        return Ok(BTreeMap::new());
+    };
+    let V2Expr::Dict(entries) = expr else {
+        return Err(diagnostic(
+            "object_intent_slots_invalid",
+            "object slots must be a map of slot names to thin references",
+            source_anchor,
+        ));
+    };
+    let known = object_recipes::known_slots(recipe);
+    let mut slots = BTreeMap::new();
+    for (name, value) in entries {
+        if slots.contains_key(name) {
+            return Err(diagnostic(
+                "object_intent_ambiguous_owner",
+                format!("object slot `{name}` has more than one owner"),
+                source_anchor,
+            ));
+        }
+        let reference = lower_intent_any_ref(
+            value,
+            format!("slot:{name}").as_str(),
+            "object_intent_slot_ref_invalid",
+            "object slot values must be thin *_ref(...) references",
+            source_anchor,
+        )?;
+        if !known.contains(&name.as_str()) {
+            diagnostics.push(json!({
+                "code": "object_intent_extension_slot",
+                "severity": "warning",
+                "message": format!("slot `{name}` is not declared by recipe `{recipe}` and is preserved as an extension"),
+                "source_anchor": source_anchor,
+            }));
+        }
+        slots.insert(name.clone(), reference);
+    }
+    Ok(slots)
+}
+
+fn lower_intent_relations(
+    expr: Option<&V2Expr>,
+    source_anchor: &str,
+) -> Result<BTreeMap<String, Vec<JsonValue>>, LowerGraphError> {
+    let Some(expr) = expr else {
+        return Ok(BTreeMap::new());
+    };
+    let V2Expr::Dict(entries) = expr else {
+        return Err(diagnostic(
+            "object_intent_relations_invalid",
+            "object relations must be a map of relation names to thin references",
+            source_anchor,
+        ));
+    };
+    let mut relations = BTreeMap::new();
+    for (name, value) in entries {
+        if relations.contains_key(name) {
+            return Err(diagnostic(
+                "object_intent_ambiguous_owner",
+                format!("object relation `{name}` is declared more than once"),
+                source_anchor,
+            ));
+        }
+        let values = match value {
+            V2Expr::List(values) => values,
+            value => std::slice::from_ref(value),
+        };
+        let refs = values
+            .iter()
+            .map(|value| {
+                lower_intent_any_ref(
+                    value,
+                    format!("relation:{name}").as_str(),
+                    "object_intent_relation_ref_invalid",
+                    "object relation values must be thin *_ref(...) references",
+                    source_anchor,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if refs.is_empty() {
+            return Err(diagnostic(
+                "object_intent_relation_ref_invalid",
+                format!("object relation `{name}` must contain at least one thin reference"),
+                source_anchor,
+            ));
+        }
+        relations.insert(name.clone(), refs);
+    }
+    Ok(relations)
+}
+
+fn lower_intent_any_ref(
+    expr: &V2Expr,
+    role: &str,
+    code: &'static str,
+    message: &str,
+    source_anchor: &str,
+) -> Result<JsonValue, LowerGraphError> {
+    let Some((kind, args)) = thin_ref_parts(expr) else {
+        return Err(diagnostic(code, message, source_anchor));
+    };
+    if !kind.ends_with("_ref") {
+        return Err(diagnostic(code, message, source_anchor));
+    }
+    let id = thin_ref_id(args).ok_or_else(|| diagnostic(code, message, source_anchor))?;
+    Ok(projection_ref_json(role, kind, id, source_anchor))
+}
+
+fn thin_ref_parts(expr: &V2Expr) -> Option<(&str, &CallArgs)> {
+    match expr {
+        V2Expr::RefCall { name, args } => Some((name.as_str(), args)),
+        V2Expr::Call { path, args } if path.len() == 1 => Some((path[0].as_str(), args)),
+        _ => None,
+    }
+}
+
+fn deduplicate_projection_refs(refs: &mut Vec<JsonValue>) {
+    let mut seen = BTreeSet::new();
+    refs.retain(|reference| {
+        seen.insert((
+            reference["role"].as_str().unwrap_or_default().to_string(),
+            reference["kind"].as_str().unwrap_or_default().to_string(),
+            reference["id"].as_str().unwrap_or_default().to_string(),
+        ))
+    });
+}
+
+fn stable_object_intent_digest(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 fn lower_object_catalog(
     source_anchor: &str,
     args: &CallArgs,
@@ -290,8 +728,20 @@ fn lower_object_catalog(
     Ok(json!({
         "schema_version": "mei-object-catalog-v1",
         "id": id,
+        "authoring_mode": "legacy",
         "types": types,
         "refs": refs,
+        "intents": [],
+        "index": [],
+        "default_assemblies": [],
+        "interaction_bindings": [],
+        "responders": [],
+        "diagnostics": [{
+            "code": "object_catalog_legacy_authoring",
+            "severity": "warning",
+            "message": "object_catalog(...) is legacy authoring; prefer high-level object(...) intent",
+            "source_anchor": source_anchor,
+        }],
         "source_anchor": source_anchor,
     }))
 }
@@ -911,6 +1361,138 @@ object_catalog(
         let error = lower_v2_file("bundled-ref.objects.mei", &bundled_ref)
             .expect_err("thin ref must reject bundle kwargs");
         assert_eq!(error.code(), Some("object_projection_ref_shape_invalid"));
+    }
+
+    #[test]
+    fn diagnoses_missing_object_intent_fields_invalid_recipe_and_authored_object_id() {
+        for (source, code) in [
+            (
+                r#"object(source = dataset_ref("rows"), identity = field_ref("id"), recipe = stock_ref("alert"))"#,
+                "object_intent_missing_type",
+            ),
+            (
+                r#"object(type = "demo.Type", identity = field_ref("id"), recipe = stock_ref("alert"))"#,
+                "object_intent_missing_source",
+            ),
+            (
+                r#"object(type = "demo.Type", source = dataset_ref("rows"), recipe = stock_ref("alert"))"#,
+                "object_intent_missing_identity",
+            ),
+            (
+                r#"object(type = "demo.Type", source = dataset_ref("rows"), identity = field_ref("id"), recipe = stock_ref("dashboard"))"#,
+                "object_intent_invalid_recipe",
+            ),
+            (
+                r#"object(type = "demo.Type", source = dataset_ref("rows"), identity = field_ref("id"), recipe = stock_ref("alert"), objectId = "manual")"#,
+                "object_intent_object_id_forbidden",
+            ),
+        ] {
+            let file = parse_v2_source(source).expect("parse object intent diagnostic fixture");
+            let error = lower_v2_file("domain/object.objects.mei", &file)
+                .expect_err("invalid object intent must fail");
+            assert_eq!(error.code(), Some(code), "unexpected error: {error}");
+        }
+    }
+
+    #[test]
+    fn diagnoses_ambiguous_slot_owner_and_preserves_known_extension_slot() {
+        let ambiguous = parse_v2_source(
+            r#"
+object(
+    type = "demo.Alert",
+    source = dataset_ref("rows"),
+    identity = field_ref("id"),
+    recipe = stock_ref("alert"),
+    slots = {"summary": field_ref("title"), "summary": field_ref("other_title")},
+)
+"#,
+        )
+        .expect("parse ambiguous slot");
+        let error = lower_v2_file("domain/alerts.objects.mei", &ambiguous)
+            .expect_err("ambiguous slot owner must fail");
+        assert_eq!(error.code(), Some("object_intent_ambiguous_owner"));
+
+        let extension = parse_v2_source(
+            r#"
+object(
+    type = "demo.Alert",
+    source = dataset_ref("rows"),
+    identity = field_ref("id"),
+    recipe = stock_ref("alert"),
+    slots = {"custom": field_ref("custom")},
+)
+"#,
+        )
+        .expect("parse extension slot");
+        let outcome =
+            lower_v2_file("domain/alerts.objects.mei", &extension).expect("lower extension slot");
+        assert_eq!(
+            outcome.blocks[0].payload["diagnostics"][0]["code"],
+            "object_intent_extension_slot"
+        );
+        assert_eq!(
+            outcome.blocks[0].payload["intents"][0]["slots"]["custom"]["id"],
+            "custom"
+        );
+        assert_eq!(
+            outcome.blocks[0].payload["intents"][0]["recipe"]["id"],
+            "alert"
+        );
+    }
+
+    #[test]
+    fn lowers_supported_source_identity_and_recipe_variants() {
+        for (source, identity, recipe, source_kind, identity_kind) in [
+            (
+                r#"dataset_ref("rows")"#,
+                r#"field_ref("row_id")"#,
+                "alert",
+                "dataset_ref",
+                "field_ref",
+            ),
+            (
+                r#"world_ref("city")"#,
+                r#"objectKey("place-key")"#,
+                "place",
+                "world_ref",
+                "object_key",
+            ),
+            (
+                r#"entity_ref("events")"#,
+                r#"entityId("event-id")"#,
+                "event",
+                "entity_ref",
+                "entity_id",
+            ),
+            (
+                r#"entity_ref("cases")"#,
+                r#"entityId("case-id")"#,
+                "case",
+                "entity_ref",
+                "entity_id",
+            ),
+        ] {
+            let source = format!(
+                r#"
+object(
+    type = "demo.Type",
+    source = {source},
+    identity = {identity},
+    recipe = stock_ref("{recipe}"),
+)
+"#
+            );
+            let file = parse_v2_source(&source).expect("parse supported object intent");
+            let outcome =
+                lower_v2_file("domain/objects.mei", &file).expect("lower supported object intent");
+            let payload = &outcome.blocks[0].payload;
+            assert_eq!(payload["intents"][0]["source"]["kind"], source_kind);
+            assert_eq!(
+                payload["intents"][0]["identity"]["locator"]["kind"],
+                identity_kind
+            );
+            assert_eq!(payload["intents"][0]["recipe"]["id"], recipe);
+        }
     }
 
     #[test]

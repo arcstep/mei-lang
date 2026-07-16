@@ -28,7 +28,13 @@ use crate::types::GraphNodeKind;
 /// Per-assemble diagnostic sink. Clone shares the same buffer (Arc).
 #[derive(Clone, Default)]
 pub struct LowerDiagnostics {
-    inner: Arc<Mutex<Vec<Diagnostic>>>,
+    inner: Arc<Mutex<LowerState>>,
+}
+
+#[derive(Default)]
+struct LowerState {
+    diagnostics: Vec<Diagnostic>,
+    metric_page_adjacency: Option<Arc<MetricPageAdjacencyIndex>>,
 }
 
 impl LowerDiagnostics {
@@ -40,11 +46,30 @@ impl LowerDiagnostics {
         self.inner
             .lock()
             .expect("lower diagnostics")
+            .diagnostics
             .push(diagnostic);
     }
 
     pub fn take(&self) -> Vec<Diagnostic> {
-        std::mem::take(&mut *self.inner.lock().expect("lower diagnostics"))
+        std::mem::take(&mut self.inner.lock().expect("lower diagnostics").diagnostics)
+    }
+
+    fn metric_page_adjacency(&self, ctx: &PanelLowerContext<'_>) -> Arc<MetricPageAdjacencyIndex> {
+        if let Some(index) = self
+            .inner
+            .lock()
+            .expect("lower diagnostics")
+            .metric_page_adjacency
+            .clone()
+        {
+            return index;
+        }
+        let built = Arc::new(MetricPageAdjacencyIndex::build(ctx));
+        let mut state = self.inner.lock().expect("lower diagnostics");
+        state
+            .metric_page_adjacency
+            .get_or_insert_with(|| built.clone())
+            .clone()
     }
 }
 
@@ -2014,9 +2039,12 @@ fn lower_metric_inner(
     let patch = args.get("patch").cloned();
     let presentation = merge_metric_presentation(args, &source, patch.as_ref())
         .map(|value| resolve_config_refs_in_value(&value, ctx));
+    // Explicit author navigation always wins. When omitted, derive the standard
+    // read-only analytics overlay from page_instance examples.params.metric.
     let popup = args
         .get("popup")
-        .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
+        .map(|popup| resolve_popup_config(popup, ctx, Some(&source)))
+        .or_else(|| derive_metric_page_popup(&source, ctx));
     let desc_text =
         template_desc.or_else(|| args.get("desc").and_then(Value::as_str).map(str::to_string));
     let layout = if let Some(atom_layout) = args.get("__mei_atom_layout") {
@@ -2240,8 +2268,10 @@ fn metric_runtime_blocks(
                 v2_ref_name(value).is_some()
                     || value.get("__ref").and_then(Value::as_str) == Some("metric")
             });
-        let exists =
-            explicit.is_some() || dynamic_source || (role == "desc" && desc.is_some()) || desc_metric_ref;
+        let exists = explicit.is_some()
+            || dynamic_source
+            || (role == "desc" && desc.is_some())
+            || desc_metric_ref;
         if !exists {
             anyhow::bail!(
                 "metric_card layout area `{role}` has no corresponding field in metric data"
@@ -2795,6 +2825,284 @@ fn lower_v2_metric_ref(value: &Value, constants: &BTreeMap<String, Value>) -> Op
     Some(Value::Object(out))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct MetricPageIdentity {
+    bundle: String,
+    metric_key: String,
+}
+
+#[derive(Debug, Clone)]
+struct MetricPageCandidate {
+    page_key: String,
+    target: BoardSceneTarget,
+    params: Value,
+    title: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct MetricPageAdjacencyIndex {
+    by_metric: BTreeMap<MetricPageIdentity, Vec<MetricPageCandidate>>,
+}
+
+impl MetricPageAdjacencyIndex {
+    fn build(ctx: &PanelLowerContext<'_>) -> Self {
+        let mut index = Self::default();
+        for node in ctx.registry.nodes_of_kind(GraphNodeKind::PageInstance) {
+            if node.id.key.contains("home@") {
+                continue;
+            }
+            let Some(pref) = node.payload_ref.as_ref() else {
+                continue;
+            };
+            let Ok(Some(artifact)) = load_block_artifact(ctx.app_root, pref) else {
+                continue;
+            };
+            let Some(payload) = artifact.get("payload") else {
+                continue;
+            };
+            let Some(target) = page_target_from_payload(&node.id.key, payload) else {
+                continue;
+            };
+            for example in page_examples(payload) {
+                let Some(params) = example.get("params").filter(|value| value.is_object()) else {
+                    continue;
+                };
+                let Some(metric) = params.get("metric") else {
+                    continue;
+                };
+                let Some(identity) = metric_page_identity(metric, &BTreeMap::new()) else {
+                    continue;
+                };
+                let title = example
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        payload
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string)
+                    });
+                index
+                    .by_metric
+                    .entry(identity)
+                    .or_default()
+                    .push(MetricPageCandidate {
+                        page_key: node.id.key.clone(),
+                        target: target.clone(),
+                        params: params.clone(),
+                        title,
+                    });
+            }
+        }
+        index
+    }
+}
+
+fn page_examples(payload: &Value) -> Vec<&Value> {
+    match payload.get("examples") {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(Value::Object(items)) => items.values().collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn normalize_metric_bundle(raw: &str) -> Option<String> {
+    let normalized = raw
+        .trim()
+        .strip_prefix("__world_metrics__::")
+        .unwrap_or(raw.trim())
+        .replace('\\', "/");
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+fn metric_page_identity(
+    value: &Value,
+    constants: &BTreeMap<String, Value>,
+) -> Option<MetricPageIdentity> {
+    if value.get("__ref").and_then(Value::as_str) == Some("metric") {
+        let metric_key = value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?
+            .to_string();
+        let bundle = value
+            .get("from_dataset")
+            .and_then(Value::as_str)
+            .and_then(normalize_metric_bundle)?;
+        return Some(MetricPageIdentity { bundle, metric_key });
+    }
+    if v2_ref_name(value) != Some("metric_ref") {
+        return None;
+    }
+    let args = value.get("__args")?.as_object()?;
+    let raw_key = args
+        .get("arg0")
+        .or_else(|| args.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let (bundle, metric_key) = if let Some((bundle, metric_key)) = raw_key.rsplit_once('#') {
+        (
+            normalize_metric_bundle(bundle)?,
+            metric_key.trim().to_string(),
+        )
+    } else {
+        let bundle = args
+            .get("bundle")
+            .and_then(|value| resolve_metric_ref_bundle_arg(value, constants))
+            .and_then(|value| normalize_metric_bundle(&value))?;
+        (bundle, raw_key.to_string())
+    };
+    if metric_key.is_empty() {
+        return None;
+    }
+    Some(MetricPageIdentity { bundle, metric_key })
+}
+
+fn page_target_from_payload(page_key: &str, payload: &Value) -> Option<BoardSceneTarget> {
+    Some(BoardSceneTarget {
+        scene_id: payload.get("scene").and_then(Value::as_str)?.to_string(),
+        scene_file: assembly_source_file_from_payload(payload)
+            .unwrap_or_else(|| assembly_key_to_target(page_key)),
+        accepts: payload
+            .get("accepts")
+            .cloned()
+            .or_else(|| payload.get("params").cloned()),
+        capabilities: payload.get("capabilities").cloned(),
+    })
+}
+
+fn derive_metric_page_popup(source: &Value, ctx: &PanelLowerContext<'_>) -> Option<Value> {
+    let identity = metric_page_identity(source, &combined_panel_constants(ctx))?;
+    let index = ctx.diagnostics.metric_page_adjacency(ctx);
+    let candidates = index.by_metric.get(&identity)?;
+    if candidates.len() > 1 {
+        let targets = candidates
+            .iter()
+            .map(|candidate| candidate.page_key.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        push_panel_lower_diagnostic(
+            &ctx.diagnostics,
+            "metric_page_target_ambiguous",
+            format!(
+                "metric `{}` in bundle `{}` matches multiple page_instance examples: {targets}",
+                identity.metric_key, identity.bundle
+            ),
+            ctx.source_file,
+        );
+        return None;
+    }
+    let candidate = candidates.first()?;
+    let mut params = resolve_config_refs_in_value(&candidate.params, ctx);
+    if let Some(map) = params.as_object_mut() {
+        if let Some(metric) = lower_v2_metric_ref(source, &combined_panel_constants(ctx)) {
+            map.insert("metric".to_string(), metric);
+        }
+    }
+    diagnose_link_params(
+        "derived:explain_metric",
+        &params,
+        candidate.target.accepts.as_ref(),
+        ctx.source_file,
+        &ctx.diagnostics,
+    );
+    let target_scene_id = candidate.target.scene_id.clone();
+    let target_scene_file = candidate.target.scene_file.clone();
+    let mut target_json = json!({
+        "kind": "page_instance",
+        "legacy_kind": "board",
+        "scene_id": target_scene_id,
+        "scene_file": target_scene_file,
+    });
+    if let Some(map) = target_json.as_object_mut() {
+        if let Some(accepts) = candidate
+            .target
+            .accepts
+            .clone()
+            .filter(|value| !value.is_null())
+        {
+            map.insert("accepts".to_string(), accepts);
+        }
+        if let Some(capabilities) = candidate
+            .target
+            .capabilities
+            .clone()
+            .filter(|value| !value.is_null())
+        {
+            map.insert("capabilities".to_string(), capabilities);
+        }
+    }
+    let mut popup = json!({
+        "kind": "scene_open",
+        "mode": "popup",
+        "type": "popup",
+        "projection": "overlay",
+        "overlay_size": "large",
+        "read_only": true,
+        "derived": true,
+        "derived_from": {
+            "kind": "metric_page_adjacency",
+            "bundle": identity.bundle,
+            "metric_key": identity.metric_key,
+            "page_key": candidate.page_key,
+        },
+        "interaction": {
+            "intent": "explain_metric",
+            "read_only": true,
+            "derived": true,
+        },
+        "scene_id": target_scene_id.clone(),
+        "scene_file": target_scene_file.clone(),
+        "page_scene_id": target_scene_id.clone(),
+        "page_scene_file": target_scene_file.clone(),
+        "scene": {
+            "scene_id": target_scene_id,
+            "scene_file": target_scene_file,
+        },
+        "params": params.clone(),
+        "context": {
+            "params": params,
+        },
+        "target": target_json,
+        "presentation": {
+            "kind": "overlay_page",
+            "legacy_kind": "overlay_board",
+            "projection": "overlay",
+            "type": "popup",
+            "overlay_size": "large",
+        },
+    });
+    if let Some(map) = popup.as_object_mut() {
+        if let Some(title) = candidate.title.as_ref() {
+            map.insert("title".to_string(), json!(title));
+        }
+        if let Some(accepts) = map
+            .get("target")
+            .and_then(Value::as_object)
+            .and_then(|target| target.get("accepts"))
+            .cloned()
+        {
+            map.insert("accepts".to_string(), accepts);
+        }
+        if let Some(capabilities) = map
+            .get("target")
+            .and_then(Value::as_object)
+            .and_then(|target| target.get("capabilities"))
+            .cloned()
+        {
+            map.insert("capabilities".to_string(), capabilities);
+        }
+    }
+    Some(popup)
+}
+
 fn resolve_popup_config(
     popup: &Value,
     ctx: &PanelLowerContext<'_>,
@@ -2844,6 +3152,7 @@ fn merge_popup_metric_source(
     }
 }
 
+#[derive(Debug, Clone)]
 struct BoardSceneTarget {
     scene_id: String,
     scene_file: String,
@@ -3070,16 +3379,7 @@ fn resolve_page_instance_target(
     let pref = node.payload_ref.as_ref()?;
     let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
     let payload = artifact.get("payload")?;
-    Some(BoardSceneTarget {
-        scene_id: payload.get("scene").and_then(Value::as_str)?.to_string(),
-        scene_file: assembly_source_file_from_payload(payload)
-            .unwrap_or_else(|| assembly_key_to_target(board_key)),
-        accepts: payload
-            .get("accepts")
-            .cloned()
-            .or_else(|| payload.get("params").cloned()),
-        capabilities: payload.get("capabilities").cloned(),
-    })
+    page_target_from_payload(board_key, payload)
 }
 
 fn diagnose_link_params(
@@ -3423,7 +3723,14 @@ fn titled_shell_template_props(args: &Value) -> Value {
         "overflow": "hidden"
     });
     if let Some(map) = props.as_object_mut() {
-        for key in ["width", "height", "min_height", "max_height", "margin", "justify_self"] {
+        for key in [
+            "width",
+            "height",
+            "min_height",
+            "max_height",
+            "margin",
+            "justify_self",
+        ] {
             if let Some(value) = args.get(key) {
                 map.insert(key.to_string(), value.clone());
             }
@@ -5209,6 +5516,306 @@ mod tests {
         )
         .expect_err("missing unit must fail");
         assert!(error.to_string().contains("area `unit`"));
+    }
+
+    fn metric_ref_value(metric_key: &str, bundle: &str) -> Value {
+        json!({
+            "__ref": "metric_ref",
+            "__args": {
+                "arg0": metric_key,
+                "bundle": bundle,
+            }
+        })
+    }
+
+    fn metric_page_test_registry(
+        pages: &[(&str, &str, &str, &str, &str)],
+    ) -> (tempfile::TempDir, PathBuf, McgRegistry) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_root = tmp.path().join("apps/demo");
+        let env_dir = app_root.join("env/WS-20260101.0");
+        let current = app_root.join("env/current");
+        let store = env_dir.join("build/store/content/projection_assembly");
+        std::fs::create_dir_all(&store).expect("projection store");
+        std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&env_dir, &current).expect("symlink env/current");
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&current).expect("mkdir env/current");
+
+        let mut nodes = Vec::new();
+        for (index, (page_key, scene_id, bundle, metric_key, rowset)) in pages.iter().enumerate() {
+            let hash = format!("metric-page-{index}");
+            let source_file = format!("src/scene/{scene_id}.mei");
+            let artifact = json!({
+                "payload": {
+                    "key": page_key,
+                    "scene": scene_id,
+                    "source_file": source_file,
+                    "params": {
+                        "metric": {"type": "metric", "required": true},
+                        "rowset_dataset_id": {"type": "string", "required": true},
+                    },
+                    "capabilities": ["uses_explain"],
+                    "examples": [{
+                        "id": "default",
+                        "title": format!("{metric_key} analytics"),
+                        "params": {
+                            "metric": metric_ref_value(metric_key, bundle),
+                            "rowset_dataset_id": rowset,
+                            "entry": "detail",
+                        }
+                    }]
+                }
+            });
+            std::fs::write(
+                store.join(format!("{hash}.json")),
+                serde_json::to_string(&artifact).expect("json"),
+            )
+            .expect("write page artifact");
+            nodes.push(crate::mcg::registry::McgNodeRecord {
+                id: GraphNodeId::new(GraphNodeKind::PageInstance, *page_key),
+                revision: String::new(),
+                state: MaterialState::Ready,
+                layer: "test".to_string(),
+                payload_ref: Some(PayloadRef::new(
+                    "projection_assembly",
+                    hash,
+                    "mei-projection-assembly-v1",
+                )),
+                deps: Vec::new(),
+                owner_resource_id: None,
+                assembly_inputs: Vec::new(),
+            });
+        }
+        let registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "demo".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes,
+        };
+        (tmp, app_root, registry)
+    }
+
+    #[test]
+    fn metric_card_derives_unique_read_only_analytics_popup() {
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[(
+            "demo/home/plane-warnings",
+            "warnings_analytics_page",
+            "metrics/warnings.bundle.mei",
+            "warnings_count",
+            "warning_list",
+        )]);
+        let diagnostics = LowerDiagnostics::new();
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: Some("src/scene/home/section.mei"),
+            diagnostics: diagnostics.clone(),
+        };
+        let card = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "warnings",
+                "metric": metric_ref_value("warnings_count", "metrics/warnings.bundle.mei"),
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr"],
+                        "areas": [["value"]]
+                    }
+                }
+            }
+        });
+        let UiTreeNode::Panel(panel) = lower_metric_card(&card, &ctx).expect("metric card") else {
+            panic!("expected panel");
+        };
+        let popup = panel
+            .blocks
+            .iter()
+            .find_map(|node| match node {
+                UiTreeNode::Block(block)
+                    if block.props.get("metric_role").and_then(Value::as_str) == Some("value") =>
+                {
+                    block.props.get("popup")
+                }
+                _ => None,
+            })
+            .expect("derived value popup");
+        assert_eq!(popup["scene_id"], json!("warnings_analytics_page"));
+        assert_eq!(popup["overlay_size"], json!("large"));
+        assert_eq!(popup["read_only"], json!(true));
+        assert_eq!(popup["interaction"]["intent"], json!("explain_metric"));
+        assert_eq!(popup["params"]["rowset_dataset_id"], json!("warning_list"));
+        assert!(diagnostics.take().is_empty());
+    }
+
+    #[test]
+    fn metric_page_adjacency_uses_bundle_and_metric_key() {
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[
+            (
+                "demo/home/plane-a",
+                "analytics_a",
+                "metrics/a.bundle.mei",
+                "shared_count",
+                "rows_a",
+            ),
+            (
+                "demo/home/plane-b",
+                "analytics_b",
+                "metrics/b.bundle.mei",
+                "shared_count",
+                "rows_b",
+            ),
+        ]);
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: None,
+            diagnostics: LowerDiagnostics::new(),
+        };
+        let popup = derive_metric_page_popup(
+            &metric_ref_value("shared_count", "metrics/b.bundle.mei"),
+            &ctx,
+        )
+        .expect("bundle-specific target");
+        assert_eq!(popup["scene_id"], json!("analytics_b"));
+        assert_eq!(popup["params"]["rowset_dataset_id"], json!("rows_b"));
+    }
+
+    #[test]
+    fn explicit_metric_popup_overrides_derived_adjacency() {
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[(
+            "demo/home/plane-warnings",
+            "warnings_analytics_page",
+            "metrics/warnings.bundle.mei",
+            "warnings_count",
+            "warning_list",
+        )]);
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "warnings",
+                "metric": metric_ref_value("warnings_count", "metrics/warnings.bundle.mei"),
+                "popup": {
+                    "kind": "custom_override",
+                    "mode": "popup",
+                    "params": {"entry": "special"}
+                },
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr"],
+                        "areas": [["value"]]
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: None,
+            diagnostics: LowerDiagnostics::new(),
+        };
+        let UiTreeNode::Panel(panel) = lower_metric_card(&value, &ctx).expect("metric card") else {
+            panic!("expected panel");
+        };
+        let popup = panel
+            .blocks
+            .iter()
+            .find_map(|node| match node {
+                UiTreeNode::Block(block)
+                    if block.props.get("metric_role").and_then(Value::as_str) == Some("value") =>
+                {
+                    block.props.get("popup")
+                }
+                _ => None,
+            })
+            .expect("value popup");
+        assert_eq!(popup["kind"], json!("custom_override"));
+        assert!(popup.get("derived").is_none());
+    }
+
+    #[test]
+    fn ambiguous_metric_page_adjacency_diagnoses_without_target() {
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[
+            (
+                "demo/home/plane-a",
+                "analytics_a",
+                "metrics/shared.bundle.mei",
+                "shared_count",
+                "rows_a",
+            ),
+            (
+                "demo/home/plane-b",
+                "analytics_b",
+                "metrics/shared.bundle.mei",
+                "shared_count",
+                "rows_b",
+            ),
+        ]);
+        let diagnostics = LowerDiagnostics::new();
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: Some("src/scene/home/section.mei"),
+            diagnostics: diagnostics.clone(),
+        };
+        assert!(derive_metric_page_popup(
+            &metric_ref_value("shared_count", "metrics/shared.bundle.mei"),
+            &ctx,
+        )
+        .is_none());
+        let diagnostics = diagnostics.take();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "metric_page_target_ambiguous");
+    }
+
+    #[test]
+    fn metric_card_without_page_adjacency_keeps_zero_migration_behavior() {
+        let registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "legacy".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: Vec::new(),
+        };
+        let diagnostics = LowerDiagnostics::new();
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "legacy",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: None,
+            diagnostics: diagnostics.clone(),
+        };
+        assert!(derive_metric_page_popup(
+            &metric_ref_value("legacy_count", "metrics/legacy.bundle.mei"),
+            &ctx,
+        )
+        .is_none());
+        assert!(diagnostics.take().is_empty());
     }
 
     #[test]

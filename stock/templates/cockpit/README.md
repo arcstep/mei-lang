@@ -9,7 +9,8 @@ templates/cockpit/
 ├── main.mei              # 入口说明（scene: home）
 ├── metric-card.mei       # 指标卡预览（scene: metric）
 ├── map.mei               # GIS 主图预览（scene: map）
-├── object-defaults.mei   # 领域对象默认投影宏（props / viewpoint / action）
+├── object-recipes.mei    # 编译器 stock recipe 的稳定 source anchor
+├── object-defaults.mei   # 内部展开种子 / 旧生成代码兼容层
 ├── map/README.md         # 地图模板包说明（资产 + mapSpec 分工）
 ├── business-layouts.mei  # 业务语义布局宏（Fill-down）
 ├── assets/
@@ -89,17 +90,37 @@ templates/cockpit/
 | `macros.mei` | — | 指标内容模板真源 |
 | `metric-card-*.mei` / `metric-*-compound.mei` | 各 preset | legacy 预设；新样板优先 `business-layouts.mei` + macros |
 
-### `object-defaults.mei`
+### 对象 recipe 边界
 
-提供确定性、薄、可组合的领域对象默认投影宏：
+`cockpit.alert`、`cockpit.case`、`cockpit.place`、`cockpit.event` 是编译期/运行时内部 stock recipe，不是第二套作者 UI DSL。作者只写高层对象意图：
 
-- `object_binding_props`：生成 WC 可消费的 `objectType` / `objectId` / `identityField` / `entityId` metadata；
-- `object_viewpoint`：生成带对象、world、视图族、相机和分组提示的 `viewpoint(...)`；
-- `object_metric_card`：包装 `layout-defaults.narrow_metric_card`，通过 `object_viewpoint` 绑定对象或 viewpoint；
-- `object_world_entry_action` / `object_t2_action`：生成既有 action 字典；
-- `object_narration_target`：生成可组合进 action / step 的对象叙事目标。
+```mei
+object(
+    type = "ops.Alert",
+    source = dataset_ref("alerts"),
+    identity = field_ref("alert_id"),
+    recipe = stock_ref("alert"),
+    slots = {
+        "label": field_ref("title"),
+        "severity": field_ref("severity"),
+        "occurredAt": field_ref("occurred_at"),
+        "status": field_ref("status"),
+    },
+)
+```
 
-这些宏不会生成 Scene 源，也不会在关键 id 为空时推断或伪造 id。
+编译器将 recipe 展开为薄的 projection / responder / interaction metadata，按 `local > domain > app > stock > placeholder > no_projection` 解析 override；override 不得改变 identity、object type 或 source。缺槽位只会隐藏、降级或留下无数据 placeholder，不会伪造字段值。
+
+首批合同：
+
+- `alert`：必选 `label/severity/occurredAt/status`；可选 `place/detail/explain`；
+- `case`：必选 `label/status/occurredAt`；可选 `attachments/evidence/result/detail`，附件和证据默认附带 PII 脱敏提示；
+- `place`：必选 `label/entityId/viewpoint`；可选 `world/rough3d/narration`，复用现有 Map / World / narration 表面；
+- `event`：必选 `label/occurredAt`；可选 `severity/playbackAt/media/place/chart/t2/detail`，默认 secondary selection。
+
+recipe 只保存 slot 名、降级规则和 owner/component 的薄引用；不会保存 dataset payload、ECharts option、GeoJSON、World geometry、HTML、媒体正文或讲稿正文。
+
+`object-recipes.mei` 仅提供稳定 stock source anchor，不导出作者宏。`object-defaults.mei` 已降为内部展开种子和旧生成代码兼容层；新代码不得显式调用 `object_binding_props`、`object_viewpoint`、`object_metric_card` 或 action helper。
 
 ### `drilldown/`
 
@@ -124,19 +145,11 @@ templates/cockpit/
 ```mei
 use template "cockpit/panel/shell-macros"
 use template "cockpit/business-layouts" as biz
-use template "cockpit/object-defaults" as object_ui
-
 # section 壳
 shell = section_shell(title = "板块", body = panel_ref("content/..."))
 
 # content fill（禁止 row_budgets）
 props = content_fill_props()
-
-# 对象投影 metadata；object_id / entity_id 未知时保持空字符串
-object_props = object_ui.object_binding_props(
-    object_type = "demo.Warning",
-    identity_field = "warning_id",
-)
 ```
 
 GIS 地图模板只管 **底图 + GeoJSON 图层**（`map/README.md`）；`chart.*` 由业务应用自行编排。

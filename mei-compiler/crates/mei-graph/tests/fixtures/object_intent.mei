@@ -1,0 +1,25 @@
+object(
+    type = "ops.Alert",
+    source = dataset_ref("alerts"),
+    identity = field_ref("alert_id"),
+    recipe = stock_ref("alert"),
+    slots = {
+        "label": field_ref("title"),
+        "severity": field_ref("severity"),
+        "occurredAt": field_ref("occurred_at"),
+        "status": field_ref("status"),
+        "place": viewpoint_ref("alert_map"),
+        "detail": link_ref("alert_detail"),
+        "explain": metric_ref("open_alerts"),
+        "custom_badge": field_ref("badge"),
+    },
+    relations = {
+        "place": entity_ref("place_id"),
+        "cases": [entity_ref("case_id")],
+    },
+    override = {
+        "app": {"density": "comfortable"},
+        "domain": {"density": "compact"},
+        "local": {"density": "dense"},
+    },
+)

@@ -1,0 +1,13 @@
+object(
+    type = "ops.Place",
+    source = world_ref("city"),
+    identity = entityId("place_id"),
+    recipe = stock_ref("place"),
+    slots = {
+        "label": field_ref("name"),
+        "viewpoint": viewpoint_ref("place_viewpoint"),
+        "world": world_ref("city"),
+        "rough3d": entity_ref("place_proxy"),
+        "narration": narration_ref("place_narration"),
+    },
+)

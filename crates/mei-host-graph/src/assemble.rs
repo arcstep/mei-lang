@@ -6,8 +6,8 @@ use mei_lang_kernel::{
     apply_cockpit_stage_decl, load_component_assets, load_mei_config_for_app,
     normalize_panel_slots_with_options, resolve_app_root, CockpitFillDecl, CockpitStageDecl,
     CockpitStepDecl, CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic,
-    LayoutBudgetValidateOptions, LoadedResource, SceneContract, SceneDecl, StageSlideInput,
-    UiNodeDecl, UiTreeNode,
+    LayoutBudgetValidateOptions, LoadedResource, ObjectCatalog, ObjectResolver, SceneContract,
+    SceneDecl, StageSlideInput, UiNodeDecl, UiTreeNode,
 };
 use serde_json::{json, Value};
 
@@ -16,7 +16,7 @@ use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, flatten_panel_tree, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{
-    build_presentation_map_with_default_script, presentation_map_to_value,
+    build_presentation_map_with_default_script_resolver_and_catalogs, presentation_map_to_value,
 };
 use crate::projection_normalize::normalize_page_instance_payload;
 use crate::semantic_scene::{
@@ -73,7 +73,8 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let mut assembly_key = extract_assembly_ref(&payload).unwrap_or_else(|| node.id.key.clone());
+        let mut assembly_key =
+            extract_assembly_ref(&payload).unwrap_or_else(|| node.id.key.clone());
         if let Some(prog) =
             crate::stage_program_discover::discover_program_for_stage(&programs, scene_id.as_str())
         {
@@ -423,12 +424,18 @@ fn assemble_scope_from_registry_uncached(
     );
     let flat_panels = flatten_panel_tree(&panels);
     let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
-    let presentation_map = presentation_map_to_value(&build_presentation_map_with_default_script(
-        &scene_id,
-        &flat_panels,
-        &panel_payloads,
-        presentation_default_script,
-    ));
+    let object_catalogs = load_object_catalogs(app_root.as_path(), &registry);
+    let mut object_resolver = ObjectResolver::from_catalogs(object_catalogs.iter());
+    let presentation_map = presentation_map_to_value(
+        &build_presentation_map_with_default_script_resolver_and_catalogs(
+            &scene_id,
+            &flat_panels,
+            &panel_payloads,
+            presentation_default_script,
+            &mut object_resolver,
+            &object_catalogs,
+        ),
+    );
     let world_exchange =
         build_world_exchange(app_root.as_path(), &registry, app_id).unwrap_or_default();
     let (component_assets, component_diagnostics) =
@@ -528,6 +535,20 @@ fn assemble_scope_from_registry_uncached(
         map_projection: world_exchange.map_projection,
         overlay_defaults,
     }))
+}
+
+fn load_object_catalogs(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> Vec<ObjectCatalog> {
+    registry
+        .nodes_of_kind(GraphNodeKind::ObjectCatalog)
+        .filter_map(|node| {
+            let payload_ref = node.payload_ref.as_ref()?;
+            let artifact = load_block_artifact(app_root, payload_ref).ok()??;
+            serde_json::from_value(artifact.get("payload")?.clone()).ok()
+        })
+        .collect()
 }
 
 fn load_app_meta(
@@ -778,11 +799,10 @@ fn resolve_assembly_key(
     }
     if let Ok(routes) = list_scope_routes(source_root, app_id) {
         let aliases = scene_id_aliases(scene_id.as_str());
-        if let Some(route) = routes.into_iter().find(|route| {
-            aliases
-                .iter()
-                .any(|alias| route.scene_id == *alias)
-        }) {
+        if let Some(route) = routes
+            .into_iter()
+            .find(|route| aliases.iter().any(|alias| route.scene_id == *alias))
+        {
             return route.assembly_key;
         }
     }
@@ -852,9 +872,10 @@ pub(crate) fn find_assembly_key_by_scene(
     let aliases = scene_id_aliases(scene_id);
     for alias in &aliases {
         let semantic_prefix = format!("{alias}@");
-        if let Some(node) = registry.nodes_of_kind(GraphNodeKind::SemanticGraph).find(|node| {
-            node.id.key == *alias || node.id.key.starts_with(semantic_prefix.as_str())
-        }) {
+        if let Some(node) = registry
+            .nodes_of_kind(GraphNodeKind::SemanticGraph)
+            .find(|node| node.id.key == *alias || node.id.key.starts_with(semantic_prefix.as_str()))
+        {
             return Some(node.id.key.clone());
         }
     }
@@ -1150,10 +1171,7 @@ fn load_projection_map(
                     .trim()
                     .to_string();
                 if !scene_id.is_empty() {
-                    let derive_ctx = FrameDeriveContext {
-                        app_root,
-                        registry,
-                    };
+                    let derive_ctx = FrameDeriveContext { app_root, registry };
                     let mut frame_diagnostics = Vec::new();
                     let page_source = assembly_source_file_from_payload(&payload);
                     let mut normalized = normalize_page_instance_payload(
@@ -1177,9 +1195,7 @@ fn load_projection_map(
             }
         }
     }
-    diagnostics.extend(validate_row_drilldown_filter_keys(
-        app_root, registry, &map,
-    ));
+    diagnostics.extend(validate_row_drilldown_filter_keys(app_root, registry, &map));
     (map, diagnostics)
 }
 
@@ -1209,9 +1225,7 @@ fn validate_row_drilldown_filter_keys(
         let Some(link_key) = extract_ref_arg0(popup) else {
             continue;
         };
-        let Some(target_scene) =
-            resolve_link_target_scene_id(app_root, registry, link_key)
-        else {
+        let Some(target_scene) = resolve_link_target_scene_id(app_root, registry, link_key) else {
             continue;
         };
         let Some(target_assembly) = projection_map.get(target_scene.as_str()) else {
@@ -1283,9 +1297,10 @@ fn resolve_link_target_scene_id(
     let payload = artifact.get("payload")?;
     let target = payload.get("target")?;
     let board_key = extract_ref_arg0(target)?;
-    let page_node = registry.nodes.iter().find(|node| {
-        node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key
-    })?;
+    let page_node = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key)?;
     let page_pref = page_node.payload_ref.as_ref()?;
     let page_artifact = load_block_artifact(app_root, page_pref).ok()??;
     page_artifact
@@ -1677,7 +1692,12 @@ fn collect_asset_keys_from_panel(
     asset_keys: &mut BTreeSet<String>,
     asset_scopes: &mut BTreeMap<String, Option<String>>,
 ) {
-    collect_asset_keys_from_nodes(&panel.blocks, asset_keys, asset_scopes, panel.import_scope.as_deref());
+    collect_asset_keys_from_nodes(
+        &panel.blocks,
+        asset_keys,
+        asset_scopes,
+        panel.import_scope.as_deref(),
+    );
     if let Some(head) = panel.head.as_ref() {
         collect_asset_keys_from_nodes(
             std::slice::from_ref(head.as_ref()),
@@ -1706,11 +1726,9 @@ fn collect_asset_keys_from_nodes(
                     .get("__mei_source_file")
                     .and_then(Value::as_str)
                     .map(str::to_string);
-                asset_scopes.entry(block.use_key.clone()).or_insert_with(|| {
-                    import_scope
-                        .map(str::to_string)
-                        .or(from_props)
-                });
+                asset_scopes
+                    .entry(block.use_key.clone())
+                    .or_insert_with(|| import_scope.map(str::to_string).or(from_props));
             }
             UiTreeNode::PanelRefEmbed(_) => {}
         }

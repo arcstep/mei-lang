@@ -1,0 +1,11 @@
+# Stable source anchor for compiler-owned cockpit object recipes.
+#
+# `cockpit.alert`, `cockpit.case`, `cockpit.place`, and `cockpit.event` are
+# assembled by the compiler from object(... recipe = stock_ref(...), slots = {...}).
+# This file intentionally exports no author-facing UI macro. It is kept in
+# stock so repository-local golden fixtures can use a stable include/source
+# anchor without copying projection payloads.
+#
+# Recipes retain thin field/entity/viewpoint/page/component references only.
+# Dataset rows, ECharts options, GeoJSON, world geometry, HTML, media payloads,
+# and narration scripts stay with their owning subsystems.

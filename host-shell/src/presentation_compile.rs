@@ -12,8 +12,7 @@ use axum::{
 };
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
-    catalog_scene_routes_from_app_root, resolve_app_root, UiNodeDecl,
-    UiTreeNode,
+    catalog_scene_routes_from_app_root, resolve_app_root, UiNodeDecl, UiTreeNode,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1238,6 +1237,15 @@ fn validate_manifest_refs(
             let Some(action_map) = action.as_object() else {
                 continue;
             };
+            if read_string_from_map(action_map, &["objectId", "object_id"]).is_some() {
+                diagnostics.push(diagnostic(
+                    "author_object_id_forbidden",
+                    "presentation action 不得手写 objectId；请声明 objectType + objectKey/entityId 或引用已解析 viewpoint",
+                    step_id,
+                    Some("objectId"),
+                    read_string_from_map(action_map, &["objectId", "object_id"]).as_deref(),
+                ));
+            }
             let action_type = action_map
                 .get("type")
                 .and_then(Value::as_str)
@@ -1594,6 +1602,25 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(codes.contains(&"unknown_chart"));
         assert!(codes.contains(&"unknown_image"));
+    }
+
+    #[test]
+    fn validate_manifest_refs_rejects_author_object_id() {
+        let manifest = json!({
+            "id": "ephemeral",
+            "steps": [{
+                "id": "step_1",
+                "actions": [{
+                    "type": "focus_entity",
+                    "objectId": "readable-key-must-not-be-minted"
+                }]
+            }]
+        });
+        let (diagnostics, _) =
+            validate_manifest_refs(&manifest, &PresentationSurfaceIndex::default());
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "author_object_id_forbidden"));
     }
 
     #[test]

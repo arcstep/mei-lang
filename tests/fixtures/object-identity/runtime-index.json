@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "mei-object-runtime-fixture-v1",
+  "objectType": "zhifa.Warning",
+  "identityField": "预警ID",
+  "identityValue": "W-001",
+  "objectId": "obj_87b7278101a0b22c86d665719805f67dbb99e732149ad801906769a7b6946fd5",
+  "objectIndex": {
+    "descriptors": {
+      "obj_87b7278101a0b22c86d665719805f67dbb99e732149ad801906769a7b6946fd5": {
+        "objectId": "obj_87b7278101a0b22c86d665719805f67dbb99e732149ad801906769a7b6946fd5",
+        "objectType": "zhifa.Warning",
+        "objectKey": "W-001",
+        "entityId": "W-001",
+        "identityValues": {
+          "预警ID": "W-001"
+        },
+        "sourceRef": {
+          "role": "source",
+          "kind": "dataset_ref",
+          "id": "warning_rows",
+          "source_anchor": "tests/fixtures/object-identity/runtime-index.json"
+        }
+      }
+    },
+    "entries": [
+      {
+        "locator": {
+          "objectType": "zhifa.Warning",
+          "objectKey": "W-001",
+          "entityId": "W-001",
+          "identityValues": {
+            "预警ID": "W-001"
+          },
+          "sourceRef": {
+            "role": "source",
+            "kind": "dataset_ref",
+            "id": "warning_rows",
+            "source_anchor": "tests/fixtures/object-identity/runtime-index.json"
+          }
+        },
+        "objectId": "obj_87b7278101a0b22c86d665719805f67dbb99e732149ad801906769a7b6946fd5"
+      }
+    ]
+  }
+}

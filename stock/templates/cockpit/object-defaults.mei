@@ -1,9 +1,12 @@
-# Domain-object default projection macros.
+# Internal expansion seeds and pre-recipe compatibility macros.
 #
-# These macros only expand to existing Mei calls and dictionaries. They do not
-# generate scenes, infer identities, or invent object/entity/viewpoint ids.
-# Usage:
-#   use template "cockpit/object-defaults" as object_ui
+# New authoring must use object(... recipe = stock_ref(...), slots = {...}).
+# The compiler owns recipe expansion; authors must not call
+# object_binding_props/object_viewpoint or the action helpers directly.
+#
+# These definitions remain temporarily for older generated sources. They only
+# expand to existing Mei calls and dictionaries and never infer identity or
+# copy owner payloads.
 
 use template "cockpit/layout-defaults" as layout_defaults
 
