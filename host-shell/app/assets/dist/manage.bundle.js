@@ -1563,8 +1563,29 @@
   const EVENTS_API = "/api/host/events";
   const SHELL_CHROME_API = "/api/host/shell-chrome";
   const RELOAD_KEY_PREFIX = "mei:host-event-applied:v1:";
+  const COORDINATION_CHANNEL = "mei:host-events:v2";
+  const LEADER_LOCK = "mei:host-events-leader:v2";
+  const LEADER_LEASE_KEY = "mei:host-events-leader-lease:v2";
+  const LEASE_TTL_MS = 12_000;
+  const LEASE_HEARTBEAT_MS = 4_000;
+  const ELECTION_RETRY_MS = 2_000;
+  const tabId =
+    global.crypto?.randomUUID?.() ||
+    `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   let lastChromeDigest = "";
   let chromeRefreshInFlight = null;
+  let eventSource = null;
+  let coordinationChannel = null;
+  let leader = false;
+  let leaderKind = "";
+  let releaseWebLock = null;
+  let webLockRequestInFlight = false;
+  let leaseHeartbeatTimer = 0;
+  let electionRetryTimer = 0;
+  let messageCounter = 0;
+  let dirtyWhileHidden = true;
+  let coordinatorStopped = false;
+  const seenMessages = new Set();
 
   function currentAppId() {
     const parsed = global.__mei?.view_revision_envelope?.app_id;
@@ -1736,8 +1757,7 @@
     }
   }
 
-  function dispatch(eventType, event) {
-    const payload = eventPayload(event);
+  function dispatchPayload(eventType, payload) {
     global.dispatchEvent(
       new CustomEvent("mei:host-event", {
         detail: { type: eventType, payload },
@@ -1756,9 +1776,83 @@
     }
   }
 
-  function connect() {
-    if (typeof global.EventSource !== "function") return null;
-    const source = new global.EventSource(EVENTS_API);
+  function dispatch(eventType, event) {
+    dispatchPayload(eventType, eventPayload(event));
+  }
+
+  function isVisible() {
+    return global.document?.visibilityState !== "hidden";
+  }
+
+  function isFocused() {
+    return typeof global.document?.hasFocus !== "function" || global.document.hasFocus();
+  }
+
+  function nextMessageId() {
+    messageCounter += 1;
+    return `${tabId}:${Date.now().toString(36)}:${messageCounter.toString(36)}`;
+  }
+
+  function rememberMessage(messageId) {
+    if (!messageId || seenMessages.has(messageId)) return false;
+    seenMessages.add(messageId);
+    if (seenMessages.size > 256) {
+      const oldest = seenMessages.values().next().value;
+      if (oldest) seenMessages.delete(oldest);
+    }
+    return true;
+  }
+
+  function relayEvent(eventType, payload) {
+    const message = {
+      kind: "host-event",
+      sender: tabId,
+      messageId: nextMessageId(),
+      type: eventType,
+      payload,
+    };
+    rememberMessage(message.messageId);
+    coordinationChannel?.postMessage?.(message);
+  }
+
+  function handleRelayedEvent(message) {
+    if (!rememberMessage(String(message?.messageId || ""))) return;
+    if (!isVisible()) {
+      dirtyWhileHidden = true;
+      return;
+    }
+    dispatchPayload(String(message.type || ""), message.payload || {});
+  }
+
+  function dispatchResync(reason) {
+    dirtyWhileHidden = false;
+    void refreshTopbarChrome({ force: true, reason });
+    global.dispatchEvent(
+      new CustomEvent("mei:host-event", {
+        detail: { type: "host-resync", payload: { reason } },
+      }),
+    );
+  }
+
+  function closeEventStream() {
+    if (!eventSource) return;
+    try {
+      eventSource.close();
+    } catch (_error) {
+      // Closing is best-effort during page teardown.
+    }
+    eventSource = null;
+  }
+
+  function openEventStream() {
+    if (!leader || !isVisible() || typeof global.EventSource !== "function") return null;
+    if (eventSource) return eventSource;
+    const query = new URLSearchParams({
+      clientId: tabId,
+      leader: leaderKind || "unknown",
+    });
+    const source = new global.EventSource(`${EVENTS_API}?${query.toString()}`);
+    eventSource = source;
     for (const type of [
       "job-phase",
       "builder-phase",
@@ -1777,16 +1871,298 @@
       "app-starting",
       "app-failed",
     ]) {
-      source.addEventListener(type, (event) => dispatch(type, event));
+      source.addEventListener(type, (event) => {
+        const payload = eventPayload(event);
+        dispatchPayload(type, payload);
+        relayEvent(type, payload);
+      });
     }
-    // Sync immediately, then again after Access compose may overwrite the slot from Runtime shell.app.
-    void refreshTopbarChrome({ force: true });
-    global.setTimeout(() => void refreshTopbarChrome({ force: true }), 600);
     return source;
   }
 
+  function clearLeaseHeartbeat() {
+    if (!leaseHeartbeatTimer) return;
+    global.clearInterval?.(leaseHeartbeatTimer);
+    leaseHeartbeatTimer = 0;
+  }
+
+  function clearElectionRetry() {
+    if (!electionRetryTimer) return;
+    global.clearTimeout?.(electionRetryTimer);
+    electionRetryTimer = 0;
+  }
+
+  function broadcastLeadership(kind, reason) {
+    coordinationChannel?.postMessage?.({
+      kind,
+      sender: tabId,
+      leaderKind,
+      reason,
+    });
+  }
+
+  function becomeLeader(kind) {
+    if (coordinatorStopped || !isVisible()) return false;
+    if (leader && leaderKind === kind) {
+      openEventStream();
+      return true;
+    }
+    closeEventStream();
+    leader = true;
+    leaderKind = kind;
+    clearElectionRetry();
+    broadcastLeadership("leader-acquired", kind);
+    dispatchResync(`leader-acquired:${kind}`);
+    openEventStream();
+    return true;
+  }
+
+  function readLease() {
+    try {
+      const raw = global.localStorage?.getItem?.(LEADER_LEASE_KEY);
+      if (!raw) return null;
+      const value = JSON.parse(raw);
+      if (!value || typeof value.holder !== "string") return null;
+      return value;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeLease() {
+    try {
+      global.localStorage?.setItem?.(
+        LEADER_LEASE_KEY,
+        JSON.stringify({ holder: tabId, expiresAt: Date.now() + LEASE_TTL_MS }),
+      );
+      return readLease()?.holder === tabId;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function leaseStorageAvailable() {
+    try {
+      return Boolean(global.localStorage?.getItem && global.localStorage?.setItem);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function releaseLease() {
+    clearLeaseHeartbeat();
+    try {
+      if (readLease()?.holder === tabId) {
+        global.localStorage?.removeItem?.(LEADER_LEASE_KEY);
+      }
+    } catch (_error) {
+      // Storage can disappear in privacy modes.
+    }
+  }
+
+  function releaseLeadership(reason) {
+    const wasLeader = leader;
+    const previousKind = leaderKind;
+    leader = false;
+    leaderKind = "";
+    closeEventStream();
+    if (previousKind === "lease") releaseLease();
+    if (releaseWebLock) {
+      const release = releaseWebLock;
+      releaseWebLock = null;
+      release();
+    }
+    if (wasLeader) broadcastLeadership("leader-released", reason);
+  }
+
+  function scheduleElectionRetry(delay = ELECTION_RETRY_MS) {
+    if (coordinatorStopped || !isVisible()) return;
+    if (electionRetryTimer) {
+      if (delay > 0) return;
+      clearElectionRetry();
+    }
+    electionRetryTimer = global.setTimeout?.(() => {
+      electionRetryTimer = 0;
+      tryElection();
+    }, delay);
+  }
+
+  function tryLeaseLeadership() {
+    const current = readLease();
+    if (current && current.holder !== tabId && Number(current.expiresAt || 0) > Date.now()) {
+      scheduleElectionRetry();
+      return false;
+    }
+    if (!writeLease()) {
+      scheduleElectionRetry();
+      return false;
+    }
+    becomeLeader("lease");
+    clearLeaseHeartbeat();
+    leaseHeartbeatTimer =
+      global.setInterval?.(() => {
+        if (!leader || leaderKind !== "lease" || !isVisible()) {
+          releaseLeadership("lease-ineligible");
+          scheduleElectionRetry();
+          return;
+        }
+        if (readLease()?.holder !== tabId || !writeLease()) {
+          releaseLeadership("lease-lost");
+          scheduleElectionRetry(0);
+        }
+      }, LEASE_HEARTBEAT_MS) || 0;
+    return true;
+  }
+
+  function requestWebLock() {
+    const locks = global.navigator?.locks;
+    if (typeof locks?.request !== "function") return false;
+    if (webLockRequestInFlight || (leader && leaderKind === "web-lock")) return true;
+    webLockRequestInFlight = true;
+    Promise.resolve(
+      locks.request(LEADER_LOCK, { mode: "exclusive", ifAvailable: true }, async (lock) => {
+        webLockRequestInFlight = false;
+        if (!lock || coordinatorStopped || !isVisible()) {
+          scheduleElectionRetry();
+          return;
+        }
+        await new Promise((resolve) => {
+          releaseWebLock = resolve;
+          becomeLeader("web-lock");
+        });
+        releaseWebLock = null;
+        if (leaderKind === "web-lock") {
+          releaseLeadership("web-lock-released");
+        }
+      }),
+    ).catch((error) => {
+      webLockRequestInFlight = false;
+      console.warn("[host-events] leader lock failed; using lease fallback", error);
+      if (leaseStorageAvailable()) tryLeaseLeadership();
+      else scheduleElectionRetry();
+    });
+    return true;
+  }
+
+  function tryElection() {
+    if (coordinatorStopped) return false;
+    if (!isVisible()) {
+      releaseLeadership("hidden");
+      return false;
+    }
+    if (leader) {
+      openEventStream();
+      return true;
+    }
+    if (requestWebLock()) return true;
+    if (leaseStorageAvailable()) return tryLeaseLeadership();
+    if (isFocused()) return becomeLeader("focused-fallback");
+    scheduleElectionRetry();
+    return false;
+  }
+
+  function handleCoordinationMessage(event) {
+    const message = event?.data || event;
+    if (!message || message.sender === tabId) return;
+    if (message.kind === "host-event") {
+      handleRelayedEvent(message);
+      return;
+    }
+    if (message.kind === "leader-released") {
+      scheduleElectionRetry(0);
+      return;
+    }
+    if (
+      message.kind === "leader-acquired" &&
+      leaderKind === "focused-fallback" &&
+      String(message.sender) < tabId
+    ) {
+      releaseLeadership("fallback-tie-break");
+      scheduleElectionRetry();
+    }
+  }
+
+  function setupCoordinationChannel() {
+    if (coordinationChannel || typeof global.BroadcastChannel !== "function") return;
+    try {
+      coordinationChannel = new global.BroadcastChannel(COORDINATION_CHANNEL);
+      if (typeof coordinationChannel.addEventListener === "function") {
+        coordinationChannel.addEventListener("message", handleCoordinationMessage);
+      } else {
+        coordinationChannel.onmessage = handleCoordinationMessage;
+      }
+    } catch (error) {
+      console.warn("[host-events] cross-tab channel unavailable", error);
+      coordinationChannel = null;
+    }
+  }
+
+  function onVisibilityChange() {
+    if (!isVisible()) {
+      dirtyWhileHidden = true;
+      releaseLeadership("hidden");
+      clearElectionRetry();
+      return;
+    }
+    if (dirtyWhileHidden) dispatchResync("visible");
+    tryElection();
+  }
+
+  function onStorage(event) {
+    if (event?.key !== LEADER_LEASE_KEY) return;
+    if (leaderKind === "lease" && readLease()?.holder !== tabId) {
+      releaseLeadership("lease-replaced");
+    }
+    scheduleElectionRetry(0);
+  }
+
+  function connect() {
+    coordinatorStopped = false;
+    setupCoordinationChannel();
+    tryElection();
+    return eventSource;
+  }
+
+  function disconnect(reason = "manual") {
+    releaseLeadership(reason);
+    clearElectionRetry();
+  }
+
+  function startCoordinator() {
+    coordinatorStopped = false;
+    setupCoordinationChannel();
+    dispatchResync("startup");
+    global.setTimeout?.(() => void refreshTopbarChrome({ force: true }), 600);
+    tryElection();
+  }
+
+  global.document?.addEventListener?.("visibilitychange", onVisibilityChange);
   global.document?.addEventListener?.("mei:shell-layer-applied", () => {
     void refreshTopbarChrome({ force: true });
+  });
+  global.addEventListener?.("focus", () => {
+    if (dirtyWhileHidden) dispatchResync("focus");
+    tryElection();
+  });
+  global.addEventListener?.("blur", () => {
+    if (leaderKind === "focused-fallback") releaseLeadership("blur");
+  });
+  global.addEventListener?.("storage", onStorage);
+  global.addEventListener?.("pagehide", (event) => {
+    dirtyWhileHidden = true;
+    releaseLeadership("pagehide");
+    if (!event?.persisted) {
+      coordinatorStopped = true;
+      coordinationChannel?.close?.();
+      coordinationChannel = null;
+    }
+  });
+  global.addEventListener?.("pageshow", () => {
+    startCoordinator();
+  });
+  global.addEventListener?.("beforeunload", () => {
+    coordinatorStopped = true;
+    disconnect("beforeunload");
   });
 
   global.MeiHostRuntimeEvents = {
@@ -1796,9 +2172,21 @@
     refreshTopbarChrome,
     shellNavFromLocation,
     connect,
+    disconnect,
+    dispatchPayload,
+    handleCoordinationMessage,
+    isLeader: () => leader,
+    diagnostics: () => ({
+      tabId,
+      leader,
+      leaderKind,
+      eventSourceOpen: Boolean(eventSource),
+      visible: isVisible(),
+      dirtyWhileHidden,
+    }),
   };
 
-  connect();
+  startCoordinator();
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -3852,7 +4240,9 @@
 
   function handleHostEvent(event) {
     const detail = event.detail || {};
-    if (detail.type === "job-phase" && detail.payload) {
+    if (detail.type === "host-resync") {
+      void Promise.all([loadApps(), refreshOps()]);
+    } else if (detail.type === "job-phase" && detail.payload) {
       const job = detail.payload;
       state.ops = state.ops || {};
       if (job.status === "running") {
@@ -21892,6 +22282,187 @@
 })();
 
 
+/* ===== spa-navigation/presentation/object-selection-runtime.js ===== */
+(() => {
+  const root = typeof window !== "undefined" ? window : globalThis;
+  const boot = (root.__meiLangBoot = root.__meiLangBoot || {});
+  const SELECT_EVENT = "mei:object-select";
+  const CHANGE_EVENT = "mei:object-selection-change";
+  const SUPPORTED_MODES = new Set(["replace", "add", "remove", "clear"]);
+
+  let selection = {
+    objectIds: [],
+    primaryObjectId: "",
+    source: "",
+    mode: "replace",
+  };
+
+  function normalizeObjectId(value) {
+    return String(value || "").trim();
+  }
+
+  function hasOwn(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  function normalizeObjectIds(value) {
+    const values = Array.isArray(value) ? value : value == null ? [] : [value];
+    const seen = new Set();
+    return values
+      .map(normalizeObjectId)
+      .filter((objectId) => objectId && !seen.has(objectId) && seen.add(objectId));
+  }
+
+  function cloneSecondary(value) {
+    if (value === undefined) return undefined;
+    if (typeof structuredClone === "function") {
+      try {
+        return structuredClone(value);
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    if (Array.isArray(value)) return value.map(cloneSecondary);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, cloneSecondary(entry)]),
+      );
+    }
+    return value;
+  }
+
+  function snapshot() {
+    const current = {
+      objectIds: selection.objectIds.slice(),
+      primaryObjectId: selection.primaryObjectId,
+      source: selection.source,
+      mode: selection.mode,
+    };
+    if (hasOwn(selection, "secondary")) {
+      current.secondary = cloneSecondary(selection.secondary);
+    }
+    return current;
+  }
+
+  function sameSelection(left, right) {
+    if (
+      left.primaryObjectId !== right.primaryObjectId ||
+      left.source !== right.source ||
+      left.mode !== right.mode ||
+      left.objectIds.length !== right.objectIds.length
+    ) {
+      return false;
+    }
+    if (left.objectIds.some((objectId, index) => objectId !== right.objectIds[index])) {
+      return false;
+    }
+    return JSON.stringify(left.secondary) === JSON.stringify(right.secondary);
+  }
+
+  function dispatchChange() {
+    root.dispatchEvent(
+      new CustomEvent(CHANGE_EVENT, {
+        detail: snapshot(),
+      }),
+    );
+  }
+
+  function select(input = {}) {
+    const detail = input && typeof input === "object" ? input : { objectId: input };
+    const modeValue = String(detail.mode || "replace").trim().toLowerCase();
+    const mode = SUPPORTED_MODES.has(modeValue) ? modeValue : "replace";
+    const source = String(detail.source || "").trim();
+    const requested = normalizeObjectIds([
+      ...(Array.isArray(detail.objectIds) ? detail.objectIds : []),
+      detail.objectId,
+      detail.object_id,
+    ]);
+    const explicitPrimary = normalizeObjectId(
+      detail.primaryObjectId || detail.primary_object_id,
+    );
+    if ((mode === "replace" || mode === "add") && explicitPrimary && !requested.includes(explicitPrimary)) {
+      requested.push(explicitPrimary);
+    }
+
+    let objectIds;
+    if (mode === "clear") {
+      objectIds = [];
+    } else if (mode === "add") {
+      objectIds = normalizeObjectIds([...selection.objectIds, ...requested]);
+    } else if (mode === "remove") {
+      const removed = new Set(requested);
+      objectIds = selection.objectIds.filter((objectId) => !removed.has(objectId));
+    } else {
+      objectIds = requested;
+    }
+
+    const primaryObjectId =
+      mode !== "clear" && explicitPrimary && objectIds.includes(explicitPrimary)
+        ? explicitPrimary
+        : objectIds.includes(selection.primaryObjectId)
+          ? selection.primaryObjectId
+          : objectIds[0] || "";
+    const next = {
+      objectIds,
+      primaryObjectId,
+      source,
+      mode,
+    };
+    if (mode !== "clear") {
+      if (hasOwn(detail, "secondary")) {
+        next.secondary = cloneSecondary(detail.secondary);
+      } else if (mode !== "replace" && hasOwn(selection, "secondary")) {
+        next.secondary = cloneSecondary(selection.secondary);
+      }
+    }
+
+    const previous = snapshot();
+    selection = next;
+    if (!sameSelection(previous, next)) {
+      dispatchChange();
+    }
+    return snapshot();
+  }
+
+  function onObjectSelect(event) {
+    select(event?.detail || {});
+  }
+
+  function install() {
+    if (boot.objectSelectionRuntimeMounted) return api;
+    boot.objectSelectionRuntimeMounted = true;
+    root.addEventListener(SELECT_EVENT, onObjectSelect);
+    return api;
+  }
+
+  const api = {
+    boot: install,
+    getSelection: snapshot,
+    select,
+    get selection() {
+      return snapshot();
+    },
+    replace(detail = {}) {
+      return select({ ...detail, mode: "replace" });
+    },
+    add(detail = {}) {
+      return select({ ...detail, mode: "add" });
+    },
+    remove(detail = {}) {
+      return select({ ...detail, mode: "remove" });
+    },
+    clear(detail = {}) {
+      return select({ ...detail, mode: "clear" });
+    },
+  };
+
+  root.MeiObjectSelection = api;
+  boot.objectSelectionRuntime = api;
+  boot.bootObjectSelectionRuntime = install;
+  install();
+})();
+
+
 /* ===== spa-navigation/presentation/map-world-bridge.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -21909,16 +22480,18 @@
     }
   }
 
-  function resolveWorldEntryViewpoint(entityId) {
-    const id = String(entityId || "").trim();
-    if (!id) return null;
+  function resolveWorldEntryViewpoint(entityId, objectId) {
+    const entity = String(entityId || "").trim();
+    const object = String(objectId || "").trim();
+    if (!entity && !object) return null;
     const viewpoints = readPresentationMap()?.viewpoints || {};
     const candidates = Object.entries(viewpoints)
       .map(([viewpointId, entry]) => ({ viewpointId, entry }))
       .filter(({ entry }) => {
         const family = String(entry?.viewFamily || entry?.view_family || "").trim();
-        const entity = String(entry?.entityId || entry?.entity_id || "").trim();
-        return family === "world" && entity === id;
+        const entryEntity = String(entry?.entityId || entry?.entity_id || "").trim();
+        const entryObject = String(entry?.objectId || entry?.object_id || "").trim();
+        return family === "world" && (object ? entryObject === object : entryEntity === entity);
       });
     if (!candidates.length) return null;
     const entryPreferred = candidates.find(({ viewpointId }) =>
@@ -21929,6 +22502,7 @@
 
   function dispatchEnterWorldView(detail) {
     const entityId = String(detail?.entityId || detail?.entity_id || "").trim();
+    const objectId = String(detail?.objectId || detail?.object_id || "").trim();
     const explicitViewpoint = String(
       detail?.viewpoint ||
         detail?.viewpointId ||
@@ -21941,7 +22515,7 @@
           viewpointId: explicitViewpoint,
           entry: readPresentationMap()?.viewpoints?.[explicitViewpoint] || null,
         }
-      : resolveWorldEntryViewpoint(entityId);
+      : resolveWorldEntryViewpoint(entityId, objectId);
     if (!matched?.viewpointId) {
       if (typeof console !== "undefined" && typeof console.warn === "function") {
         console.warn("[mei] map-world-bridge: no world viewpoint for entity", entityId);
@@ -21976,6 +22550,12 @@
       ).trim(),
       panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
     };
+    const resolvedObjectId = String(
+      objectId || entry.objectId || entry.object_id || "",
+    ).trim();
+    if (resolvedObjectId) {
+      action.objectId = resolvedObjectId;
+    }
     const dispatch = boot.dispatchPresentationAction;
     if (typeof dispatch === "function") {
       return dispatch(action);
@@ -23176,6 +23756,26 @@
     return map?.viewpoints?.[id] || null;
   }
 
+  function syncObjectSelectionFromEntry(entry, viewpointId) {
+    const objectId = String(entry?.objectId || entry?.object_id || "").trim();
+    if (!objectId) return false;
+    const detail = {
+      objectId,
+      primaryObjectId: objectId,
+      source: "viewpoint",
+      mode: "replace",
+      viewpointId: String(viewpointId || "").trim(),
+    };
+    const selectionApi = boot.objectSelectionRuntime || globalThis.MeiObjectSelection;
+    if (selectionApi && typeof selectionApi.select === "function") {
+      selectionApi.select(detail);
+      return true;
+    }
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    root.dispatchEvent(new CustomEvent("mei:object-select", { detail }));
+    return true;
+  }
+
   function stampWorldTargetDataset(target, entry) {
     if (!(target instanceof HTMLElement) || !entry || typeof entry !== "object") {
       return;
@@ -23186,6 +23786,7 @@
       ["meiStageKind", entry.stageKind],
       ["meiWorldRef", entry.worldRef],
       ["meiEntityId", entry.entityId],
+      ["meiObjectId", entry.objectId || entry.object_id],
       ["meiGroupId", entry.groupId],
       ["meiCameraPreset", entry.cameraPreset],
     ];
@@ -23196,6 +23797,9 @@
   }
 
   function resolveWorldTarget(action, entry) {
+    const objectId = String(
+      action?.objectId || action?.object_id || entry?.objectId || entry?.object_id || "",
+    ).trim();
     const worldTarget = {
       type: String(action?.type || action?.kind || "").trim(),
       viewpointId: String(action?.viewpoint || action?.viewpointId || "").trim(),
@@ -23208,6 +23812,9 @@
         action?.cameraPreset || action?.camera_preset || entry?.cameraPreset || "",
       ).trim(),
     };
+    if (objectId) {
+      worldTarget.objectId = objectId;
+    }
     return worldTarget;
   }
 
@@ -23219,6 +23826,7 @@
       !worldTarget.stageKind &&
       !worldTarget.worldRef &&
       !worldTarget.entityId &&
+      !worldTarget.objectId &&
       !worldTarget.groupId &&
       !worldTarget.cameraPreset
     ) {
@@ -23399,6 +24007,7 @@
   function focusViewpoint(viewpointId) {
     const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
+    syncObjectSelectionFromEntry(entry, viewpointId);
     clearViewpointFocus();
     let target = null;
     const anchorApi = globalThis.MeiStructureAnchor;
@@ -24510,6 +25119,9 @@
     }
     if (!normalized.entityId && normalized.entity_id) {
       normalized.entityId = normalized.entity_id;
+    }
+    if (!normalized.objectId && normalized.object_id) {
+      normalized.objectId = normalized.object_id;
     }
     if (!normalized.groupId && normalized.group_id) {
       normalized.groupId = normalized.group_id;

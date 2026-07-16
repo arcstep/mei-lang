@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+    Arc, Mutex, RwLock,
+};
 
 use axum::extract::FromRef;
 use mei_host_auth::{AuthPrincipal, AuthServeState};
@@ -54,6 +57,55 @@ pub fn host_event_channel() -> broadcast::Sender<HostEvent> {
     sender
 }
 
+#[derive(Debug, Default)]
+pub struct HostEventTelemetry {
+    active: AtomicUsize,
+    opened_total: AtomicU64,
+    closed_total: AtomicU64,
+    lagged_messages: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostEventTelemetrySnapshot {
+    pub active: usize,
+    pub opened_total: u64,
+    pub closed_total: u64,
+    pub lagged_messages: u64,
+}
+
+impl HostEventTelemetry {
+    pub fn stream_opened(&self) -> HostEventTelemetrySnapshot {
+        self.opened_total.fetch_add(1, Ordering::Relaxed);
+        self.active.fetch_add(1, Ordering::Relaxed);
+        self.snapshot()
+    }
+
+    pub fn stream_closed(&self) -> HostEventTelemetrySnapshot {
+        self.closed_total.fetch_add(1, Ordering::Relaxed);
+        let _ = self
+            .active
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |active| {
+                Some(active.saturating_sub(1))
+            });
+        self.snapshot()
+    }
+
+    pub fn record_lagged(&self, skipped: u64) -> HostEventTelemetrySnapshot {
+        self.lagged_messages.fetch_add(skipped, Ordering::Relaxed);
+        self.snapshot()
+    }
+
+    pub fn snapshot(&self) -> HostEventTelemetrySnapshot {
+        HostEventTelemetrySnapshot {
+            active: self.active.load(Ordering::Relaxed),
+            opened_total: self.opened_total.load(Ordering::Relaxed),
+            closed_total: self.closed_total.load(Ordering::Relaxed),
+            lagged_messages: self.lagged_messages.load(Ordering::Relaxed),
+        }
+    }
+}
+
 /// Per-app lazy import state (avoids infinite retry when bundle is missing).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppMaterializationState {
@@ -96,6 +148,8 @@ pub struct ShellState {
     pub cleanup_preview: Option<CleanupPreviewState>,
     /// Bounded fan-out for host control SSE. Receivers may reconnect after lag/disconnect.
     pub events: broadcast::Sender<HostEvent>,
+    /// Process-wide lifecycle counters for Host control SSE connections.
+    pub event_telemetry: Arc<HostEventTelemetry>,
     /// `preparing` / `waiting_artifacts` / `importing` / `plug_ds` / `priming_cache` / `ready` / `failed`
     pub startup_phase: String,
     pub startup_detail: Option<String>,
@@ -145,6 +199,7 @@ impl ShellState {
             last_ops_job: None,
             cleanup_preview: None,
             events: host_event_channel(),
+            event_telemetry: Arc::new(HostEventTelemetry::default()),
             startup_phase: "preparing".to_string(),
             startup_detail: Some("正在启动 MeiLang 宿主服务…".to_string()),
             startup_error: None,
@@ -406,6 +461,26 @@ mod tests {
     use mei_host_core::{DesiredInstance, DesiredState, RouteBinding};
     use std::collections::BTreeMap;
     use std::path::Path;
+
+    #[test]
+    fn host_event_telemetry_tracks_lifecycle_and_lag() {
+        let telemetry = HostEventTelemetry::default();
+        assert_eq!(
+            telemetry.snapshot(),
+            HostEventTelemetrySnapshot {
+                active: 0,
+                opened_total: 0,
+                closed_total: 0,
+                lagged_messages: 0,
+            }
+        );
+        assert_eq!(telemetry.stream_opened().active, 1);
+        assert_eq!(telemetry.record_lagged(7).lagged_messages, 7);
+        let closed = telemetry.stream_closed();
+        assert_eq!(closed.active, 0);
+        assert_eq!(closed.opened_total, 1);
+        assert_eq!(closed.closed_total, 1);
+    }
 
     #[test]
     fn plug_ds_endpoint_for_routes_per_app() {

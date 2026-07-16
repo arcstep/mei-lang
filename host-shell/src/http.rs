@@ -372,6 +372,7 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         host_started_at_ms,
         startup_phase,
         startup_detail,
+        event_telemetry,
     ) = {
         let guard = state.read().expect("state lock");
         let (peek_imported, peek_warmed) = crate::build_ops::peek_materialization_flags(&guard);
@@ -391,6 +392,7 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
             guard.host_started_at_ms,
             guard.startup_phase.clone(),
             guard.startup_detail.clone(),
+            guard.event_telemetry.snapshot(),
         )
     };
     // Soft-sync flags under write lock only when disk state drifted.
@@ -453,6 +455,9 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "scopeNote": "materialization flags reflect default app; discoveredApps lists all apps",
         "discoveredApps": discovered_apps,
         "apps": discovered_apps,
+        "streams": {
+            "hostEvents": event_telemetry,
+        },
     }))
 }
 
@@ -977,6 +982,7 @@ mod tests {
             last_ops_job: None,
             cleanup_preview: None,
             events: crate::state::host_event_channel(),
+            event_telemetry: Arc::new(crate::state::HostEventTelemetry::default()),
             startup_phase: "ready".to_string(),
             startup_detail: None,
             startup_error: None,
@@ -1219,6 +1225,10 @@ mod tests {
             .to_bytes();
         let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert_eq!(value["defaultAppId"], "data-demo");
+        assert_eq!(value["streams"]["hostEvents"]["active"], 0);
+        assert_eq!(value["streams"]["hostEvents"]["openedTotal"], 0);
+        assert_eq!(value["streams"]["hostEvents"]["closedTotal"], 0);
+        assert_eq!(value["streams"]["hostEvents"]["laggedMessages"], 0);
         let apps = value["discoveredApps"].as_array().expect("discoveredApps");
         assert_eq!(apps.len(), 2);
         assert!(apps.iter().any(|app| app["appId"] == "mini-park"));
@@ -1703,15 +1713,18 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let state = test_state(tmp.path().to_path_buf());
         let shell = state.shell.clone();
+        let telemetry = shell.read().expect("state lock").event_telemetry.clone();
         let response = router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/api/host/events")
+                    .uri("/api/host/events?clientId=test-tab&leader=web-lock")
                     .body(Body::empty())
                     .expect("request"),
             )
             .await
             .expect("response");
+        assert_eq!(telemetry.snapshot().active, 1);
+        assert_eq!(telemetry.snapshot().opened_total, 1);
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -1740,6 +1753,11 @@ mod tests {
         let text = String::from_utf8_lossy(data.as_ref());
         assert!(text.contains("event: revision-published"));
         assert!(text.contains("\"revision\":\"r1\""));
+        drop(body);
+        tokio::task::yield_now().await;
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.active, 0);
+        assert_eq!(snapshot.closed_total, 1);
     }
 
     #[tokio::test]

@@ -730,7 +730,9 @@
 
   function handleHostEvent(event) {
     const detail = event.detail || {};
-    if (detail.type === "job-phase" && detail.payload) {
+    if (detail.type === "host-resync") {
+      void Promise.all([loadApps(), refreshOps()]);
+    } else if (detail.type === "job-phase" && detail.payload) {
       const job = detail.payload;
       state.ops = state.ops || {};
       if (job.status === "running") {
