@@ -20,6 +20,7 @@ mod manifest_index;
 mod mcg;
 mod metric_hydrate;
 mod mrg;
+mod object_field_links;
 mod panel_constants;
 mod panel_scope_resolve;
 mod paths;

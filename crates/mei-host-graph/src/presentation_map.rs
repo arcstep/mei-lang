@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    InteractionBinding, ObjectCatalog, ObjectCatalogDiagnostic, ObjectLocator, ObjectProjectionRef,
-    ObjectResolver, Responder, RuntimeObjectIndex, UiNodeDecl, UiTreeNode,
-    PRESENTATION_MAP_SCHEMA_VERSION,
+    InteractionBinding, ObjectCatalog, ObjectCatalogDiagnostic, ObjectFieldLinkTarget,
+    ObjectLocator, ObjectProjectionRef, ObjectResolver, Responder, RuntimeObjectIndex, UiNodeDecl,
+    UiTreeNode, PRESENTATION_MAP_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -120,6 +120,13 @@ pub struct PresentationMapDocument {
         rename = "defaultScript"
     )]
     pub default_script: Option<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        rename = "objectFieldLinksByObjectType"
+    )]
+    pub object_field_links_by_object_type:
+        BTreeMap<String, BTreeMap<String, Vec<ObjectFieldLinkTarget>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -662,6 +669,8 @@ pub fn build_presentation_map_with_default_script_resolver_and_catalogs(
     let deck = build_presentation_deck(panels);
     let (interaction_bindings, responders, interaction_diagnostics) =
         collect_interaction_contracts(catalogs);
+    let object_field_links_by_object_type =
+        crate::object_field_links::collect_object_field_links_by_type(catalogs);
     PresentationMapDocument {
         schema_version: PRESENTATION_MAP_SCHEMA_VERSION.to_string(),
         scene: scene_id.to_string(),
@@ -673,6 +682,7 @@ pub fn build_presentation_map_with_default_script_resolver_and_catalogs(
         diagnostics,
         deck,
         default_script,
+        object_field_links_by_object_type,
     }
 }
 

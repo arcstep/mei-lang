@@ -424,7 +424,12 @@ fn assemble_scope_from_registry_uncached(
     );
     let flat_panels = flatten_panel_tree(&panels);
     let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
-    let object_catalogs = load_object_catalogs(app_root.as_path(), &registry);
+    let mut object_catalogs = load_object_catalogs(app_root.as_path(), &registry);
+    crate::object_field_links::enrich_object_catalogs_field_links(
+        app_root.as_path(),
+        &registry,
+        &mut object_catalogs,
+    );
     let mut object_resolver = ObjectResolver::from_catalogs(object_catalogs.iter());
     let presentation_map = presentation_map_to_value(
         &build_presentation_map_with_default_script_resolver_and_catalogs(
@@ -1360,7 +1365,7 @@ fn load_scene_local_nav_by_target(
             continue;
         };
         let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
-        let local_nav = payload.get("local_nav").cloned().unwrap_or(json!({}));
+        let mut local_nav = payload.get("local_nav").cloned().unwrap_or(json!({}));
         let is_empty = local_nav
             .as_object()
             .map(|obj| obj.is_empty())
@@ -1368,9 +1373,126 @@ fn load_scene_local_nav_by_target(
         if is_empty {
             continue;
         }
+        resolve_local_nav_row_drilldown_popup(app_root, registry, &mut local_nav);
         map.insert(assembly_target_for_node(app_root, node), local_nav);
     }
     map
+}
+
+/// Expand `row_drilldown_popup: link_ref(...)` into a concrete scene_open popup so
+/// analytics nested tables can open Warning/IssueResult detail without unresolved refs.
+fn resolve_local_nav_row_drilldown_popup(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    local_nav: &mut Value,
+) {
+    let Some(obj) = local_nav.as_object_mut() else {
+        return;
+    };
+    let Some(popup) = obj.get("row_drilldown_popup").cloned() else {
+        return;
+    };
+    if !is_link_ref_value(&popup) {
+        return;
+    }
+    if let Some(resolved) = resolve_link_ref_to_scene_popup(app_root, registry, &popup) {
+        obj.insert("row_drilldown_popup".to_string(), resolved);
+    }
+}
+
+fn is_link_ref_value(value: &Value) -> bool {
+    value
+        .get("__ref")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("__call").and_then(Value::as_str))
+        .is_some_and(|name| name == "link_ref")
+}
+
+fn resolve_link_ref_to_scene_popup(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    popup: &Value,
+) -> Option<Value> {
+    let link_key = extract_ref_arg0(popup)?.to_string();
+    let normalized = link_key.trim().to_string();
+    let node = registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::Navigation
+            && (node.id.key == normalized
+                || node.id.key.ends_with(&format!(":{normalized}"))
+                || node.id.key == format!("overlay/links/{normalized}"))
+    })?;
+    let pref = node.payload_ref.as_ref()?;
+    let artifact = load_block_artifact(app_root, pref).ok()??;
+    let payload = artifact.get("payload")?;
+    let target = payload.get("target")?;
+    let board_key = extract_ref_arg0(target)?.to_string();
+    let page_node = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key)?;
+    let page_pref = page_node.payload_ref.as_ref()?;
+    let page_artifact = load_block_artifact(app_root, page_pref).ok()??;
+    let page_payload = page_artifact.get("payload")?;
+    let scene_id = page_payload
+        .get("scene")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let scene_file = assembly_source_file_from_payload(page_payload)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("src/{board_key}.mei"));
+    let params = payload
+        .get("params")
+        .cloned()
+        .or_else(|| payload.get("default_params").cloned())
+        .unwrap_or_else(|| json!({}));
+    let overlay_size = payload
+        .get("overlay_size")
+        .and_then(Value::as_str)
+        .unwrap_or("large");
+    let overlay_workspace = payload
+        .get("overlay_workspace")
+        .cloned()
+        .filter(|value| value.is_object());
+    let overlay_projection = payload
+        .get("projection")
+        .cloned()
+        .unwrap_or(json!("overlay"));
+    let popup_type = payload.get("type").cloned().unwrap_or(json!("popup"));
+    let mut out = json!({
+        "kind": "scene_open",
+        "mode": "popup",
+        "type": popup_type,
+        "projection": overlay_projection,
+        "overlay_size": overlay_size,
+        "link_key": normalized,
+        "scene_id": scene_id.clone(),
+        "scene_file": scene_file.clone(),
+        "page_scene_id": scene_id.clone(),
+        "page_scene_file": scene_file.clone(),
+        "scene": {
+            "scene_id": scene_id.clone(),
+            "scene_file": scene_file.clone(),
+        },
+        "params": params.clone(),
+        "context": { "params": params },
+        "target": {
+            "kind": "page_instance",
+            "legacy_kind": "board",
+            "scene_id": scene_id,
+            "scene_file": scene_file,
+        },
+    });
+    if let Some(map) = out.as_object_mut() {
+        if let Some(workspace) = overlay_workspace {
+            map.insert("overlay_workspace".to_string(), workspace);
+        }
+        if let Some(title) = payload.get("title").cloned().filter(|value| !value.is_null()) {
+            map.insert("title".to_string(), title);
+        }
+    }
+    Some(out)
 }
 
 fn load_link_bindings(

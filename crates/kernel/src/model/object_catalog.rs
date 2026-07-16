@@ -208,6 +208,58 @@ pub struct ObjectIndexEntry {
     pub source_anchor: String,
 }
 
+/// How a table cell value becomes an object locator key.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectFieldLinkResolve {
+    /// Cell value is the target object's identity key.
+    RowValue,
+    /// Cell value looks up `targets_by_value` from an inlined mapping contract.
+    Mapping,
+}
+
+/// Whether the resolved key is the target identity or a foreign key for filter open.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectFieldLinkKeyMode {
+    Identity,
+    ForeignKey,
+}
+
+/// One clickable target for a source dataset column. Derived from Object Intent
+/// identity + relations; not an author-facing DSL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObjectFieldLinkTarget {
+    pub role: String,
+    #[serde(rename = "objectType")]
+    pub object_type: String,
+    pub resolve: ObjectFieldLinkResolve,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "sourceField")]
+    pub source_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "mappingRef")]
+    pub mapping_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", rename = "targetsByValue")]
+    pub targets_by_value: BTreeMap<String, Value>,
+    #[serde(default, rename = "keyMode")]
+    pub key_mode: ObjectFieldLinkKeyMode,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "filterKey")]
+    pub filter_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "hasDetail")]
+    pub has_detail: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "detailPage")]
+    pub detail_page: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "openPopup")]
+    pub open_popup: Option<Value>,
+}
+
+impl Default for ObjectFieldLinkKeyMode {
+    fn default() -> Self {
+        Self::Identity
+    }
+}
+
 /// Default assembly generated from intent references. It is an assembly plan,
 /// never a copy of source, slot, relation, or recipe payloads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -222,6 +274,8 @@ pub struct DefaultObjectAssembly {
     pub slots: BTreeMap<String, ObjectProjectionRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub relations: BTreeMap<String, Vec<ObjectProjectionRef>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", rename = "object_field_links")]
+    pub object_field_links: BTreeMap<String, Vec<ObjectFieldLinkTarget>>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "override")]
     pub override_props: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -231,6 +285,129 @@ pub struct DefaultObjectAssembly {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub projections: Vec<ObjectRecipeProjectionAssembly>,
     pub source_anchor: String,
+}
+
+/// Derive table column → object link targets from an intent's identity and relations.
+/// Mapping payloads are not loaded here; host enrichment inlines `targets_by_value`.
+pub fn derive_object_field_links(
+    object_type_id: &str,
+    identity_fields: &[String],
+    slots: &BTreeMap<String, ObjectProjectionRef>,
+    relations: &BTreeMap<String, Vec<ObjectProjectionRef>>,
+) -> BTreeMap<String, Vec<ObjectFieldLinkTarget>> {
+    let mut links: BTreeMap<String, Vec<ObjectFieldLinkTarget>> = BTreeMap::new();
+    let self_detail = slots.get("detail").and_then(|slot| {
+        if slot.kind == "page_ref" && !slot.id.trim().is_empty() {
+            Some(slot.id.clone())
+        } else {
+            None
+        }
+    });
+    let self_has_detail = self_detail.is_some();
+    for field in identity_fields {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        links.entry(field.to_string()).or_default().push(ObjectFieldLinkTarget {
+            role: "self".to_string(),
+            object_type: object_type_id.to_string(),
+            resolve: ObjectFieldLinkResolve::RowValue,
+            relation: None,
+            source_field: Some(field.to_string()),
+            mapping_ref: None,
+            targets_by_value: BTreeMap::new(),
+            key_mode: ObjectFieldLinkKeyMode::Identity,
+            filter_key: heuristic_filter_key(field),
+            has_detail: Some(self_has_detail),
+            detail_page: self_detail.clone(),
+            open_popup: None,
+        });
+    }
+
+    for (relation_name, refs) in relations {
+        if relation_name.starts_with("objectSet.") {
+            continue;
+        }
+        let object_ref = refs.iter().find(|r| r.kind == "object_ref");
+        let field_ref = refs.iter().find(|r| r.kind == "field_ref");
+        let mapping_ref = refs.iter().find(|r| r.kind == "mapping_ref");
+        let Some(object_ref) = object_ref else {
+            continue;
+        };
+        let target_type = object_ref.id.trim();
+        if target_type.is_empty() {
+            continue;
+        }
+
+        if let Some(field_ref) = field_ref {
+            let field = field_ref.id.trim();
+            if field.is_empty() {
+                continue;
+            }
+            // Identity column opens self only. Do not also attach related-object
+            // targets on the same cell (that forced a chooser on 预警ID). Related
+            // objects are opened from their own identity columns when present.
+            if identity_fields.iter().any(|f| f.trim() == field) {
+                continue;
+            }
+            links.entry(field.to_string()).or_default().push(ObjectFieldLinkTarget {
+                role: "relation".to_string(),
+                object_type: target_type.to_string(),
+                resolve: ObjectFieldLinkResolve::RowValue,
+                relation: Some(relation_name.clone()),
+                source_field: Some(field.to_string()),
+                mapping_ref: None,
+                targets_by_value: BTreeMap::new(),
+                key_mode: ObjectFieldLinkKeyMode::Identity,
+                filter_key: heuristic_filter_key(field),
+                has_detail: None,
+                detail_page: None,
+                open_popup: None,
+            });
+            continue;
+        }
+
+        if let Some(mapping_ref) = mapping_ref {
+            let mapping_id = mapping_ref.id.trim();
+            if mapping_id.is_empty() {
+                continue;
+            }
+            // Column is filled later from mapping.sourceField; use a placeholder
+            // keyed by relation until enrichment rewrites the map.
+            let placeholder = format!("__mapping__:{relation_name}");
+            links
+                .entry(placeholder)
+                .or_default()
+                .push(ObjectFieldLinkTarget {
+                    role: "relation".to_string(),
+                    object_type: target_type.to_string(),
+                    resolve: ObjectFieldLinkResolve::Mapping,
+                    relation: Some(relation_name.clone()),
+                    source_field: None,
+                    mapping_ref: Some(mapping_id.to_string()),
+                    targets_by_value: BTreeMap::new(),
+                    key_mode: ObjectFieldLinkKeyMode::Identity,
+                    filter_key: None,
+                    has_detail: None,
+                    detail_page: None,
+                    open_popup: None,
+                });
+        }
+    }
+    links
+}
+
+fn heuristic_filter_key(field: &str) -> Option<String> {
+    match field.trim() {
+        "预警ID" | "warning_id" | "warningId" => Some("warningId".to_string()),
+        "处理结果ID" | "result_id" | "resultId" => Some("resultId".to_string()),
+        "模型ID" | "model_id" | "modelId" => Some("modelId".to_string()),
+        "监督事项" | "matter" => Some("matter".to_string()),
+        "问题分类名称" | "category" => Some("category".to_string()),
+        other if !other.is_empty() => None,
+        _ => None,
+    }
 }
 
 /// The closed set of platform interaction intents. Keeping this as an enum
@@ -1087,6 +1264,7 @@ mod tests {
             recipe_contract: None,
             slots,
             relations: BTreeMap::new(),
+            object_field_links: BTreeMap::new(),
             override_props: intent.override_props.clone(),
             effective_override: None,
             override_sources: BTreeMap::new(),
@@ -1324,6 +1502,84 @@ mod tests {
             error,
             ObjectMaterializationError::UnknownObjectType { .. }
         ));
+    }
+
+    #[test]
+    fn derive_object_field_links_identity_is_self_only() {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "detail".to_string(),
+            ObjectProjectionRef {
+                role: "slot:detail".to_string(),
+                kind: "page_ref".to_string(),
+                id: "zhifa/home/detail".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        let mut relations = BTreeMap::new();
+        relations.insert(
+            "issueResults.strong.byWarningId".to_string(),
+            vec![
+                ObjectProjectionRef {
+                    role: "relation:issue".to_string(),
+                    kind: "object_ref".to_string(),
+                    id: "zhifa.IssueResult".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+                ObjectProjectionRef {
+                    role: "relation:issue".to_string(),
+                    kind: "field_ref".to_string(),
+                    id: "预警ID".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+            ],
+        );
+        let links = derive_object_field_links(
+            "zhifa.Warning",
+            &["预警ID".to_string()],
+            &slots,
+            &relations,
+        );
+        let targets = links.get("预警ID").expect("identity column");
+        assert_eq!(targets.len(), 1, "identity must not attach related-object chooser targets");
+        assert_eq!(targets[0].role, "self");
+        assert_eq!(targets[0].object_type, "zhifa.Warning");
+        assert_eq!(targets[0].has_detail, Some(true));
+    }
+
+    #[test]
+    fn derive_object_field_links_non_identity_field_ref_opens_related() {
+        let slots = BTreeMap::new();
+        let mut relations = BTreeMap::new();
+        relations.insert(
+            "warning.strong.byWarningId".to_string(),
+            vec![
+                ObjectProjectionRef {
+                    role: "relation:warning".to_string(),
+                    kind: "object_ref".to_string(),
+                    id: "zhifa.Warning".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+                ObjectProjectionRef {
+                    role: "relation:warning".to_string(),
+                    kind: "field_ref".to_string(),
+                    id: "预警ID".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+            ],
+        );
+        let links = derive_object_field_links(
+            "zhifa.IssueResult",
+            &["处理结果ID".to_string()],
+            &slots,
+            &relations,
+        );
+        assert!(links.get("处理结果ID").is_none() || links.get("处理结果ID").unwrap().iter().all(|t| t.role == "self"));
+        let warning_links = links.get("预警ID").expect("FK column on IssueResult row");
+        assert_eq!(warning_links.len(), 1);
+        assert_eq!(warning_links[0].role, "relation");
+        assert_eq!(warning_links[0].object_type, "zhifa.Warning");
+        assert_eq!(warning_links[0].key_mode, ObjectFieldLinkKeyMode::Identity);
     }
 
     #[test]

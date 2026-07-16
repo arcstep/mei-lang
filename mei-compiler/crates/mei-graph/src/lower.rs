@@ -454,6 +454,12 @@ fn lower_object_intent(source_anchor: &str, args: &CallArgs) -> Result<JsonValue
         )
     })?;
     diagnostics.extend(recipe_assembly.diagnostics);
+    let object_field_links = derive_object_field_links_json(
+        object_type_id.as_str(),
+        identity_id,
+        &effective_slots,
+        &relations,
+    );
     let default_assembly = json!({
         "kind": "default_object_assembly",
         "id": assembly_id,
@@ -462,6 +468,7 @@ fn lower_object_intent(source_anchor: &str, args: &CallArgs) -> Result<JsonValue
         "recipe_contract": recipe_assembly.contract,
         "slots": effective_slots,
         "relations": relations,
+        "object_field_links": object_field_links,
         "override": override_props,
         "effective_override": recipe_assembly.effective_override,
         "override_sources": recipe_assembly.override_sources,
@@ -629,6 +636,128 @@ fn lower_intent_relations(
         relations.insert(name.clone(), refs);
     }
     Ok(relations)
+}
+
+fn derive_object_field_links_json(
+    object_type_id: &str,
+    identity_field: &str,
+    slots: &BTreeMap<String, JsonValue>,
+    relations: &BTreeMap<String, Vec<JsonValue>>,
+) -> BTreeMap<String, Vec<JsonValue>> {
+    let mut links: BTreeMap<String, Vec<JsonValue>> = BTreeMap::new();
+    let self_detail = slots
+        .get("detail")
+        .and_then(|slot| {
+            if slot.get("kind").and_then(JsonValue::as_str) == Some("page_ref") {
+                slot.get("id")
+                    .and_then(JsonValue::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+            } else {
+                None
+            }
+        });
+    let self_has_detail = self_detail.is_some();
+    let identity_field = identity_field.trim();
+    if !identity_field.is_empty() {
+        links
+            .entry(identity_field.to_string())
+            .or_default()
+            .push(json!({
+                "role": "self",
+                "objectType": object_type_id,
+                "resolve": "row_value",
+                "sourceField": identity_field,
+                "keyMode": "identity",
+                "filterKey": heuristic_filter_key_json(identity_field),
+                "hasDetail": self_has_detail,
+                "detailPage": self_detail,
+            }));
+    }
+
+    for (relation_name, refs) in relations {
+        if relation_name.starts_with("objectSet.") {
+            continue;
+        }
+        let object_ref = refs
+            .iter()
+            .find(|r| r.get("kind").and_then(JsonValue::as_str) == Some("object_ref"));
+        let field_ref = refs
+            .iter()
+            .find(|r| r.get("kind").and_then(JsonValue::as_str) == Some("field_ref"));
+        let mapping_ref = refs
+            .iter()
+            .find(|r| r.get("kind").and_then(JsonValue::as_str) == Some("mapping_ref"));
+        let Some(object_ref) = object_ref else {
+            continue;
+        };
+        let target_type = object_ref
+            .get("id")
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if target_type.is_empty() {
+            continue;
+        }
+
+        if let Some(field_ref) = field_ref {
+            let field = field_ref
+                .get("id")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if field.is_empty() {
+                continue;
+            }
+            // Identity column opens self only; related objects use their own identity cells.
+            if field == identity_field {
+                continue;
+            }
+            links.entry(field.to_string()).or_default().push(json!({
+                "role": "relation",
+                "objectType": target_type,
+                "resolve": "row_value",
+                "relation": relation_name,
+                "sourceField": field,
+                "keyMode": "identity",
+                "filterKey": heuristic_filter_key_json(field),
+            }));
+            continue;
+        }
+
+        if let Some(mapping_ref) = mapping_ref {
+            let mapping_id = mapping_ref
+                .get("id")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if mapping_id.is_empty() {
+                continue;
+            }
+            let placeholder = format!("__mapping__:{relation_name}");
+            links.entry(placeholder).or_default().push(json!({
+                "role": "relation",
+                "objectType": target_type,
+                "resolve": "mapping",
+                "relation": relation_name,
+                "mappingRef": mapping_id,
+                "keyMode": "identity",
+            }));
+        }
+    }
+    links
+}
+
+fn heuristic_filter_key_json(field: &str) -> JsonValue {
+    match field.trim() {
+        "预警ID" | "warning_id" | "warningId" => json!("warningId"),
+        "处理结果ID" | "result_id" | "resultId" => json!("resultId"),
+        "模型ID" | "model_id" | "modelId" => json!("modelId"),
+        "监督事项" | "matter" => json!("matter"),
+        "问题分类名称" | "category" => json!("category"),
+        _ => JsonValue::Null,
+    }
 }
 
 fn lower_intent_any_ref(

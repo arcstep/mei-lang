@@ -2039,12 +2039,21 @@ fn lower_metric_inner(
     let patch = args.get("patch").cloned();
     let presentation = merge_metric_presentation(args, &source, patch.as_ref())
         .map(|value| resolve_config_refs_in_value(&value, ctx));
-    // Explicit author navigation always wins. When omitted, derive the standard
-    // read-only analytics overlay from page_instance examples.params.metric.
-    let popup = args
-        .get("popup")
-        .map(|popup| resolve_popup_config(popup, ctx, Some(&source)))
-        .or_else(|| derive_metric_page_popup(&source, ctx));
+    // Explicit author navigation always wins. Template defaults often pass
+    // `popup = None` (JSON null); treat null/absent as omitted so derivation runs.
+    // Stale compile artifacts may still carry removed link_ref keys — fall back to
+    // metric→page adjacency instead of emitting unresolved_link_ref (zhifa migration).
+    let popup = match args.get("popup") {
+        Some(value) if !value.is_null() => {
+            let resolved = resolve_popup_config(value, ctx, Some(&source));
+            if is_unresolved_link_ref_popup(&resolved) {
+                derive_metric_page_popup(&source, ctx).or(Some(resolved))
+            } else {
+                Some(resolved)
+            }
+        }
+        _ => derive_metric_page_popup(&source, ctx),
+    };
     let desc_text =
         template_desc.or_else(|| args.get("desc").and_then(Value::as_str).map(str::to_string));
     let layout = if let Some(atom_layout) = args.get("__mei_atom_layout") {
@@ -3101,6 +3110,13 @@ fn derive_metric_page_popup(source: &Value, ctx: &PanelLowerContext<'_>) -> Opti
         }
     }
     Some(popup)
+}
+
+fn is_unresolved_link_ref_popup(value: &Value) -> bool {
+    value
+        .get("kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == "unresolved_link_ref")
 }
 
 fn resolve_popup_config(
@@ -5653,6 +5669,130 @@ mod tests {
         assert_eq!(popup["read_only"], json!(true));
         assert_eq!(popup["interaction"]["intent"], json!("explain_metric"));
         assert_eq!(popup["params"]["rowset_dataset_id"], json!("warning_list"));
+        assert!(diagnostics.take().is_empty());
+    }
+
+    #[test]
+    fn metric_card_null_popup_default_still_derives_analytics_overlay() {
+        // Cockpit templates expand `popup = None` into JSON null; that must not
+        // suppress metric→page adjacency derivation (zhifa home regression).
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[(
+            "demo/home/plane-warnings",
+            "warnings_analytics_page",
+            "metrics/warnings.bundle.mei",
+            "warnings_count",
+            "warning_list",
+        )]);
+        let diagnostics = LowerDiagnostics::new();
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: Some("src/scene/home/section.mei"),
+            diagnostics: diagnostics.clone(),
+        };
+        let card = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "warnings",
+                "metric": metric_ref_value("warnings_count", "metrics/warnings.bundle.mei"),
+                "popup": null,
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr"],
+                        "areas": [["value"]]
+                    }
+                }
+            }
+        });
+        let UiTreeNode::Panel(panel) = lower_metric_card(&card, &ctx).expect("metric card") else {
+            panic!("expected panel");
+        };
+        let popup = panel
+            .blocks
+            .iter()
+            .find_map(|node| match node {
+                UiTreeNode::Block(block)
+                    if block.props.get("metric_role").and_then(Value::as_str) == Some("value") =>
+                {
+                    block.props.get("popup")
+                }
+                _ => None,
+            })
+            .expect("derived value popup despite null template default");
+        assert_eq!(popup["scene_id"], json!("warnings_analytics_page"));
+        assert_eq!(popup["derived"], json!(true));
+        assert!(diagnostics.take().is_empty());
+    }
+
+    #[test]
+    fn stale_link_ref_popup_falls_back_to_metric_page_derivation() {
+        let (_tmp, app_root, registry) = metric_page_test_registry(&[(
+            "demo/home/plane-warnings",
+            "warnings_analytics_page",
+            "metrics/warnings.bundle.mei",
+            "warnings_count",
+            "warning_list",
+        )]);
+        let diagnostics = LowerDiagnostics::new();
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "demo",
+            registry: &registry,
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: Some("src/scene/home/section.mei"),
+            diagnostics: diagnostics.clone(),
+        };
+        let card = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "warnings",
+                "metric": metric_ref_value("warnings_count", "metrics/warnings.bundle.mei"),
+                "popup": {
+                    "__ref": "link_ref",
+                    "__args": {
+                        "arg0": "demo/home/t2/links/removed-warnings-analytics"
+                    }
+                },
+                "layout": {
+                    "__call": "grid",
+                    "__args": {
+                        "rows": ["1fr"],
+                        "columns": ["1fr"],
+                        "areas": [["value"]]
+                    }
+                }
+            }
+        });
+        let UiTreeNode::Panel(panel) = lower_metric_card(&card, &ctx).expect("metric card") else {
+            panic!("expected panel");
+        };
+        let popup = panel
+            .blocks
+            .iter()
+            .find_map(|node| match node {
+                UiTreeNode::Block(block)
+                    if block.props.get("metric_role").and_then(Value::as_str) == Some("value") =>
+                {
+                    block.props.get("popup")
+                }
+                _ => None,
+            })
+            .expect("derived fallback popup for stale link_ref");
+        assert_eq!(popup["scene_id"], json!("warnings_analytics_page"));
+        assert_eq!(popup["derived"], json!(true));
+        assert_eq!(popup["interaction"]["intent"], json!("explain_metric"));
+        assert_ne!(
+            popup.get("kind").and_then(Value::as_str),
+            Some("unresolved_link_ref")
+        );
         assert!(diagnostics.take().is_empty());
     }
 

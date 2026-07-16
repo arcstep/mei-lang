@@ -52,9 +52,10 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
 pub use narration_abi::{NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack};
 pub use object_catalog::{
-    DefaultObjectAssembly, InteractionBinding, InteractionEvent, InteractionIntent,
-    InteractionSubject, ObjectCatalog, ObjectCatalogAuthoringMode, ObjectCatalogDiagnostic,
-    ObjectDescriptor, ObjectFocus, ObjectFocusCardinality, ObjectIdentityContract,
+    derive_object_field_links, DefaultObjectAssembly, InteractionBinding, InteractionEvent,
+    InteractionIntent, InteractionSubject, ObjectCatalog, ObjectCatalogAuthoringMode,
+    ObjectCatalogDiagnostic, ObjectDescriptor, ObjectFieldLinkKeyMode, ObjectFieldLinkResolve,
+    ObjectFieldLinkTarget, ObjectFocus, ObjectFocusCardinality, ObjectIdentityContract,
     ObjectIdentityMaterialization, ObjectIndexEntry, ObjectIntent, ObjectLocator,
     ObjectMaterializationError, ObjectProjectionRef, ObjectRecipeContract,
     ObjectRecipeInteractionContract, ObjectRecipeProjectionAssembly,

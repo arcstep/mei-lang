@@ -201,10 +201,11 @@ pub use model::{
     InteractionIntent, InteractionSubject, LayoutBudgetManifest, LayoutBudgetManifestEntry,
     LayoutDecl, LegacyBuildQuery, LoadedResource, MetricContract, MetricPackContract, MetricRef,
     MetricShape, NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack, ObjectCatalog,
-    ObjectCatalogAuthoringMode, ObjectCatalogDiagnostic, ObjectDescriptor, ObjectFocus,
-    ObjectFocusCardinality, ObjectIdentityContract, ObjectIdentityMaterialization,
-    ObjectIndexEntry, ObjectIntent, ObjectLocator, ObjectMaterializationError, ObjectProjectionRef,
-    ObjectRecipeContract, ObjectRecipeInteractionContract, ObjectRecipeProjectionAssembly,
+    ObjectCatalogAuthoringMode, ObjectCatalogDiagnostic, ObjectDescriptor, ObjectFieldLinkKeyMode,
+    ObjectFieldLinkResolve, ObjectFieldLinkTarget, ObjectFocus, ObjectFocusCardinality,
+    ObjectIdentityContract, ObjectIdentityMaterialization, ObjectIndexEntry, ObjectIntent,
+    ObjectLocator, ObjectMaterializationError, ObjectProjectionRef, ObjectRecipeContract,
+    ObjectRecipeInteractionContract, ObjectRecipeProjectionAssembly,
     ObjectRecipeProjectionContract, ObjectRecipeProjectionState, ObjectRecipeResponderContract,
     ObjectRecipeSlotContract, ObjectRecipeSlotRequirement, ObjectResolver, ObjectSet,
     ObjectTypeContract, PanelRefEmbedDecl, ProfileLayoutPolicy, ProfileSpacingTokens,
@@ -223,6 +224,7 @@ pub use model::{
     INTERACTION_PROTOCOL_SCHEMA_VERSION, OBJECT_CATALOG_SCHEMA_VERSION, OBJECT_INDEX_ENTRY_KIND,
     OBJECT_RECIPE_SCHEMA_VERSION, PRESENTATION_MAP_SCHEMA_VERSION,
 };
+pub use model::derive_object_field_links;
 pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};
 pub use runtime::{
     initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step, RuntimeIntent,
