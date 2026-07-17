@@ -30584,6 +30584,9 @@
         appViewSurfaceSwitch = true;
         continue;
       }
+      if (item.matches("a.app-tab, a.app-tab-sub")) {
+        return true;
+      }
       if (
         item.matches(
           "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], sl-button[data-mei-view]",
@@ -30606,6 +30609,9 @@
       if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
+      }
+      if (item.matches("a.app-tab, a.app-tab-sub")) {
+        return true;
       }
       if (
         item.matches(
@@ -30645,6 +30651,12 @@
     if (isConfigOrUploadPath(next.pathname)) return true;
     if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
       return true;
+    }
+    // 跨应用：capabilities / bootstrap 落在 document head，SPA 只换 shell 会对不齐。
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromApp = String(appIdFromAppsPathname(current.pathname) || "").trim();
+      const toApp = String(appIdFromAppsPathname(next.pathname) || "").trim();
+      if (fromApp && toApp && fromApp !== toApp) return true;
     }
     return false;
   }
@@ -43826,10 +43838,22 @@
         const tabAppId = String(link.getAttribute("data-app-id") || "").trim();
         if (tabAppId) {
           const url = new URL(link.href, window.location.href);
-          url.pathname = `/apps/${tabAppId}/home`;
+          const fromAttr = String(link.getAttribute("data-default-stage") || "").trim();
+          let stage = fromAttr;
+          if (!stage) {
+            const segs = url.pathname.split("/").filter(Boolean);
+            if (segs[0] === "apps" && segs[1] === tabAppId && segs[2]) {
+              stage = segs[2];
+            }
+          }
+          if (!stage) stage = "home";
+          url.pathname = `/apps/${tabAppId}/${encodeURIComponent(stage)}`;
           url.searchParams.delete("surface");
           url.searchParams.delete("scene");
           link.href = url.toString();
+          if (fromAttr !== stage) {
+            link.setAttribute("data-default-stage", stage);
+          }
         }
         let linkApp = tabAppId;
         if (!linkApp) {
@@ -44386,7 +44410,23 @@
   }
 
   async function navigateInternal(url, replaceHistory, options) {
-    const opts = options || {};
+    void options;
+    let currentUrl = null;
+    let nextUrl = null;
+    try {
+      currentUrl = new URL(window.location.href);
+      nextUrl = new URL(url, window.location.href);
+    } catch (_) {}
+    if (
+      currentUrl &&
+      nextUrl &&
+      typeof shouldForceFullPageNavigation === "function" &&
+      shouldForceFullPageNavigation(currentUrl, nextUrl)
+    ) {
+      requestRuntimeAbort("cross_app_full_navigation", { clearCaches: true });
+      window.location.assign(nextUrl.href);
+      return;
+    }
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
@@ -44398,12 +44438,6 @@
     } catch (_) {}
     requestRuntimeAbort("spa_navigation", { clearCaches: false });
     closeDrilldownOverlay();
-    let currentUrl = null;
-    let nextUrl = null;
-    try {
-      currentUrl = new URL(window.location.href);
-      nextUrl = new URL(url, window.location.href);
-    } catch (_) {}
     const unifiedSurfaceSwitch =
       currentUrl &&
       nextUrl &&
@@ -44506,9 +44540,11 @@
             item.matches("a.app-tab, a.app-tab-sub") &&
             item.href
           ) {
+            // 跨应用顶栏：整页导航，确保 #mei-host-runtime-capabilities 与目标 app 对齐。
             event.preventDefault();
             event.stopImmediatePropagation();
-            void navigateInternal(item.href, false);
+            requestRuntimeAbort("cross_app_full_navigation", { clearCaches: true });
+            window.location.assign(item.href);
             return;
           }
         }

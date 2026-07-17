@@ -567,10 +567,22 @@
         const tabAppId = String(link.getAttribute("data-app-id") || "").trim();
         if (tabAppId) {
           const url = new URL(link.href, window.location.href);
-          url.pathname = `/apps/${tabAppId}/home`;
+          const fromAttr = String(link.getAttribute("data-default-stage") || "").trim();
+          let stage = fromAttr;
+          if (!stage) {
+            const segs = url.pathname.split("/").filter(Boolean);
+            if (segs[0] === "apps" && segs[1] === tabAppId && segs[2]) {
+              stage = segs[2];
+            }
+          }
+          if (!stage) stage = "home";
+          url.pathname = `/apps/${tabAppId}/${encodeURIComponent(stage)}`;
           url.searchParams.delete("surface");
           url.searchParams.delete("scene");
           link.href = url.toString();
+          if (fromAttr !== stage) {
+            link.setAttribute("data-default-stage", stage);
+          }
         }
         let linkApp = tabAppId;
         if (!linkApp) {

@@ -134,6 +134,9 @@
         appViewSurfaceSwitch = true;
         continue;
       }
+      if (item.matches("a.app-tab, a.app-tab-sub")) {
+        return true;
+      }
       if (
         item.matches(
           "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], sl-button[data-mei-view]",
@@ -156,6 +159,9 @@
       if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
+      }
+      if (item.matches("a.app-tab, a.app-tab-sub")) {
+        return true;
       }
       if (
         item.matches(
@@ -195,6 +201,12 @@
     if (isConfigOrUploadPath(next.pathname)) return true;
     if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
       return true;
+    }
+    // 跨应用：capabilities / bootstrap 落在 document head，SPA 只换 shell 会对不齐。
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromApp = String(appIdFromAppsPathname(current.pathname) || "").trim();
+      const toApp = String(appIdFromAppsPathname(next.pathname) || "").trim();
+      if (fromApp && toApp && fromApp !== toApp) return true;
     }
     return false;
   }

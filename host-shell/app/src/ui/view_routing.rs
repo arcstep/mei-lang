@@ -26,9 +26,18 @@ pub fn app_stage_href(app_path: &str, stage_id: &str, chrome: Option<&str>) -> S
     href
 }
 
-/// 无舞台 id 时默认 `home`（菜单/首页应尽量写满真实 default_scene）。
+/// 无舞台 id 时默认 `home`（菜单/首页应尽量写满真实 `default_stage`）。
 pub fn app_access_href(app_path: &str) -> String {
-    app_stage_href(app_path, "home", None)
+    app_access_href_with_stage(app_path, None)
+}
+
+/// Access 入口；`default_stage` 缺省时回退 `home`。
+pub fn app_access_href_with_stage(app_path: &str, default_stage: Option<&str>) -> String {
+    let stage = default_stage
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+    app_stage_href(app_path, stage, None)
 }
 
 /// 布局/原型产品入口已封口：href 落到 Access 默认舞台。
@@ -141,24 +150,29 @@ pub fn speaker_tour_href(app_path: &str, tour_id: &str) -> String {
     copilot_presentation_href(app_path, tour_id)
 }
 
+/// 跨应用顶栏入口；`default_stage` 来自目标应用 `app.toml`（如 mei-tutorial → `intro`）。
+/// 缺省舞台时回退 `home`。
 pub fn cross_app_href(
     view: UiRouteMode,
     app_path: &str,
     catalog: Option<&str>,
     pack: Option<&str>,
+    default_stage: Option<&str>,
 ) -> String {
     if catalog.is_some() || pack.is_some() {
         return match view {
             UiRouteMode::Runtime => runtime_href_with_catalog(app_path, None, None, catalog, pack),
             // 布局/原型已封口 → Access
-            _ => app_access_href(app_path),
+            _ => app_access_href_with_stage(app_path, default_stage),
         };
     }
     match view {
         UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype => {
-            app_access_href(app_path)
+            app_access_href_with_stage(app_path, default_stage)
         }
-        UiRouteMode::Run | UiRouteMode::Copilot => app_access_href(app_path),
+        UiRouteMode::Run | UiRouteMode::Copilot => {
+            app_access_href_with_stage(app_path, default_stage)
+        }
         UiRouteMode::Config => host_config_href(Some(app_path)),
         UiRouteMode::Upload => host_upload_href(Some(app_path), None),
         UiRouteMode::Runtime => host_runtime_href(Some(app_path), None, None),
@@ -221,6 +235,14 @@ mod tests {
             "/apps/pretty-panels/home"
         );
         assert_eq!(prototype_href("demo", None, None), "/apps/demo/home");
+        assert_eq!(
+            app_access_href_with_stage("mei-tutorial", Some("intro")),
+            "/apps/mei-tutorial/intro"
+        );
+        assert_eq!(
+            cross_app_href(UiRouteMode::App, "mei-tutorial", None, None, Some("intro")),
+            "/apps/mei-tutorial/intro"
+        );
     }
 
     #[test]

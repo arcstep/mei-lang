@@ -200,6 +200,21 @@ for (const re of badCalls) {
 assert.match(src, /void navigateInternal\(/, "click handler must call navigateInternal");
 assert.match(src, /runPostSpaWork\(/, "post-spa work must be async after DOM swap");
 assert.match(src, /publishManagePreviewFromDoc\(/, "preview event after swap");
+assert.match(
+  src,
+  /cross_app_full_navigation[\s\S]*location\.assign/,
+  "cross-app topbar must full-page navigate (capabilities live in document head)",
+);
+assert.match(
+  src,
+  /a\.app-tab, a\.app-tab-sub[\s\S]*shouldBypassSpaClick|shouldBypassSpaClick[\s\S]*a\.app-tab, a\.app-tab-sub/,
+  "cross-app app-tab clicks must bypass SPA click handling",
+);
+assert.match(
+  src,
+  /data-default-stage/,
+  "topbar href fixer must honor per-app data-default-stage (not hardcode /home)",
+);
 
 assert.match(src, /ACCESS_LIKE_ROUTE_SLUGS/, "access-like route slugs must be centralized");
 assert.match(src, /BUILD_ROUTE_SLUGS/, "build route slugs must be centralized");

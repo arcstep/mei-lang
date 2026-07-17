@@ -1,8 +1,10 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    is_stage_registry_candidate, CompiledSceneRoute, WorkspaceAppMeta,
+    is_stage_registry_candidate, resolve_default_scene_from_root, CompiledSceneRoute,
+    WorkspaceAppMeta,
 };
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
@@ -128,14 +130,15 @@ pub(crate) fn topbar_view(
                 } else {
                     "app-tab"
                 };
-                let href = cross_app_href(
-                    menu_link_mode,
-                    &item.app_id,
-                    item.catalog.as_deref(),
-                    item.pack.as_deref(),
-                );
+                let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
                 return view! {
-                    <a class=class href=href data-app-id=item.app_id.clone() data-topbar-menu-group=group_id.clone()>
+                    <a
+                        class=class
+                        href=href
+                        data-app-id=item.app_id.clone()
+                        data-default-stage=default_stage
+                        data-topbar-menu-group=group_id.clone()
+                    >
                         {item.label.clone()}
                     </a>
                 }
@@ -149,13 +152,17 @@ pub(crate) fn topbar_view(
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href = cross_app_href(
-                        menu_link_mode,
-                        &item.app_id,
-                        item.catalog.as_deref(),
-                        item.pack.as_deref(),
-                    );
-                    view! { <a class=class href=href data-app-id=item.app_id.clone()>{item.label.clone()}</a> }
+                    let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
+                    view! {
+                        <a
+                            class=class
+                            href=href
+                            data-app-id=item.app_id.clone()
+                            data-default-stage=default_stage
+                        >
+                            {item.label.clone()}
+                        </a>
+                    }
                 })
                 .collect_view();
             let subgroup_blocks = subgroup_items
@@ -169,13 +176,17 @@ pub(crate) fn topbar_view(
                             } else {
                                 "app-tab app-tab-sub"
                             };
-                            let href = cross_app_href(
-                                menu_link_mode,
-                                &item.app_id,
-                                item.catalog.as_deref(),
-                                item.pack.as_deref(),
-                            );
-                            view! { <a class=class href=href data-app-id=item.app_id.clone()>{item.label.clone()}</a> }
+                            let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
+                            view! {
+                                <a
+                                    class=class
+                                    href=href
+                                    data-app-id=item.app_id.clone()
+                                    data-default-stage=default_stage
+                                >
+                                    {item.label.clone()}
+                                </a>
+                            }
                         })
                         .collect_view();
                     view! {
@@ -525,4 +536,37 @@ fn menu_item_is_active(
         }
         (None, Some(_)) => false,
     }
+}
+
+fn default_stage_for_app(apps: &[WorkspaceAppMeta], app_id: &str) -> String {
+    apps.iter()
+        .find(|app| app.id.as_str() == app_id)
+        .and_then(|app| {
+            let root = Path::new(app.root.as_str());
+            if !root.is_dir() {
+                return None;
+            }
+            resolve_default_scene_from_root(root)
+                .ok()
+                .flatten()
+                .map(|stage| stage.trim().to_string())
+                .filter(|stage| !stage.is_empty())
+        })
+        .unwrap_or_else(|| "home".to_string())
+}
+
+fn cross_app_menu_href(
+    apps: &[WorkspaceAppMeta],
+    menu_link_mode: UiRouteMode,
+    item: &crate::ui::topbar::menu_groups::TopbarMenuItem,
+) -> (String, String) {
+    let stage = default_stage_for_app(apps, item.app_id.as_str());
+    let href = cross_app_href(
+        menu_link_mode,
+        &item.app_id,
+        item.catalog.as_deref(),
+        item.pack.as_deref(),
+        Some(stage.as_str()),
+    );
+    (href, stage)
 }

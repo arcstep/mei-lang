@@ -880,6 +880,22 @@ fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
         !html.contains(r#"data-topbar-menu-group="templates""#),
         "stock templates should not appear as topbar group"
     );
+    if apps.iter().any(|app| app.id == "mei-tutorial") {
+        assert!(
+            html.contains(r#"href="/apps/mei-tutorial/intro""#)
+                || html.contains(r#"href="/apps/mei-tutorial/intro?"#),
+            "mei-tutorial topbar href must use default_stage intro, not home"
+        );
+        assert!(
+            html.contains(r#"data-app-id="mei-tutorial""#)
+                && html.contains(r#"data-default-stage="intro""#),
+            "mei-tutorial topbar must expose data-default-stage=intro"
+        );
+        assert!(
+            !html.contains(r#"href="/apps/mei-tutorial/home""#),
+            "mei-tutorial must not link to undeclared stage home"
+        );
+    }
 }
 
 fn ensure_mini_park_imported() -> Option<PathBuf> {

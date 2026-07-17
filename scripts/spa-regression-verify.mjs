@@ -351,8 +351,9 @@ async function main() {
     }));
     const appDocFetches = documentFetches;
     console.log("app switch:", { ...afterApp, appDocFetches });
-    if (appDocFetches > 0) fail(`app switch caused ${appDocFetches} document fetch(es)`);
-    else pass("app switch: no full page reload");
+    // 跨应用顶栏必须整页导航，才能同步 #mei-host-runtime-capabilities。
+    if (appDocFetches < 1) fail("app switch expected full page navigation (document fetch)");
+    else pass(`app switch: full page navigation (${appDocFetches} document fetch(es))`);
     if (!String(afterApp.href).includes("/apps/mini-park/")) fail(`URL not mini-park: ${afterApp.href}`);
     else pass("app switch: URL is mini-park");
     if (!afterApp.activeApps.includes("mini-park")) fail(`active app tabs=${JSON.stringify(afterApp.activeApps)}`);

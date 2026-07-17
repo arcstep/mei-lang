@@ -127,7 +127,23 @@
   }
 
   async function navigateInternal(url, replaceHistory, options) {
-    const opts = options || {};
+    void options;
+    let currentUrl = null;
+    let nextUrl = null;
+    try {
+      currentUrl = new URL(window.location.href);
+      nextUrl = new URL(url, window.location.href);
+    } catch (_) {}
+    if (
+      currentUrl &&
+      nextUrl &&
+      typeof shouldForceFullPageNavigation === "function" &&
+      shouldForceFullPageNavigation(currentUrl, nextUrl)
+    ) {
+      requestRuntimeAbort("cross_app_full_navigation", { clearCaches: true });
+      window.location.assign(nextUrl.href);
+      return;
+    }
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
@@ -139,12 +155,6 @@
     } catch (_) {}
     requestRuntimeAbort("spa_navigation", { clearCaches: false });
     closeDrilldownOverlay();
-    let currentUrl = null;
-    let nextUrl = null;
-    try {
-      currentUrl = new URL(window.location.href);
-      nextUrl = new URL(url, window.location.href);
-    } catch (_) {}
     const unifiedSurfaceSwitch =
       currentUrl &&
       nextUrl &&
@@ -247,9 +257,11 @@
             item.matches("a.app-tab, a.app-tab-sub") &&
             item.href
           ) {
+            // 跨应用顶栏：整页导航，确保 #mei-host-runtime-capabilities 与目标 app 对齐。
             event.preventDefault();
             event.stopImmediatePropagation();
-            void navigateInternal(item.href, false);
+            requestRuntimeAbort("cross_app_full_navigation", { clearCaches: true });
+            window.location.assign(item.href);
             return;
           }
         }
