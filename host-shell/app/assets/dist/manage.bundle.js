@@ -30584,7 +30584,7 @@
         appViewSurfaceSwitch = true;
         continue;
       }
-      if (item.matches("a.app-tab, a.app-tab-sub")) {
+      if (item.matches("a.app-tab, a.app-tab-sub, a.shell-nav-link")) {
         return true;
       }
       if (
@@ -30610,7 +30610,7 @@
         appViewSurfaceSwitch = true;
         continue;
       }
-      if (item.matches("a.app-tab, a.app-tab-sub")) {
+      if (item.matches("a.app-tab, a.app-tab-sub, a.shell-nav-link")) {
         return true;
       }
       if (
@@ -30645,12 +30645,20 @@
     return /^\/apps\/(?:config|upload)\//.test(String(pathname || ""));
   }
 
+  /** Host-level chrome pages that load distinct light/workspace bundles. */
+  function isHostShellChromePath(pathname) {
+    return /^(?:\/home|\/config|\/upload|\/runtime|\/mcg)\/?$/.test(String(pathname || ""));
+  }
+
   function shouldForceFullPageNavigation(currentUrl, nextUrl) {
     const current = new URL(currentUrl, window.location.href);
     const next = new URL(nextUrl, window.location.href);
     if (isConfigOrUploadPath(next.pathname)) return true;
     if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
       return true;
+    }
+    if (isHostShellChromePath(next.pathname) || isHostShellChromePath(current.pathname)) {
+      if (current.pathname !== next.pathname) return true;
     }
     // 跨应用：capabilities / bootstrap 落在 document head，SPA 只换 shell 会对不齐。
     if (typeof appIdFromAppsPathname === "function") {

@@ -57,7 +57,7 @@ pub(crate) fn config_shell(
     let data_link = upload_href(app_path, None);
     view! {
         <div class="shell shell-surface config-view-shell mei-text-primary">
-            {topbar}
+            <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
             <main class="config-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3">
                 <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
                     <strong class="mr-2 mei-text-inverse">"应用配置"</strong>
@@ -67,7 +67,7 @@ pub(crate) fn config_shell(
                 </div>
                 {ops_editor_main_view(app_path)}
             </main>
-            {statusbar}
+            <div id="mei-host-statusbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>
     }
     .into_any()

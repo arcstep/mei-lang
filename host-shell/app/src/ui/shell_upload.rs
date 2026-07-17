@@ -247,7 +247,7 @@ pub(crate) fn upload_shell(
                 aria-hidden="true"
                 inner_html=source_tree::TREE_ICONS_SPRITE_SVG
             ></div>
-            {topbar}
+            <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
             <div
                 class="workspace upload-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
                 id="workspace-root"
@@ -319,7 +319,7 @@ pub(crate) fn upload_shell(
                     </section>
                 </main>
             </div>
-            {statusbar}
+            <div id="mei-host-statusbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>
     }
     .into_any()
