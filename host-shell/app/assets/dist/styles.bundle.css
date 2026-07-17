@@ -2358,11 +2358,18 @@ body > .mei-floating-text-pop-backdrop {
 .preview-card[data-mei-panel-name="map_viewport"] {
   pointer-events: none;
 }
+.preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="playback"],
 .preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="indicator_system"],
 .preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="realtime_table"],
 .preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="map-tools-slot"],
 .preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="map_viewport"] .preview-card[data-mei-panel-name="map-tools-slot"] {
   pointer-events: auto;
+}
+/* 回放条：禁止主题 panel radius 裁切左侧级别徽章直角 */
+.preview-card[data-mei-panel-name="playback"],
+.mei-compose-section[data-preview-scope*="playback"] > .preview-card,
+.mei-compose-section[data-preview-scope*="playback"] .preview-card[data-mei-panel-name="playback"] {
+  border-radius: 0 !important;
 }
 /* T0–C 上下文浮层（layer2 内） */
 #mei-layer2-workspace > .mei-viewport-context-plane {
@@ -5212,6 +5219,12 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="playback"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="playback"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
   .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
@@ -5228,6 +5241,12 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
   .mei-compose-section[data-preview-scope*="center_rail"][data-preview-scope*="realtime_warning"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="playback"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="playback"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
   .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="indicator_system"],

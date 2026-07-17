@@ -39662,6 +39662,7 @@
     // 中栏仅上下业务 section 可点；观察窗保持透传。
     if (normalized.includes("center_rail")) {
       return (
+        normalized.includes("playback") ||
         normalized.includes("indicator_system") ||
         normalized.includes("realtime_table") ||
         normalized.includes("realtime_warning") ||
