@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arcstep/mei-lang/schemas/app.toml.json",
+  "title": "MeiLang app.toml",
+  "description": "App root unified manifest (mei-app-v1 / 0540). Product apps do not use entry.main / main.mei as the gold entry.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema id. Prefer string \"mei-app-v1\".",
+      "oneOf": [
+        { "type": "string", "const": "mei-app-v1" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    },
+    "schemaVersion": {
+      "description": "Alias of schema_version.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    },
+    "title": {
+      "type": "string",
+      "description": "Display title for the app."
+    },
+    "default_stage": {
+      "type": "string",
+      "description": "Default Stage id (usually matches a Stage MDX stage_id, e.g. home)."
+    },
+    "defaultStage": {
+      "type": "string",
+      "description": "Alias of default_stage."
+    },
+    "app_id": {
+      "type": "string",
+      "description": "Optional explicit app id; folder name under apps/ remains canonical."
+    },
+    "appId": {
+      "type": "string",
+      "description": "Alias of app_id."
+    },
+    "generation": {
+      "type": "string",
+      "description": "Build/runtime generation label (e.g. current)."
+    },
+    "data_mode_ceiling": {
+      "type": "string",
+      "description": "Data mode ceiling (e.g. static)."
+    },
+    "dataModeCeiling": {
+      "type": "string",
+      "description": "Alias of data_mode_ceiling."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Legacy display name; prefer title."
+    },
+    "displayName": {
+      "type": "string",
+      "description": "Alias of display_name."
+    },
+    "entry": {
+      "type": "object",
+      "description": "Legacy entry block. Gold apps should omit entry.main; App root is this toml + Stage MDX.",
+      "additionalProperties": true,
+      "properties": {
+        "main": {
+          "type": "string",
+          "description": "Legacy Mei entry path. Not required for gold app.toml apps."
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "upload": { "type": "string" },
+        "prototype": { "type": "string" },
+        "presentation": { "type": "string" }
+      }
+    },
+    "host": {
+      "description": "Host feature / overlay bag (JSON-compatible)."
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "aiChat": { "type": "boolean" },
+        "sceneBundle": { "type": "boolean" },
+        "accessAiExternal": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "discover": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "skip_directories": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "menu": {
+      "description": "Launch / host menu projection."
+    },
+    "runtime": {
+      "type": "object",
+      "description": "Runtime caches and warmup-related config.",
+      "additionalProperties": true
+    },
+    "ops": {
+      "type": "object",
+      "description": "Authoring ops: themes, sources, basemaps, params, fill-down gates.",
+      "additionalProperties": true,
+      "properties": {
+        "strictFillDown": { "type": "boolean" },
+        "fillDown": { "type": "boolean" },
+        "themes": { "type": "object", "additionalProperties": true },
+        "sources": { "type": "object", "additionalProperties": true },
+        "basemaps": { "type": "object", "additionalProperties": true },
+        "params": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "runtime_plan": {
+      "description": "Unified launch runtime plan (formerly launch.json runtimePlan)."
+    },
+    "runtimePlan": {
+      "description": "Alias of runtime_plan."
+    },
+    "theme": {
+      "description": "Theme projection bag."
+    },
+    "warmup": {
+      "type": "object",
+      "description": "Warmup config (hot_stages, compileScope, …).",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "apps": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}

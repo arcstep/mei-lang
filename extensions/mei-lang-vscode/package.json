@@ -1,7 +1,7 @@
 {
   "name": "mei-lang",
   "displayName": "MeiLang",
-  "description": "MeiLang (.mei) language support: TextMate highlighting and mei-lsp.",
+  "description": "MeiLang (.mei) language support: TextMate highlighting, file icon, mei-lsp, and app.toml schema.",
   "version": "2.6.1",
   "publisher": "mei-lang",
   "license": "MIT",
@@ -19,7 +19,8 @@
   "keywords": [
     "mei",
     "meilang",
-    "lsp"
+    "lsp",
+    "toml"
   ],
   "activationEvents": [
     "onLanguage:mei"
@@ -50,6 +51,14 @@
         "path": "./syntaxes/mei.tmLanguage.json"
       }
     ],
+    "tomlValidation": [
+      {
+        "fileMatch": [
+          "app.toml"
+        ],
+        "url": "./schemas/app.toml.json"
+      }
+    ],
     "configuration": {
       "title": "MeiLang",
       "properties": {
@@ -75,7 +84,8 @@
     "sync-version": "node ../../scripts/release/sync-versions.mjs --write",
     "check-version": "node ../../scripts/release/sync-versions.mjs --check",
     "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
-    "package": "npm run check-version && npm run build && vsce package"
+    "package": "npm run check-version && npm run build && vsce package",
+    "publish:ovsx": "npm run package && npx --yes ovsx publish ./mei-lang-*.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
