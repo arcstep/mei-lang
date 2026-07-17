@@ -58,6 +58,63 @@ pub(crate) fn workspace_author_knowledge_path(workspace_root: &Path) -> PathBuf 
         .join("author-runtime.json")
 }
 
+/// Soft guidance: prefer MeiLang extension over `files.associations` remaps.
+pub(crate) fn vscode_language_extension_guidance(workspace_root: &Path) -> EditorRuntimeCheck {
+    let settings_path = workspace_root.join(".vscode/settings.json");
+    let extensions_path = workspace_root.join(".vscode/extensions.json");
+    if settings_path.is_file() {
+        if let Ok(contents) = fs::read_to_string(&settings_path) {
+            if let Ok(value) = serde_json::from_str::<Value>(&contents) {
+                let assoc = value
+                    .get("files.associations")
+                    .and_then(|v| v.get("*.mei"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if matches!(assoc, "python" | "starlark") {
+                    return EditorRuntimeCheck {
+                        id: "vscode_mei_language_extension".to_string(),
+                        ok: false,
+                        path: settings_path.display().to_string(),
+                        message: format!(
+                            "files.associations maps *.mei to `{assoc}`; prefer MeiLang extension (mei-lang.mei-lang) instead of long-term remaps"
+                        ),
+                    };
+                }
+            }
+        }
+    }
+    if extensions_path.is_file() {
+        if let Ok(contents) = fs::read_to_string(&extensions_path) {
+            if let Ok(value) = serde_json::from_str::<Value>(&contents) {
+                let recommends_mei = value
+                    .get("recommendations")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|items| {
+                        items.iter().any(|item| {
+                            item.as_str()
+                                .is_some_and(|id| id == "mei-lang.mei-lang" || id.starts_with("mei-lang."))
+                        })
+                    });
+                if recommends_mei {
+                    return EditorRuntimeCheck {
+                        id: "vscode_mei_language_extension".to_string(),
+                        ok: true,
+                        path: extensions_path.display().to_string(),
+                        message: "vscode extensions.json recommends MeiLang editor extension"
+                            .to_string(),
+                    };
+                }
+            }
+        }
+    }
+    EditorRuntimeCheck {
+        id: "vscode_mei_language_extension".to_string(),
+        ok: true,
+        path: extensions_path.display().to_string(),
+        message: "prefer MeiLang extension (mei-lang.mei-lang) for .mei; scaffold --tool vscode writes .vscode/extensions.json".to_string(),
+    }
+}
+
 pub fn doctor_editor_runtime_for_workspace_root(
     package_root: &Path,
     workspace_root: &Path,
@@ -195,6 +252,7 @@ pub fn doctor_editor_runtime_for_workspace_root(
                 "missing workspace-local mei-lsp binary".to_string()
             },
         },
+        vscode_language_extension_guidance(workspace_root),
         EditorRuntimeCheck {
             id: "workspace_mei_host_web_bin".to_string(),
             ok: host_web_bin.is_file(),

@@ -36,7 +36,7 @@ fn render_mcp_json(target_root: &Path) -> Result<String> {
 fn render_cursor_rule() -> String {
     r#"---
 description: MeiLang authoring rule for source workspaces with local runtime.
-globs: ["**/*.mei", ".mei/**"]
+globs: ["**/*.mei", ".mei/**", "**/app.toml"]
 alwaysApply: false
 ---
 
@@ -44,6 +44,8 @@ alwaysApply: false
 - Treat checked-in workspace files as the source-of-truth layer, and treat `.mei/` as the installed local runtime layer.
 - Prefer `workspace bootstrap` when creating a brand new workspace; prefer `workspace runtime install` or `workspace runtime update` when the source workspace already exists.
 - Prefer the workspace-local `.mei/runtime/bin/mei-toolchain`, `.mei/runtime/bin/mei-lsp`, and `./start.sh` over sibling source checkouts or global PATH assumptions.
+- Install the MeiLang VS Code/Cursor extension (`mei-lang.mei-lang`) for language id `mei`, highlighting, and LSP. Do not long-term remap `*.mei` via `files.associations` to python/starlark.
+- For `app.toml`, install Even Better TOML (`tamasfe.even-better-toml`); MeiLang contributes the app.toml JSON Schema.
 - Prefer `mei-toolchain knowledge --surface author --include-content --json --source-root <workspace>` when you need bundled authoring docs, profile guidance, or examples.
 - Use `mei-toolchain knowledge --surface access --include-content --json --source-root <workspace>` for world-first access guidance and query-state-aware runtime questions.
 - Use `mei-toolchain check --app <app> --source-root <workspace>` for compile diagnostics.
@@ -54,12 +56,19 @@ alwaysApply: false
 
 fn render_vscode_settings() -> Result<String> {
     serde_json::to_string_pretty(&serde_json::json!({
-        "files.associations": {
-            "*.mei": "python"
-        },
         "editor.quickSuggestions": {
             "strings": true
         }
+    }))
+    .map_err(Into::into)
+}
+
+fn render_vscode_extensions() -> Result<String> {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "recommendations": [
+            "mei-lang.mei-lang",
+            "tamasfe.even-better-toml"
+        ]
     }))
     .map_err(Into::into)
 }
@@ -96,6 +105,7 @@ fn render_tool_readme(tool: &str) -> String {
     format!(
         "# MeiLang {tool} integration\n\n\
 Use the local `.mei/editor-runtime.json` as the runtime descriptor. Treat the checked-in workspace files as the source-of-truth layer, and `.mei/` as locally installed runtime output.\n\n\
+Prefer the MeiLang editor extension (`mei-lang.mei-lang`) for `.mei` language id, highlighting, and `mei-lsp`. Do not long-term remap `*.mei` with `files.associations` to python/starlark. For `app.toml`, install Even Better TOML (`tamasfe.even-better-toml`).\n\n\
 Recommended commands:\n\n\
 - `mei-toolchain workspace bootstrap --source-root <workspace> [--app <app>] --tool <tool> --json`\n\
 - `mei-toolchain workspace runtime install --source-root <workspace> --force --json`\n\
@@ -147,6 +157,11 @@ pub fn scaffold_editor_runtime_tooling(
                 files.push(write_file(
                     &target_root.join(".vscode/settings.json"),
                     &render_vscode_settings()?,
+                    force,
+                )?);
+                files.push(write_file(
+                    &target_root.join(".vscode/extensions.json"),
+                    &render_vscode_extensions()?,
                     force,
                 )?);
                 files.push(write_file(

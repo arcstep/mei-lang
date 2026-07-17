@@ -62,7 +62,7 @@ cargo run -p mei-host-shell -- auth bootstrap-users --workspace <workspace-root>
 ## 当前边界
 
 - **编辑侧**：默认交给 `Cursor / Codex / Claude Code / OpenCode` 等外部开发工具；`mei-lang` 提供 DSL、编译/lowering、宿主/runtime，以及后续可供这些工具消费的 `CLI / LSP / MCP` 接口。
-- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`）。作者态打包说明见 [`agent/knowledge/editor-runtime/language-and-editor-recognition.md`](agent/knowledge/editor-runtime/language-and-editor-recognition.md)。
+- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`；推荐配套 Even Better TOML 以校验 `app.toml`）。作者态说明见 [`agent/knowledge/editor-runtime/language-and-editor-recognition.md`](agent/knowledge/editor-runtime/language-and-editor-recognition.md)。
 - **访问侧**：`mei-lang` 宿主内置访问侧 AI，围绕当前 `scene/world/runtime` 做问答、查询、解释与临时视图。
 - **仓库内 skill / agent 相关实现**：当前仍有部分历史 authoring Agent 代码与配置表面，正在逐步从编辑侧主线退出。
 
