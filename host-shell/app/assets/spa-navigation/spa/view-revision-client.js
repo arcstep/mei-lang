@@ -483,6 +483,11 @@
       !forceRematerialize &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
+      // Structure may have materialized before eval layers arrived (deferred import /
+      // assemble race). Always rebind eval slots when layers are present.
+      if (typeof boot.previewMaterializer?.finalizeClientPreview === "function") {
+        boot.previewMaterializer.finalizeClientPreview(shell, layers, composeAxes);
+      }
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
       }

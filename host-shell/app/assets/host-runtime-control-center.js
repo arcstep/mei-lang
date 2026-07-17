@@ -237,7 +237,10 @@
       .map((app) => {
         const appId = app.appId || "—";
         const run = runningByApp[appId];
-        const isRunning = Boolean(run);
+        const phaseFromApi = run?.phase || null;
+        const isReady = phaseFromApi === "ready";
+        const isStarting = phaseFromApi === "starting";
+        const isRunning = isReady || isStarting;
         const hasLaunch = Boolean(app.hasLaunch);
         const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
         const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
@@ -255,11 +258,19 @@
         const pending = state.pendingByApp[appId] || null;
         const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
         const duration =
-          isRunning && startedAt ? formatDuration(now - startedAt) : null;
+          isReady && startedAt ? formatDuration(now - startedAt) : null;
         const phase = pending
           ? pending.kind
-          : run?.phase || (isRunning ? "ready" : "stopped");
-        let stoppedDetail = "未载入";
+          : phaseFromApi || "stopped";
+        const phaseLabel =
+          phase === "ready"
+            ? "ready"
+            : phase === "starting"
+              ? "启动中"
+              : phase === "stopped"
+                ? "已停止"
+                : phase;
+        let stoppedDetail = "未运行";
         if (!hasLaunch) stoppedDetail = "无 launch.json · 启动将自动创建";
         else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
         const overlayHint = overlayMode
@@ -268,15 +279,25 @@
         const statusBlock = pending
           ? `<div class="mei-runtime-control__status-chip is-pending">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
-               <strong>${escapeHtml(phase)}</strong>
+               <strong>${escapeHtml(phaseLabel)}</strong>
                <span>${escapeHtml(pending.label || "处理中…")}</span>
              </div>
              ${pendingProgressHtml(pending)}`
-          : isRunning
+          : isReady
           ? `<div class="mei-runtime-control__status-chip is-running">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
-               <strong>${escapeHtml(phase)}</strong>
-               <span data-runtime-uptime data-started-at="${startedAt || ""}">${escapeHtml(duration || "—")}</span>
+               <strong>${escapeHtml(phaseLabel)}</strong>
+               <span data-runtime-uptime data-started-at="${startedAt || ""}">${escapeHtml(duration ? `已运行 ${duration}` : "—")}</span>
+             </div>
+             <dl class="mei-runtime-control__status-meta">
+               <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
+               <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
+             </dl>`
+          : isStarting
+          ? `<div class="mei-runtime-control__status-chip is-pending">
+               <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
+               <strong>${escapeHtml(phaseLabel)}</strong>
+               <span>进程尚未就绪</span>
              </div>
              <dl class="mei-runtime-control__status-meta">
                <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
@@ -319,14 +340,14 @@
              <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后按 launch.json 重启">编译并重启</button>`
           : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + launch.json 启动"}">启动</button>
              <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch.json 将自动创建），再启动">编译并启动</button>`;
-        return `<article class="mei-runtime-control__app-card${isRunning ? " is-running" : ""}${pending ? " is-pending" : ""}" data-app-card="${escapeHtml(appId)}" role="listitem">
+        return `<article class="mei-runtime-control__app-card${isReady ? " is-running" : ""}${isStarting || pending ? " is-pending" : ""}" data-app-card="${escapeHtml(appId)}" role="listitem">
           <header class="mei-runtime-control__app-card-head">
             <div class="mei-runtime-control__app-card-identity">
               <h3 class="mei-runtime-control__app-card-title">${escapeHtml(app.displayName || appId)}</h3>
               <p class="mei-runtime-control__app-card-id"><code>${escapeHtml(appId)}</code></p>
             </div>
             ${
-              !pending && isRunning && phase === "ready" && app.href
+              !pending && isReady && app.href
                 ? `<a class="mei-runtime-control__enter" href="${escapeHtml(app.href)}">进入</a>`
                 : ""
             }

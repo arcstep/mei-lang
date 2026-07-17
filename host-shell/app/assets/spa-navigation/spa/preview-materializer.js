@@ -1486,6 +1486,21 @@
       };
       return frozenMountProps({ ...(mount || {}), props: normalized }, scopeKey);
     }
+    // Static metric cards bake `{label,value,unit}` into content; keep them even when
+    // allowMetric is false (dev_eval static / scoped), instead of placeholder `--`.
+    const authoredMetric =
+      rawProps.content &&
+      typeof rawProps.content === "object" &&
+      !Array.isArray(rawProps.content) &&
+      !rawProps.content.__mei_runtime_ref &&
+      !rawProps.content.shape &&
+      (rawProps.content.label != null ||
+        rawProps.content.value != null ||
+        rawProps.content.unit != null ||
+        rawProps.content.desc != null);
+    if (authoredMetric && String(mount?.use_key || "").trim() === "mei.text") {
+      return frozenMountProps(propsMount, scopeKey);
+    }
     if (isScalarMetricLeafMount(propsMount)) {
       return placeholderMountProps(propsMount, scopeKey);
     }
@@ -3499,7 +3514,15 @@
 
   function bindEvalSlots(root, evalDocs, options) {
     if (!(root instanceof HTMLElement)) return false;
-    const bindDigest = String(options?.digest || "").trim();
+    const evalSlotCount = Array.isArray(evalDocs)
+      ? evalDocs.reduce(
+          (sum, doc) => sum + Object.keys(doc?.slots || {}).length,
+          0,
+        )
+      : 0;
+    // Include slot count so a structure-only first bind (0 slots) does not skip a
+    // later bind once deferred import / layer-batch delivers eval documents.
+    const bindDigest = `${String(options?.digest || "").trim()}|slots:${evalSlotCount}`;
     if (
       bindDigest &&
       root.getAttribute("data-mei-eval-bind-digest") === bindDigest &&
@@ -3698,10 +3721,21 @@
         const ownerScope = host.closest("[data-preview-scope], [data-mei-preview-scope]");
         if (ownerScope !== el) return;
         const hostProps = parseHostProps(host);
+        const contentObj =
+          hostProps.content &&
+          typeof hostProps.content === "object" &&
+          !Array.isArray(hostProps.content)
+            ? hostProps.content
+            : null;
         const authored =
           (typeof hostProps.content === "string" && hostProps.content.trim().length > 0) ||
           (typeof hostProps.text === "string" && hostProps.text.trim().length > 0) ||
-          (typeof hostProps.html === "string" && hostProps.html.trim().length > 0);
+          (typeof hostProps.html === "string" && hostProps.html.trim().length > 0) ||
+          (contentObj &&
+            (contentObj.label != null ||
+              contentObj.value != null ||
+              contentObj.unit != null ||
+              contentObj.desc != null));
         // Authored deck/static mei.text already carries content — mark scope only,
         // never clobber light-DOM text or overwrite data-props with `--`.
         if (authored) return;
