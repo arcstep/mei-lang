@@ -858,7 +858,7 @@ async fn run_serve_control_plane(
     let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
         workspace.as_path(),
         &shell,
-        None,
+        crate::app_runtime_supervisor::BootstrapRunningPolicy::CliOwned,
     )
     .await;
     let mut state = HostHttpState::with_defaults(
@@ -1168,7 +1168,9 @@ async fn run_serve_blocking_init(
     let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
         workspace.as_path(),
         &shell,
-        auto_launch,
+        crate::app_runtime_supervisor::BootstrapRunningPolicy::RevivePersisted {
+            auto_launch_app: auto_launch.map(str::to_string),
+        },
     )
     .await;
     tokio::spawn(crate::hot_reload::run_cli_artifact_hot_reload_loop(
@@ -1306,7 +1308,9 @@ async fn run_serve_early_bind(
     let app_runtime = crate::app_runtime_supervisor::bootstrap_supervisor_for_shell(
         workspace.as_path(),
         &shell,
-        auto_launch,
+        crate::app_runtime_supervisor::BootstrapRunningPolicy::RevivePersisted {
+            auto_launch_app: auto_launch.map(str::to_string),
+        },
     )
     .await;
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);

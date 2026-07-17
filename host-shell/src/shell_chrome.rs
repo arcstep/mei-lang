@@ -5,7 +5,8 @@ use std::path::Path;
 
 use mei_host_auth::AuthEnforcement;
 use mei_host_core::{
-    read_instance_spec, read_instance_spec_for_app, read_launch_config, LaunchManifest,
+    read_instance_spec, read_instance_spec_for_app, read_launch_config, DesiredState,
+    LaunchManifest,
 };
 use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
@@ -45,11 +46,17 @@ pub fn redirect_unknown_access_stage(
     None
 }
 
+/// Apps whose active route targets a `DesiredState::Running` instance.
+/// Stale `route.active` pointing at Stopped instances are excluded (topbar / running list).
 pub fn active_running_app_ids(manifest: &LaunchManifest) -> BTreeSet<String> {
     manifest
         .routes
         .iter()
-        .filter_map(|(app_id, route)| route.active.as_ref().map(|_| app_id.clone()))
+        .filter_map(|(app_id, route)| {
+            let instance_id = route.active.as_ref()?;
+            let desired = manifest.instances.get(instance_id.as_str())?;
+            (desired.desired_state == DesiredState::Running).then(|| app_id.clone())
+        })
         .collect()
 }
 
@@ -176,6 +183,11 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
         .iter()
         .filter_map(|(app_id, route)| {
             let instance_id = route.active.as_ref()?;
+            let desired = manifest.instances.get(instance_id.as_str())?;
+            // Stopped / stale active slots must not appear as "starting" in /runtime.
+            if desired.desired_state != DesiredState::Running {
+                return None;
+            }
             let spec = read_instance_spec_for_app(workspace.as_path(), app_id)
                 .or_else(|| read_instance_spec(workspace.as_path(), instance_id.as_str()));
             let launch_id = spec.and_then(|s| s.config_snapshot.launch_config_id);
@@ -276,9 +288,13 @@ pub fn running_event_payload_with_plan(
     payload
 }
 
-/// Apps list for topbar SSR: only currently running apps (0537).
+/// Apps list for topbar SSR: only apps with a live runtime endpoint (accessible).
+/// Desired Running without endpoint (still starting) stays off the topbar.
 pub fn apps_for_topbar(shell: &ShellState) -> Vec<WorkspaceAppMeta> {
     running_enriched_apps(shell.ctx.workspace_root.as_path(), &shell.launch_manifest)
+        .into_iter()
+        .filter(|app| shell.endpoint_for_app(app.id.as_str()).is_some())
+        .collect()
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]
@@ -451,6 +467,45 @@ pub fn render_shell_chrome_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mei_host_core::{DesiredInstance, RouteBinding};
+
+    #[test]
+    fn active_running_app_ids_skips_stopped_active_slots() {
+        let mut manifest = LaunchManifest::empty();
+        manifest.instances.insert(
+            "inst-ready".into(),
+            DesiredInstance {
+                spec_ref: "sha256:a".into(),
+                desired_state: DesiredState::Running,
+            },
+        );
+        manifest.instances.insert(
+            "inst-stale".into(),
+            DesiredInstance {
+                spec_ref: "sha256:b".into(),
+                desired_state: DesiredState::Stopped,
+            },
+        );
+        manifest.routes.insert(
+            "qunfu".into(),
+            RouteBinding {
+                active: Some("inst-ready".into()),
+                candidate: None,
+                previous: None,
+            },
+        );
+        manifest.routes.insert(
+            "charts-grid".into(),
+            RouteBinding {
+                active: Some("inst-stale".into()),
+                candidate: None,
+                previous: None,
+            },
+        );
+        let running = active_running_app_ids(&manifest);
+        assert!(running.contains("qunfu"));
+        assert!(!running.contains("charts-grid"));
+    }
 
     #[test]
     fn mei_tutorial_access_href_uses_intro() {

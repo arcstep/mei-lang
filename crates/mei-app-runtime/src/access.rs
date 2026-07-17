@@ -53,20 +53,28 @@ fn fill_runtime_page_theme(html: String, workspace_root: &std::path::Path) -> St
 
 /// Host thin-shell injects scene component modules; Runtime must do the same or
 /// custom elements (`mei-text`, `mei-map-maplibre`, …) never upgrade.
+fn scene_component_assets(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Vec<mei_lang_kernel::ComponentAsset> {
+    mei_host_graph::build_runtime_plans_document(workspace_root, app_id, scene_id, "")
+        .map(|doc| doc.component_assets)
+        .unwrap_or_default()
+}
+
 fn inject_runtime_component_scripts(
     html: String,
     workspace_root: &std::path::Path,
     app_id: &str,
     scene_id: &str,
-) -> String {
-    let assets = mei_host_graph::build_runtime_plans_document(workspace_root, app_id, scene_id, "")
-        .map(|doc| doc.component_assets)
-        .unwrap_or_default();
+) -> (String, usize) {
+    let assets = scene_component_assets(workspace_root, app_id, scene_id);
     if assets.is_empty() {
-        return html;
+        return (html, 0);
     }
     let mut scripts = String::new();
-    for asset in assets {
+    for asset in &assets {
         let script = asset.script.trim();
         if script.is_empty() {
             continue;
@@ -77,9 +85,13 @@ fn inject_runtime_component_scripts(
         ));
     }
     if scripts.is_empty() {
-        return html;
+        return (html, 0);
     }
-    inject_html_before_head_close(html, scripts.as_str())
+    (inject_html_before_head_close(html, scripts.as_str()), assets.len())
+}
+
+fn cached_html_has_component_scripts(html: &str) -> bool {
+    html.contains("data-mei-component-asset=\"true\"")
 }
 
 /// Host SSR embeds `mei-host-runtime-capabilities`; without it metric/rows query stay disabled
@@ -129,23 +141,33 @@ fn finalize_access_html(
         scene_id,
         surface
     );
+    let workspace_root = state.host.workspace_root.as_path();
+    // Deferred prebuild can make APP READY before MCG import. A thin-shell HTML
+    // primed without component modules would leave mei-text unupgraded forever.
+    // Treat that cache entry as stale once component_assets become available.
     if let Ok(cache) = access_html_cache().lock() {
         if let Some(html) = cache.get(cache_key.as_str()) {
-            return html.clone();
+            let cache_ok = cached_html_has_component_scripts(html)
+                || scene_component_assets(workspace_root, app_id, scene_id).is_empty();
+            if cache_ok {
+                return html.clone();
+            }
+            tracing::info!(
+                app_id = %app_id,
+                scene_id = %scene_id,
+                "access thin-shell cache stale (missing component scripts); rebuilding"
+            );
         }
     }
     let html = thin_access_shell_document(app_id, scene_id);
-    let html = fill_runtime_page_theme(html, state.host.workspace_root.as_path());
+    let html = fill_runtime_page_theme(html, workspace_root);
     let dev_eval = mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(
         state.spec.config_snapshot.runtime_plan.clone(),
         app_id,
     )
     .client_payload();
-    let bootstrap_status = mei_host_graph::bootstrap_embed_status(
-        state.host.workspace_root.as_path(),
-        app_id,
-        scene_id,
-    );
+    let bootstrap_status =
+        mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
     let client_revision = bootstrap_status
         .allowed
         .then_some(bootstrap_status.client_revision)
@@ -159,15 +181,23 @@ fn finalize_access_html(
         client_revision.as_deref(),
     );
     let html = inject_runtime_capabilities(html, app_id);
-    let html = inject_runtime_component_scripts(
-        html,
-        state.host.workspace_root.as_path(),
-        app_id,
-        scene_id,
-    );
+    let (html, component_count) =
+        inject_runtime_component_scripts(html, workspace_root, app_id, scene_id);
     let html = fill_runtime_asset_version(html);
-    if let Ok(mut cache) = access_html_cache().lock() {
-        cache.insert(cache_key, html.clone());
+    // Only pin HTML once component scripts resolved (or scene truly has none).
+    // Otherwise every request can recover after deferred import finishes.
+    let should_cache = component_count > 0
+        || scene_component_assets(workspace_root, app_id, scene_id).is_empty();
+    if should_cache {
+        if let Ok(mut cache) = access_html_cache().lock() {
+            cache.insert(cache_key, html.clone());
+        }
+    } else {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_id,
+            "access thin-shell not cached yet — component assets unavailable (MCG/import pending?)"
+        );
     }
     html
 }

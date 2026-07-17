@@ -743,47 +743,104 @@ pub fn parse_listen_line(line: &str) -> Option<String> {
     }
 }
 
+/// How serve bootstrap treats persisted LaunchManifest Running rows.
+#[derive(Debug, Clone)]
+pub enum BootstrapRunningPolicy {
+    /// Product path (`serve` / `--app` / `--launch`): never revive disk Running set.
+    /// CLI autostart owns which apps spawn; bare serve stays control-plane only.
+    CliOwned,
+    /// Legacy in-process serve: optionally ensure one app Running, then reconcile disk.
+    RevivePersisted { auto_launch_app: Option<String> },
+}
+
 /// Load LaunchManifest from host-control, reconcile Running instances, sync ShellState.
 pub async fn bootstrap_supervisor_for_shell(
     workspace: &Path,
     shell: &crate::state::SharedState,
-    auto_launch_app: Option<&str>,
+    policy: BootstrapRunningPolicy,
 ) -> SharedAppRuntime {
-    use mei_host_core::{DesiredInstance, DesiredState, RouteBinding};
+    use mei_host_core::{DesiredInstance, DesiredState, HostControlState, RouteBinding};
 
     let mut manifest = mei_host_core::read_host_control_state(workspace)
         .map(|state| state.launch_manifest)
         .unwrap_or_else(LaunchManifest::empty);
 
-    if let Some(app_id) = auto_launch_app.map(str::trim).filter(|v| !v.is_empty()) {
-        let has_active = manifest
-            .routes
-            .get(app_id)
-            .and_then(|route| route.active.as_ref())
-            .is_some_and(|id| {
-                manifest
-                    .instances
-                    .get(id.as_str())
-                    .is_some_and(|desired| desired.desired_state == DesiredState::Running)
-            });
-        if !has_active {
-            let instance_id = format!("auto-{app_id}");
-            manifest.instances.insert(
-                instance_id.clone(),
-                DesiredInstance {
-                    spec_ref: String::new(),
-                    desired_state: DesiredState::Running,
-                },
-            );
-            manifest.routes.insert(
-                app_id.to_string(),
-                RouteBinding {
-                    active: Some(instance_id),
-                    candidate: None,
-                    previous: None,
-                },
-            );
-            manifest = manifest.with_recomputed_revision();
+    match &policy {
+        BootstrapRunningPolicy::CliOwned => {
+            let mut stopped = 0usize;
+            for desired in manifest.instances.values_mut() {
+                if desired.desired_state == DesiredState::Running {
+                    desired.desired_state = DesiredState::Stopped;
+                    stopped += 1;
+                }
+            }
+            // Also demote stale route.active → previous so topbar / overview
+            // do not treat leftover slots as running or "starting".
+            let mut cleared_routes = 0usize;
+            for route in manifest.routes.values_mut() {
+                if route.active.is_some() {
+                    route.previous = route.active.take();
+                    route.candidate = None;
+                    cleared_routes += 1;
+                }
+            }
+            if stopped > 0 || cleared_routes > 0 {
+                manifest = manifest.with_recomputed_revision();
+                let mut control = mei_host_core::read_host_control_state(workspace)
+                    .unwrap_or_else(HostControlState::empty);
+                control.launch_manifest = manifest.clone();
+                if let Err(error) = mei_host_core::write_host_control_state(workspace, &control) {
+                    tracing::warn!(
+                        %error,
+                        stopped,
+                        cleared_routes,
+                        "failed to persist cleared Running set on serve bootstrap"
+                    );
+                } else {
+                    tracing::info!(
+                        stopped,
+                        cleared_routes,
+                        "serve bootstrap cleared persisted Running apps (CLI autostart owns spawn)"
+                    );
+                }
+            }
+        }
+        BootstrapRunningPolicy::RevivePersisted { auto_launch_app } => {
+            if let Some(app_id) = auto_launch_app
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                let has_active = manifest
+                    .routes
+                    .get(app_id)
+                    .and_then(|route| route.active.as_ref())
+                    .is_some_and(|id| {
+                        manifest
+                            .instances
+                            .get(id.as_str())
+                            .is_some_and(|desired| desired.desired_state == DesiredState::Running)
+                    });
+                if !has_active {
+                    let instance_id = format!("auto-{app_id}");
+                    manifest.instances.insert(
+                        instance_id.clone(),
+                        DesiredInstance {
+                            spec_ref: String::new(),
+                            desired_state: DesiredState::Running,
+                        },
+                    );
+                    manifest.routes.insert(
+                        app_id.to_string(),
+                        RouteBinding {
+                            active: Some(instance_id),
+                            candidate: None,
+                            previous: None,
+                        },
+                    );
+                    manifest = manifest.with_recomputed_revision();
+                }
+            }
         }
     }
 
