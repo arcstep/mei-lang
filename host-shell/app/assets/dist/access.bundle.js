@@ -39028,6 +39028,11 @@
       el.setAttribute("data-mei-plane", planeCode);
       el.setAttribute("data-mei-tier", planeCode);
     }
+    // Plane 旧 structure 常无 preview_scope；用 plane code 补上，便于 layout_budget 对齐。
+    if (role === "plane" && !el.getAttribute("data-preview-scope")) {
+      const fallback = planeCode || String(node.label || "").trim();
+      if (fallback) el.setAttribute("data-preview-scope", fallback.toLowerCase());
+    }
     return stampStructureIdentity(el, node);
   }
 
@@ -40246,6 +40251,44 @@
     return Boolean(rows || cols || areas || template);
   }
 
+  /** 仅当 layout_budget 已声明 plane 网格时才告警；当前产物无 plane 条目时 inference 是正常路径。 */
+  function expectsCompiledT1Grid(planeEl) {
+    if (!(planeEl instanceof HTMLElement)) return false;
+    const manifest = global.__mei?.layout_budget_manifest?.entries;
+    if (!manifest || typeof manifest !== "object") return false;
+    const keys = [
+      String(planeEl.getAttribute("data-preview-scope") || "").trim(),
+      String(
+        planeEl.getAttribute("data-mei-plane") || planeEl.getAttribute("data-mei-tier") || "",
+      )
+        .trim()
+        .toLowerCase(),
+    ].filter(Boolean);
+    for (const key of keys) {
+      const entry = manifest[key];
+      if (!entry || typeof entry !== "object") continue;
+      if (
+        entry.grid_template_rows ||
+        entry.gridTemplateRows ||
+        entry.grid_template_columns ||
+        entry.gridTemplateColumns ||
+        entry.grid_template_areas ||
+        entry.gridTemplateAreas
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function warnMissingCompiledT1Grid(scopes) {
+    if (typeof console === "undefined" || !console.warn) return;
+    console.warn(
+      "[mei-layout] missing compiled T1 grid; falling back to scope inference",
+      scopes,
+    );
+  }
+
   function applyT1GridLayout(container, units, grid) {
     if (!(container instanceof HTMLElement) || !units.length || !grid) return;
     container.style.display = "grid";
@@ -40318,11 +40361,8 @@
       const nestedScopes = nested.map((unit) => unit.getAttribute("data-preview-scope") || "");
       const nestedGrid = inferT1PlaneGrid(nestedScopes);
       if (nestedGrid && nested.length > 1) {
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn(
-            "[mei-layout] missing compiled T1 grid; falling back to scope inference",
-            nestedScopes,
-          );
+        if (expectsCompiledT1Grid(planeEl)) {
+          warnMissingCompiledT1Grid(nestedScopes);
         }
         return { container: region, units: nested, grid: nestedGrid, authored: false };
       }
@@ -40333,11 +40373,8 @@
     );
     const multiRegionGrid = inferT1PlaneGrid(regionScopes);
     if (multiRegionGrid && layoutRegions.length > 1) {
-      if (typeof console !== "undefined" && console.warn) {
-        console.warn(
-          "[mei-layout] missing compiled T1 grid; falling back to scope inference",
-          regionScopes,
-        );
+      if (expectsCompiledT1Grid(planeEl)) {
+        warnMissingCompiledT1Grid(regionScopes);
       }
       return { container: planeEl, units: layoutRegions, grid: multiRegionGrid, authored: false };
     }
@@ -40353,11 +40390,8 @@
       );
       const sectionGrid = inferT1PlaneGrid(sectionScopes);
       if (sectionGrid && sections.length > 1) {
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn(
-            "[mei-layout] missing compiled T1 grid; falling back to scope inference",
-            sectionScopes,
-          );
+        if (expectsCompiledT1Grid(planeEl)) {
+          warnMissingCompiledT1Grid(sectionScopes);
         }
         return { container: region, units: sections, grid: sectionGrid, authored: false };
       }
@@ -40445,8 +40479,21 @@
     if (layout.grid) {
       applyT1GridLayout(layout.container, layout.units, layout.grid);
     } else if (layout.authored && layout.container instanceof HTMLElement) {
+      // Authored tracks already on the plane (layout_budget); still must place
+      // regions into named areas. home_header → header via resolveRegionGridArea.
       layout.container.style.display = "grid";
       layout.units.forEach((unit) => {
+        const scope = unit.getAttribute("data-preview-scope") || "";
+        if (isOverlayRegionScope(scope)) {
+          if (!String(unit.style.gridArea || "").trim()) {
+            unit.style.gridArea = "center_rail";
+          }
+        } else {
+          const area = resolveRegionGridArea(scope);
+          if (area && !String(unit.style.gridArea || "").trim()) {
+            unit.style.gridArea = area;
+          }
+        }
         unit.style.minHeight = "0";
         unit.style.minWidth = "0";
       });
@@ -40640,6 +40687,26 @@
     }
   }
 
+  /** region 滚动口意图：显式 overflow，或 layout_budget，或含非零 px 下界的 minmax 行轨。 */
+  function resolveRailOverflowIntent(rail) {
+    if (!(rail instanceof HTMLElement)) return "hidden";
+    const styleOv = String(rail.style.overflow || "").trim().toLowerCase();
+    if (styleOv === "auto" || styleOv === "scroll") return styleOv;
+    const scope = String(rail.getAttribute("data-preview-scope") || "").trim();
+    const budgetOv = String(
+      global.__mei?.layout_budget_manifest?.entries?.[scope]?.overflow || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (budgetOv === "auto" || budgetOv === "scroll") return budgetOv;
+    const rows = String(
+      rail.style.gridTemplateRows || rail.dataset.manifestGridRows || "",
+    ).trim();
+    // minmax(220px, 1fr) 等：min 总和可超过可视高，必须 auto 才能出现滚动条。
+    if (/minmax\(\s*\d+(?:\.\d+)?px/i.test(rows)) return "auto";
+    return "hidden";
+  }
+
   function applyRailRegionSectionLayouts(root) {
     if (!(root instanceof HTMLElement)) return;
     const tree = root.querySelector(".mei-structure-tree");
@@ -40661,7 +40728,9 @@
       }
       rail.style.minHeight = "0";
       rail.style.height = "100%";
-      rail.style.overflow = "hidden";
+      // 整栏滚动口：style / layout_budget.overflow / px-floor minmax 行轨（内容预算高于可视窗）。
+      // region.mei 的 props.overflow 不会进 structure.full；勿无 hidden 盖掉可滚意图。
+      rail.style.overflow = resolveRailOverflowIntent(rail);
       if (!rail.style.rowGap && !rail.style.gap) {
         // Cockpit StageLayoutProfile region→section default (omit-inject parity).
         rail.style.rowGap = "1px";
@@ -40791,6 +40860,11 @@
 
     wrapStructureTreeInSceneViewport(root, tree, structureDoc);
 
+    // 先打 layout_budget（含 plane/region 编译网格），再 resolve T1；否则会误报 missing compiled T1 grid。
+    if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
+      global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
+    }
+
     tree.querySelectorAll('[data-mei-ui-role="plane"], .mei-compose-plane').forEach((plane) => {
       if (!(plane instanceof HTMLElement)) return;
       applyPlaneRegionLayout(plane);
@@ -40801,6 +40875,8 @@
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
+    // budget 写入行轨后再钉一次 overflow（px-floor minmax → auto）。
+    applyRailRegionSectionLayouts(root);
     normalizeMetricCompoundSections(root);
     clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
@@ -42777,21 +42853,40 @@
       node.style.gap = gapText;
       node.dataset.manifestGap = String(gap);
     }
+    const overflow = entry.overflow;
+    if (typeof overflow === "string" && overflow.trim()) {
+      const ov = overflow.trim().toLowerCase();
+      if (ov === "auto" || ov === "scroll" || ov === "hidden" || ov === "visible") {
+        node.style.overflow = ov;
+        node.dataset.manifestOverflow = ov;
+      }
+    }
     if (Array.isArray(slotAreas) && slotAreas.length > 0) {
       const scope = String(node.getAttribute("data-preview-scope") || "").trim();
       const placedAreas = [];
       slotAreas.forEach((areaName) => {
         const area = String(areaName || "").trim();
         if (isCssNullGridArea(area)) return;
-        const child =
-          (scope
-            ? node.querySelector(`[data-preview-scope="${CSS.escape(`${scope}/${area}`)}"]`)
-            : null) ||
-          [...node.children].find((el) => {
-            if (!(el instanceof HTMLElement)) return false;
-            const childScope = String(el.getAttribute("data-preview-scope") || "");
-            return childScope === `${scope}/${area}` || childScope.endsWith(`/${area}`);
-          });
+        // Plane area "header" is often region id home_header (preview-scope t1/home_header).
+        const areaAliases =
+          area === "header" ? ["header", "home_header"] : [area];
+        let child = null;
+        for (const alias of areaAliases) {
+          child =
+            (scope
+              ? node.querySelector(
+                  `[data-preview-scope="${CSS.escape(`${scope}/${alias}`)}"]`,
+                )
+              : null) ||
+            [...node.children].find((el) => {
+              if (!(el instanceof HTMLElement)) return false;
+              const childScope = String(el.getAttribute("data-preview-scope") || "");
+              return (
+                childScope === `${scope}/${alias}` || childScope.endsWith(`/${alias}`)
+              );
+            });
+          if (child instanceof HTMLElement) break;
+        }
         if (child instanceof HTMLElement) {
           child.style.gridArea = area;
           child.dataset.manifestGridArea = area;
@@ -42810,7 +42905,13 @@
     if (!manifest?.entries || typeof manifest.entries !== "object") return;
     Object.entries(manifest.entries).forEach(([scope, entry]) => {
       if (!entry || typeof entry !== "object") return;
-      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      let node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      // Plane 旧产物可能只有 data-mei-plane、无 preview_scope。
+      if (!(node instanceof HTMLElement) && /^(t0|t1|t2)$/i.test(scope)) {
+        node = root.querySelector(
+          `[data-mei-ui-role="plane"][data-mei-plane="${CSS.escape(scope)}"], .mei-compose-plane[data-mei-plane="${CSS.escape(scope)}"]`,
+        );
+      }
       if (!(node instanceof HTMLElement)) return;
       applyPaddingBudgetToNode(node, entry);
       const sectionRows = entry.section_rows ?? entry.sectionRows;

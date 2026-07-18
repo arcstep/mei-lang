@@ -196,21 +196,40 @@
       node.style.gap = gapText;
       node.dataset.manifestGap = String(gap);
     }
+    const overflow = entry.overflow;
+    if (typeof overflow === "string" && overflow.trim()) {
+      const ov = overflow.trim().toLowerCase();
+      if (ov === "auto" || ov === "scroll" || ov === "hidden" || ov === "visible") {
+        node.style.overflow = ov;
+        node.dataset.manifestOverflow = ov;
+      }
+    }
     if (Array.isArray(slotAreas) && slotAreas.length > 0) {
       const scope = String(node.getAttribute("data-preview-scope") || "").trim();
       const placedAreas = [];
       slotAreas.forEach((areaName) => {
         const area = String(areaName || "").trim();
         if (isCssNullGridArea(area)) return;
-        const child =
-          (scope
-            ? node.querySelector(`[data-preview-scope="${CSS.escape(`${scope}/${area}`)}"]`)
-            : null) ||
-          [...node.children].find((el) => {
-            if (!(el instanceof HTMLElement)) return false;
-            const childScope = String(el.getAttribute("data-preview-scope") || "");
-            return childScope === `${scope}/${area}` || childScope.endsWith(`/${area}`);
-          });
+        // Plane area "header" is often region id home_header (preview-scope t1/home_header).
+        const areaAliases =
+          area === "header" ? ["header", "home_header"] : [area];
+        let child = null;
+        for (const alias of areaAliases) {
+          child =
+            (scope
+              ? node.querySelector(
+                  `[data-preview-scope="${CSS.escape(`${scope}/${alias}`)}"]`,
+                )
+              : null) ||
+            [...node.children].find((el) => {
+              if (!(el instanceof HTMLElement)) return false;
+              const childScope = String(el.getAttribute("data-preview-scope") || "");
+              return (
+                childScope === `${scope}/${alias}` || childScope.endsWith(`/${alias}`)
+              );
+            });
+          if (child instanceof HTMLElement) break;
+        }
         if (child instanceof HTMLElement) {
           child.style.gridArea = area;
           child.dataset.manifestGridArea = area;
@@ -229,7 +248,13 @@
     if (!manifest?.entries || typeof manifest.entries !== "object") return;
     Object.entries(manifest.entries).forEach(([scope, entry]) => {
       if (!entry || typeof entry !== "object") return;
-      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      let node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      // Plane 旧产物可能只有 data-mei-plane、无 preview_scope。
+      if (!(node instanceof HTMLElement) && /^(t0|t1|t2)$/i.test(scope)) {
+        node = root.querySelector(
+          `[data-mei-ui-role="plane"][data-mei-plane="${CSS.escape(scope)}"], .mei-compose-plane[data-mei-plane="${CSS.escape(scope)}"]`,
+        );
+      }
       if (!(node instanceof HTMLElement)) return;
       applyPaddingBudgetToNode(node, entry);
       const sectionRows = entry.section_rows ?? entry.sectionRows;
