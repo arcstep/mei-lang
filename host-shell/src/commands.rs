@@ -535,6 +535,7 @@ fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
             workspace: mei_lang_kernel::WorkspaceProfile {
                 id: Some(profile_id.to_string()),
                 label: args.label.clone(),
+                brand: Default::default(),
                 deploy_host: None,
                 default_app: args.app.clone(),
                 version: None,

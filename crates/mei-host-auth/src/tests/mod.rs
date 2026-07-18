@@ -70,5 +70,45 @@ fn super_can_access_runtime_and_copilot_routes() {
         session_exp: 0,
     };
     assert!(authorize_path("/apps/runtime/demo", &principal).is_ok());
+    assert!(authorize_path("/runtime", &principal).is_ok());
     assert!(authorize_path("/apps/copilot/demo/presentation/intro", &principal).is_ok());
+}
+
+#[test]
+fn admin_can_access_app_center_but_not_legacy_apps_runtime() {
+    use crate::{authorize_path, AuthPrincipal, AuthRole};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let principal = AuthPrincipal {
+        username: "admin".into(),
+        profile: String::new(),
+        role: AuthRole::Admin,
+        app_allowlist: BTreeSet::new(),
+        app_denylist: BTreeSet::new(),
+        scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
+    };
+    assert!(authorize_path("/runtime", &principal).is_ok());
+    assert!(authorize_path("/host/runtime", &principal).is_ok());
+    assert!(authorize_path("/config", &principal).is_ok());
+    assert!(principal.can_access_host_route_mode("runtime"));
+    assert!(authorize_path("/apps/runtime/demo", &principal).is_err());
+}
+
+#[test]
+fn guest_cannot_access_app_center() {
+    use crate::{authorize_path, AuthPrincipal, AuthRole};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let principal = AuthPrincipal {
+        username: "guest".into(),
+        profile: String::new(),
+        role: AuthRole::Guest,
+        app_allowlist: BTreeSet::new(),
+        app_denylist: BTreeSet::new(),
+        scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
+    };
+    assert!(authorize_path("/runtime", &principal).is_err());
+    assert!(!principal.can_access_host_route_mode("runtime"));
 }

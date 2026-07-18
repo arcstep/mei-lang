@@ -8,7 +8,16 @@ use mei_host_auth::{account_view_for_principal, AuthEnforcement, AuthPrincipal, 
 use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
 
 fn render_runtime_hub_body_html() -> String {
-    r#"<div class="mei-runtime-control" data-host-runtime-control-center>
+    let config_href = mei_lang_app::host_config_href(None);
+    let upload_href = mei_lang_app::host_upload_href(None, None);
+    let mcg_href = mei_lang_app::mcg_href(None);
+    format!(
+        r#"<div class="mei-runtime-control" data-host-runtime-control-center>
+  <nav class="mei-runtime-control__host-tools" aria-label="系统工具">
+    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{config_href}">配置</a>
+    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{upload_href}">上传</a>
+    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{mcg_href}">MCG</a>
+  </nav>
   <div class="mei-runtime-control__toolbar">
     <p class="mei-runtime-control__live" data-runtime-live role="status" aria-live="polite">正在载入应用…</p>
     <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-refresh-instances>刷新</button>
@@ -21,7 +30,7 @@ fn render_runtime_hub_body_html() -> String {
   </section>
   <div class="mei-runtime-cleanup-modal" data-runtime-cleanup-modal hidden></div>
 </div>"#
-    .to_string()
+    )
 }
 
 pub async fn host_runtime_hub_page(
@@ -47,6 +56,7 @@ pub async fn host_runtime_hub_page(
         auth_enabled,
         account_view.as_ref(),
     );
+    // Page title stays operational; topbar labels this surface 「应用中心」(0544).
     Html(html).into_response()
 }
 
@@ -65,9 +75,13 @@ mod tests {
             "data-runtime-live",
             "data-runtime-cleanup-modal",
             "data-runtime-refresh-instances",
+            "mei-runtime-control__host-tools",
         ] {
             assert!(html.contains(mount), "missing runtime hub mount: {mount}");
         }
+        assert!(html.contains("href=\"/config\""));
+        assert!(html.contains("href=\"/upload\""));
+        assert!(html.contains("href=\"/mcg\""));
         assert!(!html.contains("data-runtime-page-status"));
         assert!(!html.contains("运行控制中心"));
         assert!(!html.contains("工具链"));

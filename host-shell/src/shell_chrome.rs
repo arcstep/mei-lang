@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use mei_host_auth::AuthEnforcement;
+use mei_host_auth::{account_view_for_principal, AuthEnforcement, AuthPrincipal};
 use mei_host_core::{
     read_instance_spec, read_instance_spec_for_app, read_launch_config, DesiredState,
     LaunchManifest,
@@ -312,9 +312,11 @@ pub struct ShellChromeQuery {
 pub async fn api_host_shell_chrome(
     axum::extract::State(http): axum::extract::State<HostHttpState>,
     axum::extract::Query(query): axum::extract::Query<ShellChromeQuery>,
+    principal: Option<axum::extract::Extension<AuthPrincipal>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    match render_shell_chrome_payload(&http, &query) {
+    let principal_ref = principal.as_ref().map(|axum::extract::Extension(p)| p);
+    match render_shell_chrome_payload(&http, &query, principal_ref) {
         Ok(payload) => axum::Json(payload).into_response(),
         Err(error) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -338,6 +340,7 @@ fn parse_workspace_shell_nav(raw: Option<&str>) -> Option<mei_lang_app::Workspac
 pub fn render_shell_chrome_payload(
     http: &HostHttpState,
     query: &ShellChromeQuery,
+    principal: Option<&AuthPrincipal>,
 ) -> Result<Value, String> {
     let workspace = {
         let guard = http.shell.read().expect("state lock");
@@ -349,6 +352,8 @@ pub fn render_shell_chrome_payload(
     };
     let topbar_menu = load_topbar_menu_context(workspace.as_path());
     let auth_enabled = http.auth.auth_enforcement == AuthEnforcement::Required;
+    let account_view = account_view_for_principal(principal);
+    let auth_account = account_view.as_ref();
 
     let (mut topbar_html, mut statusbar_html) =
         if let Some(shell_nav) = parse_workspace_shell_nav(query.shell_nav.as_deref()) {
@@ -357,7 +362,7 @@ pub fn render_shell_chrome_payload(
                 Some(&topbar_menu),
                 shell_nav,
                 auth_enabled,
-                None,
+                auth_account,
             )
         } else {
             let app_id = query
@@ -439,7 +444,7 @@ pub fn render_shell_chrome_payload(
                 None,
                 Some(surface),
                 auth_enabled,
-                None,
+                auth_account,
                 None,
                 None,
                 chrome_hidden,

@@ -149,8 +149,9 @@ impl AuthPrincipal {
         match mode {
             "app" | "access" | "access-only" | "run" | "presentation" | "slides" | "copilot"
             | "speaker" => true,
-            "upload" | "config" => self.can_use_config_upload_surface(),
-            "build" | "manage" | "runtime" => self.can_use_build_surface(),
+            // 应用中心 `/runtime` 与配置/上传同属交付管理面（admin + super）
+            "upload" | "config" | "runtime" => self.can_use_config_upload_surface(),
+            "build" | "manage" => self.can_use_build_surface(),
             _ => false,
         }
     }

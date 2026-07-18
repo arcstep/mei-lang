@@ -13,7 +13,7 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
-use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
+use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset, workspace_brand_asset};
 use crate::build_api::{
     api_build_context_export, api_build_graph_mcg, api_build_graph_mcg_artifact,
     api_build_graph_mcg_node,
@@ -354,6 +354,7 @@ pub fn router(state: HostHttpState) -> Router {
             "/workspace-app-assets/:app_id/*path",
             get(workspace_app_asset),
         )
+        .route("/workspace-assets/*path", get(workspace_brand_asset))
         .route("/workspace-components/*path", get(component_asset))
         .with_state(state)
 }

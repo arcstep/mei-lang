@@ -191,8 +191,9 @@ mod tests {
             None,
             "",
         );
-        assert!(html.contains("app-tab") || html.contains("app-group-trigger"));
+        assert!(html.contains("data-mei-app-switcher") || html.contains("app-group-trigger"));
         assert!(html.contains("shell-nav-link"));
+        assert!(html.contains("应用中心") || html.contains("/runtime"));
         let app_toolbar = html.find("topbar-app-toolbar").expect("app toolbar region");
         let system_toolbar = html
             .find("topbar-system-toolbar")

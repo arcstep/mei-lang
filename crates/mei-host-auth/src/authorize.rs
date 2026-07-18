@@ -25,6 +25,7 @@ fn is_public_path(path: &str) -> bool {
         || path == "/favicon.ico"
         || path.starts_with("/app-assets/")
         || path.starts_with("/app-bundles/")
+        || path.starts_with("/workspace-assets/")
         || path.starts_with("/workspace-components/bundles/")
         || path == "/gis"
         || path.starts_with("/gis/")
@@ -264,16 +265,16 @@ pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> Str
 pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     let caps = principal.capabilities();
     if let Some(host_mode) = match path {
-        "/" | "/host" => Some("home"),
-        "/host/config" => Some("config"),
-        "/host/upload" => Some("upload"),
-        "/host/runtime" => Some("runtime"),
+        "/" | "/host" | "/home" => Some("home"),
+        "/host/config" | "/config" => Some("config"),
+        "/host/upload" | "/upload" => Some("upload"),
+        // 应用中心：admin + super（与 config_upload 同级交付能力）
+        "/host/runtime" | "/runtime" => Some("runtime"),
         _ => None,
     } {
         let allowed = match host_mode {
             "home" => true,
-            "config" | "upload" => caps.config_upload,
-            "runtime" => caps.build_view,
+            "config" | "upload" | "runtime" => caps.config_upload,
             _ => false,
         };
         if !allowed {
@@ -294,6 +295,7 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
             "app" | "access" | "access-only" | "run" | "presentation" | "slides" | "copilot"
             | "speaker" => caps.access_view,
             "upload" | "config" => caps.config_upload,
+            // Legacy `/apps/runtime/{app}` 仍为构建面（仅 super）；工作区应用中心见上方 `/runtime`
             "build" | "manage" | "runtime" => caps.build_view,
             _ => false,
         };

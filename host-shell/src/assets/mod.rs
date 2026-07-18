@@ -123,6 +123,62 @@ pub async fn workspace_app_asset(
     .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
 }
 
+/// Workspace-root assets for Host chrome branding (`workspace.brand.logo`).
+/// Only paths under `assets/` are served (see docs 0544).
+pub async fn workspace_brand_asset(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    AxumPath(path): AxumPath<String>,
+) -> Response {
+    use std::path::{Component, PathBuf};
+
+    let trimmed = path.trim().trim_start_matches('/');
+    if trimmed.is_empty() {
+        return asset_not_found("workspace brand asset", Path::new(trimmed));
+    }
+    let candidate = PathBuf::from(trimmed);
+    if candidate.is_absolute()
+        || candidate
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::RootDir))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            "workspace brand asset path rejected".to_string(),
+        )
+            .into_response();
+    }
+    let first = candidate.components().next().and_then(|part| match part {
+        Component::Normal(value) => Some(value.to_string_lossy()),
+        _ => None,
+    });
+    if first.as_deref() != Some("assets") {
+        return (
+            StatusCode::FORBIDDEN,
+            "workspace brand assets must live under assets/".to_string(),
+        )
+            .into_response();
+    }
+    let workspace_root = state.read().expect("state lock").ctx.workspace_root.clone();
+    let Ok(canonical_root) = workspace_root.canonicalize() else {
+        return asset_not_found("workspace brand asset", candidate.as_path());
+    };
+    let absolute = workspace_root.join(&candidate);
+    let Ok(canonical_file) = absolute.canonicalize() else {
+        return asset_not_found("workspace brand asset", absolute.as_path());
+    };
+    if !canonical_file.starts_with(&canonical_root) || !canonical_file.is_file() {
+        return asset_not_found("workspace brand asset", absolute.as_path());
+    }
+    serve_static_asset_with_cache(
+        canonical_file,
+        "workspace brand asset",
+        &headers,
+        PUBLIC_REVALIDATE_CACHE_CONTROL,
+    )
+    .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
+}
+
 pub async fn component_asset(
     State(state): State<SharedState>,
     headers: HeaderMap,
