@@ -90,8 +90,44 @@ fn inject_runtime_component_scripts(
     (inject_html_before_head_close(html, scripts.as_str()), assets.len())
 }
 
-fn cached_html_has_component_scripts(html: &str) -> bool {
-    html.contains("data-mei-component-asset=\"true\"")
+/// Cache token so a later import that adds/removes scene components (e.g. `cockpit.data-table`)
+/// cannot reuse HTML primed from an older meibundle.
+fn component_assets_cache_token(assets: &[mei_lang_kernel::ComponentAsset]) -> String {
+    let mut scripts = assets
+        .iter()
+        .map(|asset| asset.script.trim())
+        .filter(|script| !script.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    scripts.sort();
+    scripts.dedup();
+    scripts.join("|")
+}
+
+/// Stale-safe check: every current scene component script must appear in the cached HTML.
+/// A mere `data-mei-component-asset` marker is not enough — an early prime from an older
+/// bundle (without `cockpit/data-table.js`) would otherwise keep tables permanently empty.
+fn cached_html_covers_component_assets(
+    html: &str,
+    assets: &[mei_lang_kernel::ComponentAsset],
+) -> bool {
+    if assets.is_empty() {
+        return true;
+    }
+    if !html.contains("data-mei-component-asset=\"true\"") {
+        return false;
+    }
+    for asset in assets {
+        let script = asset.script.trim();
+        if script.is_empty() {
+            continue;
+        }
+        let needle = format!("/workspace-components/{script}");
+        if !html.contains(needle.as_str()) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Host SSR embeds `mei-host-runtime-capabilities`; without it metric/rows query stay disabled
@@ -134,28 +170,30 @@ fn finalize_access_html(
     scene_id: &str,
     surface: &str,
 ) -> String {
+    let workspace_root = state.host.workspace_root.as_path();
+    let assets = scene_component_assets(workspace_root, app_id, scene_id);
+    let assets_token = component_assets_cache_token(&assets);
     let cache_key = format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         state.host.workspace_root.display(),
         app_id,
         scene_id,
-        surface
+        surface,
+        assets_token
     );
-    let workspace_root = state.host.workspace_root.as_path();
     // Deferred prebuild can make APP READY before MCG import. A thin-shell HTML
-    // primed without component modules would leave mei-text unupgraded forever.
-    // Treat that cache entry as stale once component_assets become available.
+    // primed without component modules would leave custom elements unupgraded.
+    // Also reject entries that lack *current* scripts (e.g. primed from an older
+    // meibundle missing cockpit.data-table, then re-imported with the table).
     if let Ok(cache) = access_html_cache().lock() {
         if let Some(html) = cache.get(cache_key.as_str()) {
-            let cache_ok = cached_html_has_component_scripts(html)
-                || scene_component_assets(workspace_root, app_id, scene_id).is_empty();
-            if cache_ok {
+            if cached_html_covers_component_assets(html, &assets) {
                 return html.clone();
             }
             tracing::info!(
                 app_id = %app_id,
                 scene_id = %scene_id,
-                "access thin-shell cache stale (missing component scripts); rebuilding"
+                "access thin-shell cache stale (component scripts incomplete); rebuilding"
             );
         }
     }
@@ -186,8 +224,7 @@ fn finalize_access_html(
     let html = fill_runtime_asset_version(html);
     // Only pin HTML once component scripts resolved (or scene truly has none).
     // Otherwise every request can recover after deferred import finishes.
-    let should_cache = component_count > 0
-        || scene_component_assets(workspace_root, app_id, scene_id).is_empty();
+    let should_cache = component_count > 0 || assets.is_empty();
     if should_cache {
         if let Ok(mut cache) = access_html_cache().lock() {
             cache.insert(cache_key, html.clone());
@@ -409,6 +446,17 @@ pub async fn access_app_scoped_stage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mei_lang_kernel::ComponentAsset;
+
+    fn asset(key: &str, script: &str) -> ComponentAsset {
+        ComponentAsset {
+            key: key.to_string(),
+            tag: format!("mei-{key}"),
+            script: script.to_string(),
+            pack_path: String::new(),
+            preview_mei: None,
+        }
+    }
 
     #[test]
     fn thin_shell_contains_compose_host_and_envelope_hooks() {
@@ -438,5 +486,24 @@ mod tests {
         assert!(injected.contains("thin_shell"));
         assert!(!injected.contains("__MEI_HOST_ASSET_VERSION__"));
         assert!(injected.contains("/app-bundles/access.js?v="));
+    }
+
+    #[test]
+    fn cached_html_rejects_partial_component_script_set() {
+        let old_html = r#"<script type="module" src="/workspace-components/mei/text.js" data-mei-component-asset="true"></script>"#;
+        let assets = vec![
+            asset("mei.text", "mei/text.js"),
+            asset("cockpit.data-table", "cockpit/data-table.js"),
+        ];
+        assert!(!cached_html_covers_component_assets(old_html, &assets));
+        let full_html = concat!(
+            r#"<script type="module" src="/workspace-components/mei/text.js" data-mei-component-asset="true"></script>"#,
+            r#"<script type="module" src="/workspace-components/cockpit/data-table.js" data-mei-component-asset="true"></script>"#,
+        );
+        assert!(cached_html_covers_component_assets(full_html, &assets));
+        assert_eq!(
+            component_assets_cache_token(&assets),
+            "cockpit/data-table.js|mei/text.js"
+        );
     }
 }
