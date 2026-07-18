@@ -53,6 +53,7 @@ import {
   applyFocusFrameGuide,
 } from "../../cockpit/map-focus-inset.js";
 import { ensureMapLibreGlobal } from "../../vendor/runtime-libs.js";
+import { createMapHeroLayerController, MAP_HERO_LAYER_ID } from "./map-hero-layer.js";
 
 const TAG = "mei-map-maplibre";
 const MAPLIBRE_LOCAL_CSS = "/workspace-components/vendor/maplibre/maplibre-gl.css";
@@ -341,6 +342,7 @@ if (!customElements.get(TAG)) {
         this._onWorldStageEntered = null;
       }
       this.restoreCockpitMapToolsLayer();
+      this.disposeMapHeroLayer();
       if (this.map) {
         this.map.remove();
         this.map = null;
@@ -374,6 +376,8 @@ if (!customElements.get(TAG)) {
       this._syncLayersTask = null;
       this._layerMetricsTask = null;
       this._layerControlOpen = this._layerControlOpen === true;
+      this._mapHeroController = this._mapHeroController || null;
+      this._heroHiddenExtrusions = this._heroHiddenExtrusions || new Set();
       this.refresh = () => this.scheduleRefresh();
       this._onManageTabChange = () => this.scheduleRefresh();
       this._onPageShow = () => this.scheduleRefresh();
@@ -709,6 +713,7 @@ if (!customElements.get(TAG)) {
       this._portaledLayerControl = null;
       this.bindLayerToggleEvents();
       if (this.map) {
+        this.disposeMapHeroLayer();
         this.map.remove();
         this.map = null;
         this._mapStyleReady = false;
@@ -873,6 +878,7 @@ if (!customElements.get(TAG)) {
           this.restoreCockpitMapToolsLayer();
           this.detachLayerToggleFromMap();
           this._mapPausedForWorldStage = false;
+          this.disposeMapHeroLayer();
           this.map.remove();
           this.map = null;
         }
@@ -920,6 +926,7 @@ if (!customElements.get(TAG)) {
             }
             const { layers: syncLayerList } = normalizeMapSpec(syncProps, this);
             await this.syncLayers(syncLayerList, syncProps);
+            await this.ensureMapHeroLayer(syncProps);
             this._renderTrace?.mark("sync_layers_done", {
               layer_count: syncLayerList.length,
             });
@@ -1006,9 +1013,101 @@ if (!customElements.get(TAG)) {
         if (!this.map) return;
         this._layerRegistry = nextRegistry;
         this.renderLayerControl(layers, props);
+        this.applyHeroExtrusionMutex(this._mapHeroController?.getActiveEntityIds?.() || []);
+        // Keep basemap labels under fill-extrusion / L4 so 3D mass can cover text.
+        this.placeBasemapLabelsUnder3d();
       };
       this._syncLayersTask = (this._syncLayersTask || Promise.resolve()).then(task);
       return this._syncLayersTask;
+    }
+
+    disposeMapHeroLayer() {
+      if (this._mapHeroController) {
+        try {
+          this._mapHeroController.dispose();
+        } catch (_) {
+          /* ignore */
+        }
+        this._mapHeroController = null;
+      }
+      this.applyHeroExtrusionMutex([]);
+    }
+
+    async ensureMapHeroLayer(props = parseProps(this)) {
+      if (!this.map || !this._mapStyleReady) return;
+      const worldRef = resolveWorldRef(props, this);
+      if (!this._mapHeroController) {
+        this._mapHeroController = createMapHeroLayerController({
+          getWorldRef: () => resolveWorldRef(parseProps(this), this),
+          onActiveHeroesChange: (ids) => this.applyHeroExtrusionMutex(ids),
+          onHeroClick: (meta) => this.handleMapHeroClick(meta),
+        });
+      }
+      if (!this.map.getLayer(MAP_HERO_LAYER_ID)) {
+        try {
+          this.map.addLayer(this._mapHeroController.customLayer);
+        } catch (error) {
+          console.warn("[mei-map-maplibre] failed to add map hero layer", error);
+          return;
+        }
+      }
+      await this._mapHeroController.rebuild();
+      this.placeBasemapLabelsUnder3d();
+      void worldRef;
+    }
+
+    applyHeroExtrusionMutex(activeEntityIds = []) {
+      if (!this.map) return;
+      const next = new Set(
+        (Array.isArray(activeEntityIds) ? activeEntityIds : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      );
+      const prev = this._heroHiddenExtrusions || new Set();
+      for (const entityId of prev) {
+        if (next.has(entityId)) continue;
+        const extrusionId = `extrude-${entityId}`;
+        if (this.map.getLayer(extrusionId)) {
+          const layerVisible = this._layerVisibility?.[entityId] !== false;
+          this.map.setLayoutProperty(extrusionId, "visibility", layerVisible ? "visible" : "none");
+        }
+      }
+      for (const entityId of next) {
+        const extrusionId = `extrude-${entityId}`;
+        if (this.map.getLayer(extrusionId)) {
+          this.map.setLayoutProperty(extrusionId, "visibility", "none");
+        }
+      }
+      this._heroHiddenExtrusions = next;
+    }
+
+    handleMapHeroClick(meta = {}) {
+      const entityId = String(meta.entityId || "").trim();
+      if (!entityId) return;
+      const props = parseProps(this);
+      const enterViewpoint = String(meta.worldEnterViewpoint || "").trim();
+      const worldEnterable = meta.worldEnterable === true || Boolean(enterViewpoint);
+      if (!worldEnterable) return;
+      const enterLabel = String(meta.worldEnterLabel || meta.label || entityId).trim();
+      const viewpointEntry = enterViewpoint ? readPresentationViewpointEntry(enterViewpoint) : null;
+      window.dispatchEvent(
+        new CustomEvent("mei:map-world-enter-request", {
+          detail: {
+            entityId,
+            layerId: entityId,
+            worldEnterLabel: enterLabel,
+            enterViewpoint,
+            viewpoint: enterViewpoint,
+            worldRef: String(meta.worldRef || resolveWorldRef(props, this) || "").trim(),
+            cameraPreset: String(
+              viewpointEntry?.cameraPreset || viewpointEntry?.camera_preset || "",
+            ).trim(),
+            groupId: String(viewpointEntry?.groupId || viewpointEntry?.group_id || "").trim(),
+            panelId: "world_viewport",
+            source: "map_hero",
+          },
+        }),
+      );
     }
 
     renderLayerControl(layers, props) {
@@ -2190,18 +2289,64 @@ if (!customElements.get(TAG)) {
       return `<div class="popup-wrap">${rows.join("")}${actionsHtml}</div>`;
     }
 
+    /**
+     * First style layer that should paint over basemap labels for approximate
+     * 3D occlusion (painter's algorithm — not true depth testing).
+     */
+    firstOccluding3dLayerId() {
+      if (!this.map?.getStyle) return undefined;
+      const layers = this.map.getStyle()?.layers;
+      if (!Array.isArray(layers)) return undefined;
+      for (const layer of layers) {
+        if (!layer?.id) continue;
+        if (layer.type === "fill-extrusion") return layer.id;
+        if (layer.id === MAP_HERO_LAYER_ID) return layer.id;
+      }
+      return undefined;
+    }
+
+    /**
+     * Move mei-label-* under the first fill-extrusion / L4 custom layer so
+     * extruded / hero buildings can cover road & POI text where they overlap.
+     */
+    placeBasemapLabelsUnder3d() {
+      if (!this.map?.moveLayer) return;
+      const beforeId = this.firstOccluding3dLayerId();
+      if (!beforeId || !this.map.getLayer(beforeId)) return;
+      const styleLayers = this.map.getStyle()?.layers || [];
+      const labelIds = styleLayers
+        .map((layer) => layer?.id)
+        .filter((id) => typeof id === "string" && id.startsWith("mei-label-"));
+      for (const id of labelIds) {
+        if (id === beforeId) continue;
+        try {
+          if (this.map.getLayer(id)) {
+            this.map.moveLayer(id, beforeId);
+          }
+        } catch {
+          /* layer may have been removed mid-sync */
+        }
+      }
+    }
+
     ensureBasemapLabels(basemap) {
       const showLabels = basemap.showLabels !== false && basemap.show_labels !== false;
       if (!showLabels || !this.map) return;
+      const beforeId = this.firstOccluding3dLayerId();
       for (const layer of basemapLabelLayers(basemap)) {
         try {
           if (!this.map.getLayer(layer.id)) {
-            this.map.addLayer(layer);
+            if (beforeId && this.map.getLayer(beforeId)) {
+              this.map.addLayer(layer, beforeId);
+            } else {
+              this.map.addLayer(layer);
+            }
           }
         } catch {
           /* 部分 MBTiles 可能缺少对应 source-layer */
         }
       }
+      this.placeBasemapLabelsUnder3d();
     }
 
     scheduleBasemapLabels(basemap) {

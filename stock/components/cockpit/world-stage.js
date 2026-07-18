@@ -1420,6 +1420,31 @@ class MeiWorldStage extends HTMLElement {
       const thickness = Number(
         prim.thickness ?? worldView.thickness ?? profile.wallThickness ?? 0.12,
       );
+      const parentId = String(prim.parent || "").trim();
+      const parentPrim = (this._worldPlan?.primitives || []).find(
+        (item) => String(item?.id || "") === parentId,
+      );
+      const parentElevation =
+        String(parentPrim?.kind || "") === "floor"
+          ? Number(
+              parentPrim.elevation ??
+                parentPrim.worldView?.elevation ??
+                parentPrim.world_view?.elevation ??
+                0,
+            )
+          : 0;
+      // lift = 相对父 floor 的抬升；未挂 floor 时可用 elevation 作绝对基高
+      const relativeLift = Number(worldView.lift ?? worldView.elevationOffset ?? 0);
+      const absoluteBase = worldView.elevation;
+      const baseElevation =
+        String(parentPrim?.kind || "") === "floor"
+          ? parentElevation + relativeLift
+          : Number(
+              absoluteBase ??
+                worldView.baseElevation ??
+                parentElevation + relativeLift ??
+                0,
+            );
       const wallMaterial = new THREE.MeshStandardMaterial({
         color: parseHexColor(material.color, 0xf5f0e6),
         transparent: true,
@@ -1428,10 +1453,10 @@ class MeiWorldStage extends HTMLElement {
       });
       const { center, halfW, halfD } = envelope;
       const wallSpecs = [
-        [center.x, wallHeight / 2, center.z - halfD, halfW * 2, wallHeight, thickness],
-        [center.x, wallHeight / 2, center.z + halfD, halfW * 2, wallHeight, thickness],
-        [center.x - halfW, wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
-        [center.x + halfW, wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
+        [center.x, baseElevation + wallHeight / 2, center.z - halfD, halfW * 2, wallHeight, thickness],
+        [center.x, baseElevation + wallHeight / 2, center.z + halfD, halfW * 2, wallHeight, thickness],
+        [center.x - halfW, baseElevation + wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
+        [center.x + halfW, baseElevation + wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
       ];
       wallSpecs.forEach((spec, index) => {
         const [x, y, z, w, h, d] = spec;
