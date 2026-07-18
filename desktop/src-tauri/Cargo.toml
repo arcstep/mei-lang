@@ -1,6 +1,6 @@
 [package]
 name = "mei-desktop-viewer"
-version = "2.6.10"
+version = "2.6.11"
 description = "Mei Viewer Tauri shell"
 authors = ["MeiLang"]
 edition = "2021"
