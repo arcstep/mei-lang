@@ -11,5 +11,5 @@ pub use ui::{
     scene_drilldown_context_json_for_host_ssr, scene_theme_style_for_theme_id,
     scene_viewport_theme_style, shell_body_theme_style, BuildPreviewFragment, HostAccountView,
     HostCapabilities, PreviewRuntimeContext, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext,
-    UiRouteMode, UploadFileEntry, WorkspaceShellNav,
+    UiRouteMode, UploadFileEntry, WorkspaceShellNav, host_config_href, host_upload_href, mcg_href,
 };

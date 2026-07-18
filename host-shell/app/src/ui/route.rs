@@ -76,7 +76,7 @@ impl UiRouteMode {
             Self::Run | Self::Copilot => "演说",
             Self::Config => "配置",
             Self::Upload => "上传",
-            Self::Runtime => "运行",
+            Self::Runtime => "应用中心",
         }
     }
 
@@ -182,7 +182,7 @@ mod tests {
     fn product_label_maps_to_ia_names() {
         assert_eq!(UiRouteMode::App.product_label(), "应用");
         assert_eq!(UiRouteMode::Layout.product_label(), "布局");
-        assert_eq!(UiRouteMode::Runtime.product_label(), "运行");
+        assert_eq!(UiRouteMode::Runtime.product_label(), "应用中心");
         assert_eq!(UiRouteMode::Upload.product_label(), "上传");
         assert_eq!(UiRouteMode::Run.product_label(), "演说");
     }

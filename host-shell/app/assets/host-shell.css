@@ -704,6 +704,14 @@
   min-width: 0;
 }
 
+.mei-runtime-control__host-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .mei-runtime-control__toolbar .mei-runtime-control__live {
   flex: 1;
   min-width: 0;

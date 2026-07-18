@@ -3,18 +3,17 @@ use mei_lang_kernel::{
     is_stage_registry_candidate, resolve_default_scene_from_root, CompiledSceneRoute,
     WorkspaceAppMeta,
 };
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_scene_href, cross_app_href, home_href, host_config_href, host_runtime_href,
-    host_upload_href, mcg_href,
+    app_scene_href, cross_app_href, home_href, host_runtime_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
 use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
+use crate::ui::topbar::menus::{DEFAULT_BRAND_LOGO_HREF, DEFAULT_BRAND_TITLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellNavActive {
@@ -52,6 +51,33 @@ fn app_menu_link_mode(route_mode: UiRouteMode, active_app_path: &str) -> UiRoute
     }
 }
 
+fn show_app_center(auth_enabled: bool, auth_account: Option<&HostAccountView>) -> bool {
+    if !auth_enabled {
+        return true;
+    }
+    let Some(account) = auth_account.filter(|item| item.logged_in) else {
+        return false;
+    };
+    // 应用中心：admin + super（config_upload）；与 /runtime 路由鉴权对齐
+    account.capabilities.config_upload
+}
+
+fn show_app_admin(
+    has_app_context: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+) -> bool {
+    if !has_app_context {
+        return false;
+    }
+    if !auth_enabled {
+        return true;
+    }
+    auth_account
+        .filter(|item| item.logged_in)
+        .is_some_and(|item| item.capabilities.config_upload)
+}
+
 pub(crate) fn topbar_view(
     apps: &[WorkspaceAppMeta],
     active_app_path: &str,
@@ -87,149 +113,62 @@ pub(crate) fn topbar_view(
                 .find(|app| app.id.as_str() == active_app_path)
                 .map(|app| app.title.clone())
         })
-        .unwrap_or_else(|| active_app_path.to_string());
-    let workspace_label = topbar_menu
-        .and_then(|menu| menu.workspace_label.as_deref())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("工作区");
-    let breadcrumb_root_label = workspace_label;
-    let app_tabs = menu_groups
-        .into_iter()
-        .map(|group| {
-            let group_id = group.id.clone();
-            let group_label = group.label.clone();
-            let group_has_active = group
-                .items
-                .iter()
-                .any(|item| menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack));
-            let trigger_class = if group_has_active {
-                "app-group-trigger is-active"
+        .filter(|label| !label.trim().is_empty())
+        .unwrap_or_else(|| {
+            if has_app_context {
+                active_app_path.to_string()
             } else {
-                "app-group-trigger"
-            };
-            let mut direct_items = Vec::new();
-            let mut subgroup_items: BTreeMap<String, Vec<_>> = BTreeMap::new();
-            for item in &group.items {
-                if let Some(subgroup) = &item.subgroup {
-                    subgroup_items
-                        .entry(subgroup.clone())
-                        .or_default()
-                        .push(item.clone());
-                } else {
-                    direct_items.push(item.clone());
-                }
+                "选择应用".to_string()
             }
-            let is_stock_pack_group = group_id == "components" || group_id == "templates";
-            let is_single_top_level_tab = !is_stock_pack_group
-                && direct_items.len() == 1
-                && subgroup_items.is_empty();
-            if is_single_top_level_tab {
-                let item = &direct_items[0];
-                let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
-                    "app-tab active"
-                } else {
-                    "app-tab"
-                };
-                let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
-                return view! {
-                    <a
-                        class=class
-                        href=href
-                        data-app-id=item.app_id.clone()
-                        data-default-stage=default_stage
-                        data-topbar-menu-group=group_id.clone()
-                    >
-                        {item.label.clone()}
-                    </a>
-                }
-                .into_any();
-            }
-            let direct_links = direct_items
-                .iter()
-                .map(|item| {
-                    let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
-                        "app-tab app-tab-sub active"
-                    } else {
-                        "app-tab app-tab-sub"
-                    };
-                    let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
-                    view! {
-                        <a
-                            class=class
-                            href=href
-                            data-app-id=item.app_id.clone()
-                            data-default-stage=default_stage
-                        >
-                            {item.label.clone()}
-                        </a>
-                    }
-                })
-                .collect_view();
-            let subgroup_blocks = subgroup_items
-                .into_iter()
-                .map(|(subgroup, items)| {
-                    let links = items
-                        .iter()
-                        .map(|item| {
-                            let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
-                                "app-tab app-tab-sub active"
-                            } else {
-                                "app-tab app-tab-sub"
-                            };
-                            let (href, default_stage) = cross_app_menu_href(apps, menu_link_mode, item);
-                            view! {
-                                <a
-                                    class=class
-                                    href=href
-                                    data-app-id=item.app_id.clone()
-                                    data-default-stage=default_stage
-                                >
-                                    {item.label.clone()}
-                                </a>
-                            }
-                        })
-                        .collect_view();
-                    view! {
-                        <section class="app-subgroup">
-                            <h4 class="app-subgroup-title">{subgroup}</h4>
-                            <div class="app-subgroup-items">{links}</div>
-                        </section>
-                    }
-                })
-                .collect_view();
-            view! {
-                <details
-                    class="app-group-dropdown"
-                    data-topbar-menu-group=group_id.clone()
-                >
-                    <summary class=trigger_class>
-                        {group_label}
-                    </summary>
-                    <div class="app-group-menu">
-                        {direct_links}
-                        {subgroup_blocks}
-                    </div>
-                </details>
-            }
-            .into_any()
-        })
-        .collect_view();
-    let breadcrumb_aria = format!("当前应用：{breadcrumb_root_label} / {active_app_label}");
-    let active_item_breadcrumb = if !has_app_context {
+        });
+
+    let brand_title = topbar_menu
+        .and_then(|menu| menu.brand_title.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_BRAND_TITLE)
+        .to_string();
+    let brand_logo_href = topbar_menu
+        .and_then(|menu| menu.brand_logo_href.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_BRAND_LOGO_HREF)
+        .to_string();
+    let brand_aria = format!("返回首页 · {brand_title}");
+    let brand_title_view = brand_title.clone();
+    let brand_logo_view = brand_logo_href.clone();
+
+    let app_switcher = app_switcher_view(
+        apps,
+        active_app_path,
+        active_app_label.as_str(),
+        menu_link_mode,
+        active_catalog,
+        active_stock_pack,
+    );
+    // 0543 Registry not wired yet: empty strip does not render separator or chips.
+    let admin_items: &[AdminStripItem] = &[];
+    let app_admin = if show_app_admin(has_app_context, auth_enabled, auth_account) {
+        app_admin_strip_view(admin_items, None)
+    } else {
+        view! { <></> }.into_any()
+    };
+    let app_view_tabs = if !has_app_context {
         view! { <></> }.into_any()
     } else {
-        view! {
-        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
-            <span class="app-current-path-prefix shrink-0 mei-text-muted">{"应用："}</span>
-            <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
-                <span class="app-current-path-workspace shrink-0 mei-text-muted">{breadcrumb_root_label}</span>
-                <span class="app-current-path-separator shrink-0 mei-text-muted/70" aria-hidden="true">"/"</span>
-                <span class="app-current-path-item min-w-0 overflow-hidden text-ellipsis mei-text-primary">{active_app_label}</span>
-            </span>
-        </div>
-    }
-    .into_any()
+        stage_strip_view(
+            active_app_path,
+            access_scene_for_href,
+            access_stage_routes,
+            active_tab,
+        )
     };
+    let launch_title = if access_disabled {
+        "当前没有可独立打开的 Stage".to_string()
+    } else {
+        "独立打开当前 Stage".to_string()
+    };
+    let launch_aria_label = launch_title.clone();
     let standalone_app_href = if access_disabled || !has_app_context {
         "#".to_string()
     } else {
@@ -242,23 +181,6 @@ pub(crate) fn topbar_view(
             None,
         )
     };
-    let app_view_tabs = if !has_app_context {
-        view! { <></> }.into_any()
-    } else {
-        // Access 顶栏只保留舞台切换；开发态 surface（应用/布局/原型）不再占入口。
-        stage_switcher_view(
-            active_app_path,
-            access_scene_for_href,
-            access_stage_routes,
-            active_tab,
-        )
-    };
-    let launch_title = if access_disabled {
-        "当前没有可独立打开的 scene route".to_string()
-    } else {
-        "独立打开（新标签页，无 shell）".to_string()
-    };
-    let launch_aria_label = launch_title.clone();
     let standalone_launch = if !has_app_context {
         view! { <></> }.into_any()
     } else {
@@ -285,7 +207,11 @@ pub(crate) fn topbar_view(
         }
         .into_any()
     };
-    let system_toolbar = shell_nav_view(shell_nav_active);
+    let system_toolbar = shell_nav_view(
+        shell_nav_active,
+        auth_enabled,
+        auth_account,
+    );
     let account_view = if auth_enabled {
         if let Some(account) = auth_account.filter(|item| item.logged_in) {
             let display = if account.profile.trim().is_empty() {
@@ -330,29 +256,34 @@ pub(crate) fn topbar_view(
     } else {
         "topbar-app-context"
     };
+    let brand_home = home_href();
     view! {
         <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 flex items-center gap-2 py-1.5 backdrop-blur-md">
-            <div class="brand flex shrink-0 items-center gap-2">
+            <a
+                class="brand flex shrink-0 items-center gap-2"
+                href=brand_home
+                aria-label=brand_aria
+            >
                 <div class="brand-title-row flex min-w-0 items-center gap-2">
                     <img
                         class="brand-mark block h-[18px] w-[18px] shrink-0"
-                        src="/app-assets/favicon.svg"
+                        src=brand_logo_view
                         width="18"
                         height="18"
                         alt=""
                         aria-hidden="true"
                     />
-                    <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
+                    <strong class="topbar-brand-title mei-font-2 mei-text-inverse">{brand_title_view}</strong>
                 </div>
-            </div>
+            </a>
             <div class=app_context_class>
                 <div
                     class="topbar-app-toolbar flex min-w-0 items-center gap-1 overflow-x-auto"
                     aria-label="应用工具栏"
                 >
-                    <div class="app-tabs-groups flex min-w-0 shrink-0 flex-nowrap items-center gap-1">{app_tabs}</div>
-                    {active_item_breadcrumb}
+                    {app_switcher}
                     {app_view_tabs}
+                    {app_admin}
                     {standalone_launch}
                 </div>
             </div>
@@ -366,6 +297,127 @@ pub(crate) fn topbar_view(
                 </div>
             </div>
         </header>
+    }
+    .into_any()
+}
+
+fn app_switcher_view(
+    apps: &[WorkspaceAppMeta],
+    active_app_path: &str,
+    active_app_label: &str,
+    menu_link_mode: UiRouteMode,
+    active_catalog: Option<&str>,
+    active_stock_pack: Option<&str>,
+) -> AnyView {
+    let trigger_label = active_app_label.to_string();
+    let trigger_class = if !active_app_path.trim().is_empty() {
+        "app-group-trigger is-active"
+    } else {
+        "app-group-trigger"
+    };
+    let items = apps
+        .iter()
+        .map(|app| {
+            let stage = default_stage_for_app(apps, app.id.as_str());
+            let href = cross_app_href(
+                menu_link_mode,
+                app.id.as_str(),
+                active_catalog,
+                active_stock_pack,
+                Some(stage.as_str()),
+            );
+            let item_class = if app.id.as_str() == active_app_path {
+                "app-menu-item is-active"
+            } else {
+                "app-menu-item"
+            };
+            let label = app.title.clone();
+            let app_id = app.id.clone();
+            view! {
+                <a
+                    class=item_class
+                    href=href
+                    data-app-id=app_id.clone()
+                    data-default-stage=stage
+                    data-mei-app-switcher-item="1"
+                >
+                    <span class="app-menu-item-label">{label}</span>
+                </a>
+            }
+        })
+        .collect_view();
+    let empty = if apps.is_empty() {
+        view! {
+            <p class="app-menu-empty mei-font-1 mei-text-muted px-2 py-1">
+                "暂无已启动应用"
+            </p>
+        }
+        .into_any()
+    } else {
+        view! { <></> }.into_any()
+    };
+    view! {
+        <div class="app-switcher inline-flex shrink-0 items-center" data-mei-app-switcher="1">
+            <details class="app-group-dropdown">
+                <summary class=trigger_class>
+                    <span class="mode-label">{trigger_label}</span>
+                </summary>
+                <div class="app-group-menu" role="menu" aria-label="应用">
+                    {empty}
+                    {items}
+                </div>
+            </details>
+        </div>
+    }
+    .into_any()
+}
+
+/// Future 0543 admin strip entry. Empty slice → strip not rendered.
+#[derive(Debug, Clone)]
+struct AdminStripItem {
+    id: String,
+    label: String,
+    href: String,
+}
+
+fn app_admin_strip_view(items: &[AdminStripItem], active_id: Option<&str>) -> AnyView {
+    if items.is_empty() {
+        return view! { <></> }.into_any();
+    }
+    let active = active_id.map(str::trim).unwrap_or("");
+    let chips = items
+        .iter()
+        .map(|item| {
+            let class = if !active.is_empty() && item.id.as_str() == active {
+                "topbar-chip is-active"
+            } else {
+                "topbar-chip"
+            };
+            let href = item.href.clone();
+            let label = item.label.clone();
+            let id = item.id.clone();
+            view! {
+                <a
+                    class=class
+                    href=href
+                    data-mei-admin-item=id
+                >
+                    <span class="mode-label">{label}</span>
+                </a>
+            }
+        })
+        .collect_view();
+    view! {
+        <div class="topbar-admin-cluster inline-flex min-w-0 shrink items-center gap-1">
+            <span class="topbar-context-sep" aria-hidden="true">"|"</span>
+            <nav
+                class="admin-strip topbar-chip-strip inline-flex min-w-0 items-center gap-1"
+                data-mei-admin-strip="1"
+                aria-label="应用管理"
+            >
+                {chips}
+            </nav>
+        </div>
     }
     .into_any()
 }
@@ -394,7 +446,7 @@ fn is_top_level_stage_route(route: &CompiledSceneRoute) -> bool {
     is_stage_registry_candidate(route)
 }
 
-fn stage_switcher_view(
+fn stage_strip_view(
     active_app_path: &str,
     current_scene: Option<&str>,
     access_stage_routes: Option<&[CompiledSceneRoute]>,
@@ -417,28 +469,11 @@ fn stage_switcher_view(
         .find(|route| route.scene_id == current)
         .or_else(|| stages.iter().copied().find(|route| route.is_default))
         .unwrap_or(stages[0]);
-    let trigger_label = stage_route_label(current_route);
-    // 仅一个舞台：直接显示名称，无下拉
-    if stages.len() == 1 {
-        return view! {
-            <div class="mode-tabs stage-switcher inline-flex shrink-0 items-center" data-mei-stage-switcher="1">
-                <span class="mode-tab-btn is-active" data-mei-stage-current=current_route.scene_id.clone()>
-                    <span class="mode-label">{trigger_label}</span>
-                </span>
-            </div>
-        }
-        .into_any();
-    }
-    let items = stages
+    let chips = stages
         .iter()
         .map(|route| {
             let scene_id = route.scene_id.clone();
             let item_label = stage_route_label(route);
-            let kind_hint = if is_presentation_stage_route(route) {
-                "演说"
-            } else {
-                "场景"
-            };
             let surface = if is_presentation_stage_route(route) {
                 "paged"
             } else {
@@ -458,9 +493,9 @@ fn stage_switcher_view(
                 None,
             );
             let item_class = if scene_id == current_route.scene_id {
-                "app-menu-item is-active"
+                "topbar-chip is-active"
             } else {
-                "app-menu-item"
+                "topbar-chip"
             };
             view! {
                 <a
@@ -472,42 +507,40 @@ fn stage_switcher_view(
                     data-mei-stage-profile=profile
                     data-mei-stage-surface=surface
                 >
-                    <span class="app-menu-item-label">{item_label}</span>
-                    <span class="app-menu-item-meta mei-text-muted mei-font-1">{kind_hint}</span>
+                    <span class="mode-label">{item_label}</span>
                 </a>
             }
         })
         .collect_view();
     view! {
-        <div class="mode-tabs stage-switcher inline-flex shrink-0 items-center" data-mei-stage-switcher="1">
-            <details class="app-group-dropdown">
-                <summary class="app-group-trigger is-active">
-                    <span class="mode-label">{trigger_label}</span>
-                </summary>
-                <div class="app-group-menu" role="menu" aria-label="舞台">
-                    {items}
-                </div>
-            </details>
-        </div>
+        <nav
+            class="stage-strip topbar-chip-strip mode-tabs stage-switcher inline-flex min-w-0 items-center gap-1"
+            data-mei-stage-strip="1"
+            data-mei-stage-switcher="1"
+            aria-label="舞台"
+        >
+            {chips}
+        </nav>
     }
     .into_any()
 }
 
-fn shell_nav_view(active: Option<ShellNavActive>) -> AnyView {
-    let nav_class = |item: ShellNavActive| {
-        if active == Some(item) {
-            "shell-nav-link is-active"
-        } else {
-            "shell-nav-link"
-        }
+fn shell_nav_view(
+    active: Option<ShellNavActive>,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+) -> AnyView {
+    if !show_app_center(auth_enabled, auth_account) {
+        return view! { <></> }.into_any();
+    }
+    let class = if active == Some(ShellNavActive::Runtime) {
+        "shell-nav-link is-active"
+    } else {
+        "shell-nav-link"
     };
     view! {
         <div class="shell-nav inline-flex shrink-0 items-center gap-1" aria-label="系统">
-            <a class=nav_class(ShellNavActive::Home) href=home_href()>"首页"</a>
-            <a class=nav_class(ShellNavActive::Config) href=host_config_href(None)>"配置"</a>
-            <a class=nav_class(ShellNavActive::Runtime) href=host_runtime_href(None, None, None)>"运行"</a>
-            <a class=nav_class(ShellNavActive::Upload) href=host_upload_href(None, None)>"上传"</a>
-            <a class=nav_class(ShellNavActive::Mcg) href=mcg_href(None)>"MCG"</a>
+            <a class=class href=host_runtime_href(None, None, None)>"应用中心"</a>
         </div>
     }
     .into_any()
@@ -553,20 +586,4 @@ fn default_stage_for_app(apps: &[WorkspaceAppMeta], app_id: &str) -> String {
                 .filter(|stage| !stage.is_empty())
         })
         .unwrap_or_else(|| "home".to_string())
-}
-
-fn cross_app_menu_href(
-    apps: &[WorkspaceAppMeta],
-    menu_link_mode: UiRouteMode,
-    item: &crate::ui::topbar::menu_groups::TopbarMenuItem,
-) -> (String, String) {
-    let stage = default_stage_for_app(apps, item.app_id.as_str());
-    let href = cross_app_href(
-        menu_link_mode,
-        &item.app_id,
-        item.catalog.as_deref(),
-        item.pack.as_deref(),
-        Some(stage.as_str()),
-    );
-    (href, stage)
 }

@@ -2370,13 +2370,38 @@
     closeDetailsMenu(open);
   }
 
+  function scrollActiveChipsIntoView(root) {
+    const scope = root instanceof Element ? root : global.document;
+    if (!scope) return;
+    const strips = scope.querySelectorAll?.(
+      "[data-mei-stage-strip], [data-mei-admin-strip]",
+    );
+    if (!strips) return;
+    Array.from(strips).forEach((strip) => {
+      if (!(strip instanceof HTMLElement)) return;
+      const active = strip.querySelector(".is-active, .topbar-chip.is-active");
+      if (!(active instanceof HTMLElement)) return;
+      try {
+        active.scrollIntoView({
+          inline: "nearest",
+          block: "nearest",
+          behavior: "instant",
+        });
+      } catch (_) {
+        active.scrollIntoView(false);
+      }
+    });
+  }
+
   function onChromeRefreshed() {
     // Topbar HTML replaced: reclaim any orphan portaled menus.
     restoreAllPortaled();
+    scrollActiveChipsIntoView(global.document);
   }
 
   function onSpaNavigationComplete() {
     closeAllOpenGroups();
+    scrollActiveChipsIntoView(global.document);
   }
 
   function bind() {
@@ -2404,6 +2429,7 @@
       },
       true,
     );
+    scrollActiveChipsIntoView(doc);
   }
 
   bind.bound = false;
@@ -2417,6 +2443,7 @@
     repositionOpenGroups,
     restoreAllPortaled,
     closeAllOpenGroups,
+    scrollActiveChipsIntoView,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 

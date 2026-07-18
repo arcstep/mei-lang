@@ -39,6 +39,7 @@ pub use shell_upload::UploadFileEntry;
 pub use shell_workspace::{
     render_workspace_page, render_workspace_shell_chrome_html, WorkspaceShellNav,
 };
+pub use view_routing::{host_config_href, host_upload_href, mcg_href};
 
 use preview_chrome::{component_script_preloads, component_scripts};
 pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
@@ -114,6 +115,12 @@ pub struct TopbarMenuContext {
     /// `.mei-workspace.json#workspace.label`（无则回退 id /「工作区」），用于顶栏应用面包屑。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_label: Option<String>,
+    /// 顶栏品牌文案（`workspace.brand.title`；缺省 MeiLang）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_title: Option<String>,
+    /// 顶栏品牌 logo URL（已解析；缺省 `/app-assets/favicon.svg`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_logo_href: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stock_component_packs: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
