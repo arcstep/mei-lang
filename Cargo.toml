@@ -5,7 +5,6 @@ members = [
   "crates/kernel",
   "crates/lsp",
   "crates/toolchain",
-  "crates/ws-spbjw-integration-tests",
   "mei-compiler/compiler",
   "mei-compiler/crates/mei-bundle",
   "mei-compiler/crates/mei-compiler-tests",
@@ -30,7 +29,7 @@ exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "2.6.9"
+version = "2.6.10"
 license = "MIT"
 
 [workspace.dependencies]

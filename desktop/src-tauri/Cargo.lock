@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "mei-desktop-viewer"
-version = "2.6.9"
+version = "2.6.10"
 dependencies = [
  "anyhow",
  "dirs",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "mei-snapshot"
-version = "2.6.9"
+version = "2.6.10"
 dependencies = [
  "anyhow",
  "chrono",

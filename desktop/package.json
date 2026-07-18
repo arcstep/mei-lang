@@ -1,6 +1,6 @@
 {
   "name": "mei-viewer",
-  "version": "2.6.9",
+  "version": "2.6.10",
   "private": true,
   "type": "module",
   "description": "mei-viewer — Tauri shell over mei-host-shell",
@@ -9,10 +9,10 @@
     "build": "tauri build && node ./scripts/package-release.mjs",
     "package": "node ./scripts/package-release.mjs",
     "tauri": "tauri",
-    "collect-sidecars": "../scripts/collect-desktop-sidecars.sh --release",
-    "collect-sidecars:debug": "../scripts/collect-desktop-sidecars.sh --debug",
-    "build:all": "../scripts/build-desktop-viewer.sh --build --release",
-    "dev:all": "../scripts/build-desktop-viewer.sh --dev --debug"
+    "collect-sidecars": "../scripts/desktop/collect-desktop-sidecars.sh --release",
+    "collect-sidecars:debug": "../scripts/desktop/collect-desktop-sidecars.sh --debug",
+    "build:all": "../scripts/desktop/build-desktop-viewer.sh --build --release",
+    "dev:all": "../scripts/desktop/build-desktop-viewer.sh --dev --debug"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"
