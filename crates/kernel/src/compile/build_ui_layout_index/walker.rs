@@ -141,11 +141,13 @@ pub fn build_scene_ui_structure(
         let plane_anchors = authored_plane
             .map(source_anchor_for_panel)
             .unwrap_or_default();
+        // Plane preview_scope = plane_key（如 t1），供 layout_budget / DOM data-preview-scope 对齐。
+        let plane_preview_scope = plane_key.trim().trim_matches('/').to_ascii_lowercase();
         let plane_node = builder.make_node(
             UiScopeRole::Plane,
             plane_label,
             &plane_segments,
-            String::new(),
+            plane_preview_scope,
             Some(scene_id_encoded.clone()),
             Some(tier.clone()),
             plane_budget,
@@ -2153,6 +2155,14 @@ fn budget_from_panel(panel: &UiNodeDecl) -> Option<UiBudgetSummary> {
     {
         budget.padding = Some(padding.to_string());
     }
+    if let Some(overflow) = panel
+        .props
+        .get("overflow")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+    {
+        budget.overflow = Some(overflow.to_string());
+    }
     if budget_is_empty(&budget) {
         None
     } else {
@@ -2170,6 +2180,7 @@ fn budget_is_empty(budget: &UiBudgetSummary) -> bool {
         && budget.grid_template_rows.is_none()
         && budget.grid_template_areas.is_none()
         && budget.slot_areas.is_none()
+        && budget.overflow.is_none()
 }
 
 fn css_grid_area_token(area: &str) -> &str {

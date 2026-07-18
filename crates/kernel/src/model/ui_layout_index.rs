@@ -95,6 +95,9 @@ pub struct UiBudgetSummary {
     /// Named slot areas for direct-child `grid-area` assignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot_areas: Option<Vec<String>>,
+    /// Region/section CSS overflow from authored props (`auto`/`scroll` enables rail scrollport).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overflow: Option<String>,
 }
 
 /// One node in the UI structure tree.
@@ -167,6 +170,7 @@ impl UiLayoutIndex {
                     | UiScopeRole::Slot
                     | UiScopeRole::Region
                     | UiScopeRole::Content
+                    | UiScopeRole::Plane
             );
             if !role_ok {
                 continue;
@@ -194,6 +198,7 @@ impl UiLayoutIndex {
                     grid_template_areas: budget.grid_template_areas.clone(),
                     slot_areas: budget.slot_areas.clone(),
                     gap: budget.gap.clone(),
+                    overflow: budget.overflow.clone(),
                 },
             );
         }
@@ -231,4 +236,6 @@ pub struct LayoutBudgetManifestEntry {
     pub slot_areas: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overflow: Option<String>,
 }
