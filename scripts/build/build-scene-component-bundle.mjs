@@ -3,12 +3,12 @@
  * Build a single ESM bundle for one scene's workspace component entry scripts.
  *
  * Usage:
- *   node scripts/build-scene-component-bundle.mjs \
+ *   node scripts/build/build-scene-component-bundle.mjs \
  *     --components-root /path/to/.stock/components \
  *     --entries chart/echarts/line.js,mei/text.js \
  *     --out /path/to/cache/home.abc123.js
  *
- *   node scripts/build-scene-component-bundle.mjs --revision-only ...  # prints revision to stdout
+ *   node scripts/build/build-scene-component-bundle.mjs --revision-only ...  # prints revision to stdout
  */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";

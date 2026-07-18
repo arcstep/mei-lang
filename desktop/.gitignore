@@ -23,7 +23,7 @@ dist/
 *.nsis.zip
 bundle/
 
-# ── Viewer sidecar 收集物（scripts/collect-desktop-sidecars.sh）──
+# ── Viewer sidecar 收集物（scripts/desktop/collect-desktop-sidecars.sh）──
 sidecars/bin/
 sidecars/app/
 sidecars/MANIFEST.json

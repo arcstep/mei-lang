@@ -1,6 +1,6 @@
 /**
  * Guard: presentation FAB/MDX deck controller reads AOT presentation_map.deck only.
- * Run: node scripts/presentation-focus-deck.test.mjs
+ * Run: node scripts/test/presentation-focus-deck.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

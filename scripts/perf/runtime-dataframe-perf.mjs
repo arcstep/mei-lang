@@ -7,7 +7,7 @@
  *
  *   MEI_COOKIE='mei_auth_token=...' \
  *   MEI_APP_ID=zhifa \
- *   node scripts/runtime-dataframe-perf.mjs
+ *   node scripts/perf/runtime-dataframe-perf.mjs
  *
  * 可选环境变量：
  *   MEI_SERVER_URL, MEI_SCENE_ID, MEI_TARGET, MEI_DATASET_ID, MEI_METRIC_ID,

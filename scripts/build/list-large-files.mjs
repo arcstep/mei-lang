@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 体量扫描：Rust 与 app/assets 自有 JS（排除 vendor/dist/target）。
- * 用法: node scripts/list-large-files.mjs [--warn-lines N] [--fail-lines M]
+ * 用法: node scripts/build/list-large-files.mjs [--warn-lines N] [--fail-lines M]
  * 若存在文件行数 >= fail-lines 则 exit 1；>= warn-lines 则 stderr 警告（仍 exit 0）。
  */
 import { readdir, readFile } from "node:fs/promises";

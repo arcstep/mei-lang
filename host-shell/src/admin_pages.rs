@@ -107,18 +107,29 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         .unwrap_or(AdminMainSurface::FormCard);
 
     let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
-    let stage_routes =
-        mei_lang_kernel::catalog_scene_routes_from_app_root(app_root.as_path());
-    let access_scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
+    let default_scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
         .ok()
         .flatten()
-        .or_else(|| {
-            stage_routes
-                .iter()
-                .find(|r| r.is_default)
-                .map(|r| r.scene_id.clone())
-        })
-        .or_else(|| stage_routes.first().map(|r| r.scene_id.clone()));
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "home".to_string());
+    // Same Stage Registry source as Access topbar — not stock-catalog main.mei parsing.
+    let (stage_routes, access_scene) =
+        match mei_host_graph::assemble_scope_from_registry(
+            workspace_root,
+            app_id,
+            default_scene.as_str(),
+        ) {
+            Ok(Some(outcome)) => {
+                let scene = outcome
+                    .compiled
+                    .active_scene
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| default_scene.clone());
+                (outcome.compiled.scene_routes, scene)
+            }
+            _ => (Vec::new(), default_scene),
+        };
     let upload_rel = upload_rel_from_config(app_root.as_path(), workspace_root);
     let upload_root_label = upload_rel.as_deref().unwrap_or("upload").to_string();
     let upload_files: Vec<UploadFileEntry> = upload_rel
@@ -152,7 +163,7 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         account_view,
         theme_style.as_str(),
         stage_routes.as_slice(),
-        access_scene.as_deref(),
+        Some(access_scene.as_str()),
     );
     html = fill_page_shell_placeholders(html, workspace_root);
     html

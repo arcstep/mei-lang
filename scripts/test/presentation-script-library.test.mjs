@@ -1,6 +1,6 @@
 /**
  * Guard: AOT deck script is exposed as a read-only client library entry.
- * Run: node scripts/presentation-script-library.test.mjs
+ * Run: node scripts/test/presentation-script-library.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

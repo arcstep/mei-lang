@@ -1,6 +1,6 @@
 /**
  * Guard: presentation step engine manifest priority and deck-only fallback.
- * Run: node scripts/presentation-step-engine.test.mjs
+ * Run: node scripts/test/presentation-step-engine.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

@@ -44,3 +44,13 @@ npm run test:eval-suite
 2. 脚本定位 `mei-lang` 根目录时，子目录脚本使用 `../..`（相对 `scripts/<category>/`）。
 3. 新增脚本请放入对应分类，并在本 README 补一行；`package.json` / `.github/workflows` 同步改路径。
 4. 本地采样产物（`perf-wave*.jsonl` 等）已 gitignore，勿提交。
+
+## 路径迁移（2026-07）
+
+旧扁平路径（如 `scripts/cargo-target-gc.sh`、`scripts/build.sh`）已迁入上表分类目录。  
+工作区 `deploy/lib.sh` / `install.sh` 与 `mei-lang/stock/workspace/deploy/*` 须引用：
+
+- `scripts/ops/cargo-target-gc.sh`
+- `scripts/build/build.sh`
+
+完整对照见本目录各子文件夹；`package.json` 与 `.github/workflows` 已同步。

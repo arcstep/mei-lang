@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Phase A acceptance: zhifa default query should not hit metrics/dataset APIs.
- * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/eval-pack-audit.mjs [baseUrl]
+ * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/eval-pack-audit.mjs [baseUrl]
  */
 import { chromium } from "@playwright/test";
 

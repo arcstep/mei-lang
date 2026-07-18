@@ -180,7 +180,7 @@ pub fn sidecar_bin_dir() -> anyhow::Result<PathBuf> {
         }
     }
     anyhow::bail!(
-        "sidecar bin dir not found; run scripts/collect-desktop-sidecars.sh or set MEI_DESKTOP_BIN"
+        "sidecar bin dir not found; run scripts/desktop/collect-desktop-sidecars.sh or set MEI_DESKTOP_BIN"
     )
 }
 

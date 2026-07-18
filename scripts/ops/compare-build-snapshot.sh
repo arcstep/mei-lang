@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Compare current target/ against a saved build snapshot baseline.
 # Usage:
-#   ./scripts/compare-build-snapshot.sh
-#   ./scripts/compare-build-snapshot.sh /path/to/.build-snapshot-baseline-files.txt
+#   ./scripts/ops/compare-build-snapshot.sh
+#   ./scripts/ops/compare-build-snapshot.sh /path/to/.build-snapshot-baseline-files.txt
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

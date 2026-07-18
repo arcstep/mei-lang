@@ -128,8 +128,8 @@ T2 用 **page_instance** 术语（实现侧 `page_instance` 正在改名）；�
 - `mei-toolchain prebuild --workspace <workspace> --app <app> --json`
 - `mei-toolchain prebuild --workspace <workspace> --app <app> --verify --json`
 - `mei-toolchain prebuild --workspace <workspace> --app <app> --hot-only --json`
-- `node ./scripts/host-perf-sample.mjs --scenario-file ./scripts/perf-scenarios/<app>.json`
-- `node ./scripts/host-perf-report.mjs --sample <sample.jsonl> --scenario-file ./scripts/perf-scenarios/<app>.json --mode auto`
+- `node ./scripts/perf/host-perf-sample.mjs --scenario-file ./scripts/perf/scenarios/<app>.json`
+- `node ./scripts/perf/host-perf-report.mjs --sample <sample.jsonl> --scenario-file ./scripts/perf/scenarios/<app>.json --mode auto`
 
 ## 性能与发布判断
 

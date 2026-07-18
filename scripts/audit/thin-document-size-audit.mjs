@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Route A acceptance: unified view surfaces should serve thin HTML documents (<= 32KB).
- * Usage: node scripts/thin-document-size-audit.mjs [baseUrl]
+ * Usage: node scripts/audit/thin-document-size-audit.mjs [baseUrl]
  */
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 const MAX_BYTES = 32 * 1024;

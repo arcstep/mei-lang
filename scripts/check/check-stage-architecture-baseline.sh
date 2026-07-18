@@ -2,8 +2,8 @@
 # Gate 0 · Stage 架构基线冻结统一入口
 # 协调现有 compiler / host-graph runtime / Playwright / schema 台账检查。
 # 用法：
-#   ./scripts/check-stage-architecture-baseline.sh
-#   MEI_STAGE_BASELINE_SKIP_BROWSER=1 ./scripts/check-stage-architecture-baseline.sh
+#   ./scripts/check/check-stage-architecture-baseline.sh
+#   MEI_STAGE_BASELINE_SKIP_BROWSER=1 ./scripts/check/check-stage-architecture-baseline.sh
 #   MEI_STAGE_BASELINE_UPDATE=1 ...   # 透传至 Rust fixture 更新（慎用）
 set -euo pipefail
 

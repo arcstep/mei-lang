@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 0526 compose parity gate: structure / eval / runtime.plans after cold load.
- * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/compose-parity-audit.mjs [path]
+ * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/compose-parity-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
 

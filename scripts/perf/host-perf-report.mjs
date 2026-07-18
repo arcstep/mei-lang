@@ -182,7 +182,7 @@ function printHelp() {
   console.log(`host-perf-report.mjs
 
 Usage:
-  node ./scripts/host-perf-report.mjs --sample <jsonl> [options]
+  node ./scripts/perf/host-perf-report.mjs --sample <jsonl> [options]
 
 Options:
   --sample <path>         Current sample JSONL

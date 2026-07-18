@@ -58,7 +58,7 @@ install_from_lang() {
   mei_lang_root="$(resolve_mei_lang_root "${WORKSPACE_ROOT}")"
   target_dir="$(cargo_target_dir "${WORKSPACE_ROOT}")"
   subdir="$(profile_target_subdir)"
-  build_script="${mei_lang_root}/scripts/build.sh"
+  build_script="${mei_lang_root}/scripts/build/build.sh"
 
   echo "==> building from mei-lang (profile=${PROFILE}, root=${mei_lang_root})"
   if [[ -f "${build_script}" ]]; then
@@ -69,7 +69,7 @@ install_from_lang() {
     fi
   else
     # shellcheck source=/dev/null
-    source "${mei_lang_root}/scripts/cargo-target-gc.sh"
+    source "${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
     maybe_cargo_target_hygiene "${mei_lang_root}"
     local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
       -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)

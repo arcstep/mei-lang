@@ -3,8 +3,8 @@
  * End-to-end timing audit: wall clock vs network vs client assembly/render.
  *
  * Usage:
- *   node scripts/e2e-timing-audit.mjs [baseUrl]
- *   node scripts/e2e-timing-audit.mjs http://127.0.0.1:9527 --json /tmp/e2e-timing.json
+ *   node scripts/perf/e2e-timing-audit.mjs [baseUrl]
+ *   node scripts/perf/e2e-timing-audit.mjs http://127.0.0.1:9527 --json /tmp/e2e-timing.json
  *
  * Mirrors real UX paths: F5 refresh, surface switch, repeat switch.
  * Correlates Playwright request timestamps, Resource Timing, server headers,

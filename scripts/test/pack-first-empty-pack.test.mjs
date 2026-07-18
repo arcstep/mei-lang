@@ -1,6 +1,6 @@
 /**
  * Guard: empty / __no_client_bootstrap__ packs must NOT be treated as seedable Pack-First packs.
- * Run: node scripts/pack-first-empty-pack.test.mjs
+ * Run: node scripts/test/pack-first-empty-pack.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

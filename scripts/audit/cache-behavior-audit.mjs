@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Evidence collector: surface switch + hard refresh network/cache behavior.
- * Usage: node scripts/cache-behavior-audit.mjs http://127.0.0.1:9527
+ * Usage: node scripts/audit/cache-behavior-audit.mjs http://127.0.0.1:9527
  */
 import { chromium } from "@playwright/test";
 

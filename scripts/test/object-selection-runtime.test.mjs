@@ -1,6 +1,6 @@
 /**
  * Guard: object selection state stays independent and supports all update modes.
- * Run: node scripts/object-selection-runtime.test.mjs
+ * Run: node scripts/test/object-selection-runtime.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

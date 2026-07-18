@@ -407,7 +407,7 @@ function printHelp() {
   console.log(`host-perf-sample.mjs
 
 Usage:
-  node ./scripts/host-perf-sample.mjs [options]
+  node ./scripts/perf/host-perf-sample.mjs [options]
 
 Options:
   --server-url <url>        Host URL (default: http://127.0.0.1:9527)

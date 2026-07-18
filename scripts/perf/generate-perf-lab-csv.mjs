@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Deterministic synthetic CSV for ws-hello/apps/_perf-lab (Tier1.5 perf fixture).
- * Usage: node scripts/generate-perf-lab-csv.mjs [--out ../workspaces/ws-hello/apps/_perf-lab/data]
+ * Usage: node scripts/perf/generate-perf-lab-csv.mjs [--out ../workspaces/ws-hello/apps/_perf-lab/data]
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Client-side surface assembly chain audit: F5 vs topbar switch, phase-by-phase.
- * Usage: node scripts/surface-chain-audit.mjs [baseUrl]
+ * Usage: node scripts/audit/surface-chain-audit.mjs [baseUrl]
  */
 import { chromium } from "@playwright/test";
 import { writeFileSync } from "node:fs";

@@ -6,8 +6,8 @@
  * user's currently running data-full service cache.
  *
  * Usage:
- *   node scripts/baseline-data-full-cache.mjs
- *   MEI_BASELINE_PORT=19627 MEI_BASELINE_ROUNDS=5 node scripts/baseline-data-full-cache.mjs
+ *   node scripts/audit/baseline-data-full-cache.mjs
+ *   MEI_BASELINE_PORT=19627 MEI_BASELINE_ROUNDS=5 node scripts/audit/baseline-data-full-cache.mjs
  *
  * Scenarios (each ≥ MEI_BASELINE_ROUNDS):
  *   - cold_generation

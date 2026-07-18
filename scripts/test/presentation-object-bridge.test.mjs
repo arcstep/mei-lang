@@ -1,6 +1,6 @@
 /**
  * Guard: viewpoint, map/world and presentation actions preserve explicit objectId.
- * Run: node scripts/presentation-object-bridge.test.mjs
+ * Run: node scripts/test/presentation-object-bridge.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

@@ -209,7 +209,7 @@ Shell theme shape (see `docs/archive/mei-lang-v1/topics/theme-token-contract.md`
 }
 ```
 
-Shell `tokens.color` keys must be semantic `snake_case` names. Do not use `literal_*` or hash keys; run `node scripts/lint-workspace-shell-theme.mjs` in `mei-lang`.
+Shell `tokens.color` keys must be semantic `snake_case` names. Do not use `literal_*` or hash keys; run `node scripts/theme/lint-workspace-shell-theme.mjs` in `mei-lang`.
 
 Authoring rule:
 

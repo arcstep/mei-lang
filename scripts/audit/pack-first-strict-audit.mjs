@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Pack-first strict audit: no legacy revision API, no whole-page scene fetch, compose-only preview.
- * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/pack-first-strict-audit.mjs [path]
+ * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/pack-first-strict-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Route A compose-only preview acceptance (no scene-fragment fallback).
- * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/preview-surface-cache-audit.mjs [path]
+ * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/preview-surface-cache-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
 

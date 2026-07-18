@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 0524 §3 board acceptance + E3 (--ui) + E4 (neighbor bootstrap).
- * Usage: node scripts/eval-board-audit.mjs [baseUrl] [--ui]
+ * Usage: node scripts/audit/eval-board-audit.mjs [baseUrl] [--ui]
  */
 import { chromium } from "@playwright/test";
 

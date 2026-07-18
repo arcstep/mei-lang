@@ -265,7 +265,7 @@ run_cargo_runtime_build() {
   local mei_lang_root target_dir build_script
   mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
   target_dir="$(cargo_target_dir "${workspace_root}")"
-  build_script="${mei_lang_root}/scripts/build.sh"
+  build_script="${mei_lang_root}/scripts/build/build.sh"
   export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
 
   if [[ -f "${build_script}" ]]; then
@@ -283,7 +283,7 @@ run_cargo_runtime_build() {
 
   if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
     # shellcheck source=/dev/null
-    source "${mei_lang_root}/scripts/cargo-target-gc.sh"
+    source "${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
     maybe_cargo_target_hygiene "${mei_lang_root}"
   fi
   local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
@@ -308,10 +308,13 @@ ensure_runtime_binaries() {
   local mei_lang_root target_dir gc_script build_plan
   mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
   target_dir="$(cargo_target_dir "${workspace_root}")"
-  gc_script="${mei_lang_root}/scripts/cargo-target-gc.sh"
+  gc_script="${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
   if [[ -f "${gc_script}" ]]; then
     # shellcheck source=/dev/null
     source "${gc_script}"
+  else
+    echo "error: missing ${gc_script} (mei-lang scripts layout: scripts/ops/cargo-target-gc.sh)" >&2
+    return 1
   fi
 
   unset MEI_CARGO_TARGET_HYGIENE_SUMMARY
@@ -518,6 +521,17 @@ run_workspace_serve() {
 
   apply_runtime_env_from_flags
   export MEI_PROFILE="${PROFILE}" MEI_SOURCE="${SOURCE}" MEI_RUNTIME="${RUNTIME}"
+  # GIS 默认：由 mei-host-shell 托管 Martin（stock/gis/tiles + 随机端口）。
+  # Docker / 外部 Martin：MEI_GIS_USE_DOCKER_MARTIN=1 或自行设置 MEI_GIS_PROXY_UPSTREAM。
+  if [[ "${MEI_GIS_USE_DOCKER_MARTIN:-0}" == "1" ]]; then
+    export MEI_GIS_PROXY_UPSTREAM="${MEI_GIS_PROXY_UPSTREAM:-http://127.0.0.1:18080}"
+    echo "==> GIS: Docker Martin（MEI_GIS_USE_DOCKER_MARTIN=1 → ${MEI_GIS_PROXY_UPSTREAM}）"
+  elif [[ -n "${MEI_GIS_PROXY_UPSTREAM:-}" ]]; then
+    echo "==> GIS: 外部上游 MEI_GIS_PROXY_UPSTREAM=${MEI_GIS_PROXY_UPSTREAM}"
+  else
+    unset MEI_GIS_PROXY_UPSTREAM || true
+    echo "==> GIS: Host 托管 Martin（不设 MEI_GIS_PROXY_UPSTREAM）"
+  fi
 
   if [[ "${DEPLOY_LAUNCH}" == "1" || ${#DEPLOY_APP_CONFIGS[@]} -gt 0 ]]; then
     if [[ -n "${app}" ]]; then

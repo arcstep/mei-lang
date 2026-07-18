@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Encrypt with forge (auth/rsa-oaep.js) for Rust decrypt compatibility checks.
- * Usage: node scripts/verify-forge-rsa-compat.mjs <public.pem> <plaintext>
+ * Usage: node scripts/ops/verify-forge-rsa-compat.mjs <public.pem> <plaintext>
  */
 import { readFileSync } from "node:fs";
 import { encryptPasswordWithPem } from "../../host-shell/app/assets/auth/rsa-oaep.js";
