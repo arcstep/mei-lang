@@ -634,6 +634,32 @@ export class MeiCockpitDataTable extends HTMLElement {
     this.refresh();
   }
 
+  /**
+   * Invoked by preview-materializer `applyPropsToHost` after eval rebinds
+   * `data-props`. Thin-shell F5 often binds eval in the same turn as mount,
+   * before `deferUntilDisplayed` → `bootstrap()`; the old early-return left
+   * tables permanently empty (no dataset query).
+   */
+  _bind() {
+    if (!this._state) {
+      if (typeof this._deferUntilVisibleCleanup === "function") {
+        this._deferUntilVisibleCleanup();
+        this._deferUntilVisibleCleanup = null;
+      }
+      this.bootstrap();
+      return;
+    }
+    this._props = parseProps(this);
+    this._pageSize = resolvePageSize(this._props);
+    this._paging = paginationEnabled(this._props);
+    this._pagingMode = resolvePaginationMode(this._props);
+    this._lastFetchSignature = "";
+    this._state.page = 1;
+    this._state.sort = resolveSortConfig(this._props);
+    this._state.columnState = resolveColumnStateConfig(this._props);
+    this.refresh();
+  }
+
   bindCarouselHover() {
     const pauseOnHover =
       this._props?.carouselPauseOnHover !== false &&
