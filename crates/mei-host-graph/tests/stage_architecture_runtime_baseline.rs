@@ -117,7 +117,7 @@ fn schema_ledger() -> Value {
         "manifest_index": "manifest-index-v1",
         "shell_layer": "shell-v1",
         "eval_slot_group": "eval-slot-group-v1",
-        "runtime_plans": "runtime-plans-v2",
+        "runtime_plans": "runtime-plans-v3",
         "client_bootstrap": "mei-client-bootstrap-v1",
         "layer_plan": "mei-layer-plan-v1",
         "presentation_map": "mei-presentation-map-v1",

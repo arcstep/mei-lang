@@ -55,6 +55,7 @@ impl UiMode {
             UiRouteMode::Config => Self::Config,
             UiRouteMode::Upload => Self::Upload,
             UiRouteMode::Runtime => Self::Build,
+            UiRouteMode::Admin => Self::Config,
         }
     }
 

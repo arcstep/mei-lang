@@ -248,15 +248,23 @@ pub async fn api_host_view_revision(
 
     let discovery_started = Instant::now();
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = {
+    let (apps, admin_nav) = {
         let guard = state.read().expect("state lock");
-        crate::shell_chrome::apps_for_topbar(&guard)
+        let apps = crate::shell_chrome::apps_for_topbar(&guard);
+        let admin_nav = crate::admin_nav::admin_nav_items_for_app(
+            &guard.admin_registry,
+            workspace_root,
+            app_id,
+            None,
+        );
+        (apps, admin_nav)
     };
     let chrome_host = SceneChromeHostContext {
         apps: apps.as_slice(),
         topbar_menu: Some(&topbar_menu),
         auth_enabled: false,
         auth_account: None,
+        admin_nav_items: admin_nav.as_slice(),
     };
     let discovery_ms = discovery_started.elapsed().as_millis();
 

@@ -306,6 +306,7 @@ fn render_runtime_shell_chrome(
         Some(args.data_mode.slug()),
         Some(review_projection),
         args.chrome == "none",
+        &[],
     );
     Some(ShellLayerDocument {
         schema_version: SHELL_LAYER_SCHEMA.to_string(),

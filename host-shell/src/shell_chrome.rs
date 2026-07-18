@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use mei_host_auth::{account_view_for_principal, AuthEnforcement, AuthPrincipal};
+use mei_host_auth::{
+    account_view_for_principal, filter_apps_for_principal, AuthEnforcement, AuthPrincipal,
+};
 use mei_host_core::{
     read_instance_spec, read_instance_spec_for_app, read_launch_config, DesiredState,
     LaunchManifest,
@@ -348,7 +350,7 @@ pub fn render_shell_chrome_payload(
     };
     let apps = {
         let guard = http.shell.read().expect("state lock");
-        apps_for_topbar(&guard)
+        filter_apps_for_principal(apps_for_topbar(&guard).as_slice(), principal)
     };
     let topbar_menu = load_topbar_menu_context(workspace.as_path());
     let auth_enabled = http.auth.auth_enforcement == AuthEnforcement::Required;
@@ -434,6 +436,15 @@ pub fn render_shell_chrome_payload(
                 build_template_index: Default::default(),
                 ui_layout_index: Default::default(),
             });
+            let admin_nav = {
+                let guard = http.shell.read().expect("state lock");
+                crate::admin_nav::admin_nav_items_for_app(
+                    &guard.admin_registry,
+                    workspace.as_path(),
+                    app_id.as_str(),
+                    principal,
+                )
+            };
             mei_lang_app::render_access_shell_chrome_html(
                 apps.as_slice(),
                 &compiled,
@@ -448,6 +459,7 @@ pub fn render_shell_chrome_payload(
                 None,
                 None,
                 chrome_hidden,
+                admin_nav.as_slice(),
             )
         };
     topbar_html = crate::build_info::fill_page_shell_placeholders(topbar_html, workspace.as_path());

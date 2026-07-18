@@ -209,6 +209,7 @@ pub(crate) fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String],
         topbar_menu: Some(&topbar_menu),
         auth_enabled: false,
         auth_account: None,
+        admin_nav_items: &[],
     };
     for app_id in app_ids {
         if let Err(err) =

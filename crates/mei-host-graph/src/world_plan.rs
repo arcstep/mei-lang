@@ -45,15 +45,27 @@ pub fn build_world_exchange(
     let payloads = load_world_payloads(app_root, registry)?;
     let mut worlds = Map::new();
     let mut projections = Map::new();
+    let mut all_heroes = Vec::new();
     for (world_id, payload) in payloads {
         let plan = build_world_plan(&payload, app_root, app_id)?;
-        let projection = build_map_projection(&plan, app_id)?;
+        let mut projection = build_map_projection(&plan, app_id)?;
+        let heroes = build_map_heroes(&plan, app_id);
+        if heroes.len() > 3 {
+            eprintln!(
+                "warning: world `{world_id}` has {} enabled map_hero entries (soft budget 3)",
+                heroes.len()
+            );
+        }
+        if let Some(obj) = projection.as_object_mut() {
+            obj.insert("heroes".to_string(), json!(heroes.clone()));
+        }
+        all_heroes.extend(heroes);
         projections.insert(world_id.clone(), projection);
         worlds.insert(world_id, plan);
     }
     Ok(WorldCompileOutcome {
         world_plan: json!({ "worlds": worlds }),
-        map_projection: json!({ "worlds": projections }),
+        map_projection: json!({ "worlds": projections, "heroes": all_heroes }),
     })
 }
 
@@ -276,7 +288,147 @@ pub fn build_map_projection(world_plan: &Value, app_id: &str) -> Result<Value> {
         "appId": app_id,
         "emittedFootprint": emitted_footprint,
         "layers": layers,
+        "heroes": Value::Array(Vec::new()),
     }))
+}
+
+/// Lower enabled `mapHero` building projections into map Custom Layer exchange records.
+pub fn build_map_heroes(world_plan: &Value, app_id: &str) -> Vec<Value> {
+    let world_id = world_plan
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("park_world");
+    let Some(primitives) = world_plan.get("primitives").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    let mut heroes = Vec::new();
+    for prim in primitives {
+        let prim_kind = prim.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        if prim_kind != "building" {
+            continue;
+        }
+        let Some(map_hero) = prim.get("mapHero").filter(|v| !v.is_null()) else {
+            continue;
+        };
+        if map_hero.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+            continue;
+        }
+        let entity_id = prim
+            .get("featureEntityId")
+            .and_then(|v| v.as_str())
+            .or_else(|| prim.get("id").and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .to_string();
+        if entity_id.is_empty() {
+            continue;
+        }
+        let Some(height) = prim
+            .get("height")
+            .and_then(|v| v.as_f64())
+            .or_else(|| {
+                prim.get("mapView")
+                    .and_then(|mv| mv.get("height"))
+                    .and_then(|v| v.as_f64())
+            })
+            .filter(|h| *h > 0.0)
+        else {
+            eprintln!("warning: map_hero `{entity_id}` skipped: missing height");
+            continue;
+        };
+        let Some(coordinates) = footprint_ring_for_entity(world_plan, &entity_id) else {
+            eprintln!("warning: map_hero `{entity_id}` skipped: missing footprint ring");
+            continue;
+        };
+        let shell = prim.get("shellMaterial").cloned().unwrap_or(json!({}));
+        let shell_color = shell
+            .get("color")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                prim.get("mapView")
+                    .and_then(|mv| mv.get("fillColor"))
+                    .and_then(|v| v.as_str())
+            })
+            .unwrap_or("#94a3b8");
+        let shell_opacity = prim
+            .get("mapView")
+            .and_then(|mv| mv.get("fillOpacity"))
+            .and_then(|v| v.as_f64())
+            .or_else(|| shell.get("opacity").and_then(|v| v.as_f64()))
+            .unwrap_or(0.72);
+        let style = map_hero
+            .get("style")
+            .and_then(|v| v.as_str())
+            .unwrap_or("window_bands");
+        let min_zoom = map_hero
+            .get("minZoom")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(15.5);
+        let max_count_budget = map_hero
+            .get("maxCountBudget")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(3.0);
+        let model_url = map_hero
+            .get("modelPath")
+            .and_then(|v| v.as_str())
+            .map(|path| resolve_hero_model_url(path, app_id));
+        heroes.push(json!({
+            "entityId": entity_id,
+            "worldRef": world_id,
+            "label": prim.get("label").cloned().unwrap_or(json!(entity_id.clone())),
+            "height": height,
+            "style": style,
+            "minZoom": min_zoom,
+            "maxCountBudget": max_count_budget,
+            "modelUrl": model_url,
+            "coordinates": coordinates,
+            "shellColor": shell_color,
+            "shellOpacity": shell_opacity,
+            "hideExtrusion": true,
+            "worldEnterable": prim.get("worldEnterable").cloned().unwrap_or(json!(false)),
+            "worldEnterViewpoint": prim.get("worldEnterViewpoint").cloned().unwrap_or(Value::Null),
+            "worldEnterLabel": prim.get("worldEnterLabel").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    heroes
+}
+
+fn resolve_hero_model_url(path: &str, app_id: &str) -> String {
+    if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("/") {
+        return path.to_string();
+    }
+    if path.starts_with("assets/") {
+        return format!("/workspace-app-assets/{app_id}/{path}");
+    }
+    format!("/workspace-app-assets/{app_id}/assets/{path}")
+}
+
+fn footprint_ring_for_entity(world_plan: &Value, entity_id: &str) -> Option<Vec<Value>> {
+    let features = world_plan
+        .get("emittedFootprint")
+        .and_then(|v| v.get("features"))
+        .and_then(|v| v.as_array())?;
+    for feature in features {
+        if feature_entity_id(feature).as_deref() != Some(entity_id) {
+            continue;
+        }
+        let geometry = feature.get("geometry")?;
+        let gtype = geometry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let coordinates = geometry.get("coordinates")?;
+        return match gtype {
+            "Polygon" => coordinates
+                .as_array()
+                .and_then(|rings| rings.first())
+                .and_then(|ring| ring.as_array().cloned()),
+            "MultiPolygon" => coordinates
+                .as_array()
+                .and_then(|polys| polys.first())
+                .and_then(|poly| poly.as_array())
+                .and_then(|rings| rings.first())
+                .and_then(|ring| ring.as_array().cloned()),
+            _ => None,
+        };
+    }
+    None
 }
 
 fn map_layer_type(kind: &str) -> &'static str {
@@ -317,9 +469,11 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
             .unwrap_or_else(|| json!("#5d8fd6"))
     };
     let fill_opacity = if prim_kind == "building" || prim_kind == "building_import" {
-        ssot_opacity
-            .clone()
-            .unwrap_or_else(|| map_view.get("fillOpacity").cloned().unwrap_or(json!(0.84)))
+        map_view
+            .get("fillOpacity")
+            .cloned()
+            .or_else(|| ssot_opacity.clone())
+            .unwrap_or(json!(0.84))
     } else {
         map_view
             .get("fillOpacity")
@@ -516,8 +670,12 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
             if let Some(color) = shell_color.clone() {
                 map_view.insert("fillColor".to_string(), color);
             }
-            if let Some(opacity) = shell_opacity.clone() {
-                map_view.insert("fillOpacity".to_string(), opacity);
+            // Keep author `fill_extrusion(fill_opacity=…)` when present. Shell opacity is often
+            // tuned for L5 glass (e.g. 0.22) and must not collapse map mass readability.
+            if map_view.get("fillOpacity").is_none() {
+                if let Some(opacity) = shell_opacity.clone() {
+                    map_view.insert("fillOpacity".to_string(), opacity);
+                }
             }
             map_view.insert("ssotDerived".to_string(), json!(true));
         }
@@ -543,26 +701,38 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
     if let Some(profile) = collect_interior_profile(&building_id, by_id) {
         building.insert("hasInterior".to_string(), json!(true));
         building.insert("interiorProfile".to_string(), profile.clone());
-        if let Some(wall_height) = profile.get("wallHeight").and_then(|v| v.as_f64()) {
-            if let Some(envelope) = height {
-                let roof_thickness = profile
-                    .get("roofThickness")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.18);
-                let expected = wall_height + roof_thickness;
-                if (envelope - expected).abs() > 0.05 {
-                    building.insert("height".to_string(), json!(expected));
-                    if let Some(map_view) =
-                        building.get_mut("mapView").and_then(|v| v.as_object_mut())
-                    {
-                        map_view.insert("height".to_string(), json!(expected));
-                    }
-                    if let Some(world_view) = building
-                        .get_mut("worldView")
-                        .and_then(|v| v.as_object_mut())
-                    {
-                        world_view.insert("shellHeight".to_string(), json!(expected));
-                    }
+        // Authoring `building(height=…)` is the L3/L4 envelope. Multi-floor interiors must not
+        // shrink that envelope to a single wall_ring height (skyscraper + lobby glass bug).
+        // Only *raise* the envelope when interior roof sits above the declared height.
+        let roof_elevation = profile.get("roofElevation").and_then(|v| v.as_f64());
+        if let (Some(envelope), Some(roof_y)) = (height, roof_elevation) {
+            if roof_y > envelope + 0.05 {
+                building.insert("height".to_string(), json!(roof_y));
+                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut()) {
+                    map_view.insert("height".to_string(), json!(roof_y));
+                }
+                if let Some(world_view) =
+                    building.get_mut("worldView").and_then(|v| v.as_object_mut())
+                {
+                    world_view.insert("shellHeight".to_string(), json!(roof_y));
+                }
+            }
+        } else if height.is_none() {
+            let wall_height = profile.get("wallHeight").and_then(|v| v.as_f64());
+            let roof_thickness = profile
+                .get("roofThickness")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.18);
+            let derived = roof_elevation.or_else(|| wall_height.map(|h| h + roof_thickness));
+            if let Some(h) = derived {
+                building.insert("height".to_string(), json!(h));
+                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut()) {
+                    map_view.insert("height".to_string(), json!(h));
+                }
+                if let Some(world_view) =
+                    building.get_mut("worldView").and_then(|v| v.as_object_mut())
+                {
+                    world_view.insert("shellHeight".to_string(), json!(h));
                 }
             }
         }
@@ -826,6 +996,7 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
                 "shellMaterial".to_string(),
                 lower_material(args.get("shell")),
             );
+            obj.insert("mapHero".to_string(), lower_map_hero(args.get("map_hero")));
         }
     }
     if call == "building_import" {
@@ -936,6 +1107,41 @@ fn lower_material(value: Option<&Value>) -> Value {
         }
     }
     json!({ "kind": "surface" })
+}
+
+fn lower_map_hero(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return Value::Null;
+    };
+    if call_name(value) != Some("hero_facade") {
+        if let Some(obj) = value.as_object() {
+            if obj.get("style").is_some() || obj.get("enabled").is_some() {
+                return json!({
+                    "kind": "hero_facade",
+                    "enabled": obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+                    "minZoom": number_field(obj, &["min_zoom", "minZoom"]).unwrap_or(15.5),
+                    "maxCountBudget": number_field(obj, &["max_count_budget", "maxCountBudget"])
+                        .unwrap_or(3.0),
+                    "style": string_field(obj, &["style"]).unwrap_or_else(|| "window_bands".to_string()),
+                    "modelPath": resolve_ref_string(obj.get("model")),
+                });
+            }
+        }
+        return Value::Null;
+    }
+    let args = call_args(value);
+    let enabled = args
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    json!({
+        "kind": "hero_facade",
+        "enabled": enabled,
+        "minZoom": number_field(args, &["min_zoom", "minZoom"]).unwrap_or(15.5),
+        "maxCountBudget": number_field(args, &["max_count_budget", "maxCountBudget"]).unwrap_or(3.0),
+        "style": string_field(args, &["style"]).unwrap_or_else(|| "window_bands".to_string()),
+        "modelPath": resolve_ref_string(args.get("model")),
+    })
 }
 
 fn lower_projection(value: Option<&Value>, family: &str) -> Value {
@@ -1859,6 +2065,88 @@ mod tests {
     }
 
     #[test]
+    fn map_hero_lowers_into_map_projection_heroes() {
+        let payload = json!({
+            "id": "hero_world",
+            "arg0": {
+                "__call": "building",
+                "__args": {
+                    "id": "bldg_5",
+                    "footprint": {
+                        "__call": "geo_polygon",
+                        "__args": {
+                            "ring": [
+                                [113.28, 23.14],
+                                [113.281, 23.14],
+                                [113.281, 23.141],
+                                [113.28, 23.141],
+                                [113.28, 23.14]
+                            ]
+                        }
+                    },
+                    "height": 200.0,
+                    "shell": {
+                        "__call": "surface",
+                        "__args": { "color": "#f97316", "opacity": 0.22 }
+                    },
+                    "map_view": {
+                        "__call": "fill_extrusion",
+                        "__args": { "fill_opacity": 0.86 }
+                    },
+                    "map_hero": {
+                        "__call": "hero_facade",
+                        "__args": {
+                            "enabled": true,
+                            "min_zoom": 15.5,
+                            "max_count_budget": 3,
+                            "style": "window_bands",
+                            "model": {
+                                "__ref": "asset_ref",
+                                "__args": { "arg0": "assets/bldg_5.glb" }
+                            }
+                        }
+                    },
+                    "world_view": {
+                        "__call": "footprint_shell",
+                        "__args": { "lift": 0.04 }
+                    },
+                    "world_enterable": true,
+                    "world_enter_label": "广东国际大厦 3D"
+                }
+            }
+        });
+        let plan = build_world_plan(&payload, Path::new("."), "mini-buildings").expect("plan");
+        let building = plan
+            .get("primitives")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .expect("building");
+        let map_hero = building.get("mapHero").expect("mapHero");
+        assert_eq!(
+            map_hero.get("style").and_then(|v| v.as_str()),
+            Some("window_bands")
+        );
+        assert_eq!(
+            map_hero.get("modelPath").and_then(|v| v.as_str()),
+            Some("assets/bldg_5.glb")
+        );
+        let heroes = build_map_heroes(&plan, "mini-buildings");
+        assert_eq!(heroes.len(), 1);
+        assert_eq!(
+            heroes[0].get("entityId").and_then(|v| v.as_str()),
+            Some("bldg_5")
+        );
+        assert_eq!(
+            heroes[0].get("modelUrl").and_then(|v| v.as_str()),
+            Some("/workspace-app-assets/mini-buildings/assets/bldg_5.glb")
+        );
+        assert!(heroes[0]
+            .get("coordinates")
+            .and_then(|v| v.as_array())
+            .is_some_and(|a| a.len() >= 4));
+    }
+
+    #[test]
     fn emit_footprint_merges_primitive_semantics() {
         use std::fs;
         use tempfile::tempdir;
@@ -2230,6 +2518,66 @@ mod tests {
                 .iter()
                 .any(|l| l.get("id").and_then(|v| v.as_str()) == Some("shixi_buildings")),
             "batch building layer missing"
+        );
+    }
+}
+
+#[cfg(test)]
+mod l4_live_probe {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Optional golden: mini-buildings `bldg_5` emits L4 heroes when MEI_TEST_WORKSPACE is set.
+    #[test]
+    fn mini_buildings_emits_map_heroes() {
+        let raw = std::env::var("MEI_TEST_WORKSPACE").unwrap_or_default();
+        let workspace = PathBuf::from(raw.trim());
+        if workspace.as_os_str().is_empty() || !workspace.is_dir() {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        }
+        crate::clear_assemble_cache_for_app("mini-buildings");
+        let outcome = crate::assemble_scope_from_registry(
+            workspace.as_path(),
+            "mini-buildings",
+            "home",
+        )
+        .expect("assemble")
+        .expect("some");
+        let heroes = outcome
+            .map_projection
+            .get("heroes")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            heroes
+                .first()
+                .and_then(|h| h.get("entityId"))
+                .and_then(|v| v.as_str()),
+            Some("bldg_5"),
+            "mini-buildings L4 golden expects bldg_5 map_hero in map_projection.heroes"
+        );
+        assert_eq!(
+            heroes[0].get("style").and_then(|v| v.as_str()),
+            Some("window_bands")
+        );
+        assert_eq!(
+            heroes[0].get("height").and_then(|v| v.as_f64()),
+            Some(200.0),
+            "authoring envelope height must not be shrunk by interior wall_ring SSOT"
+        );
+        let layer = outcome
+            .map_projection
+            .pointer("/worlds/huale_world/layers")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .find(|l| l.get("id").and_then(|v| v.as_str()) == Some("bldg_5"))
+            .expect("bldg_5 layer");
+        assert_eq!(
+            layer.get("extrusionHeight").and_then(|v| v.as_f64()),
+            Some(200.0)
         );
     }
 }

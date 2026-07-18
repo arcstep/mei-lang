@@ -17,7 +17,8 @@ use crate::theme_layout_merge::theme_layout_client_patches;
 use crate::types::PayloadRef;
 
 pub const RUNTIME_PLANS_KIND: &str = "runtime_plans";
-pub const RUNTIME_PLANS_SCHEMA: &str = "runtime-plans-v2";
+/// Bump when map_projection/world_plan exchange shape changes (e.g. L4 `heroes`).
+pub const RUNTIME_PLANS_SCHEMA: &str = "runtime-plans-v3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimePlansDocument {
@@ -48,6 +49,8 @@ pub fn runtime_plans_cache_key(
         "layout_policy_revision": layout_policy_revision,
         "schema_version": RUNTIME_PLANS_SCHEMA,
         "presentation_map_schema": mei_lang_kernel::PRESENTATION_MAP_SCHEMA_VERSION,
+        // L4 map_hero → map_projection.heroes; keep in key so authoring changes invalidate.
+        "map_heroes_contract": "v2",
     })
     .to_string()
 }

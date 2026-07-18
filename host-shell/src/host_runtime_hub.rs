@@ -8,6 +8,8 @@ use mei_host_auth::{account_view_for_principal, AuthEnforcement, AuthPrincipal, 
 use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
 
 fn render_runtime_hub_body_html() -> String {
+    // Host tools: scope pickers still on /config|/upload (dual-render Admin Shell once app chosen).
+    // Per-app cards link to /admin/apps/{id}/ops_config|upload_files (see host-runtime-control-center.js).
     let config_href = mei_lang_app::host_config_href(None);
     let upload_href = mei_lang_app::host_upload_href(None, None);
     let mcg_href = mei_lang_app::mcg_href(None);

@@ -65,6 +65,8 @@ pub(crate) struct SceneChromeHostContext<'a> {
     pub topbar_menu: Option<&'a mei_lang_app::TopbarMenuContext>,
     pub auth_enabled: bool,
     pub auth_account: Option<&'a mei_lang_app::HostAccountView>,
+    /// 0544 §4.3 application-admin chips (empty → strip omitted).
+    pub admin_nav_items: &'a [mei_lang_app::AdminNavItem],
 }
 
 fn render_shell_with_host(
@@ -94,6 +96,7 @@ fn render_shell_with_host(
         Some(args.data_mode.slug()),
         Some(review_projection),
         args.chrome == "none",
+        host.admin_nav_items,
     );
     topbar_html = crate::build_info::fill_page_shell_placeholders(topbar_html, args.workspace_root);
     statusbar_html =
@@ -395,11 +398,18 @@ pub async fn api_host_layer_batch(
     let mut hits = ArtifactHitMatrix::default();
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let apps = crate::shell_chrome::apps_for_topbar(&guard);
+    let admin_nav = crate::admin_nav::admin_nav_items_for_app(
+        &guard.admin_registry,
+        workspace_root,
+        app_id,
+        None,
+    );
     let chrome_host = SceneChromeHostContext {
         apps: apps.as_slice(),
         topbar_menu: Some(&topbar_menu),
         auth_enabled: false,
         auth_account: None,
+        admin_nav_items: admin_nav.as_slice(),
     };
     let layers = match materialize_layers_for_request(
         workspace_root,
@@ -717,6 +727,7 @@ mod cross_surface_manifest_tests {
             topbar_menu: Some(&topbar_menu),
             auth_enabled: false,
             auth_account: None,
+            admin_nav_items: &[],
         };
         let mut hits = ArtifactHitMatrix::default();
         let compose = static_compose("app");
@@ -784,6 +795,7 @@ mod cross_surface_manifest_tests {
             topbar_menu: Some(&topbar_menu),
             auth_enabled: false,
             auth_account: None,
+            admin_nav_items: &[],
         };
         let mut hits = ArtifactHitMatrix::default();
         let compose = static_compose("app");

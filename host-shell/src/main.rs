@@ -1,5 +1,9 @@
 mod access_gate_status;
 mod access_page_cache;
+mod admin_api;
+mod admin_nav;
+mod admin_pages;
+mod admin_registry;
 mod api_error;
 mod api_stubs;
 mod app_launch_api;
@@ -26,6 +30,7 @@ mod gis_config;
 mod gis_proxy;
 mod host_events;
 mod host_home;
+mod host_builtin;
 mod host_mcg;
 mod host_runtime_hub;
 mod host_scoped;

@@ -282,6 +282,18 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
         return Ok(());
     }
+    if path.starts_with("/admin/apps/") {
+        if !caps.config_upload {
+            anyhow::bail!("current role cannot access admin routes");
+        }
+        return Ok(());
+    }
+    if path.starts_with("/api/admin/") {
+        if !caps.config_upload {
+            anyhow::bail!("current role cannot access admin api");
+        }
+        return Ok(());
+    }
     if let Some((mode, app_id, scene_id)) = extract_app_route_context(path) {
         if !principal.can_access_app(app_id.as_str()) {
             anyhow::bail!("app `{app_id}` is not in guest allowlist");

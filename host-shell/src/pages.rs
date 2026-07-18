@@ -598,7 +598,10 @@ pub async fn app_page(
             .into_response();
     }
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = crate::shell_chrome::apps_for_topbar(&guard);
+    let apps = filter_apps_for_principal(
+        crate::shell_chrome::apps_for_topbar(&guard).as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
     let app_ctx = guard.host_ctx_for_app(app_id.as_str());
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
         app_ctx.app_root().as_path(),
@@ -607,6 +610,12 @@ pub async fn app_page(
     );
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let admin_nav = crate::admin_nav::admin_nav_items_for_app(
+        &guard.admin_registry,
+        workspace_root,
+        app_id.as_str(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
     if route_mode == UiRouteMode::Config || route_mode == UiRouteMode::Upload {
         let app_title = apps
             .iter()
@@ -684,6 +693,7 @@ pub async fn app_page(
         topbar_menu: Some(&topbar_menu),
         auth_enabled,
         auth_account: account_view.as_ref(),
+        admin_nav_items: admin_nav.as_slice(),
     };
     let (mut html, ssr_emit_ms, page_cache_hit) = if route_mode.is_access_like() {
         let render_started = Instant::now();
@@ -830,6 +840,7 @@ pub async fn app_page(
                             data_mode_ceiling_notice_owned.as_deref(),
                             query.tree_max.as_deref(),
                             None,
+                            admin_nav.as_slice(),
                         ),
                         workspace_root,
                     ),
@@ -2052,6 +2063,7 @@ fn thin_shell_body_class(route_mode: mei_lang_app::UiRouteMode) -> &'static str 
         mei_lang_app::UiRouteMode::Runtime => "runtime-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Config => "config-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Upload => "upload-view sl-theme-dark",
+        mei_lang_app::UiRouteMode::Admin => "admin-view sl-theme-dark",
     }
 }
 

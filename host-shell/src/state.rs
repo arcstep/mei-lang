@@ -161,6 +161,8 @@ pub struct ShellState {
     /// Per-app ceiling from the last launch applied to that app. Prevents a
     /// static tutorial app from blocking eval APIs for hot data apps.
     pub data_mode_ceiling_by_app: BTreeMap<String, DataModeCeiling>,
+    /// Host Admin Platform resource registry (0547).
+    pub admin_registry: crate::admin_registry::SharedAdminRegistry,
 }
 
 impl ShellState {
@@ -206,6 +208,7 @@ impl ShellState {
             app_materialization: BTreeMap::new(),
             data_mode_ceiling: DataModeCeiling::Eval,
             data_mode_ceiling_by_app: BTreeMap::new(),
+            admin_registry: crate::admin_registry::AdminRegistry::shared(),
         }
     }
 

@@ -62,6 +62,7 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.auth_enabled,
             ctx.account_view,
             shell_theme_style.as_str(),
+            &[],
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));
@@ -113,6 +114,7 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.auth_enabled,
             ctx.account_view,
             shell_theme_style.as_str(),
+            &[],
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));

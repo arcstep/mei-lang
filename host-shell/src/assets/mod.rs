@@ -292,6 +292,7 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
         "access.js" | "access" | "app.js" | "app" => Some(BUNDLE_ACCESS_SCRIPTS),
         "config.js" | "config" => Some(BUNDLE_CONFIG_SCRIPTS),
         "upload.js" | "upload" => Some(BUNDLE_UPLOAD_SCRIPTS),
+        "admin.js" | "admin" => Some(BUNDLE_ADMIN_SCRIPTS),
         _ => None,
     }
 }
@@ -303,6 +304,7 @@ fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
         "access.js" | "access" | "app.js" | "app" => Some("dist/access.bundle.js"),
         "config.js" | "config" => Some("dist/config.bundle.js"),
         "upload.js" | "upload" => Some("dist/upload.bundle.js"),
+        "admin.js" | "admin" => Some("dist/admin.bundle.js"),
         "shoelace.js" | "shoelace" => Some("dist/shoelace.bundle.js"),
         "auth-rsa.js" | "auth-rsa" => Some("dist/auth-rsa.bundle.js"),
         "styles.css" | "styles" => Some("dist/styles.bundle.css"),

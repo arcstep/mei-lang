@@ -13,7 +13,7 @@ use crate::upload_support::{list_upload_files, upload_rel_from_config};
 
 const LIGHT_PAGE_CACHE_CONTROL: &str = "private, no-cache, no-store, must-revalidate";
 
-fn light_page_response(html: String) -> Response {
+pub(crate) fn light_page_response(html: String) -> Response {
     let mut response = Html(html).into_response();
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -64,6 +64,7 @@ pub(crate) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.auth_enabled,
             ctx.account_view,
             theme_style.as_str(),
+            &[],
         );
         html = fill_page_shell_placeholders(html, ctx.workspace_root);
         return Some(light_page_response(html));
@@ -99,6 +100,7 @@ pub(crate) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.auth_enabled,
             ctx.account_view,
             theme_style.as_str(),
+            &[],
         );
         html = fill_page_shell_placeholders(html, ctx.workspace_root);
         return Some(light_page_response(html));

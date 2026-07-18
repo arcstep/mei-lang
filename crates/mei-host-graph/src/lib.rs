@@ -208,5 +208,6 @@ pub use warmup_last_run::{
     write_warmup_last_run, WarmupLastRunRecord, WARMUP_LAST_RUN_REL,
 };
 pub use world_plan::{
-    build_map_projection, build_world_exchange, build_world_plan, WorldCompileOutcome,
+    build_map_heroes, build_map_projection, build_world_exchange, build_world_plan,
+    WorldCompileOutcome,
 };
