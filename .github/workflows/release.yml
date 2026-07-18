@@ -89,6 +89,9 @@ jobs:
       - name: Collect release sidecars
         shell: bash
         run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Verify Martin sidecar present
+        shell: bash
+        run: test -x desktop/sidecars/bin/martin || test -f desktop/sidecars/bin/martin.exe
       - name: Install locked desktop dependencies
         working-directory: desktop
         run: npm ci

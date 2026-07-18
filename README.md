@@ -8,28 +8,18 @@ AI-native scene orchestration language for building apps from world models, UI c
 
 最小示例见 [`.env.example`](.env.example)（复制为 `.env` 后填写密钥）。
 
-### 2. GIS 底图（Martin，与 mei 分开）
+### 2. GIS 底图（Martin）
 
-`map.maplibre` 需要 HTTP 瓦片（MBTiles，无 PostGIS）。在 monorepo 根目录单独起 Martin：
+`map.maplibre` 需要 HTTP 瓦片（MBTiles）。**`mei-host-shell serve` 会在工作区存在 `stock/gis/tiles/*.mbtiles` 且能找到 `martin` 二进制时，自动在随机本地端口拉起 Martin**，浏览器仍走同源 `/gis`。
 
 ```bash
-# 终端 A（若使用本机 Martin 瓦片服务，按你的环境启动）
-# 终端 B
 cd mei-lang
 cargo run -p mei-host-shell -- serve --workspace <workspace-root>
 ```
 
 - 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
-- 浏览器瓦片默认：**同源 `/gis`**；宿主默认将 `/gis` 代理到 **http://127.0.0.1:8080**，TileJSON 路径 **`/demo-tiles`**（可在 `.env` 覆盖）
-
-在 `mei-lang/.env` 中可改：
-
-```bash
-MEI_GIS_PROXY_UPSTREAM=http://127.0.0.1:8080
-MEI_TILES_JSON_PATH=/demo-tiles
-```
-
-未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会默认走 `/gis`；实际代理上游由上述环境变量决定。自备 Martin + MBTiles 即可，无需绑定特定行政区示例。
+- 已设 `MEI_GIS_PROXY_UPSTREAM` 时 **不**自动拉起（沿用外部 Docker/手动 Martin）
+- 可选覆盖：`MEI_MARTIN_BIN`、`MEI_TILES_JSON_PATH`（见 `.env.example`）
 
 ### 3. 启动宿主（主路径：`mei-host-shell`）
 
@@ -110,8 +100,8 @@ cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another
 
 - 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`；若端口仍被占用，可执行 `lsof -ti tcp:9527 | xargs kill`
 - 日志里的 `synced MeiLang skill` 仅表示 skill 文件同步，**不是**自动拉起外部 Agent 进程；默认启动不会做这一步
-- 瓦片服务（mei-projects 根目录）：推荐 `./scripts/start_martin.sh`（无 Docker）；或 `./scripts/start_martin_docker.sh`
-- 分发给不懂 Docker 的用户：`./scripts/pack_martin_sidecar.sh` → 发 `dist/martin-sidecar/*.zip`（见 `gis/spb/docs/martin-setup.md`）
+- 瓦片：Host 默认可自动托管 Martin（见上文 GIS）；外部服务可用 `./scripts/start_martin.sh` 或 Docker，并设 `MEI_GIS_PROXY_UPSTREAM`
+- 分发含 `bin/martin`：`mei-lang/scripts/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
 
 ## 最少配置
 

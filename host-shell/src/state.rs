@@ -17,6 +17,7 @@ use crate::app_runtime_proxy::RuntimeProxyIdentity;
 use crate::app_runtime_supervisor::SharedAppRuntime;
 use crate::app_start_inflight::AppStartInflight;
 use crate::build_ops::OpsJobState;
+use crate::managed_martin::ManagedMartin;
 use crate::managed_plug::ManagedPlugDsPool;
 use crate::runtime_actor::RuntimeActorHandle;
 use crate::runtime_route_table::{RuntimeRouteEntry, RuntimeRoutePhase, SharedRuntimeRouteTable};
@@ -352,6 +353,8 @@ pub struct HostHttpState {
     pub shell: SharedState,
     pub auth: AuthServeState,
     pub managed_plug: Arc<Mutex<Option<ManagedPlugDsPool>>>,
+    /// Host-managed Martin for `{workspace}/stock/gis/tiles` (at most one).
+    pub managed_martin: Arc<Mutex<Option<ManagedMartin>>>,
     /// Resident app-runtime supervisor (never taken as `None` during spawn).
     pub app_runtime: SharedAppRuntime,
     /// Proxy/readiness read snapshot — updated on start/stop/cutover.
@@ -375,12 +378,20 @@ impl HostHttpState {
             shell,
             auth,
             managed_plug,
+            managed_martin: Arc::new(Mutex::new(None)),
             app_runtime,
             route_table: SharedRuntimeRouteTable::new(),
             start_inflight: Arc::new(AppStartInflight::default()),
             manifest_mutation: Arc::new(tokio::sync::Mutex::new(())),
             runtime_actor: None,
         }
+    }
+
+    pub fn managed_martin_endpoint(&self) -> Option<String> {
+        self.managed_martin
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|martin| martin.endpoint.clone()))
     }
 
     pub fn publish_route_running(

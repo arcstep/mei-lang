@@ -71,6 +71,8 @@ TOOLCHAIN_BINS=(
   mei-plug-ds
   mei-snapshot
 )
+# External GIS tile server (not built from this workspace).
+MARTIN_SIDECAR_BINS=(martin)
 
 if [[ "${SKIP_BUILD}" != "1" ]]; then
   echo "==> building release binaries"
@@ -265,10 +267,18 @@ package_product() {
     smoke_binary "${destination}"
   done
 
+  echo "==> fetching Martin sidecar binary"
+  "${SCRIPT_DIR}/fetch-martin-sidecar.sh" --dest "${stage}/bin"
+  if [[ ! -f "${stage}/bin/martin" && ! -f "${stage}/bin/martin.exe" ]]; then
+    echo "error: martin binary missing after fetch-martin-sidecar.sh" >&2
+    exit 1
+  fi
+  local -a manifest_bins=("${bins[@]}" "${MARTIN_SIDECAR_BINS[@]}")
+
   copy_tree "${MEI_LANG_ROOT}/host-shell/app/assets" "${stage}/share/mei/app/assets"
   copy_tree "${MEI_LANG_ROOT}/stock" "${stage}/share/mei/stock"
   cp -f "${MEI_LANG_ROOT}/LICENSE" "${stage}/share/mei/LICENSE"
-  write_internal_manifest "${stage}" "${product}" "${bins[@]}"
+  write_internal_manifest "${stage}" "${product}" "${manifest_bins[@]}"
 
   mkdir -p "${OUT_ROOT}"
   local archive

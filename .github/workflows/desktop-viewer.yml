@@ -10,6 +10,7 @@ on:
       - "crates/mei-app-runtime/**"
       - "crates/mei-plug-ds/**"
       - "scripts/collect-desktop-sidecars.sh"
+      - "scripts/fetch-martin-sidecar.sh"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-viewer.yml"
@@ -27,6 +28,8 @@ jobs:
         run: npm ci || npm install
       - name: Collect sidecars (release)
         run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Verify Martin sidecar present
+        run: test -x desktop/sidecars/bin/martin || test -f desktop/sidecars/bin/martin.exe
       - name: Install desktop deps
         working-directory: desktop
         run: npm ci || npm install
@@ -63,6 +66,9 @@ jobs:
       - name: Collect sidecars (release)
         shell: bash
         run: ./scripts/collect-desktop-sidecars.sh --release
+      - name: Verify Martin sidecar present
+        shell: bash
+        run: test -f desktop/sidecars/bin/martin.exe || test -x desktop/sidecars/bin/martin
       - name: Install desktop deps
         working-directory: desktop
         run: npm ci || npm install

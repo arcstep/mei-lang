@@ -22,11 +22,44 @@ pub fn resolve_mei_app_runtime(workspace: Option<&Path>) -> anyhow::Result<PathB
     resolve_tool_binary("mei-app-runtime", "MEI_APP_RUNTIME_BIN", workspace)
 }
 
+/// Resolve MapLibre `martin` binary (Host-managed GIS sidecar).
+///
+/// Order: `MEI_MARTIN_BIN` → sibling of current exe → `deploy/bin` under workspace → PATH.
+/// On Windows, also accepts `martin.exe`.
+pub fn resolve_mei_martin(workspace: Option<&Path>) -> anyhow::Result<PathBuf> {
+    resolve_tool_binary_with_windows_exe("martin", "MEI_MARTIN_BIN", workspace)
+}
+
 fn resolve_tool_binary(
     name: &str,
     env_var: &str,
     workspace: Option<&Path>,
 ) -> anyhow::Result<PathBuf> {
+    resolve_tool_binary_candidates(&[name], env_var, workspace)
+}
+
+fn resolve_tool_binary_with_windows_exe(
+    name: &str,
+    env_var: &str,
+    workspace: Option<&Path>,
+) -> anyhow::Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        let exe = format!("{name}.exe");
+        resolve_tool_binary_candidates(&[exe.as_str(), name], env_var, workspace)
+    }
+    #[cfg(not(windows))]
+    {
+        resolve_tool_binary_candidates(&[name], env_var, workspace)
+    }
+}
+
+fn resolve_tool_binary_candidates(
+    names: &[&str],
+    env_var: &str,
+    workspace: Option<&Path>,
+) -> anyhow::Result<PathBuf> {
+    let primary = names.first().copied().unwrap_or("tool");
     if let Ok(path) = std::env::var(env_var) {
         let path = PathBuf::from(path);
         if path.is_file() {
@@ -37,25 +70,31 @@ fn resolve_tool_binary(
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(parent) = current_exe.parent() {
-            let sibling = parent.join(name);
-            if sibling.is_file() {
-                return Ok(sibling);
+            for name in names {
+                let sibling = parent.join(name);
+                if sibling.is_file() {
+                    return Ok(sibling);
+                }
             }
         }
     }
 
     if let Some(workspace) = workspace {
-        let deploy_bin = workspace.join("deploy/bin").join(name);
-        if deploy_bin.is_file() {
-            return Ok(deploy_bin);
+        for name in names {
+            let deploy_bin = workspace.join("deploy/bin").join(name);
+            if deploy_bin.is_file() {
+                return Ok(deploy_bin);
+            }
         }
     }
 
-    if let Some(path) = find_on_path(name) {
-        return Ok(path);
+    for name in names {
+        if let Some(path) = find_on_path(name) {
+            return Ok(path);
+        }
     }
 
-    anyhow::bail!("{name} not found; set {env_var}, install to deploy/bin, or add to PATH")
+    anyhow::bail!("{primary} not found; set {env_var}, install to deploy/bin, or add to PATH")
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -89,6 +128,24 @@ mod tests {
         std::env::set_var("MEI_APP_RUNTIME_BIN", &bin);
         let resolved = resolve_mei_app_runtime(None).expect("resolve");
         std::env::remove_var("MEI_APP_RUNTIME_BIN");
+        assert_eq!(resolved, bin);
+    }
+
+    #[test]
+    fn resolve_mei_martin_reads_env_override() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bin = tmp.path().join("fake-martin");
+        fs::write(&bin, b"#!/bin/sh\n").expect("write");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&bin).expect("meta").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&bin, perms).expect("chmod");
+        }
+        std::env::set_var("MEI_MARTIN_BIN", &bin);
+        let resolved = resolve_mei_martin(None).expect("resolve");
+        std::env::remove_var("MEI_MARTIN_BIN");
         assert_eq!(resolved, bin);
     }
 }

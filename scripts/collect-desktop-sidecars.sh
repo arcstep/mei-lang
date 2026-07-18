@@ -16,6 +16,7 @@ Usage: collect-desktop-sidecars.sh [--debug|--release] [--out DIR] [--skip-build
 
 Copies:
   mei-host-shell, mei-app-runtime, mei-plug-ds, mei-snapshot, mei-compiler
+  martin (official MapLibre release binary via fetch-martin-sidecar.sh)
   app/assets/ (via npm run assets:build unless --skip-assets)
 into OUT (default: mei-lang/desktop/sidecars/).
 
@@ -143,6 +144,13 @@ copy_bin mei-plug-ds
 copy_bin mei-snapshot
 copy_bin mei-compiler
 
+echo "==> fetching Martin sidecar binary"
+"${SCRIPT_DIR}/fetch-martin-sidecar.sh" --dest "${OUT_DIR}/bin"
+if [[ ! -f "${OUT_DIR}/bin/martin" && ! -f "${OUT_DIR}/bin/martin.exe" ]]; then
+  echo "error: martin binary missing after fetch-martin-sidecar.sh" >&2
+  exit 1
+fi
+
 # Mirror a directory tree. Prefer rsync; fall back for Windows runners without it.
 sync_tree() {
   local src="$1"
@@ -207,7 +215,7 @@ doc = {
     "format": "mei-desktop-sidecars",
     "formatVersion": 1,
     "profile": os.environ["PROFILE"],
-    "bins": ["mei-host-shell", "mei-app-runtime", "mei-plug-ds", "mei-snapshot", "mei-compiler"],
+    "bins": ["mei-host-shell", "mei-app-runtime", "mei-plug-ds", "mei-snapshot", "mei-compiler", "martin"],
     "files": files,
 }
 (root / "MANIFEST.json").write_text(json.dumps(doc, indent=2) + "\n")

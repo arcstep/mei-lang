@@ -868,9 +868,11 @@ async fn run_serve_control_plane(
         Arc::new(Mutex::new(None)),
         app_runtime.clone(),
     );
+    crate::managed_martin::attach_managed_martin(workspace.as_path(), &state.managed_martin).await;
     state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
     state.sync_route_table_from_supervisor().await;
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
+    let managed_martin_for_shutdown = state.managed_martin.clone();
     let defer_autostart = crate::startup::defer_warmup_to_prebuild() && !launch_targets.is_empty();
     if !launch_targets.is_empty() && !defer_autostart {
         crate::app_launch_api::autostart_launch_targets(&state, &launch_targets).await;
@@ -957,6 +959,7 @@ async fn run_serve_control_plane(
     if let Some(actor) = runtime_actor_for_shutdown {
         actor.shutdown().await;
     }
+    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
     {
         let mut supervisor = app_runtime.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {
@@ -1184,9 +1187,11 @@ async fn run_serve_blocking_init(
         managed_plug.clone(),
         app_runtime.clone(),
     );
+    crate::managed_martin::attach_managed_martin(workspace.as_path(), &state.managed_martin).await;
     state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
     state.sync_route_table_from_supervisor().await;
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
+    let managed_martin_for_shutdown = state.managed_martin.clone();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
@@ -1245,6 +1250,7 @@ async fn run_serve_blocking_init(
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
+    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
     {
         let mut supervisor = app_runtime.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {
@@ -1321,9 +1327,11 @@ async fn run_serve_early_bind(
         managed_plug.clone(),
         app_runtime.clone(),
     );
+    crate::managed_martin::attach_managed_martin(workspace.as_path(), &state.managed_martin).await;
     state.runtime_actor = Some(crate::runtime_actor::RuntimeActorHandle::spawn(state.clone()));
     state.sync_route_table_from_supervisor().await;
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
+    let managed_martin_for_shutdown = state.managed_martin.clone();
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let listen_url = format!("http://{addr}");
@@ -1375,6 +1383,7 @@ async fn run_serve_early_bind(
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
+    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
     {
         let mut supervisor = app_runtime_for_shutdown.lock().await;
         if let Err(error) = supervisor.shutdown_all().await {

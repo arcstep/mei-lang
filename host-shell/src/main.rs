@@ -42,6 +42,7 @@ mod launch_targets;
 mod legacy_compat;
 mod light_pages;
 mod log_format;
+mod managed_martin;
 mod managed_plug;
 mod ops_api;
 mod ops_config_api;

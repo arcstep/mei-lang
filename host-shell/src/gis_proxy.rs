@@ -3,11 +3,14 @@ use std::sync::OnceLock;
 use anyhow::Context;
 use axum::{
     body::Body,
-    extract::Path as AxumPath,
+    extract::{Path as AxumPath, State},
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::Response,
 };
 use serde_json::Value;
+
+use crate::managed_martin::configured_external_gis_upstream;
+use crate::state::HostHttpState;
 
 static GIS_PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -19,12 +22,18 @@ fn gis_proxy_client() -> &'static reqwest::Client {
     })
 }
 
-fn gis_proxy_upstream_base() -> String {
-    std::env::var("MEI_GIS_PROXY_UPSTREAM")
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_string())
+/// Resolve Martin upstream: explicit env → managed Host Martin → default :8080.
+pub(crate) fn resolve_gis_proxy_upstream(managed_endpoint: Option<&str>) -> String {
+    if let Some(external) = configured_external_gis_upstream() {
+        return external;
+    }
+    if let Some(managed) = managed_endpoint
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "http://127.0.0.1:8080".to_string())
+    {
+        return managed.trim_end_matches('/').to_string();
+    }
+    "http://127.0.0.1:8080".to_string()
 }
 
 fn build_gis_proxy_target(base: &str, path: &str, query: Option<&str>) -> String {
@@ -141,15 +150,14 @@ fn copy_proxy_header(
 }
 
 pub async fn gis_proxy(
+    State(http): State<HostHttpState>,
     AxumPath(path): AxumPath<String>,
     uri: Uri,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, String)> {
-    let target = build_gis_proxy_target(
-        gis_proxy_upstream_base().as_str(),
-        path.as_str(),
-        uri.query(),
-    );
+    let managed = http.managed_martin_endpoint();
+    let upstream_base = resolve_gis_proxy_upstream(managed.as_deref());
+    let target = build_gis_proxy_target(upstream_base.as_str(), path.as_str(), uri.query());
     let origin = request_origin(&headers, &uri);
     let upstream = gis_proxy_client()
         .get(target.as_str())
@@ -164,7 +172,7 @@ pub async fn gis_proxy(
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 format!(
-                    "GIS upstream unreachable at {target} — start Martin (deploy GIS) or set MEI_GIS_PROXY_UPSTREAM. Detail: {error}"
+                    "GIS upstream unreachable at {target} — Host may auto-start Martin from stock/gis/tiles, or set MEI_GIS_PROXY_UPSTREAM. Detail: {error}"
                 ),
             )
         })?;
@@ -223,7 +231,10 @@ pub async fn gis_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::expects_tilejson_response;
+    use super::{expects_tilejson_response, resolve_gis_proxy_upstream};
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn only_root_collection_path_requires_tilejson() {
@@ -232,5 +243,25 @@ mod tests {
         assert!(!expects_tilejson_response(
             "shapingba-z10-16/10/838/412.pbf"
         ));
+    }
+
+    #[test]
+    fn upstream_prefers_env_then_managed_then_default() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("MEI_GIS_PROXY_UPSTREAM");
+        assert_eq!(
+            resolve_gis_proxy_upstream(Some("http://127.0.0.1:5555")),
+            "http://127.0.0.1:5555"
+        );
+        assert_eq!(
+            resolve_gis_proxy_upstream(None),
+            "http://127.0.0.1:8080"
+        );
+        std::env::set_var("MEI_GIS_PROXY_UPSTREAM", "http://127.0.0.1:18080/");
+        assert_eq!(
+            resolve_gis_proxy_upstream(Some("http://127.0.0.1:5555")),
+            "http://127.0.0.1:18080"
+        );
+        std::env::remove_var("MEI_GIS_PROXY_UPSTREAM");
     }
 }

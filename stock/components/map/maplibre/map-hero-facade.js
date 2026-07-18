@@ -130,7 +130,8 @@ function meshFromBuffers(THREE, positions, normals, color, opacity, uvs = null, 
     roughness: map ? 0.45 : 0.72,
     side: THREE.DoubleSide,
     depthWrite: opaque || !map,
-    emissive: map ? new THREE.Color("#1e3a5f") : undefined,
+    // Three.js warns if a Material param is present but undefined — omit via black+0 when no map.
+    emissive: map ? new THREE.Color("#1e3a5f") : 0x000000,
     emissiveIntensity: map ? 0.35 : 0,
   });
   return new THREE.Mesh(geometry, material);
