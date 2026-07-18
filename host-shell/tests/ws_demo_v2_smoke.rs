@@ -311,6 +311,7 @@ fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("supervision-stats"),
@@ -374,6 +375,7 @@ fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("component-host") || html.contains("mei-cockpit-header-brand"),
@@ -674,6 +676,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("data-mei-tier=\"t0\""),
@@ -777,6 +780,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("data-mei-view-family=\"map\""),
@@ -859,6 +863,7 @@ fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("Data Demo v2"),
@@ -1142,6 +1147,7 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("data-mei-view-family=\"map\""),
@@ -1634,6 +1640,7 @@ fn ws_demo_v2_prototype_render_uses_static_metric_skeleton() {
         None,
         None,
         None,
+                            &[],
     );
     assert!(
         html.contains("mei-text--static-skeleton") || html.contains("static_skeleton"),

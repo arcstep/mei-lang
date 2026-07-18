@@ -1,0 +1,28 @@
+{
+  "slots": [
+    {
+      "id": "supervision_items",
+      "title": "监督事项",
+      "path": "upload/supervision-items.csv",
+      "kind": "csv"
+    },
+    {
+      "id": "alert_models",
+      "title": "预警模型",
+      "path": "upload/alert-models.csv",
+      "kind": "csv"
+    },
+    {
+      "id": "alert_tracking",
+      "title": "预警跟踪",
+      "path": "upload/alert-tracking.csv",
+      "kind": "csv"
+    },
+    {
+      "id": "enforcement_objects",
+      "title": "执法对象",
+      "path": "upload/enforcement-objects.csv",
+      "kind": "csv"
+    }
+  ]
+}

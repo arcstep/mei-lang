@@ -1,0 +1,23 @@
+api_version = "mei-admin-resource-v1"
+
+[[resources]]
+resource_id = "users"
+title = "Host 用户"
+namespace = "host"
+template = "collection-detail"
+provider = "crud-collection"
+required_capabilities = ["build_view"]
+
+[[resources.columns]]
+id = "username"
+label = "用户名"
+control = "text"
+
+[[resources.sections]]
+id = "detail"
+title = "详情"
+
+[[resources.sections.fields]]
+id = "username"
+label = "用户名"
+control = "text"

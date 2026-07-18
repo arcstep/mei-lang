@@ -1,0 +1,30 @@
+schema_version = "mei-app-v1"
+title = "Admin Phase D Fixture"
+default_stage = "home"
+generation = "current"
+
+[paths]
+upload = "upload"
+
+[admin]
+manifest = "admin/admin.toml"
+
+[ops.sources.supervision_items]
+kind = "csv"
+path = "upload/supervision-items.csv"
+header_row = 1
+
+[ops.sources.alert_models]
+kind = "csv"
+path = "upload/alert-models.csv"
+header_row = 1
+
+[ops.sources.alert_tracking]
+kind = "csv"
+path = "upload/alert-tracking.csv"
+header_row = 1
+
+[ops.sources.enforcement_objects]
+kind = "csv"
+path = "upload/enforcement-objects.csv"
+header_row = 1
