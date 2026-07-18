@@ -716,20 +716,149 @@ a { color: inherit; text-decoration: none; }
   padding-right: 6px;
 }
 .topbar-account {
+  display: inline-flex;
+  align-items: center;
   padding-left: 0.5rem;
   border-left: 1px solid var(--mei-shell-color-chrome-divider);
 }
-.topbar-account-name {
-  line-height: 1.35;
+.topbar-account-dropdown {
+  position: relative;
 }
-.topbar-account-link {
+/* Override shared .app-group-dropdown > summary chip chrome for account trigger. */
+.topbar-account-dropdown > summary.topbar-account-trigger {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 11rem;
+  max-height: none;
+  padding: 0.15rem 0.45rem 0.15rem 0.2rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--mei-shell-color-text-body);
-  line-height: 1.35;
-  transition: color .16s ease;
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.2;
+  white-space: nowrap;
 }
-.topbar-account-link:hover,
-.topbar-account-link:focus-visible {
+.topbar-account-dropdown > summary.topbar-account-trigger::-webkit-details-marker {
+  display: none;
+}
+.topbar-account-dropdown > summary.topbar-account-trigger::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.32rem;
+  height: 0.32rem;
+  margin-left: 0.05rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0.7;
+}
+.topbar-account-login {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 11rem;
+  padding: 0.15rem 0.45rem 0.15rem 0.2rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--mei-shell-color-text-body);
+  line-height: 1.2;
+  text-decoration: none;
+  transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+.topbar-account-dropdown[open] > summary.topbar-account-trigger,
+.topbar-account-dropdown > summary.topbar-account-trigger:hover,
+.topbar-account-dropdown > summary.topbar-account-trigger:focus-visible,
+.topbar-account-login:hover,
+.topbar-account-login:focus-visible {
   color: var(--mei-shell-color-text-inverse);
+  background: var(--mei-shell-color-nav-chip-bg);
+  border-color: var(--mei-shell-color-border-inspector);
+}
+.topbar-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 88%, var(--mei-shell-color-text-inverse) 12%);
+  color: var(--mei-shell-color-text-inverse);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mei-shell-color-chrome-divider) 70%, transparent);
+}
+.topbar-account-avatar svg {
+  display: block;
+}
+.topbar-account-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-account-panel.app-group-menu,
+.app-group-menu.topbar-account-panel {
+  min-width: 12.5rem;
+  max-width: min(18rem, 88vw);
+  gap: 0.65rem;
+  padding: 0.65rem;
+}
+.topbar-account-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.15rem 0.35rem 0.45rem;
+  border-bottom: 1px solid var(--mei-shell-color-chrome-divider);
+}
+.topbar-account-meta-name {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.topbar-account-meta-profile,
+.topbar-account-meta-role {
+  margin: 0;
+  line-height: 1.3;
+}
+.topbar-account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.topbar-account-action {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  color: var(--mei-shell-color-text-primary);
+  text-decoration: none;
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.3;
+  transition: background .14s ease, color .14s ease;
+}
+.topbar-account-action:hover,
+.topbar-account-action:focus-visible {
+  background: var(--mei-shell-color-nav-chip-bg);
+  color: var(--mei-shell-color-text-inverse);
+}
+/* 退出：用实色 accent，避免 glow-danger（低透明度）导致字看不清 */
+.topbar-account-action--danger {
+  color: var(--mei-shell-color-accent-muted);
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 10%, var(--mei-shell-color-host-page-bg));
+}
+.topbar-account-action--danger:hover,
+.topbar-account-action--danger:focus-visible {
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 22%, var(--mei-shell-color-host-page-bg));
+  color: var(--mei-shell-color-accent-muted);
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 55%, transparent);
 }
 .statusbar {
   position: relative;
@@ -1653,7 +1782,8 @@ a.status-chip-link:focus-visible {
   padding: 10px;
   border: 1px solid var(--mei-shell-color-border-metadata);
   border-radius: 12px;
-  background: var(--mei-shell-color-panel-bg);
+  /* panel_bg 主题值为半透明；顶栏菜单必须不透，避免与场景内容叠花 */
+  background: var(--mei-shell-color-host-page-bg);
   box-shadow: 0 16px 40px var(--mei-shell-color-shadow-overlay-lg);
 }
 .app-group-dropdown[open] > .app-group-menu {
@@ -1706,7 +1836,7 @@ sl-button:not(:defined) {
 .app-group-dropdown::part(popup) {
   border: 1px solid var(--mei-shell-color-border-metadata);
   border-radius: 12px;
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-host-page-bg);
   box-shadow: 0 16px 40px var(--mei-shell-color-shadow-overlay-lg);
 }
 .app-group-menu {
@@ -1716,7 +1846,7 @@ sl-button:not(:defined) {
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-host-page-bg);
 }
 .stage-switcher .app-menu-item {
   display: flex;

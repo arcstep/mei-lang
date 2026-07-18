@@ -75,8 +75,15 @@
     const rect = summary.getBoundingClientRect();
     const vw = global.innerWidth || global.document.documentElement.clientWidth || 0;
     menu.style.display = "flex";
-    const menuWidth = Math.min(520, Math.max(240, menu.offsetWidth || 240));
-    let left = Math.round(rect.left);
+    const preferEnd = details.classList.contains("topbar-account-dropdown");
+    const menuWidth = Math.min(
+      preferEnd ? 288 : 520,
+      Math.max(preferEnd ? 200 : 240, menu.offsetWidth || (preferEnd ? 200 : 240)),
+    );
+    let left = preferEnd
+      ? Math.round(rect.right - menuWidth)
+      : Math.round(rect.left);
+    if (left < 8) left = 8;
     if (vw > 0 && left + menuWidth > vw - 8) {
       left = Math.max(8, Math.round(vw - menuWidth - 8));
     }
@@ -85,7 +92,7 @@
     menu.style.left = `${left}px`;
     menu.style.right = "auto";
     menu.style.zIndex = menuZIndex();
-    menu.style.maxWidth = `min(520px, ${Math.max(160, vw - 16)}px)`;
+    menu.style.maxWidth = `min(${preferEnd ? 288 : 520}px, ${Math.max(160, vw - 16)}px)`;
   }
 
   function portalOpenMenu(details) {

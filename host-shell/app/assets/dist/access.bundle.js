@@ -2268,8 +2268,15 @@
     const rect = summary.getBoundingClientRect();
     const vw = global.innerWidth || global.document.documentElement.clientWidth || 0;
     menu.style.display = "flex";
-    const menuWidth = Math.min(520, Math.max(240, menu.offsetWidth || 240));
-    let left = Math.round(rect.left);
+    const preferEnd = details.classList.contains("topbar-account-dropdown");
+    const menuWidth = Math.min(
+      preferEnd ? 288 : 520,
+      Math.max(preferEnd ? 200 : 240, menu.offsetWidth || (preferEnd ? 200 : 240)),
+    );
+    let left = preferEnd
+      ? Math.round(rect.right - menuWidth)
+      : Math.round(rect.left);
+    if (left < 8) left = 8;
     if (vw > 0 && left + menuWidth > vw - 8) {
       left = Math.max(8, Math.round(vw - menuWidth - 8));
     }
@@ -2278,7 +2285,7 @@
     menu.style.left = `${left}px`;
     menu.style.right = "auto";
     menu.style.zIndex = menuZIndex();
-    menu.style.maxWidth = `min(520px, ${Math.max(160, vw - 16)}px)`;
+    menu.style.maxWidth = `min(${preferEnd ? 288 : 520}px, ${Math.max(160, vw - 16)}px)`;
   }
 
   function portalOpenMenu(details) {
@@ -39327,8 +39334,14 @@
         : enrichComposeComponentProps(propsFromMount(mount));
     const propsMount = { ...(mount || {}), props: rawProps };
     if (allowMetric) {
+      // cockpit.data-table keeps metric refs on `dataset` / nested props — not
+      // only `content`. enrichRuntimeMetricRef alone never injects those refs.
+      const withComponentRefs = enrichComponentMetricRefs(
+        enrichComposeComponentProps(rawProps),
+        scopeKey,
+      );
       return propsWithPreviewScope(
-        enrichRuntimeMetricRef(enrichComposeComponentProps(rawProps), sceneMount || mount),
+        enrichRuntimeMetricRef(withComponentRefs, sceneMount || mount),
         scopeKey,
       );
     }
@@ -41418,7 +41431,7 @@
     );
   }
 
-  /** Plain mei.text / chart hosts may connect before eval props land; force a rebind. */
+  /** Plain mei.text / chart / data-table hosts may connect before eval props land; force a rebind. */
   function rebindAuthoredComponentHosts(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll("mei-text, MEI-TEXT").forEach((node) => {
@@ -41451,6 +41464,22 @@
         } else if (typeof node.render === "function") {
           try {
             node.render();
+          } catch (_) {}
+        }
+      });
+    root
+      .querySelectorAll(
+        'mei-cockpit-data-table, MEI-COCKPIT-DATA-TABLE, [data-mei-use-key="cockpit.data-table"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        if (typeof node._bind === "function") {
+          try {
+            node._bind();
+          } catch (_) {}
+        } else if (typeof node.refresh === "function") {
+          try {
+            node.refresh();
           } catch (_) {}
         }
       });
@@ -41841,6 +41870,32 @@
       });
   }
 
+  function ensureRuntimeComponentScripts(assets) {
+    if (!Array.isArray(assets) || typeof boot.syncPreviewWorkspaceScripts !== "function") {
+      return Promise.resolve(false);
+    }
+    const urls = [];
+    for (const asset of assets) {
+      const script = String(asset?.script || "").trim();
+      if (!script) continue;
+      urls.push(`/workspace-components/${script}`);
+    }
+    if (!urls.length) return Promise.resolve(false);
+    return Promise.resolve(boot.syncPreviewWorkspaceScripts(urls, null)).then(() => true);
+  }
+
+  function scheduleComponentScriptWake(assets) {
+    void ensureRuntimeComponentScripts(assets).then((loaded) => {
+      if (!loaded) return;
+      const root =
+        document.getElementById("mei-compose-root") ||
+        document.querySelector("[data-mei-compose-materialized], [data-mei-compose-placeholder]");
+      if (!(root instanceof HTMLElement)) return;
+      rebindAuthoredComponentHosts(root);
+      notifyPreviewComposed(root);
+    });
+  }
+
   function applyRuntimePlans(plansLayer) {
     const doc = extractLayerDocument(plansLayer);
     if (!doc) return false;
@@ -41856,6 +41911,10 @@
     }
     if (Array.isArray(doc.component_assets) && doc.component_assets.length) {
       global.__mei.component_assets = doc.component_assets;
+      // Thin-shell HTML may have been primed from an older meibundle that lacked
+      // cockpit.data-table. Runtime.plans still lists the full set — load any
+      // missing modules so custom elements upgrade after F5.
+      scheduleComponentScriptWake(doc.component_assets);
     }
     if (doc.theme_layout != null && typeof doc.theme_layout === "object") {
       global.__mei.theme_layout = doc.theme_layout;
@@ -41960,6 +42019,11 @@
     root.setAttribute("data-mei-compose-materialized", "1");
     root.removeAttribute("data-mei-compose-placeholder");
     root.removeAttribute("aria-busy");
+    // Align with materializePreview: structure may arrive before eval. After
+    // rebinding slots, notify components (e.g. cockpit.data-table) that wait
+    // on meilang:preview-updated / prefetch, otherwise F5 cold start leaves
+    // tables empty until a later SPA rematerialize.
+    notifyPreviewComposed(root);
     return true;
   }
 

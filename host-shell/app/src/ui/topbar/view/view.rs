@@ -78,6 +78,101 @@ fn show_app_admin(
         .is_some_and(|item| item.capabilities.config_upload)
 }
 
+fn account_role_label(role: &str) -> &'static str {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "super" => "超级管理员",
+        "admin" => "管理员",
+        "guest" => "访客",
+        _ => "用户",
+    }
+}
+
+fn account_avatar_view() -> AnyView {
+    // Default person glyph; future: replace with custom avatar img under same mount.
+    view! {
+        <span class="topbar-account-avatar" data-mei-account-avatar="default" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.25"/>
+                <path d="M5.5 19.25c1.35-3.1 3.55-4.75 6.5-4.75s5.15 1.65 6.5 4.75"/>
+            </svg>
+        </span>
+    }
+    .into_any()
+}
+
+fn account_menu_view(auth_enabled: bool, auth_account: Option<&HostAccountView>) -> AnyView {
+    if !auth_enabled {
+        return view! { <></> }.into_any();
+    }
+    if let Some(account) = auth_account.filter(|item| item.logged_in) {
+        let login_name = if !account.username.trim().is_empty() {
+            account.username.clone()
+        } else if !account.profile.trim().is_empty() {
+            account.profile.clone()
+        } else {
+            "已登录".to_string()
+        };
+        let role_slug = if account.role.trim().is_empty() {
+            "guest"
+        } else {
+            account.role.as_str()
+        };
+        let role_label = account_role_label(role_slug).to_string();
+        let username_title = account.username.clone();
+        view! {
+            <div class="topbar-account">
+                <details class="app-group-dropdown topbar-account-dropdown">
+                    <summary
+                        class="topbar-account-trigger"
+                        title=username_title.clone()
+                        aria-label=format!("账户菜单：{login_name}")
+                    >
+                        {account_avatar_view()}
+                        <span class="topbar-account-label mei-font-1">{login_name.clone()}</span>
+                    </summary>
+                    <div
+                        class="app-group-menu topbar-account-panel"
+                        role="menu"
+                        aria-label="账户"
+                    >
+                        <div class="topbar-account-meta">
+                            <p class="topbar-account-meta-name mei-font-2 mei-text-primary">{login_name}</p>
+                            <p class="topbar-account-meta-role mei-font-1 mei-text-muted">{role_label}</p>
+                        </div>
+                        <div class="topbar-account-actions">
+                            <a
+                                class="topbar-account-action"
+                                role="menuitem"
+                                href="/account/password"
+                            >
+                                "改密"
+                            </a>
+                            <a
+                                class="topbar-account-action topbar-account-action--danger"
+                                role="menuitem"
+                                href="/logout?next=%2Flogin"
+                            >
+                                "退出"
+                            </a>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        }
+        .into_any()
+    } else {
+        view! {
+            <div class="topbar-account">
+                <a class="topbar-account-login" href="/login" aria-label="登录">
+                    {account_avatar_view()}
+                    <span class="topbar-account-label mei-font-1">"登录"</span>
+                </a>
+            </div>
+        }
+        .into_any()
+    }
+}
+
 pub(crate) fn topbar_view(
     apps: &[WorkspaceAppMeta],
     active_app_path: &str,
@@ -212,45 +307,7 @@ pub(crate) fn topbar_view(
         auth_enabled,
         auth_account,
     );
-    let account_view = if auth_enabled {
-        if let Some(account) = auth_account.filter(|item| item.logged_in) {
-            let display = if account.profile.trim().is_empty() {
-                account.username.clone()
-            } else {
-                account.profile.clone()
-            };
-            let role = if account.role.trim().is_empty() {
-                "guest".to_string()
-            } else {
-                account.role.clone()
-            };
-            view! {
-                <div class="topbar-account inline-flex items-center gap-1.5 pl-2">
-                    <span class="topbar-account-name mei-font-1 mei-text-body" title=account.username.clone()>
-                        {format!("{display} ({role})")}
-                    </span>
-                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/account/password">
-                        "改密"
-                    </a>
-                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/logout?next=%2Flogin">
-                        "退出"
-                    </a>
-                </div>
-            }
-            .into_any()
-        } else {
-            view! {
-                <div class="topbar-account inline-flex items-center gap-1.5 pl-2">
-                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/login">
-                        "登录"
-                    </a>
-                </div>
-            }
-            .into_any()
-        }
-    } else {
-        view! { <></> }.into_any()
-    };
+    let account_view = account_menu_view(auth_enabled, auth_account);
     let app_context_class = if has_app_context {
         "topbar-app-context has-app-context"
     } else {
