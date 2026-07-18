@@ -144,6 +144,17 @@
         "enabled": { "type": "boolean" },
         "apps": { "type": "object", "additionalProperties": true }
       }
+    },
+    "admin": {
+      "type": "object",
+      "description": "Optional Host Admin Platform extension pointer (0545). Does not inline admin pages.",
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "description": "Path relative to app root, e.g. admin/admin.toml. No .. or absolute paths."
+        }
+      }
     }
   }
 }

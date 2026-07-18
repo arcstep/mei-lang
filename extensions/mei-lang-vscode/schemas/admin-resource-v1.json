@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arcstep/mei-lang/schemas/admin-resource-v1.json",
+  "title": "MeiLang AdminResourceSpec v1",
+  "description": "Single admin resource declaration (0545). Used as items schema inside admin-manifest-v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resource_id", "title", "template", "provider", "required_capabilities"],
+  "properties": {
+    "resource_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Snake_case resource id; full key is app:{app_id}.{resource_id} or host.{resource_id}."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "namespace": {
+      "type": "string",
+      "enum": ["app"],
+      "description": "App manifests may omit or set app only; host.* is Host-native."
+    },
+    "template": {
+      "type": "string",
+      "enum": [
+        "singleton-form",
+        "collection-detail",
+        "asset-slot-collection",
+        "action-job-console"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["config-record", "crud-collection", "asset-slot", "command-job"]
+    },
+    "record_path": {
+      "type": "string",
+      "description": "Relative controlled JSON path for config-record (e.g. admin/data/organization.json)."
+    },
+    "required_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["config_upload", "build_view", "access_view"]
+      }
+    },
+    "scope": { "type": "string", "enum": ["app"] },
+    "audit": { "type": "boolean" },
+    "danger_level": {
+      "type": "string",
+      "enum": ["normal", "elevated", "critical"]
+    },
+    "revision_policy": {
+      "type": "string",
+      "enum": ["none", "optimistic"]
+    },
+    "validation": { "type": "string" },
+    "idempotency": {
+      "type": "string",
+      "enum": ["required-on-write", "optional", "none"]
+    },
+    "dirty_policy": {
+      "type": "string",
+      "enum": ["block-leave", "warn", "none"]
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "menu": {
+          "oneOf": [{ "type": "string" }, { "type": "boolean" }]
+        },
+        "parent": { "type": "string" },
+        "order": { "type": "integer" },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "columns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/column" }
+    },
+    "allowed_views": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["list", "compact", "gallery"]
+      }
+    },
+    "upload": { "$ref": "#/$defs/upload" },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "query": { "type": "string" },
+    "get": { "type": "string" },
+    "mutation": { "type": "string" }
+  },
+  "$defs": {
+    "fieldControl": {
+      "type": "string",
+      "enum": [
+        "text",
+        "textarea",
+        "number",
+        "boolean",
+        "select",
+        "multiselect",
+        "datetime",
+        "json"
+      ]
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "control"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "label": { "type": "string" },
+        "control": { "$ref": "#/$defs/fieldControl" },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" },
+        "readonly": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": {
+              "value": { "type": "string" },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "title": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" }
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "label": { "type": "string" },
+        "control": { "$ref": "#/$defs/fieldControl" }
+      }
+    },
+    "upload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "max_bytes": { "type": "integer", "minimum": 1 },
+        "replace_modes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["hard", "soft"] }
+        },
+        "retain_versions": { "type": "boolean" },
+        "schema_ref": { "type": "string" },
+        "requires_review": { "type": "boolean" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "provider", "method"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "label": { "type": "string" },
+        "provider": {
+          "type": "string",
+          "enum": ["config-record", "crud-collection", "asset-slot", "command-job"]
+        },
+        "method": { "type": "string" },
+        "danger_level": {
+          "type": "string",
+          "enum": ["normal", "elevated", "critical"]
+        }
+      }
+    }
+  }
+}
