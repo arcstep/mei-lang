@@ -9,12 +9,42 @@ use serde_json::Value;
 use super::app::{DiscoverConfig, RuntimeConfig, WorkspacePathsConfig};
 use super::paths::DEFAULT_STOCK_AUTHORING_REL;
 
+/// 工作区顶栏品牌（`workspace.json#workspace.brand`；见 docs 0544）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceBrandConfig {
+    /// 顶栏品牌文案；缺省为 MeiLang。
+    #[serde(default)]
+    pub title: Option<String>,
+    /// 工作区内相对路径（建议 `assets/...`）；缺省为 Host favicon。
+    #[serde(default)]
+    pub logo: Option<String>,
+}
+
+impl WorkspaceBrandConfig {
+    pub fn title_trimmed(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn logo_trimmed(&self) -> Option<&str> {
+        self.logo
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
 /// 工作区 profile 元数据（`ws-*` profile 根目录 `.mei-workspace.json`）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceProfile {
     /// 启动时 `--workspace` 使用的短名，如 `ws-spbjw`。
     pub id: Option<String>,
     pub label: Option<String>,
+    /// 顶栏 WorkspaceBrand；与 `label`（面包屑/合规）分离。
+    #[serde(default)]
+    pub brand: WorkspaceBrandConfig,
     #[serde(default, rename = "deployHost")]
     pub deploy_host: Option<String>,
     /// 登录后 `/` 与无 `next` 时的默认应用（须为 discover 到的 app id 或 `discover.appAliases` 别名）。

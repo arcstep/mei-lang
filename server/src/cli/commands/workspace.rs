@@ -478,6 +478,7 @@ fn initialize_standalone_workspace(
             workspace: mei_lang_kernel::WorkspaceProfile {
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
+                brand: Default::default(),
                 deploy_host: None,
                 default_app: None,
                 version: None,

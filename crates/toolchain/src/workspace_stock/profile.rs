@@ -62,6 +62,7 @@ pub fn init_workspace_profile(
             workspace: WorkspaceProfile {
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
+                brand: Default::default(),
                 deploy_host: None,
                 default_app: None,
                 version: None,

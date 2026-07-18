@@ -80,7 +80,7 @@ pub use types::{
     FileCacheConfig, FileCacheSettings, MeiConfig, MemoryWarmupConfig, OpsBasemapEntry, OpsConfig,
     OpsSourceEntry, RuntimeConfig, RuntimeMode, RuntimePlan, RuntimePlanApp, RuntimePlanTarget,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    SmartWarmupConfig, WorkspaceAuthConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
+    SmartWarmupConfig, WorkspaceAuthConfig, WorkspaceBrandConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
     WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceDeployDevEvalConfig, WorkspaceHostState,
     WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
     WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,

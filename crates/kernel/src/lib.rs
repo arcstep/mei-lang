@@ -163,7 +163,7 @@ pub use mei_config::{
     PrebuildGeneration, RuntimeConfig, RuntimeMode, RuntimePlan, RuntimePlanApp, RuntimePlanTarget,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     SmartWarmupConfig, StockCatalogKind, ToolchainLinks, VersionDisplayIdentity,
-    WorkspaceAuthBundle, WorkspaceAuthConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
+    WorkspaceAuthBundle, WorkspaceAuthConfig, WorkspaceBrandConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
     WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceDeployDevEvalConfig, WorkspaceHostState,
     WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
     WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
