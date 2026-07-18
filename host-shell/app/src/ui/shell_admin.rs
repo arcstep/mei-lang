@@ -83,7 +83,7 @@ pub fn admin_shell(
         AdminMainSurface::FormCard => view! {
             <section
                 id="admin-form-root"
-                class="admin-form-shell flex min-h-0 flex-1 flex-col overflow-auto"
+                class="admin-form-shell admin-kit-detail admin-kit-detail--scroll"
                 data-app-id=app_attr.clone()
                 data-resource-id=rid_attr.clone()
                 data-admin-resource=resource_attr.clone()
@@ -91,21 +91,23 @@ pub fn admin_shell(
         }
         .into_any(),
         AdminMainSurface::OpsEmbed => view! {
-            <>
-                <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
-                    <strong class="mr-2 mei-text-inverse">"运维配置"</strong>
+            <div class="admin-kit-detail">
+                <div class="admin-kit-banner">
+                    <strong>"运维配置"</strong>
                     <span>"编辑当前应用根目录 `.mei-config.json`；运维写回仅允许 `ops.*` 白名单字段。"</span>
-                    <span class="mx-2 mei-text-muted">"|"</span>
+                    <span class="mei-text-muted">"|"</span>
                     <a class="mei-text-link" href=admin_upload.clone()>"上传物料"</a>
-                    <span class="mx-2 mei-text-muted">"|"</span>
+                    <span class="mei-text-muted">"|"</span>
                     <a class="mei-text-link" href=legacy_config.clone()>"旧入口 /config"</a>
                 </div>
-                <section
-                    id="manage-ops-editor-root"
-                    class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-hidden"
-                    data-app-id=app_attr.clone()
-                ></section>
-            </>
+                <div class="admin-kit-embed">
+                    <section
+                        id="manage-ops-editor-root"
+                        class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-hidden"
+                        data-app-id=app_attr.clone()
+                    ></section>
+                </div>
+            </div>
         }
         .into_any(),
         AdminMainSurface::UploadEmbed => {
@@ -119,11 +121,11 @@ pub fn admin_shell(
                 ops_href.as_str(),
             );
             view! {
-                <>
-                    <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
-                        <strong class="mr-2 mei-text-inverse">"上传物料"</strong>
+                <div class="admin-kit-detail">
+                    <div class="admin-kit-banner">
+                        <strong>"上传物料"</strong>
                         <span>"管理应用 upload 目录；写路径仍为 `/api/upload/*`。"</span>
-                        <span class="mx-2 mei-text-muted">"|"</span>
+                        <span class="mei-text-muted">"|"</span>
                         <a class="mei-text-link" href=legacy_upload.clone()>"旧入口 /upload"</a>
                     </div>
                     <div
@@ -132,17 +134,19 @@ pub fn admin_shell(
                         aria-hidden="true"
                         inner_html=super::source_tree::TREE_ICONS_SPRITE_SVG
                     ></div>
-                    <div class="admin-upload-embed flex min-h-0 flex-1 flex-col overflow-hidden">
-                        {workbench}
+                    <div class="admin-kit-embed">
+                        <div class="admin-upload-embed flex min-h-0 flex-1 flex-col overflow-hidden">
+                            {workbench}
+                        </div>
                     </div>
-                </>
+                </div>
             }
             .into_any()
         }
         AdminMainSurface::AssetSlotCollection => view! {
             <section
                 id="admin-asset-slot-root"
-                class="admin-asset-slot-shell flex min-h-0 flex-1 flex-col overflow-auto"
+                class="admin-asset-slot-shell admin-kit-detail"
                 data-app-id=app_attr.clone()
                 data-resource-id=rid_attr.clone()
                 data-admin-resource=resource_attr.clone()
@@ -155,7 +159,7 @@ pub fn admin_shell(
         <div class="shell shell-surface admin-view-shell mei-text-primary">
             <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
             <main class="admin-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3">
-                <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
+                <div class="admin-kit-banner flex flex-wrap items-center gap-3">
                     <nav class="admin-breadcrumb min-w-0 flex-1" aria-label="管理面包屑">
                         <strong class="mei-text-inverse">{crumb}</strong>
                     </nav>

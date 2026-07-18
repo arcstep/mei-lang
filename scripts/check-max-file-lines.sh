@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MAX=501 FAIL=0
-scan(){ local l="$1"; shift; while IFS= read -r f; do [[ -z "$f" ]] && continue; n=$(wc -l < "$f" | tr -d ' ');
-  [[ "$n" -gt $MAX ]] && echo "FAIL $f: $n" >&2 && FAIL=1; done < <(find "$@" \( -path '*/target/*' -o -path '*/node_modules/*' -o -path '*/vendor/*' -o -path '*/dist/*' \) -prune -o \( -name '*.rs' -o -name '*.js' \) -type f -print 2>/dev/null); }
-scan server "$ROOT/server" || true; scan crates "$ROOT/crates" || true; scan app-rs "$ROOT/host-shell/app/src" || true
-scan app-js "$ROOT/host-shell/app/assets" || true
-[[ $FAIL -eq 0 ]] || exit 1; echo check-max-file-lines: OK

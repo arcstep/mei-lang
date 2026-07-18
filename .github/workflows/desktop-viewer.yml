@@ -9,8 +9,8 @@ on:
       - "host-shell/**"
       - "crates/mei-app-runtime/**"
       - "crates/mei-plug-ds/**"
-      - "scripts/collect-desktop-sidecars.sh"
-      - "scripts/fetch-martin-sidecar.sh"
+      - "scripts/desktop/collect-desktop-sidecars.sh"
+      - "scripts/desktop/fetch-martin-sidecar.sh"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-viewer.yml"
@@ -27,7 +27,7 @@ jobs:
       - name: Install root asset deps
         run: npm ci || npm install
       - name: Collect sidecars (release)
-        run: ./scripts/collect-desktop-sidecars.sh --release
+        run: ./scripts/desktop/collect-desktop-sidecars.sh --release
       - name: Verify Martin sidecar present
         run: test -x desktop/sidecars/bin/martin || test -f desktop/sidecars/bin/martin.exe
       - name: Install desktop deps
@@ -65,7 +65,7 @@ jobs:
         run: npm ci || npm install
       - name: Collect sidecars (release)
         shell: bash
-        run: ./scripts/collect-desktop-sidecars.sh --release
+        run: ./scripts/desktop/collect-desktop-sidecars.sh --release
       - name: Verify Martin sidecar present
         shell: bash
         run: test -f desktop/sidecars/bin/martin.exe || test -x desktop/sidecars/bin/martin

@@ -17,7 +17,7 @@ use mei_host_core::resolve_app_assets_dir;
 const PUBLIC_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
 const PRIVATE_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
 
-// 脚本顺序由 `scripts/bundle-manifest.json` 定义；`npm run assets:build` 生成下方 include 文件。
+// 脚本顺序由 `scripts/build/bundle-manifest.json` 定义；`npm run assets:build` 生成下方 include 文件。
 include!("bundle_order_generated.rs");
 
 pub async fn app_asset(

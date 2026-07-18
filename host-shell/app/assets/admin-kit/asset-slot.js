@@ -15,6 +15,8 @@
   let selectedId = "";
   let busy = false;
   let lastJob = null;
+  let statusMessage = "";
+  let statusTone = "";
 
   function escapeHtml(value) {
     return String(value || "")
@@ -36,63 +38,79 @@
     return `${(v / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function jobChipHtml(job) {
+    if (!job || typeof job !== "object") return "";
+    const phase = escapeHtml(job.phase || job.status || "unknown");
+    const message = escapeHtml(job.message || job.error || "");
+    const id = escapeHtml(job.jobId || job.id || "");
+    return `<div class="admin-kit-job-chip" data-asset-job-chip>
+      <strong>${phase}</strong>
+      ${id ? `<span class="mei-text-muted">${id}</span>` : ""}
+      ${message ? `<span>${message}</span>` : ""}
+    </div>
+    <details class="admin-kit-job-details">
+      <summary>任务明细</summary>
+      <pre class="m-0 overflow-auto">${escapeHtml(JSON.stringify(job, null, 2))}</pre>
+    </details>`;
+  }
+
   function render() {
     const slot = selectedSlot();
     const list = slots
       .map((s) => {
         const active = s.slotId === selectedId ? " is-active" : "";
-        return `<button type="button" class="admin-asset-slot-row${active}" data-slot-id="${escapeHtml(
+        return `<button type="button" class="admin-kit-nav-item admin-asset-slot-row${active}" data-slot-id="${escapeHtml(
           s.slotId,
         )}">
-          <strong>${escapeHtml(s.title || s.slotId)}</strong>
-          <span class="mei-text-muted">${escapeHtml(s.status)} · ${escapeHtml(s.path)}</span>
+          <span class="admin-kit-nav-label">${escapeHtml(s.title || s.slotId)}</span>
+          <span class="admin-kit-nav-meta">${escapeHtml(s.status)} · ${escapeHtml(s.path)}</span>
         </button>`;
       })
       .join("");
 
     const card = slot
-      ? `<article class="admin-asset-card rounded-lg border mei-border-default mei-surface-panel-muted p-3 flex flex-col gap-3">
-          <header>
-            <h3 class="mei-text-inverse mei-font-2 m-0">${escapeHtml(slot.title || slot.slotId)}</h3>
-            <p class="mei-text-muted mei-font-1 m-0 mt-1">${escapeHtml(slot.path)} · ${escapeHtml(
+      ? `<article class="admin-kit-card admin-asset-card">
+          <header class="admin-kit-card-head">
+            <h3 class="admin-kit-card-title">${escapeHtml(slot.title || slot.slotId)}</h3>
+            <p class="admin-kit-card-desc">${escapeHtml(slot.path)} · ${escapeHtml(
               slot.kind,
             )} · ${escapeHtml(slot.status)} · ${formatBytes(slot.sizeBytes)}</p>
           </header>
-          <label class="admin-asset-upload-field flex flex-col gap-1 mei-font-1">
-            <span>替换文件</span>
-            <input type="file" data-asset-file ${busy ? "disabled" : ""} />
+          <label class="admin-kit-field">
+            <span class="admin-kit-field-label">替换文件</span>
+            <input class="admin-kit-field-input" type="file" data-asset-file ${busy ? "disabled" : ""} />
           </label>
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="mei-host-shell__btn mei-host-shell__btn--primary" data-asset-import ${
+          <div class="admin-kit-savebar-actions">
+            <button type="button" class="admin-kit-btn admin-kit-btn-primary" data-asset-import ${
               busy ? "disabled" : ""
             }>导入并替换</button>
-            <button type="button" class="mei-host-shell__btn mei-host-shell__btn--ghost" data-asset-refresh ${
+            <button type="button" class="admin-kit-btn admin-kit-btn-ghost" data-asset-refresh ${
               busy ? "disabled" : ""
             }>刷新</button>
           </div>
-          <p class="admin-asset-status mei-font-1 mei-text-body m-0" data-asset-status></p>
-          ${
-            lastJob
-              ? `<pre class="admin-asset-job mei-font-1 overflow-auto m-0 p-2 rounded border mei-border-default">${escapeHtml(
-                  JSON.stringify(lastJob, null, 2),
-                )}</pre>`
-              : ""
-          }
+          <p class="admin-kit-status" data-asset-status data-tone="${escapeHtml(
+            statusTone,
+          )}">${escapeHtml(statusMessage)}</p>
+          ${lastJob ? jobChipHtml(lastJob) : ""}
         </article>`
-      : `<div class="mei-text-muted mei-font-1">选择左侧槽位以查看与替换。</div>`;
+      : `<div class="admin-kit-card"><p class="admin-kit-card-desc">选择左侧槽位以查看与替换。</p></div>`;
 
-    root.innerHTML = `<div class="admin-asset-slot-layout grid gap-3 min-h-0" style="grid-template-columns: minmax(220px, 280px) 1fr;">
-      <aside class="admin-asset-slot-list flex flex-col gap-1 overflow-auto">
-        <div class="mei-font-1 mei-text-muted mb-1">数据源槽位</div>
-        ${list || '<div class="mei-text-muted">暂无槽位</div>'}
+    root.innerHTML = `<div class="admin-kit-layout admin-asset-slot-layout">
+      <aside class="admin-kit-nav admin-asset-slot-list">
+        <div class="admin-kit-nav-title">数据源槽位</div>
+        <div class="admin-kit-nav-list">
+          ${list || '<div class="admin-kit-card-desc">暂无槽位</div>'}
+        </div>
       </aside>
-      <div class="admin-asset-slot-main min-w-0">${card}</div>
+      <div class="admin-kit-main admin-asset-slot-main">${card}</div>
     </div>`;
 
     root.querySelectorAll("[data-slot-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         selectedId = btn.getAttribute("data-slot-id") || "";
         lastJob = null;
+        statusMessage = "";
+        statusTone = "";
         render();
       });
     });
@@ -103,10 +121,12 @@
   }
 
   function setStatus(message, tone) {
+    statusMessage = message || "";
+    statusTone = tone || "";
     const el = root.querySelector("[data-asset-status]");
     if (!el) return;
-    el.textContent = message || "";
-    el.dataset.tone = tone || "";
+    el.textContent = statusMessage;
+    el.dataset.tone = statusTone;
   }
 
   async function loadSlots() {
@@ -126,12 +146,16 @@
       if (selectedId && !slots.some((s) => s.slotId === selectedId)) {
         selectedId = slots[0] ? slots[0].slotId : "";
       }
-      setStatus("");
+      statusMessage = "";
+      statusTone = "";
     } catch (err) {
       slots = [];
-      root.innerHTML = `<div class="admin-form-error rounded-lg border mei-border-danger px-3 py-2 mei-text-body">${escapeHtml(
-        err.message || String(err),
-      )}</div>`;
+      root.innerHTML = `<div class="admin-kit-card admin-kit-card--danger">
+        <div class="admin-kit-card-head">
+          <h2 class="admin-kit-card-title">无法加载数据源</h2>
+          <p class="admin-kit-card-desc">${escapeHtml(err.message || String(err))}</p>
+        </div>
+      </div>`;
       busy = false;
       return;
     }
@@ -166,8 +190,9 @@
       return;
     }
     busy = true;
+    statusMessage = "正在导入…";
+    statusTone = "";
     render();
-    setStatus("正在导入…");
     try {
       const payload = await readFilePayload(file);
       const resp = await fetch("/api/admin/providers/command-job", {
@@ -194,14 +219,18 @@
       setStatus("导入成功", "ok");
     } catch (err) {
       busy = false;
+      statusMessage = err.message || String(err);
+      statusTone = "err";
       render();
-      setStatus(err.message || String(err), "err");
     }
   }
 
   if (!appId || !resourceId || !resourceSpec) {
-    root.innerHTML =
-      '<div class="admin-form-error rounded-lg border mei-border-danger px-3 py-2 mei-text-body">缺少 Admin 资源投影</div>';
+    root.innerHTML = `<div class="admin-kit-card admin-kit-card--danger">
+      <div class="admin-kit-card-head">
+        <h2 class="admin-kit-card-title">缺少 Admin 资源投影</h2>
+      </div>
+    </div>`;
     return;
   }
 

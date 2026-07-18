@@ -101,7 +101,7 @@ cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another
 - 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`；若端口仍被占用，可执行 `lsof -ti tcp:9527 | xargs kill`
 - 日志里的 `synced MeiLang skill` 仅表示 skill 文件同步，**不是**自动拉起外部 Agent 进程；默认启动不会做这一步
 - 瓦片：Host 默认可自动托管 Martin（见上文 GIS）；外部服务可用 `./scripts/start_martin.sh` 或 Docker，并设 `MEI_GIS_PROXY_UPSTREAM`
-- 分发含 `bin/martin`：`mei-lang/scripts/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
+- 分发含 `bin/martin`：`mei-lang/scripts/desktop/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
 
 ## 最少配置
 

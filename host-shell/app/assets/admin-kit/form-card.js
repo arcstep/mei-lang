@@ -40,18 +40,21 @@
     event.returnValue = "";
   });
 
-  function renderError(message) {
-    root.innerHTML = `<div class="admin-form-error rounded-lg border mei-border-danger px-3 py-2 mei-text-body">${escapeHtml(
-      message || "加载失败",
-    )}</div>`;
-  }
-
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function renderError(message) {
+    root.innerHTML = `<div class="admin-kit-card admin-kit-card--danger">
+      <div class="admin-kit-card-head">
+        <h2 class="admin-kit-card-title">无法加载表单</h2>
+        <p class="admin-kit-card-desc">${escapeHtml(message || "加载失败")}</p>
+      </div>
+    </div>`;
   }
 
   function renderForm(payload) {
@@ -66,36 +69,58 @@
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(field);
     }
-    let html = `<form class="admin-form-card flex flex-col gap-4" data-admin-form="1">`;
-    html += `<div class="mei-font-1 mei-text-muted">revision ${revision}</div>`;
+
+    let sectionsHtml = "";
     for (const [title, group] of groups.entries()) {
-      html += `<section class="rounded-lg border mei-border-default mei-surface-panel p-3"><h2 class="mb-3 mei-font-2 mei-text-inverse">${escapeHtml(
-        title,
-      )}</h2><div class="grid gap-3">`;
+      sectionsHtml += `<section class="admin-kit-section">
+        <h2 class="admin-kit-section-title">${escapeHtml(title)}</h2>
+        <div class="grid gap-3">`;
       for (const field of group) {
         const value = payload[field.id] ?? "";
         const required = field.required ? "required" : "";
         const control = field.control || "text";
+        const label = escapeHtml(field.label || field.id);
+        const name = escapeHtml(field.id);
         if (control === "textarea") {
-          html += `<label class="grid gap-1"><span>${escapeHtml(field.label || field.id)}</span><textarea class="mei-input" name="${escapeHtml(
-            field.id,
-          )}" ${required}>${escapeHtml(value)}</textarea></label>`;
+          sectionsHtml += `<label class="admin-kit-field">
+            <span class="admin-kit-field-label">${label}</span>
+            <textarea class="admin-kit-field-input" name="${name}" ${required}>${escapeHtml(
+              value,
+            )}</textarea>
+          </label>`;
         } else if (control === "boolean") {
-          html += `<label class="inline-flex items-center gap-2"><input type="checkbox" name="${escapeHtml(
-            field.id,
-          )}" ${value ? "checked" : ""}/><span>${escapeHtml(field.label || field.id)}</span></label>`;
+          sectionsHtml += `<label class="admin-kit-field admin-kit-field--check">
+            <input type="checkbox" name="${name}" ${value ? "checked" : ""}/>
+            <span class="admin-kit-field-label">${label}</span>
+          </label>`;
         } else {
           const type = control === "number" ? "number" : "text";
-          html += `<label class="grid gap-1"><span>${escapeHtml(field.label || field.id)}</span><input class="mei-input" type="${type}" name="${escapeHtml(
-            field.id,
-          )}" value="${escapeHtml(value)}" ${required}/></label>`;
+          sectionsHtml += `<label class="admin-kit-field">
+            <span class="admin-kit-field-label">${label}</span>
+            <input class="admin-kit-field-input" type="${type}" name="${name}" value="${escapeHtml(
+              value,
+            )}" ${required}/>
+          </label>`;
         }
       }
-      html += `</div></section>`;
+      sectionsHtml += `</div></section>`;
     }
-    html += `<div class="flex items-center gap-2"><button type="submit" class="mei-btn" data-admin-save>保存</button><button type="button" class="mei-btn mei-btn-ghost" data-admin-reset>重置</button><span class="mei-font-1 mei-text-muted" data-admin-status></span></div>`;
-    html += `</form>`;
-    root.innerHTML = html;
+
+    root.innerHTML = `<form class="admin-kit-card admin-form-card" data-admin-form="1">
+      <div class="admin-kit-card-head">
+        <h2 class="admin-kit-card-title">编辑</h2>
+        <p class="admin-kit-card-desc">修改后保存；未保存离开将提示确认。</p>
+      </div>
+      ${sectionsHtml}
+      <div class="admin-kit-savebar">
+        <div class="admin-kit-savebar-actions">
+          <button type="submit" class="admin-kit-btn admin-kit-btn-primary" data-admin-save>保存</button>
+          <button type="button" class="admin-kit-btn admin-kit-btn-ghost" data-admin-reset>重置</button>
+          <span class="admin-kit-status" data-admin-status></span>
+        </div>
+        <span class="admin-kit-savebar-meta" data-admin-revision>revision ${revision}</span>
+      </div>
+    </form>`;
 
     const form = root.querySelector("[data-admin-form]");
     form.addEventListener("input", () => markDirty(true));
@@ -125,10 +150,12 @@
       } else {
         data[field.id] = el.value;
       }
-      if (field.required && (data[field.id] === "" || data[field.id] == null || data[field.id] === false && field.control !== "boolean")) {
-        if (field.control !== "boolean" && (data[field.id] === "" || data[field.id] == null)) {
-          throw new Error(`${field.label || field.id} 为必填`);
-        }
+      if (
+        field.required &&
+        field.control !== "boolean" &&
+        (data[field.id] === "" || data[field.id] == null)
+      ) {
+        throw new Error(`${field.label || field.id} 为必填`);
       }
     }
     return data;
@@ -186,7 +213,7 @@
   }
 
   async function load() {
-    root.innerHTML = `<div class="mei-font-1 mei-text-muted">加载中…</div>`;
+    root.innerHTML = `<div class="admin-kit-card"><p class="admin-kit-card-desc">加载中…</p></div>`;
     if (!appId || !resourceId) {
       renderError("缺少 app / resource 上下文");
       return;

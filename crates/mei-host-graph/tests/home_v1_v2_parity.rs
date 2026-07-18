@@ -1,4 +1,4 @@
-//! Home scene shape parity: v2 assemble vs v1 kernel compile (ws-data-demo reference).
+//! Home scene shape parity: v2 assemble vs v1 kernel compile (`apps/data-demo` under MEI_TEST_WORKSPACE).
 
 use std::path::PathBuf;
 use std::sync::Once;

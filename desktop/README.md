@@ -23,16 +23,16 @@
 
 ```bash
 # 工作区根 → 转发到 mei-lang
-./scripts/build-desktop-viewer.sh
+./scripts/desktop/build-desktop-viewer.sh
 
 # 或 mei-lang 根（真源）
-cd mei-lang && ./scripts/build-desktop-viewer.sh
+cd mei-lang && ./scripts/desktop/build-desktop-viewer.sh
 
 # 开发热跑：collect (debug) + tauri dev
-./scripts/build-desktop-viewer.sh --dev
+./scripts/desktop/build-desktop-viewer.sh --dev
 
 # 仅重打安装包（sidecar 已收集过）
-./scripts/build-desktop-viewer.sh --skip-collect
+./scripts/desktop/build-desktop-viewer.sh --skip-collect
 ```
 
 等价 npm（在 `desktop/` 下）：
@@ -69,12 +69,12 @@ open mei-lang/desktop/dist/mei-viewer.app
 open -na "mei-lang/desktop/dist/mei-viewer.app" --args "/Users/xuehongwei/codeup/mei-projects/workspaces/ws-demo-v2"
 ```
 
-sidecar 收集与 `scripts/build.sh` 一样会做 **cargo target hygiene**（超预算才 clean）；二进制相对 `Cargo.lock` 未过期时默认跳过 cargo（`MEI_DESKTOP_FORCE_BUILD=1` 强制重编）。
+sidecar 收集与 `scripts/build/build.sh` 一样会做 **cargo target hygiene**（超预算才 clean）；二进制相对 `Cargo.lock` 未过期时默认跳过 cargo（`MEI_DESKTOP_FORCE_BUILD=1` 强制重编）。
 
 开发热跑：
 
 ```bash
-./scripts/build-desktop-viewer.sh --dev
+./scripts/desktop/build-desktop-viewer.sh --dev
 # 或：cd desktop && npm run dev:all
 ```
 
@@ -111,7 +111,7 @@ Release；只有来自默认分支、且与 Cargo 版本完全一致的 `v*` tag
 本地打 runtime + toolchain 归档：
 
 ```bash
-./scripts/package-release-bundles.sh
+./scripts/release/package-release-bundles.sh
 # → dist/bundles/mei-{runtime,toolchain}-<ver>-<triple>.tar.gz|zip
 ```
 

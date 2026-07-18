@@ -1,0 +1,384 @@
+/* Admin Kit shared primitives (0543 / 0546 §8) — align with manage-ops visual language. */
+
+.admin-view-shell .admin-view-main {
+  gap: 12px;
+}
+
+.admin-kit-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.admin-kit-detail--scroll {
+  overflow: auto;
+}
+
+.admin-kit-banner {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 12px;
+  background: var(--mei-shell-color-panel-bg);
+  box-shadow: inset 0 1px 0 var(--mei-shell-color-inset-highlight-subtle);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.5;
+  color: var(--mei-shell-color-text-body);
+}
+
+.admin-kit-banner strong {
+  color: var(--mei-shell-color-text-inverse);
+  font-weight: 700;
+}
+
+.admin-kit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 14px;
+  background: var(--mei-shell-color-panel-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.admin-kit-card--danger {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 45%, var(--mei-shell-color-border-muted));
+}
+
+.admin-kit-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.admin-kit-card-title {
+  margin: 0;
+  font-size: var(--mei-shell-font-2);
+  font-weight: 700;
+  color: var(--mei-shell-color-text-inverse);
+}
+
+.admin-kit-card-desc {
+  margin: 0;
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.55;
+  color: var(--mei-shell-color-text-muted);
+  word-break: break-all;
+}
+
+.admin-kit-section {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--mei-shell-color-border-faint);
+  border-radius: 12px;
+  background: var(--mei-shell-color-manage-panel-bg, var(--mei-shell-color-panel-bg));
+}
+
+.admin-kit-section-title {
+  margin: 0;
+  font-size: var(--mei-shell-font-1);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mei-shell-color-text-inverse);
+}
+
+.admin-kit-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.admin-kit-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 12px;
+  background: var(--mei-shell-color-panel-bg);
+  overflow: auto;
+}
+
+.admin-kit-nav-title {
+  font-size: var(--mei-shell-font-1);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mei-shell-color-text-muted);
+}
+
+.admin-kit-nav-list {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-kit-nav-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--mei-shell-color-border-faint);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--mei-shell-color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-kit-nav-item:hover,
+.admin-kit-nav-item:focus-visible {
+  border-color: var(--mei-shell-color-border-accent-soft);
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 8%, transparent);
+}
+
+.admin-kit-nav-item.is-active {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 40%, var(--mei-shell-color-border-muted));
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 18%, transparent);
+}
+
+.admin-kit-nav-label {
+  font-size: var(--mei-shell-font-1);
+  font-weight: 600;
+  color: var(--mei-shell-color-text-inverse);
+  word-break: break-all;
+}
+
+.admin-kit-nav-meta {
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.45;
+  color: var(--mei-shell-color-text-muted);
+  word-break: break-all;
+}
+
+.admin-kit-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.admin-kit-field {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-kit-field-label {
+  font-size: var(--mei-shell-font-1);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mei-shell-color-text-muted);
+}
+
+.admin-kit-field-input,
+.mei-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--mei-shell-color-border-strong);
+  border-radius: 10px;
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  outline: none;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+textarea.admin-kit-field-input,
+textarea.mei-input {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.admin-kit-field-input:focus,
+.mei-input:focus {
+  border-color: var(--mei-shell-color-border-accent-soft);
+  box-shadow: 0 0 0 1px var(--mei-shell-color-border-accent-soft);
+}
+
+.admin-kit-field--check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.admin-kit-savebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 12px;
+  background: var(--mei-shell-color-panel-bg);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  backdrop-filter: blur(10px);
+}
+
+.admin-kit-savebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-kit-savebar-meta {
+  margin-left: auto;
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-muted);
+}
+
+.admin-kit-btn,
+.mei-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--mei-shell-color-border-strong);
+  border-radius: 8px;
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-kit-btn:hover:not(:disabled),
+.admin-kit-btn:focus-visible:not(:disabled),
+.mei-btn:hover:not(:disabled),
+.mei-btn:focus-visible:not(:disabled) {
+  border-color: var(--mei-shell-color-border-accent-soft);
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 10%, var(--mei-shell-color-panel-bg));
+}
+
+.admin-kit-btn:disabled,
+.mei-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-kit-btn-primary {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 50%, var(--mei-shell-color-border-strong));
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 28%, var(--mei-shell-color-panel-bg));
+  color: var(--mei-shell-color-text-inverse);
+  font-weight: 600;
+}
+
+.admin-kit-btn-ghost,
+.mei-btn-ghost {
+  background: transparent;
+  border-color: var(--mei-shell-color-border-faint);
+  color: var(--mei-shell-color-text-body);
+}
+
+.admin-kit-status {
+  margin: 0;
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.5;
+  color: var(--mei-shell-color-text-body);
+}
+
+.admin-kit-status[data-tone="ok"] {
+  color: var(--mei-shell-color-text-inverse);
+}
+
+.admin-kit-status[data-tone="warn"],
+.admin-kit-status[data-tone="err"] {
+  color: color-mix(in srgb, var(--mei-shell-color-accent) 70%, white);
+}
+
+.admin-kit-job-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 8%, transparent);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.45;
+  color: var(--mei-shell-color-text-body);
+}
+
+.admin-kit-job-chip strong {
+  color: var(--mei-shell-color-text-inverse);
+}
+
+.admin-kit-job-details {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--mei-shell-color-border-faint);
+  border-radius: 10px;
+  background: transparent;
+  overflow: auto;
+  max-height: 160px;
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-muted);
+}
+
+.admin-kit-job-details summary {
+  cursor: pointer;
+  color: var(--mei-shell-color-text-body);
+  margin-bottom: 6px;
+}
+
+.admin-kit-embed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--mei-shell-color-border-muted);
+  border-radius: 14px;
+  background: var(--mei-shell-color-panel-bg);
+}
+
+.admin-kit-embed > .manage-ops-editor-shell,
+.admin-kit-embed > .admin-upload-embed,
+.admin-kit-embed > .workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Align upload cards with admin-kit card family when embedded in Admin Shell */
+.admin-view-shell .admin-upload-embed .upload-panel-card {
+  border-radius: 14px;
+}
+
+.admin-view-shell .admin-upload-embed .workspace.upload-workspace {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.admin-form-shell,
+.admin-asset-slot-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .admin-kit-layout {
+    grid-template-columns: 1fr;
+  }
+}

@@ -5,7 +5,7 @@
 Do **not** cross-compile Windows installers from macOS. Use:
 
 - GitHub Actions `windows-latest` (`.github/workflows/desktop-viewer.yml`), or
-- a Windows VM / native machine: `scripts/collect-desktop-sidecars.sh --release` then `cd desktop && npm run build`
+- a Windows VM / native machine: `scripts/desktop/collect-desktop-sidecars.sh --release` then `cd desktop && npm run build`
 
 ## Symlink / `env/current`
 
