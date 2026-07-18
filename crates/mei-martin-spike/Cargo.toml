@@ -1,0 +1,21 @@
+# Standalone spike (excluded from mei-lang workspace members).
+[workspace]
+
+[package]
+name = "mei-martin-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Feasibility spike: martin-core library + martin subprocess (not a product crate)"
+
+[[bin]]
+name = "mei-martin-spike"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+martin-core = { version = "0.9", default-features = false, features = ["mbtiles"] }
+martin-tile-utils = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "io-util"] }
