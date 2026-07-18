@@ -120,14 +120,16 @@ function meshFromBuffers(THREE, positions, normals, color, opacity, uvs = null, 
     geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   }
   geometry.computeBoundingSphere();
+  const opaque = opacity >= 0.9 && !map;
   const material = new THREE.MeshStandardMaterial({
     color: map ? 0xffffff : color,
     map: map || null,
-    transparent: opacity < 0.999 || Boolean(map),
-    opacity,
+    transparent: !opaque && (opacity < 0.999 || Boolean(map)),
+    opacity: opaque ? 1 : opacity,
     metalness: map ? 0.15 : 0.05,
     roughness: map ? 0.45 : 0.72,
     side: THREE.DoubleSide,
+    depthWrite: opaque || !map,
     emissive: map ? new THREE.Color("#1e3a5f") : undefined,
     emissiveIntensity: map ? 0.35 : 0,
   });
@@ -430,6 +432,53 @@ function addFacadeDecor(THREE, group, points, height, hero) {
 }
 
 /**
+ * Build the complete procedural facade overlay in local meters (Y-up).
+ * `points` is a closed footprint ring in `{x, y}` where `y` maps to world Z.
+ * Shared by MapLibre L4 and standalone Three world L5.
+ */
+export function buildLocalHeroFacadeOverlay(THREE, points, height, hero = {}) {
+  if (!Array.isArray(points) || points.length < 4) return null;
+  const safeHeight = Math.max(Number(height) || 0, 1);
+  const group = new THREE.Group();
+  group.name = `hero-facade-overlay:${hero.entityId || hero.id || "unknown"}`;
+
+  const floorH = DEFAULT_FLOOR_HEIGHT;
+  const floors = Math.max(1, Math.floor(safeHeight / floorH));
+  const bandPos = [];
+  const bandNrm = [];
+  const centroid = ringCentroid(points);
+  // Bands sit outside the opaque shell; the old inward inset made them easy
+  // to hide in L5. Keep a small outward offset for stable shared rendering.
+  const bandPoints = points.map((point) => {
+    const vx = point.x - centroid.x;
+    const vy = point.y - centroid.y;
+    const len = Math.hypot(vx, vy) || 1;
+    return {
+      x: point.x + (vx / len) * BAND_INSET,
+      y: point.y + (vy / len) * BAND_INSET,
+    };
+  });
+  for (let floor = 0; floor < floors; floor += 1) {
+    const z0 = floor * floorH + floorH * 0.28;
+    const z1 = Math.min(z0 + floorH * 0.42, safeHeight - 0.2);
+    if (z1 <= z0) continue;
+    buildWallQuads(bandPoints, z0, z1, bandPos, bandNrm);
+  }
+  if (bandPos.length) {
+    const bands = meshFromBuffers(THREE, bandPos, bandNrm, "#0ea5e9", 0.78);
+    bands.name = "facade-window-bands";
+    bands.renderOrder = 35;
+    group.add(bands);
+  }
+
+  addFacadeDecor(THREE, group, points, safeHeight, hero);
+  group.traverse((child) => {
+    if (child !== group && child.renderOrder === 0) child.renderOrder = 40;
+  });
+  return group;
+}
+
+/**
  * Build a procedural window-band facade group in local meters (Y-up).
  */
 export function buildWindowBandsFacade(THREE, maplibregl, hero) {
@@ -440,8 +489,8 @@ export function buildWindowBandsFacade(THREE, maplibregl, hero) {
   const shellColor = hero?.shellColor || "#94a3b8";
   const shellOpacity = Number(hero?.shellOpacity);
   const opacity = Number.isFinite(shellOpacity)
-    ? Math.min(Math.max(shellOpacity, 0.45), 0.92)
-    : 0.72;
+    ? Math.min(Math.max(shellOpacity, 0.88), 0.98)
+    : 0.92;
 
   const shellPos = [];
   const shellNrm = [];
@@ -460,31 +509,8 @@ export function buildWindowBandsFacade(THREE, maplibregl, hero) {
   };
   group.add(meshFromBuffers(THREE, shellPos, shellNrm, shellColor, opacity));
 
-  const floorH = DEFAULT_FLOOR_HEIGHT;
-  const floors = Math.max(1, Math.floor(height / floorH));
-  const bandPos = [];
-  const bandNrm = [];
-  const centroid = ringCentroid(points);
-  const insetPoints = points.map((p) => {
-    const vx = p.x - centroid.x;
-    const vy = p.y - centroid.y;
-    const len = Math.hypot(vx, vy) || 1;
-    return {
-      x: p.x - (vx / len) * BAND_INSET,
-      y: p.y - (vy / len) * BAND_INSET,
-    };
-  });
-  for (let f = 0; f < floors; f += 1) {
-    const z0 = f * floorH + floorH * 0.28;
-    const z1 = Math.min(z0 + floorH * 0.42, height - 0.2);
-    if (z1 <= z0) continue;
-    buildWallQuads(insetPoints, z0, z1, bandPos, bandNrm);
-  }
-  if (bandPos.length) {
-    group.add(meshFromBuffers(THREE, bandPos, bandNrm, "#0ea5e9", 0.72));
-  }
-
-  addFacadeDecor(THREE, group, points, height, hero);
+  const overlay = buildLocalHeroFacadeOverlay(THREE, points, height, hero);
+  if (overlay) group.add(overlay);
 
   group.userData.originMc = originMc;
   group.userData.meter = meter;

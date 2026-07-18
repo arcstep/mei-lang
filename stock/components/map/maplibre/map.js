@@ -1672,6 +1672,13 @@ if (!customElements.get(TAG)) {
         : extrusionHeight;
       const useExtrusion = Boolean(extrusionHeightProperty) || extrusionHeight > 0;
       const polygonFilter = layerSpec.filter || layerSpec.mapFilter || null;
+      // Map extrusion needs near-opaque mass so basemap labels / outlines do not
+      // read through the volume (author glass opacity is for L5, not L3).
+      const parsedFillOpacity = Number(fillOpacityRaw);
+      const extrusionOpacity = Number.isFinite(parsedFillOpacity)
+        ? Math.min(1, Math.max(parsedFillOpacity, 0.92))
+        : 0.95;
+      const fillOpacity = Number.isFinite(parsedFillOpacity) ? parsedFillOpacity : 0.45;
       const dataWithColors = {
         type: "FeatureCollection",
         features: (geojson.features || []).map((feature) => {
@@ -1707,27 +1714,32 @@ if (!customElements.get(TAG)) {
       this.map.getSource(sourceId).setData(dataWithColors);
 
       if (!outlineOnly) {
-        if (useExtrusion && !this.map.getLayer(extrusionId)) {
-          const extrusionDef = {
-            id: extrusionId,
-            type: "fill-extrusion",
-            source: sourceId,
-            minzoom: 12,
-            paint: {
-              "fill-extrusion-color": ["coalesce", ["get", "__fill"], fillColor],
-              "fill-extrusion-height": extrusionPaintHeight,
-              "fill-extrusion-opacity":
-                fillOpacityRaw != null && fillOpacityRaw !== ""
-                  ? Number(fillOpacityRaw)
-                  : 0.68,
-              "fill-extrusion-base": 0,
-            },
-          };
-          if (Array.isArray(polygonFilter)) {
-            extrusionDef.filter = polygonFilter;
+        if (useExtrusion) {
+          if (!this.map.getLayer(extrusionId)) {
+            const extrusionDef = {
+              id: extrusionId,
+              type: "fill-extrusion",
+              source: sourceId,
+              minzoom: 12,
+              paint: {
+                "fill-extrusion-color": ["coalesce", ["get", "__fill"], fillColor],
+                "fill-extrusion-height": extrusionPaintHeight,
+                "fill-extrusion-opacity": extrusionOpacity,
+                "fill-extrusion-base": 0,
+              },
+            };
+            if (Array.isArray(polygonFilter)) {
+              extrusionDef.filter = polygonFilter;
+            }
+            this.map.addLayer(extrusionDef);
+            mapLayerIds.push(extrusionId);
+          } else {
+            try {
+              this.map.setPaintProperty(extrusionId, "fill-extrusion-opacity", extrusionOpacity);
+            } catch {
+              /* ignore */
+            }
           }
-          this.map.addLayer(extrusionDef);
-          mapLayerIds.push(extrusionId);
         } else if (!this.map.getLayer(fillId)) {
           const fillDef = {
             id: fillId,
@@ -1735,10 +1747,7 @@ if (!customElements.get(TAG)) {
             source: sourceId,
             paint: {
               "fill-color": ["coalesce", ["get", "__fill"], fillColor],
-              "fill-opacity":
-                fillOpacityRaw != null && fillOpacityRaw !== ""
-                  ? Number(fillOpacityRaw)
-                  : 0.45,
+              "fill-opacity": fillOpacity,
             },
           };
           if (Array.isArray(polygonFilter)) {
@@ -1748,7 +1757,17 @@ if (!customElements.get(TAG)) {
           mapLayerIds.push(fillId);
         }
       }
-      if (!this.map.getLayer(lineId)) {
+      // Footprint outlines sit above extrusions in the painter stack and read as
+      // wireframes through/on the mass — hide them whenever L3 extrusion is on.
+      if (useExtrusion) {
+        if (this.map.getLayer(lineId)) {
+          try {
+            this.map.setLayoutProperty(lineId, "visibility", "none");
+          } catch {
+            /* ignore */
+          }
+        }
+      } else if (!this.map.getLayer(lineId)) {
         const defaultLine = mapLibrePaintColor(
           style.lineColor || style.line_color || color("chart_2"),
           "chart_2",
@@ -1769,12 +1788,20 @@ if (!customElements.get(TAG)) {
         }
         this.map.addLayer(lineDef);
         mapLayerIds.push(lineId);
+      } else {
+        try {
+          this.map.setLayoutProperty(lineId, "visibility", "visible");
+        } catch {
+          /* ignore */
+        }
       }
       if (!outlineOnly) {
         const interactiveLayerId = useExtrusion ? extrusionId : fillId;
         this.bindLayerEvents(interactiveLayerId, layerId, joinKey, layerSpec);
       }
-      this.bindLayerEvents(lineId, layerId, joinKey, layerSpec);
+      if (!useExtrusion && this.map.getLayer(lineId)) {
+        this.bindLayerEvents(lineId, layerId, joinKey, layerSpec);
+      }
       this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style, { outlineOnly });
       registry[layerId] = { mapLayerIds, sourceId };
       this._renderTrace?.mark("layer_ready", {
