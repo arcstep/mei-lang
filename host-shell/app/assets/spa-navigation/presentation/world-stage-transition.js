@@ -141,21 +141,22 @@
     nav.className = "mei-world-stage-floating-nav";
     nav.hidden = true;
     nav.innerHTML = `
-      <div class="nav-group" role="group" aria-label="3D 缩放">
+      <div class="nav-group" role="group" aria-label="缩放">
         <button type="button" data-nav="zoom-in" title="放大" aria-label="放大">+</button>
         <button type="button" data-nav="zoom-out" title="缩小" aria-label="缩小">−</button>
       </div>
-      <div class="nav-group" role="group" aria-label="3D 旋转">
+      <div class="nav-group" role="group" aria-label="旋转">
         <button type="button" data-nav="bearing-left" title="左转" aria-label="左转">↶</button>
         <button type="button" data-nav="bearing-right" title="右转" aria-label="右转">↷</button>
       </div>
-      <div class="nav-group" role="group" aria-label="3D 俯仰">
-        <button type="button" data-nav="pitch-up" title="增大俯角" aria-label="增大俯角">⌃</button>
-        <button type="button" data-nav="pitch-down" title="减小俯角" aria-label="减小俯角">⌄</button>
+      <div class="nav-group" role="group" aria-label="俯仰">
+        <button type="button" data-nav="pitch-up" title="更俯视" aria-label="更俯视">⌃</button>
+        <button type="button" data-nav="pitch-down" title="更平视" aria-label="更平视">⌄</button>
       </div>
-      <div class="nav-group" role="group" aria-label="3D 复原">
+      <div class="nav-group" role="group" aria-label="复位">
         <button type="button" data-nav="reset" title="复原视角" aria-label="复原视角">◎</button>
       </div>
+      <p class="nav-hint">左拖有限平移 · 右键旋转俯仰 · 滚轮缩放（按键职责固定；也可用上方按钮）</p>
     `;
     nav.addEventListener("click", (event) => {
       const btn = event.target?.closest?.("[data-nav]");
