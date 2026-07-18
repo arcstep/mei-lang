@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::admin_manifest::AppAdminRef;
 use super::types::{
     AppEntryConfig, AppFeaturesConfig, AppPathsConfig, DiscoverConfig, MeiConfig, OpsConfig,
     RuntimeConfig, WorkspaceAuthConfig, APP_CONFIG_FILENAME, APP_TOML_FILENAME,
@@ -155,6 +156,9 @@ pub struct AppTomlDocument {
         rename = "display_name"
     )]
     pub display_name: Option<String>,
+    /// Optional Host Admin Platform extension pointer (0545).
+    #[serde(default, skip_serializing_if = "AppAdminRef::is_empty")]
+    pub admin: AppAdminRef,
 }
 
 impl AppTomlDocument {
@@ -188,6 +192,7 @@ impl AppTomlDocument {
             theme: m.theme.clone(),
             warmup: m.warmup.as_ref().map(normalize_warmup_for_toml),
             display_name: None,
+            admin: AppAdminRef::default(),
         }
     }
 

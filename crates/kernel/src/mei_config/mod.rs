@@ -2,6 +2,11 @@
 //!
 //! `.mei` 真源只读；宿主仅通过 ops 白名单对象写回配置，不写 `.mei`。
 
+mod admin_discover;
+mod admin_manifest;
+mod admin_record;
+mod admin_asset_slot;
+mod admin_command_job;
 mod auth_bundle;
 mod authoring_policy;
 mod app_manifest;
@@ -18,6 +23,30 @@ mod workspace_paths;
 #[cfg(test)]
 mod tests;
 
+pub use admin_asset_slot::{
+    get_asset_slot, list_asset_slots, replace_asset_slot, resolve_slot_defs, AssetSlotDef,
+    AssetSlotSchemaDoc, AssetSlotView,
+};
+pub use admin_command_job::{
+    get_command_job, run_import_job, AdminJobRecord, AdminJobStatus, ADMIN_JOBS_REL_DIR,
+};
+pub use admin_discover::{
+    discover_app_admin_resources, discover_from_admin_ref, filter_admin_resources_for_capabilities,
+    AdminDiscoverOutcome, AdminDiscoveryDiagnostic, AdminRegistryProjection,
+    AdminResourceProjection, AdminUiSurface,
+};
+pub use admin_manifest::{
+    load_admin_manifest, parse_admin_manifest, parse_and_validate_admin_manifest,
+    resolve_admin_manifest_path, validate_admin_manifest, validate_relative_sandbox_path,
+    AdminAction, AdminColumn, AdminDangerLevel, AdminDirtyPolicy, AdminField, AdminFieldControl,
+    AdminFieldOption, AdminIdempotency, AdminManifest, AdminManifestError, AdminMenuValue,
+    AdminNavigation, AdminProviderKind, AdminResourceSpec, AdminRevisionPolicy, AdminSection,
+    AdminTemplate, AdminUploadSpec, AppAdminRef, ADMIN_RESOURCE_API_VERSION,
+};
+pub use admin_record::{
+    append_admin_audit, get_config_record, put_config_record, resolve_config_record_path,
+    AdminAuditEntry, AdminRecordError, ConfigRecordFile, ADMIN_AUDIT_REL_PATH,
+};
 pub use app_manifest::{
     load_app_manifest, load_app_manifest_from_json_pair, load_app_manifest_from_toml,
     migrate_json_pair_to_toml, write_app_toml, AppManifest, AppTomlDocument, APP_TOML_SCHEMA,
