@@ -12,6 +12,8 @@ pub enum UiRouteMode {
     Config,
     Upload,
     Runtime,
+    /// Host Admin Platform resource surface (`/admin/apps/{id}/{resource}`).
+    Admin,
 }
 
 impl UiRouteMode {
@@ -26,6 +28,7 @@ impl UiRouteMode {
             "config" => Self::Config,
             "upload" => Self::Upload,
             "runtime" => Self::Runtime,
+            "admin" => Self::Admin,
             _ => Self::App,
         }
     }
@@ -40,6 +43,7 @@ impl UiRouteMode {
             Self::Config => "config",
             Self::Upload => "upload",
             Self::Runtime => "runtime",
+            Self::Admin => "admin",
         }
     }
 
@@ -64,6 +68,7 @@ impl UiRouteMode {
             Self::Config => "配置",
             Self::Upload => "上传",
             Self::Runtime => "运行",
+            Self::Admin => "管理",
         }
     }
 
@@ -77,6 +82,7 @@ impl UiRouteMode {
             Self::Config => "配置",
             Self::Upload => "上传",
             Self::Runtime => "应用中心",
+            Self::Admin => "应用管理",
         }
     }
 

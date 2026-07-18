@@ -38,16 +38,24 @@ fn resolve_active_app_view_tab(route_mode: UiRouteMode) -> Option<AppViewTab> {
         UiRouteMode::App => Some(AppViewTab::App),
         UiRouteMode::Layout => Some(AppViewTab::Layout),
         UiRouteMode::Prototype => Some(AppViewTab::Prototype),
-        _ => None,
+        UiRouteMode::Run
+        | UiRouteMode::Copilot
+        | UiRouteMode::Config
+        | UiRouteMode::Upload
+        | UiRouteMode::Runtime
+        | UiRouteMode::Admin => None,
     }
 }
 
-/// 应用入口菜单的链接目标：工作区页无当前应用时用 App，有应用时用当前面 route。
+/// 应用入口菜单的链接目标：工作区页无当前应用时用 App；
+/// Admin / Config / Upload 面仍切到 Access Stage（0544：App Switcher ≠ 管理面）。
 fn app_menu_link_mode(route_mode: UiRouteMode, active_app_path: &str) -> UiRouteMode {
     if active_app_path.trim().is_empty() {
-        UiRouteMode::App
-    } else {
-        route_mode
+        return UiRouteMode::App;
+    }
+    match route_mode {
+        UiRouteMode::Admin | UiRouteMode::Config | UiRouteMode::Upload => UiRouteMode::App,
+        other => other,
     }
 }
 
@@ -192,6 +200,8 @@ pub(crate) fn topbar_view(
     _build_tree_mode: Option<&str>,
     access_stage_routes: Option<&[CompiledSceneRoute]>,
     shell_nav_active: Option<ShellNavActive>,
+    admin_nav_items: &[AdminNavItem],
+    admin_active_id: Option<&str>,
 ) -> AnyView {
     let has_app_context = !active_app_path.trim().is_empty();
     let menu_link_mode = app_menu_link_mode(route_mode, active_app_path);
@@ -241,10 +251,9 @@ pub(crate) fn topbar_view(
         active_catalog,
         active_stock_pack,
     );
-    // 0543 Registry not wired yet: empty strip does not render separator or chips.
-    let admin_items: &[AdminStripItem] = &[];
+    // 0547: Registry projection → chips; empty slice does not render separator.
     let app_admin = if show_app_admin(has_app_context, auth_enabled, auth_account) {
-        app_admin_strip_view(admin_items, None)
+        app_admin_strip_view(admin_nav_items, admin_active_id)
     } else {
         view! { <></> }.into_any()
     };
@@ -256,6 +265,11 @@ pub(crate) fn topbar_view(
             access_scene_for_href,
             access_stage_routes,
             active_tab,
+            // Admin / Config / Upload：Stage 芯片可点回 Access，但不标当前 Stage 为 active。
+            matches!(
+                route_mode,
+                UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype | UiRouteMode::Run
+            ),
         )
     };
     let launch_title = if access_disabled {
@@ -429,15 +443,15 @@ fn app_switcher_view(
     .into_any()
 }
 
-/// Future 0543 admin strip entry. Empty slice → strip not rendered.
+/// Admin Platform strip chip (0543 / 0547). Empty slice → strip not rendered.
 #[derive(Debug, Clone)]
-struct AdminStripItem {
-    id: String,
-    label: String,
-    href: String,
+pub struct AdminNavItem {
+    pub id: String,
+    pub label: String,
+    pub href: String,
 }
 
-fn app_admin_strip_view(items: &[AdminStripItem], active_id: Option<&str>) -> AnyView {
+fn app_admin_strip_view(items: &[AdminNavItem], active_id: Option<&str>) -> AnyView {
     if items.is_empty() {
         return view! { <></> }.into_any();
     }
@@ -508,6 +522,7 @@ fn stage_strip_view(
     current_scene: Option<&str>,
     access_stage_routes: Option<&[CompiledSceneRoute]>,
     active_tab: Option<&str>,
+    mark_active: bool,
 ) -> AnyView {
     let Some(routes) = access_stage_routes.filter(|entries| !entries.is_empty()) else {
         return view! { <></> }.into_any();
@@ -520,12 +535,16 @@ fn stage_strip_view(
         return view! { <></> }.into_any();
     }
     let current = current_scene.map(str::trim).unwrap_or("");
-    let current_route = stages
-        .iter()
-        .copied()
-        .find(|route| route.scene_id == current)
-        .or_else(|| stages.iter().copied().find(|route| route.is_default))
-        .unwrap_or(stages[0]);
+    let current_route = if mark_active {
+        stages
+            .iter()
+            .copied()
+            .find(|route| route.scene_id == current)
+            .or_else(|| stages.iter().copied().find(|route| route.is_default))
+            .or(Some(stages[0]))
+    } else {
+        None
+    };
     let chips = stages
         .iter()
         .map(|route| {
@@ -549,7 +568,7 @@ fn stage_strip_view(
                 None,
                 None,
             );
-            let item_class = if scene_id == current_route.scene_id {
+            let item_class = if current_route.is_some_and(|r| r.scene_id == scene_id) {
                 "topbar-chip is-active"
             } else {
                 "topbar-chip"

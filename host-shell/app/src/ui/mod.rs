@@ -20,6 +20,7 @@ mod runtime_snapshot_view;
 mod runtime_tree;
 mod scene_drilldown_context;
 mod shell_access;
+mod shell_admin;
 mod shell_config;
 mod shell_copilot;
 mod shell_manage;
@@ -36,6 +37,8 @@ mod view_routing;
 pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_upload::UploadFileEntry;
+pub use topbar::AdminNavItem;
+pub use shell_admin::{AdminMainSurface, AdminUploadEmbed};
 pub use shell_workspace::{
     render_workspace_page, render_workspace_shell_chrome_html, WorkspaceShellNav,
 };
@@ -48,6 +51,7 @@ pub use shell_access::{
     render_access_preview_surface_html, render_access_shell_chrome_html,
     render_host_ssr_bootstrap_head_revision_only, render_host_ssr_bootstrap_html,
 };
+use shell_admin::admin_shell;
 use shell_config::config_shell;
 use shell_copilot::copilot_shell;
 use shell_manage::manage_shell;
@@ -199,6 +203,7 @@ pub fn render_page(
     data_mode_ceiling_notice: Option<&str>,
     tree_max_ui_role: Option<&str>,
     build_tree_mode: Option<&str>,
+    admin_nav_items: &[AdminNavItem],
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -216,6 +221,7 @@ pub fn render_page(
             auth_account,
             data_mode,
             review_projection,
+            admin_nav_items,
         ),
         UiRouteMode::Run => presentation_shell(
             apps,
@@ -274,6 +280,7 @@ pub fn render_page(
             data_mode_ceiling_notice,
             tree_max_ui_role,
             build_tree_mode,
+            admin_nav_items,
         ),
         UiRouteMode::Runtime => runtime_shell(
             apps,
@@ -298,6 +305,7 @@ pub fn render_page(
             source_meta,
             auth_enabled,
             auth_account,
+            admin_nav_items,
         ),
         UiRouteMode::Upload => upload_shell(
             apps,
@@ -313,7 +321,28 @@ pub fn render_page(
             source_meta,
             auth_enabled,
             auth_account,
+            admin_nav_items,
         ),
+        UiRouteMode::Admin => {
+            // Admin surfaces use render_admin_page; CompiledApp path is unsupported.
+            access_shell(
+                apps,
+                compiled,
+                app_path,
+                topbar_menu,
+                selected_scene,
+                target,
+                source,
+                active_tab,
+                chrome_hidden,
+                upload_enabled,
+                auth_enabled,
+                auth_account,
+                data_mode,
+                review_projection,
+                admin_nav_items,
+            )
+        }
     };
     render_document(
         compiled.title.as_str(),
@@ -322,6 +351,56 @@ pub fn render_page(
         shell,
         component_script_preloads(compiled, scene_component_bundle_url),
         component_scripts(compiled, scene_component_bundle_url).into_any(),
+        auth_enabled,
+        auth_account,
+        shell_body_theme_style,
+        None,
+        None,
+    )
+}
+
+pub fn render_admin_page(
+    apps: &[WorkspaceAppMeta],
+    app_title: &str,
+    app_path: &str,
+    resource_id: &str,
+    resource_title: Option<&str>,
+    topbar_menu: Option<&TopbarMenuContext>,
+    admin_nav_items: &[AdminNavItem],
+    admin_active_id: Option<&str>,
+    resource_json: &str,
+    surface: AdminMainSurface,
+    upload_embed: Option<AdminUploadEmbed<'_>>,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
+    access_stage_routes: &[mei_lang_kernel::CompiledSceneRoute],
+    access_scene: Option<&str>,
+) -> String {
+    let shell = admin_shell(
+        apps,
+        app_title,
+        app_path,
+        resource_id,
+        resource_title,
+        topbar_menu,
+        admin_nav_items,
+        admin_active_id,
+        resource_json,
+        surface,
+        upload_embed,
+        auth_enabled,
+        auth_account,
+        access_stage_routes,
+        access_scene,
+    );
+    render_document(
+        app_title,
+        UiRouteMode::Admin,
+        false,
+        shell,
+        view! { <></> }.into_any(),
+        view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
         shell_body_theme_style,
@@ -342,6 +421,7 @@ pub fn render_config_page(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     shell_body_theme_style: &str,
+    admin_nav_items: &[AdminNavItem],
 ) -> String {
     let _ = source;
     let shell = config_shell(
@@ -354,6 +434,7 @@ pub fn render_config_page(
         source_meta,
         auth_enabled,
         auth_account,
+        admin_nav_items,
     );
     render_document(
         app_title,
@@ -385,6 +466,7 @@ pub fn render_upload_page(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     shell_body_theme_style: &str,
+    admin_nav_items: &[AdminNavItem],
 ) -> String {
     let shell = upload_shell(
         apps,
@@ -400,6 +482,7 @@ pub fn render_upload_page(
         source_meta,
         auth_enabled,
         auth_account,
+        admin_nav_items,
     );
     render_document(
         app_title,

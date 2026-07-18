@@ -18,7 +18,7 @@ use super::super::prototype_preset::{
 use super::super::route::UiRouteMode;
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::statusbar::statusbar_view;
-use super::super::topbar::{access_scene_for_topbar, topbar_view};
+use super::super::topbar::{access_scene_for_topbar, topbar_view, AdminNavItem};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 use super::build_panels::{build_artifact_panel, build_exec_panel_shell, build_graph_panel};
 use super::world_semantic_inspector::{
@@ -54,6 +54,7 @@ pub(crate) fn manage_shell(
     data_mode_ceiling_notice: Option<&str>,
     tree_max_ui_role: Option<&str>,
     _build_tree_mode: Option<&str>,
+    admin_nav_items: &[AdminNavItem],
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
         file: target.map(str::to_string),
@@ -202,6 +203,8 @@ pub(crate) fn manage_shell(
         Some(active_review_projection),
         None,
         None,
+        None,
+        admin_nav_items,
         None,
     );
     let statusbar = statusbar_view(

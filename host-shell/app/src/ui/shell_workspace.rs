@@ -75,6 +75,8 @@ pub(crate) fn workspace_shell(
         None,
         None,
         Some(shell_nav.shell_nav_active()),
+        &[],
+        None,
     );
     let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
     view! {
@@ -116,6 +118,8 @@ pub fn render_workspace_shell_chrome_html(
         None,
         None,
         Some(shell_nav.shell_nav_active()),
+        &[],
+        None,
     );
     let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
     (topbar.to_html(), statusbar.to_html())

@@ -29,6 +29,7 @@ pub(crate) fn render_document(
         UiRouteMode::Runtime => "runtime-view",
         UiRouteMode::Config => "config-view",
         UiRouteMode::Upload => "upload-view",
+        UiRouteMode::Admin => "admin-view",
     };
     let body_class = if let Some(extra) = body_class_extra.filter(|value| !value.is_empty()) {
         format!("{shell_mode_class} {extra} sl-theme-dark")

@@ -88,6 +88,7 @@ pub(crate) fn access_shell(
     auth_account: Option<&HostAccountView>,
     data_mode: Option<&str>,
     review_projection: Option<&str>,
+    admin_nav_items: &[super::topbar::AdminNavItem],
 ) -> AnyView {
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
@@ -135,6 +136,8 @@ pub(crate) fn access_shell(
         review_projection,
         None,
         Some(compiled.scene_routes.as_slice()),
+        None,
+        admin_nav_items,
         None,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
@@ -203,6 +206,7 @@ pub fn render_access_shell_chrome_html(
     data_mode: Option<&str>,
     review_projection: Option<&str>,
     chrome_hidden: bool,
+    admin_nav_items: &[super::topbar::AdminNavItem],
 ) -> (String, String) {
     if chrome_hidden {
         return (String::new(), String::new());
@@ -231,6 +235,8 @@ pub fn render_access_shell_chrome_html(
         review_projection,
         None,
         Some(compiled.scene_routes.as_slice()),
+        None,
+        admin_nav_items,
         None,
     );
     let statusbar = statusbar_view(app_path, route_mode.slug(), current_target, None);

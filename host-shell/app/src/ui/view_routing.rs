@@ -173,8 +173,10 @@ pub fn cross_app_href(
         UiRouteMode::Run | UiRouteMode::Copilot => {
             app_access_href_with_stage(app_path, default_stage)
         }
-        UiRouteMode::Config => host_config_href(Some(app_path)),
-        UiRouteMode::Upload => host_upload_href(Some(app_path), None),
+        // Admin / Config / Upload：App Switcher 始终回 Access Stage（0544 §4.1）。
+        UiRouteMode::Admin | UiRouteMode::Config | UiRouteMode::Upload => {
+            app_access_href_with_stage(app_path, default_stage)
+        }
         UiRouteMode::Runtime => host_runtime_href(Some(app_path), None, None),
     }
 }
@@ -242,6 +244,14 @@ mod tests {
         assert_eq!(
             cross_app_href(UiRouteMode::App, "mei-tutorial", None, None, Some("intro")),
             "/apps/mei-tutorial/intro"
+        );
+        assert_eq!(
+            cross_app_href(UiRouteMode::Admin, "mini-data", None, None, Some("home")),
+            "/apps/mini-data/home"
+        );
+        assert_eq!(
+            cross_app_href(UiRouteMode::Config, "mini-data", None, None, Some("home")),
+            "/apps/mini-data/home"
         );
     }
 

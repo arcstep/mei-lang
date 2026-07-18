@@ -4,7 +4,6 @@ use mei_lang_kernel::WorkspaceAppMeta;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::{topbar_view, ShellNavActive};
-use super::view_routing::upload_href;
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 fn ops_editor_main_view(app_path: &str) -> impl IntoView {
@@ -27,6 +26,7 @@ pub(crate) fn config_shell(
     _source_meta: Option<&SourcePanelMeta>,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    admin_nav_items: &[super::topbar::AdminNavItem],
 ) -> AnyView {
     let topbar = topbar_view(
         apps,
@@ -47,6 +47,8 @@ pub(crate) fn config_shell(
         None,
         None,
         Some(ShellNavActive::Config),
+        admin_nav_items,
+        Some("ops_config"),
     );
     let statusbar = statusbar_view(
         app_path,
@@ -54,7 +56,8 @@ pub(crate) fn config_shell(
         ".mei-config.json",
         None,
     );
-    let data_link = upload_href(app_path, None);
+    let data_link = format!("/admin/apps/{app_path}/upload_files");
+    let admin_ops = format!("/admin/apps/{app_path}/ops_config");
     view! {
         <div class="shell shell-surface config-view-shell mei-text-primary">
             <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
@@ -64,6 +67,8 @@ pub(crate) fn config_shell(
                     <span>"编辑当前应用根目录 `.mei-config.json`；运维写回仅允许 `ops.*` 白名单字段。"</span>
                     <span class="mx-2 mei-text-muted">"|"</span>
                     <a class="mei-text-link" href=data_link>"上传物料"</a>
+                    <span class="mx-2 mei-text-muted">"|"</span>
+                    <a class="mei-text-link" href=admin_ops>"Admin 入口"</a>
                 </div>
                 {ops_editor_main_view(app_path)}
             </main>

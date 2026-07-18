@@ -17,6 +17,9 @@ pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static 
         UiRouteMode::Upload => {
             r#"<link rel="preload" href="/app-bundles/upload.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
         }
+        UiRouteMode::Admin => {
+            r#"<link rel="preload" href="/app-bundles/admin.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
+        }
     }
 }
 
@@ -43,6 +46,12 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
         UiRouteMode::Upload => view! {
             <>
                 <script defer src="/app-bundles/upload.js?v=__MEI_HOST_ASSET_VERSION__"></script>
+            </>
+        }
+        .into_any(),
+        UiRouteMode::Admin => view! {
+            <>
+                <script defer src="/app-bundles/admin.js?v=__MEI_HOST_ASSET_VERSION__"></script>
             </>
         }
         .into_any(),

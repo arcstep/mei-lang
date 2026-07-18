@@ -352,6 +352,11 @@
                 : ""
             }
           </header>
+          <div class="mei-runtime-control__app-card-admin">
+            <a class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" href="/admin/apps/${encodeURIComponent(appId)}/ops_config">配置</a>
+            <a class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" href="/admin/apps/${encodeURIComponent(appId)}/upload_files">上传</a>
+            <a class="mei-text-muted mei-font-1" href="/config?app=${encodeURIComponent(appId)}">旧 /config</a>
+          </div>
           <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
           <div class="mei-runtime-control__app-card-launch">
             <label class="mei-runtime-control__mode-field">

@@ -7,7 +7,7 @@ use super::route::UiRouteMode;
 use super::source_tree::{self, tree_icon_for_upload_entry};
 use super::statusbar::statusbar_view;
 use super::topbar::{topbar_view, ShellNavActive};
-use super::view_routing::{config_href, upload_href};
+use super::view_routing::upload_href;
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 #[derive(Debug, Clone, Serialize)]
@@ -182,6 +182,114 @@ fn upload_tree_view(
         .into_any()
 }
 
+fn upload_workbench_selected(
+    files: &[UploadFileEntry],
+    selected_file: Option<&str>,
+) -> (String, String, bool) {
+    let selected = selected_file.unwrap_or("").to_string();
+    let selected_entry = files.iter().find(|entry| entry.path == selected);
+    let selected_is_dir = selected_entry.is_some_and(|entry| entry.is_dir);
+    let selected_dir = if selected_is_dir {
+        selected.clone()
+    } else {
+        String::new()
+    };
+    (selected, selected_dir, selected_is_dir)
+}
+
+/// Upload sidebar + panel mount shared by `/upload` and Admin `upload_files` embed.
+pub(crate) fn upload_workbench_view(
+    app_path: &str,
+    upload_root_label: &str,
+    files: &[UploadFileEntry],
+    selected_file: Option<&str>,
+    ops_href: &str,
+) -> AnyView {
+    let (selected, selected_dir, selected_is_dir) =
+        upload_workbench_selected(files, selected_file);
+    let file_count = files.iter().filter(|entry| !entry.is_dir).count();
+    let dir_count = files.iter().filter(|entry| entry.is_dir).count();
+    let total_bytes = files
+        .iter()
+        .filter_map(|entry| entry.size_bytes)
+        .sum::<u64>();
+    let file_tree = upload_tree_view(files, "", selected.as_str(), app_path);
+    view! {
+        <div
+            class="workspace upload-workspace min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+            id="workspace-root"
+            data-app-id=app_path.to_string()
+            data-upload-root=upload_root_label.to_string()
+        >
+            <aside class="upload-sidebar sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-3 py-3">
+                <div class="upload-sidebar-head">
+                    <div class="upload-sidebar-title-row">
+                        <div class="upload-sidebar-title">"文件清单"</div>
+                        <div class="upload-sidebar-root">{upload_root_label.to_string()}</div>
+                    </div>
+                    <div class="upload-sidebar-links mei-font-1 mei-text-muted text-sm">
+                        <a class="mei-text-link" href=ops_href.to_string()>"运维配置（ops.sources / params）"</a>
+                    </div>
+                    <div class="upload-sidebar-stats">
+                        <span class="upload-sidebar-chip">{format!("{file_count} 个文件")}</span>
+                        <span class="upload-sidebar-chip">{format!("{dir_count} 个目录")}</span>
+                        <span class="upload-sidebar-chip">{format_upload_bytes(total_bytes)}</span>
+                    </div>
+                </div>
+                <div class="upload-sidebar-scroll sidebar-scroll flex-1 min-h-0 overflow-auto">
+                    {file_tree}
+                </div>
+            </aside>
+            <div
+                class="splitter splitter-left"
+                data-workspace-splitter="left"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整左侧文件清单宽度"
+            >
+                <button
+                    class="splitter-toggle"
+                    type="button"
+                    data-workspace-toggle="left"
+                    aria-label="折叠左侧文件清单"
+                    title="折叠左侧文件清单"
+                >
+                    <span class="splitter-toggle-icon" aria-hidden="true">
+                        <svg
+                            viewBox="0 0 20 20"
+                            width="12"
+                            height="12"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M12.5 4.5L7.5 10l5 5.5"></path>
+                        </svg>
+                    </span>
+                </button>
+            </div>
+            <main class="upload-main main h-full min-h-0 min-w-0 overflow-hidden flex flex-col">
+                <section class="upload-main-pane workspace-panel workspace-panel-main flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 p-0">
+                    <div class="upload-workbench-body">
+                        <div
+                            id="upload-panel-root"
+                            class="upload-panel-root"
+                            data-app-id=app_path.to_string()
+                            data-selected-file=selected
+                            data-selected-dir=selected_dir
+                            data-selected-is-dir=if selected_is_dir { "1" } else { "0" }
+                            data-upload-root=upload_root_label.to_string()
+                        ></div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    }
+    .into_any()
+}
+
 pub(crate) fn upload_shell(
     apps: &[WorkspaceAppMeta],
     _app_title: &str,
@@ -196,21 +304,9 @@ pub(crate) fn upload_shell(
     _source_meta: Option<&SourcePanelMeta>,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    admin_nav_items: &[super::topbar::AdminNavItem],
 ) -> AnyView {
     let selected = selected_file.unwrap_or("");
-    let selected_entry = files.iter().find(|entry| entry.path == selected);
-    let selected_is_dir = selected_entry.is_some_and(|entry| entry.is_dir);
-    let selected_dir = if selected_is_dir {
-        selected.to_string()
-    } else {
-        String::new()
-    };
-    let file_count = files.iter().filter(|entry| !entry.is_dir).count();
-    let dir_count = files.iter().filter(|entry| entry.is_dir).count();
-    let total_bytes = files
-        .iter()
-        .filter_map(|entry| entry.size_bytes)
-        .sum::<u64>();
     let topbar = topbar_view(
         apps,
         app_path,
@@ -230,6 +326,8 @@ pub(crate) fn upload_shell(
         None,
         None,
         Some(ShellNavActive::Upload),
+        admin_nav_items,
+        Some("upload_files"),
     );
     let statusbar = statusbar_view(
         app_path,
@@ -237,8 +335,14 @@ pub(crate) fn upload_shell(
         selected,
         Some(upload_root_label),
     );
-    let file_tree = upload_tree_view(files, "", selected, app_path);
-    let config_link = config_href(app_path);
+    let ops_href = format!("/admin/apps/{}/ops_config", app_path);
+    let workbench = upload_workbench_view(
+        app_path,
+        upload_root_label,
+        files,
+        selected_file,
+        ops_href.as_str(),
+    );
     view! {
         <div class="shell shell-surface upload-view-shell mei-text-primary">
             <div
@@ -248,76 +352,8 @@ pub(crate) fn upload_shell(
                 inner_html=source_tree::TREE_ICONS_SPRITE_SVG
             ></div>
             <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
-            <div
-                class="workspace upload-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
-                id="workspace-root"
-                data-app-id=app_path.to_string()
-                data-upload-root=upload_root_label.to_string()
-            >
-                <aside class="upload-sidebar sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-3 py-3">
-                    <div class="upload-sidebar-head">
-                        <div class="upload-sidebar-title-row">
-                            <div class="upload-sidebar-title">"文件清单"</div>
-                            <div class="upload-sidebar-root">{upload_root_label}</div>
-                        </div>
-                        <div class="upload-sidebar-links mei-font-1 mei-text-muted text-sm">
-                            <a class="mei-text-link" href=config_link.clone()>"应用配置（ops.sources / params）"</a>
-                        </div>
-                        <div class="upload-sidebar-stats">
-                            <span class="upload-sidebar-chip">{format!("{file_count} 个文件")}</span>
-                            <span class="upload-sidebar-chip">{format!("{dir_count} 个目录")}</span>
-                            <span class="upload-sidebar-chip">{format_upload_bytes(total_bytes)}</span>
-                        </div>
-                    </div>
-                    <div class="upload-sidebar-scroll sidebar-scroll flex-1 min-h-0 overflow-auto">
-                        {file_tree}
-                    </div>
-                </aside>
-                <div
-                    class="splitter splitter-left"
-                    data-workspace-splitter="left"
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="调整左侧文件清单宽度"
-                >
-                    <button
-                        class="splitter-toggle"
-                        type="button"
-                        data-workspace-toggle="left"
-                        aria-label="折叠左侧文件清单"
-                        title="折叠左侧文件清单"
-                    >
-                        <span class="splitter-toggle-icon" aria-hidden="true">
-                            <svg
-                                viewBox="0 0 20 20"
-                                width="12"
-                                height="12"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path d="M12.5 4.5L7.5 10l5 5.5"></path>
-                            </svg>
-                        </span>
-                    </button>
-                </div>
-                <main class="upload-main main h-full min-h-0 min-w-0 overflow-hidden flex flex-col">
-                    <section class="upload-main-pane workspace-panel workspace-panel-main flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 p-0">
-                        <div class="upload-workbench-body">
-                            <div
-                                id="upload-panel-root"
-                                class="upload-panel-root"
-                                data-app-id=app_path.to_string()
-                                data-selected-file=selected.to_string()
-                                data-selected-dir=selected_dir
-                                data-selected-is-dir=if selected_is_dir { "1" } else { "0" }
-                                data-upload-root=upload_root_label.to_string()
-                            ></div>
-                        </div>
-                    </section>
-                </main>
+            <div class="chrome-inset min-h-0 h-full overflow-hidden">
+                {workbench}
             </div>
             <div id="mei-host-statusbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>

@@ -83,6 +83,8 @@ pub(crate) fn runtime_shell(
         None,
         None,
         Some(ShellNavActive::Runtime),
+        &[],
+        None,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::Runtime.slug(), "", None);
     let snapshot_json = runtime_snapshot_json.unwrap_or("{}").to_string();

@@ -46,6 +46,9 @@ async function loadManifest() {
   if (!Array.isArray(m.uploadScripts)) {
     m.uploadScripts = [];
   }
+  if (!Array.isArray(m.adminScripts)) {
+    m.adminScripts = [];
+  }
   if (!Array.isArray(m.manageSourceScripts)) {
     m.manageSourceScripts = [];
   }
@@ -64,6 +67,8 @@ ${rustSliceConst("BUNDLE_ACCESS_SCRIPTS", manifest.accessScripts)}
 ${rustSliceConst("BUNDLE_CONFIG_SCRIPTS", manifest.configScripts)}
 
 ${rustSliceConst("BUNDLE_UPLOAD_SCRIPTS", manifest.uploadScripts)}
+
+${rustSliceConst("BUNDLE_ADMIN_SCRIPTS", manifest.adminScripts)}
 
 ${rustSliceConst("BUNDLE_STYLES_ORDER", manifest.styles)}
 `;
@@ -184,6 +189,10 @@ async function main() {
     manifest.uploadScripts.length > 0
       ? await concatScripts("upload.bundle.js", manifest.uploadScripts)
       : null;
+  const adminOut =
+    manifest.adminScripts.length > 0
+      ? await concatScripts("admin.bundle.js", manifest.adminScripts)
+      : null;
   const shoelaceOut = await bundleShoelace();
   const authRsaOut = await bundleAuthRsa();
   const stylesOut = await concatStyles("styles.bundle.css", manifest.styles);
@@ -199,6 +208,9 @@ async function main() {
   }
   if (uploadOut) {
     console.log(`- ${path.relative(root, uploadOut)}`);
+  }
+  if (adminOut) {
+    console.log(`- ${path.relative(root, adminOut)}`);
   }
   console.log(`- ${path.relative(root, shoelaceOut)}`);
   console.log(`- ${path.relative(root, authRsaOut)}`);
