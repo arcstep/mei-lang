@@ -2,7 +2,7 @@
   "name": "mei-lang",
   "displayName": "MeiLang",
   "description": "MeiLang (.mei) language support: TextMate highlighting, file icon, mei-lsp, and app.toml schema.",
-  "version": "2.6.11",
+  "version": "2.6.12",
   "publisher": "mei-lang",
   "license": "MIT",
   "repository": {
@@ -23,7 +23,8 @@
     "toml"
   ],
   "activationEvents": [
-    "onLanguage:mei"
+    "onLanguage:mei",
+    "onLanguage:mei-admin-mdx"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -42,6 +43,21 @@
           "light": "./icons/mei.svg",
           "dark": "./icons/mei.svg"
         }
+      },
+      {
+        "id": "mei-admin-mdx",
+        "aliases": [
+          "MeiLang Admin MDX",
+          "mei-admin-mdx"
+        ],
+        "extensions": [
+          ".admin.mdx"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/mei.svg",
+          "dark": "./icons/mei.svg"
+        }
       }
     ],
     "grammars": [
@@ -49,6 +65,11 @@
         "language": "mei",
         "scopeName": "source.mei",
         "path": "./syntaxes/mei.tmLanguage.json"
+      },
+      {
+        "language": "mei-admin-mdx",
+        "scopeName": "source.mei.admin.mdx",
+        "path": "./syntaxes/mei-admin-mdx.tmLanguage.json"
       }
     ],
     "tomlValidation": [
