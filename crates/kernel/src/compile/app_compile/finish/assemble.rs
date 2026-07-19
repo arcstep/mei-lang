@@ -297,7 +297,9 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
     compiled.rebuild_abi_projection(None);
     // Phase 4: optional Cockpit Stage MDX (Native) after ABI projection.
     {
-        let stage_dir = std::path::Path::new(&compiled.app_root).join("src").join("stage");
+        let stage_dir = std::path::Path::new(&compiled.app_root)
+            .join("src")
+            .join("stage");
         if stage_dir.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&stage_dir) {
                 let mut paths: Vec<_> = entries
@@ -328,6 +330,7 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
             }
         }
     }
+    crate::model::apply_app_narration_catalog(&mut compiled, app_root);
     let template_files = if is_catalog_app {
         crate::compile::build_template_index::build_stock_template_files_root(
             workspace_source_root.as_path(),

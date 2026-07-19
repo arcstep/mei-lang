@@ -46,12 +46,7 @@ async fn serve_without_app_binds_control_plane_on_empty_workspace() {
     }
     assert!(bound, "control plane did not bind");
 
-    for path in [
-        "/home",
-        "/runtime",
-        "/config",
-        "/api/host/workspace-profiles",
-    ] {
+    for path in ["/home", "/runtime", "/api/host/workspace-profiles"] {
         let response = client
             .get(format!("{base}{path}"))
             .send()

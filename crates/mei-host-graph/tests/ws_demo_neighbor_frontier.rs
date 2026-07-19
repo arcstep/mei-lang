@@ -46,7 +46,9 @@ fn ensure_imported() -> Option<PathBuf> {
 
 #[test]
 fn ws_demo_home_neighbor_sections_are_linked() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let ctx = HostContext::new(workspace, "data-demo".to_string());
     let linked = linked_t2_page_scenes_for_scope(&ctx, "home", 1).expect("linked scenes");
     assert!(
@@ -65,7 +67,9 @@ fn ws_demo_home_neighbor_sections_are_linked() {
 
 #[test]
 fn ws_demo_collect_all_board_includes_penalty_total() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let all = mei_host_graph::collect_all_t2_page_scenes(workspace.as_path(), "data-demo");
     assert!(
         all.iter()
@@ -78,7 +82,9 @@ fn ws_demo_collect_all_board_includes_penalty_total() {
 
 #[test]
 fn ws_demo_penalty_section_maps_to_page_scenes() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
     let pages = t2_page_scenes_for_section_scope(
         workspace.as_path(),

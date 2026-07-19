@@ -107,6 +107,7 @@ pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
     "page_instance",
     "link_decl",
     "warmup_policy",
+    "provider_binding",
     "world",
     "object",
     "object_catalog",
@@ -141,6 +142,9 @@ pub const V2_REF_KEYWORDS: &[&str] = &[
     "source_feature_ref",
     "feature_ref",
     "object_ref",
+    "provider_ref",
+    "type_ref",
+    "schema_ref",
 ];
 
 /// Controlled slide_pattern enum (0406).

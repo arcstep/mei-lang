@@ -51,7 +51,9 @@ fn string_field_map<'a>(map: Option<&'a Map<String, Value>>, keys: &[&str]) -> O
 }
 
 fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
-    value.as_object().and_then(|obj| string_field_map(Some(obj), keys))
+    value
+        .as_object()
+        .and_then(|obj| string_field_map(Some(obj), keys))
 }
 
 fn plane_body(value: &Value) -> Value {
@@ -87,7 +89,9 @@ fn layout_areas_flat(layout: &Value) -> Vec<String> {
 
 fn layout_has_areas(layout: &Value, required: &[&str]) -> bool {
     let areas = layout_areas_flat(layout);
-    required.iter().all(|needle| areas.iter().any(|area| area == needle))
+    required
+        .iter()
+        .all(|needle| areas.iter().any(|area| area == needle))
 }
 
 fn section_area(section: &Value) -> Option<&str> {
@@ -189,7 +193,9 @@ fn extract_analytics_topology(plane: &Value) -> Option<AnalyticsTopology> {
             continue;
         }
         let sections = region_args.get("sections").and_then(Value::as_array)?;
-        let has_filter = sections.iter().any(|section| section_area(section) == Some("filter"));
+        let has_filter = sections
+            .iter()
+            .any(|section| section_area(section) == Some("filter"));
         let main_section = sections
             .iter()
             .find(|section| section_area(section) == Some("main"))?;
@@ -205,9 +211,13 @@ fn extract_analytics_topology(plane: &Value) -> Option<AnalyticsTopology> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let has_chart = blocks.iter().any(|panel| panel_area(panel) == Some("chart"))
+        let has_chart = blocks
+            .iter()
+            .any(|panel| panel_area(panel) == Some("chart"))
             || layout_has_areas(&stack_layout, &["chart"]);
-        let has_detail = blocks.iter().any(|panel| panel_area(panel) == Some("detail"))
+        let has_detail = blocks
+            .iter()
+            .any(|panel| panel_area(panel) == Some("detail"))
             || layout_has_areas(&stack_layout, &["detail"]);
         if !has_chart || !has_detail {
             continue;

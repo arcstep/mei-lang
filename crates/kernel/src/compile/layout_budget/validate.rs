@@ -31,16 +31,8 @@ impl LayoutBudgetValidateOptions {
         let policy = ProfileLayoutPolicy::for_profile(profile);
         let enforce = policy.fill_down.enforces_strict_fill_down();
         Self {
-            strict_t1_fill_down: if enforce {
-                strict_t1_fill_down
-            } else {
-                false
-            },
-            strict_t2_fill_down: if enforce {
-                strict_t2_fill_down
-            } else {
-                false
-            },
+            strict_t1_fill_down: if enforce { strict_t1_fill_down } else { false },
+            strict_t2_fill_down: if enforce { strict_t2_fill_down } else { false },
             profile,
             enforce_fill_down: enforce,
         }
@@ -48,7 +40,11 @@ impl LayoutBudgetValidateOptions {
 
     /// Scene spatial modules always validate under cockpit policy (even when hosted by slides).
     pub fn for_embedded_scene(strict_t1_fill_down: bool, strict_t2_fill_down: bool) -> Self {
-        Self::for_profile_and_ops(StageProfile::Cockpit, strict_t1_fill_down, strict_t2_fill_down)
+        Self::for_profile_and_ops(
+            StageProfile::Cockpit,
+            strict_t1_fill_down,
+            strict_t2_fill_down,
+        )
     }
 
     fn profile_tag(&self) -> &'static str {
@@ -674,8 +670,8 @@ fn validate_panel(
             options,
         );
     }
-    let content_fill_required = options.enforce_fill_down
-        && (!is_t2_tier(tier.as_deref()) || options.strict_t2_fill_down);
+    let content_fill_required =
+        options.enforce_fill_down && (!is_t2_tier(tier.as_deref()) || options.strict_t2_fill_down);
     if is_content_panel(panel) && content_fill_required {
         if !is_layout_fill_panel(panel) {
             push_policy_error(

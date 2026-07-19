@@ -196,9 +196,8 @@ fn zhifa_issue_metric_cards_derive_read_only_analytics_popup() {
     for (card_id, scene_id, rowset, metric_key) in expectations {
         let card = find_panel_in_tree(panels, card_id)
             .unwrap_or_else(|| panic!("missing metric card panel `{card_id}`"));
-        let popup = value_slot_popup(card).unwrap_or_else(|| {
-            panic!("missing value-slot popup on metric card `{card_id}`")
-        });
+        let popup = value_slot_popup(card)
+            .unwrap_or_else(|| panic!("missing value-slot popup on metric card `{card_id}`"));
         assert_eq!(
             popup.get("scene_id").and_then(|v| v.as_str()),
             Some(scene_id),
@@ -251,9 +250,7 @@ fn zhifa_warnings_analytics_local_nav_resolves_row_popup_and_field_links() {
         })
         .expect("warnings_analytics_page local_nav");
 
-    let popup = nav
-        .get("row_drilldown_popup")
-        .expect("row_drilldown_popup");
+    let popup = nav.get("row_drilldown_popup").expect("row_drilldown_popup");
     assert_ne!(
         popup.get("__ref").and_then(|v| v.as_str()),
         Some("link_ref"),

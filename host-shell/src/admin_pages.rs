@@ -9,21 +9,18 @@ use mei_host_auth::{
     AuthServeState,
 };
 use mei_lang_app::{
-    load_topbar_menu_context, page_body_theme_style, render_admin_page, AdminMainSurface,
-    AdminNavItem, AdminUploadEmbed, HostAccountView, TopbarMenuContext, UploadFileEntry,
+    load_topbar_menu_context, page_body_theme_style, render_admin_page, AdminNavItem,
+    HostAccountView, TopbarMenuContext,
 };
-use mei_lang_kernel::{AdminUiSurface, WorkspaceAppMeta};
+use mei_lang_kernel::WorkspaceAppMeta;
 
 use crate::admin_registry::SharedAdminRegistry;
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::light_pages::light_page_response;
 use crate::state::SharedState;
-use crate::upload_support::{list_upload_files, upload_rel_from_config};
 
-fn principal_caps_fn<'a>(
-    principal_ref: Option<&'a AuthPrincipal>,
-) -> impl Fn(&str) -> bool + 'a {
+fn principal_caps_fn<'a>(principal_ref: Option<&'a AuthPrincipal>) -> impl Fn(&str) -> bool + 'a {
     move |cap: &str| -> bool {
         let Some(p) = principal_ref else {
             return matches!(cap, "config_upload" | "access_view");
@@ -38,15 +35,6 @@ fn principal_caps_fn<'a>(
     }
 }
 
-fn surface_from_resource(ui: AdminUiSurface) -> AdminMainSurface {
-    match ui {
-        AdminUiSurface::FormCard => AdminMainSurface::FormCard,
-        AdminUiSurface::OpsEmbed => AdminMainSurface::OpsEmbed,
-        AdminUiSurface::UploadEmbed => AdminMainSurface::UploadEmbed,
-        AdminUiSurface::AssetSlotCollection => AdminMainSurface::AssetSlotCollection,
-    }
-}
-
 pub(crate) struct AdminPageRenderArgs<'a> {
     pub workspace_root: &'a std::path::Path,
     pub registry: &'a SharedAdminRegistry,
@@ -57,11 +45,11 @@ pub(crate) struct AdminPageRenderArgs<'a> {
     pub app_id: &'a str,
     pub app_title: &'a str,
     pub resource_id: &'a str,
+    pub module_id: &'a str,
     pub topbar_menu: &'a TopbarMenuContext,
     pub auth_enabled: bool,
     pub account_view: Option<&'a HostAccountView>,
     pub principal_ref: Option<&'a AuthPrincipal>,
-    pub upload_selected_file: Option<&'a str>,
 }
 
 pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> String {
@@ -73,38 +61,36 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         app_id,
         app_title,
         resource_id,
+        module_id,
         topbar_menu,
         auth_enabled,
         account_view,
         principal_ref,
-        upload_selected_file,
     } = args;
 
     registry.refresh_workspace(workspace_root, apps);
     let caps = principal_caps_fn(principal_ref);
     let nav_items = registry.nav_items_for_capabilities(app_id, &caps);
-    let resource = registry.resource(app_id, resource_id);
+    let resource = registry.resource(app_id, resource_id, module_id);
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
     let theme_style = page_body_theme_style(&workspace, None, None);
 
-    let resource_json = resource
+    let scene_id = resource
         .as_ref()
-        .and_then(|r| serde_json::to_string(r).ok())
-        .unwrap_or_else(|| "null".to_string());
+        .map(|entry| entry.page_program.root.scene_ref().to_string())
+        .unwrap_or_default();
 
     let admin_nav: Vec<AdminNavItem> = nav_items
         .iter()
         .map(|r| AdminNavItem {
-            id: r.resource_id.clone(),
-            label: r.title.clone(),
-            href: r.href.clone(),
+            id: format!(
+                "{}.{}",
+                r.registry_entry.resource_id, r.registry_entry.module_id
+            ),
+            label: r.registry_entry.title.clone(),
+            href: r.registry_entry.canonical_route.clone(),
         })
         .collect();
-
-    let surface = resource
-        .as_ref()
-        .map(|r| surface_from_resource(r.ui_surface))
-        .unwrap_or(AdminMainSurface::FormCard);
 
     let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
     let default_scene = mei_lang_kernel::resolve_default_scene_from_root(app_root.as_path())
@@ -135,44 +121,34 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
     } else {
         (Vec::new(), default_scene)
     };
-    let upload_rel = upload_rel_from_config(app_root.as_path(), workspace_root);
-    let upload_root_label = upload_rel.as_deref().unwrap_or("upload").to_string();
-    let upload_files: Vec<UploadFileEntry> = upload_rel
-        .as_deref()
-        .map(|rel| list_upload_files(&app_root.join(rel), rel))
-        .unwrap_or_default();
-
-    let upload_embed = if surface == AdminMainSurface::UploadEmbed {
-        Some(AdminUploadEmbed {
-            upload_root_label: upload_root_label.as_str(),
-            files: upload_files.as_slice(),
-            selected_file: upload_selected_file,
-        })
-    } else {
-        None
-    };
-
-    let source_anchor = resource
-        .as_ref()
-        .map(|r| r.page_program.page.source_anchor.as_str())
-        .unwrap_or("");
     let projection_digest = registry
         .projection_for_app(app_id)
-        .map(|p| p.manifest_digest)
+        .map(|p| p.admin_registry_digest)
         .unwrap_or_default();
+    let page_pack = resource
+        .as_ref()
+        .map(|entry| crate::host_page_pack::admin_page_pack(entry, projection_digest.as_str()));
+    let source_anchor = page_pack
+        .as_ref()
+        .map(|pack| pack.page_program.source_anchor.as_str())
+        .unwrap_or("");
+    let structure_digest = page_pack
+        .as_ref()
+        .map(|pack| pack.page_structure_digest.as_str())
+        .unwrap_or("");
+    let active_id = format!("{resource_id}.{module_id}");
 
     let mut html = render_admin_page(
         topbar_apps,
         app_title,
         app_id,
         resource_id,
-        resource.as_ref().map(|r| r.title.as_str()),
+        module_id,
+        resource.as_ref().map(|r| r.registry_entry.title.as_str()),
         Some(topbar_menu),
         &admin_nav,
-        Some(resource_id),
-        resource_json.as_str(),
-        surface,
-        upload_embed,
+        Some(active_id.as_str()),
+        scene_id.as_str(),
         auth_enabled,
         account_view,
         theme_style.as_str(),
@@ -180,6 +156,7 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         Some(access_scene.as_str()),
         source_anchor,
         projection_digest.as_str(),
+        structure_digest,
     );
     html = fill_page_shell_placeholders(html, workspace_root);
     html
@@ -189,7 +166,7 @@ pub async fn host_admin_resource_page(
     State(state): State<SharedState>,
     auth_state: Option<Extension<AuthServeState>>,
     principal: Option<Extension<AuthPrincipal>>,
-    AxumPath((app_id, resource_id)): AxumPath<(String, String)>,
+    AxumPath((app_id, resource_id, module_id)): AxumPath<(String, String, String)>,
 ) -> impl IntoResponse {
     let (workspace_root, registry) = {
         let guard = state.read().expect("state lock");
@@ -235,11 +212,11 @@ pub async fn host_admin_resource_page(
         app_id: app_id.as_str(),
         app_title,
         resource_id: resource_id.as_str(),
+        module_id: module_id.as_str(),
         topbar_menu: &topbar_menu,
         auth_enabled,
         account_view: account_view.as_ref(),
         principal_ref,
-        upload_selected_file: None,
     });
     light_page_response(html)
 }

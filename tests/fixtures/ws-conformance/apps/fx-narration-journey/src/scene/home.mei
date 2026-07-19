@@ -1,0 +1,14 @@
+scene(
+    id = "home",
+    key = "home@src/scene/home.mei",
+    profile = "cockpit",
+    summary = "Narration journey cockpit root",
+    planes = [
+        plane_ref("fx-narration-journey/home/t1"),
+    ],
+)
+
+content_panel(
+    id = "warnings_main",
+    blocks = [],
+)

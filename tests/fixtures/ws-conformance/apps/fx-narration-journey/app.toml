@@ -1,0 +1,9 @@
+schema_version = "mei-app-v1"
+title = "Conformance Narration Journey"
+default_stage = "home"
+app_id = "fx-narration-journey"
+generation = "current"
+data_mode_ceiling = "static"
+
+[warmup]
+enabled = false

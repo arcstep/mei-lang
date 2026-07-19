@@ -3,9 +3,7 @@
 //! Phase 1: StageKind maps to StageProfile (Scene→Cockpit, Presentation→Slides); not a cache key.
 
 use mei_lang_app::UiRouteMode;
-use mei_lang_kernel::{
-    DataMode, DataModeCeiling, ReviewProjection, StageProfile, StageRegistry,
-};
+use mei_lang_kernel::{DataMode, DataModeCeiling, ReviewProjection, StageProfile, StageRegistry};
 
 use crate::pages::AppQuery;
 use crate::state::ShellState;

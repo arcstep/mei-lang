@@ -200,6 +200,7 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
+    let outcome = hydrate_outcome_for_artifacts(app_id, state, outcome, metric_ids, &[])?;
     let resource = mei_lang_kernel::locate_dataset_resource(&outcome.compiled, dataset_selector)
         .with_context(|| format!("locate warmup dataset `{dataset_selector}`"))?;
     let dataset = resource
@@ -218,7 +219,7 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
                 ensure_metric_response_artifact_for_request(
                     app_id,
                     app_root,
-                    outcome,
+                    &outcome,
                     resource.id.as_str(),
                     metric_ids.as_slice(),
                     mode,
@@ -230,7 +231,7 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
             ensure_metric_response_artifact_for_request(
                 app_id,
                 app_root,
-                outcome,
+                &outcome,
                 resource.id.as_str(),
                 metric_ids,
                 mode,
@@ -242,7 +243,7 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
         ensure_metric_response_artifact_for_request(
             app_id,
             app_root,
-            outcome,
+            &outcome,
             resource.id.as_str(),
             metric_ids,
             mode,
@@ -258,7 +259,7 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
             for page_size in widget_dataframe_page_sizes() {
                 ensure_metric_dataframe_artifact(
                     app_root,
-                    outcome,
+                    &outcome,
                     resource,
                     metric_id.as_str(),
                     *page_size,
@@ -274,8 +275,8 @@ pub(crate) fn ensure_request_artifacts_for_compiled(
         for page_size in widget_dataframe_page_sizes() {
             ensure_metric_dataframe_artifact(
                 app_root,
-                outcome,
-                &resource,
+                &outcome,
+                resource,
                 metric_id.as_str(),
                 *page_size,
                 mode,

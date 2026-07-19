@@ -62,11 +62,11 @@ pub use data_snapshot::{
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
 pub use app_compile::{
-    compile_app, compile_app_from_root, compile_app_from_root_with_options,
-    compile_app_from_root_with_options_and_revision, compile_app_with_options,
-    compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
-    compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
-    resolve_scene_ids_from_root, app_declares_scene_from_root, CompileAppArtifacts,
+    app_declares_scene_from_root, compile_app, compile_app_from_root,
+    compile_app_from_root_with_options, compile_app_from_root_with_options_and_revision,
+    compile_app_with_options, compile_app_with_options_and_revision,
+    compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
+    resolve_default_scene_from_root, resolve_scene_ids_from_root, CompileAppArtifacts,
 };
 pub use build_experience::{
     backing_refs_from_block_props, block_instance_id, build_experience_path,
@@ -102,9 +102,8 @@ pub use source_paths::canonicalize_compiled_app_source_paths;
 
 pub use layout_budget::{
     materialize_fill_section_derived_heights, materialize_layout_budget_px, resolve_layout_budgets,
-    resolve_layout_budgets_with_options,
-    validate_layout_budget_policy, validate_layout_budget_policy_with_options,
-    LayoutBudgetValidateOptions,
+    resolve_layout_budgets_with_options, validate_layout_budget_policy,
+    validate_layout_budget_policy_with_options, LayoutBudgetValidateOptions,
 };
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;

@@ -57,10 +57,6 @@
     return encodeURIComponent(target).replaceAll("%2F", "/");
   }
 
-  function editorHref() {
-    return `/config?app=${encodeURIComponent(state.appId)}`;
-  }
-
   function availableSourceIds() {
     return Object.keys(state.ops.sources).sort();
   }
@@ -172,9 +168,6 @@
         <span class="manage-ops-summary-chip">${formatCountLabel("param", Object.keys(state.ops.params).length)}</span>
       </div>
       <div class="manage-ops-summary-boundary">只有这个页面可写；.mei 和其他资源文件都保持只读查看。</div>
-      <div class="manage-ops-summary-actions">
-        <a class="manage-ops-btn manage-ops-btn-link" href="${editorHref()}">打开 .mei-config.json</a>
-      </div>
       <div class="manage-ops-summary-latest-body">${latestEntry
         ? `最近：#${latestEntry.revision || 0} · ${escapeHtml(latestEntry.summary || "ops patch")}`
         : `当前 revision：${state.journalRevision || 0}`}</div>

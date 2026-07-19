@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use mei_lang_app::UploadFileEntry;
 use mei_lang_kernel::{load_mei_config_for_app, resolve_app_root};
 
 use crate::api_error::ApiError;
@@ -27,65 +26,6 @@ pub(crate) fn resolve_upload_root(state: &SharedState, app_id: &str) -> Result<P
             )
         })?;
     Ok(app_root.join(rel))
-}
-
-pub(crate) fn upload_rel_from_config(app_root: &Path, workspace_root: &Path) -> Option<String> {
-    let config = load_mei_config_for_app(app_root, Some(workspace_root));
-    config
-        .paths
-        .upload
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.replace('\\', "/"))
-}
-
-pub(crate) fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<UploadFileEntry> {
-    fn walk(dir: &Path, rel_prefix: &str, out: &mut Vec<UploadFileEntry>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                continue;
-            }
-            let path = if rel_prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{rel_prefix}/{name}")
-            };
-            out.push(UploadFileEntry {
-                path: path.clone(),
-                name,
-                is_dir: file_type.is_dir(),
-                size_bytes: entry.metadata().ok().and_then(|meta| {
-                    if file_type.is_dir() {
-                        None
-                    } else {
-                        Some(meta.len())
-                    }
-                }),
-                modified_ms: entry
-                    .metadata()
-                    .ok()
-                    .and_then(|meta| meta.modified().ok())
-                    .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_millis() as u64),
-                modified_label: None,
-            });
-            if file_type.is_dir() {
-                walk(&entry.path(), path.as_str(), out);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(upload_root, "", &mut out);
-    out.sort_by(|a, b| a.path.cmp(&b.path));
-    out
 }
 
 pub(crate) fn invalidate_after_upload(state: &SharedState, app_id: &str) {

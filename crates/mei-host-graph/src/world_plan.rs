@@ -708,11 +708,13 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
         if let (Some(envelope), Some(roof_y)) = (height, roof_elevation) {
             if roof_y > envelope + 0.05 {
                 building.insert("height".to_string(), json!(roof_y));
-                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut()) {
+                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut())
+                {
                     map_view.insert("height".to_string(), json!(roof_y));
                 }
-                if let Some(world_view) =
-                    building.get_mut("worldView").and_then(|v| v.as_object_mut())
+                if let Some(world_view) = building
+                    .get_mut("worldView")
+                    .and_then(|v| v.as_object_mut())
                 {
                     world_view.insert("shellHeight".to_string(), json!(roof_y));
                 }
@@ -726,11 +728,13 @@ fn enrich_building_ssot(building: &mut Map<String, Value>, by_id: &BTreeMap<Stri
             let derived = roof_elevation.or_else(|| wall_height.map(|h| h + roof_thickness));
             if let Some(h) = derived {
                 building.insert("height".to_string(), json!(h));
-                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut()) {
+                if let Some(map_view) = building.get_mut("mapView").and_then(|v| v.as_object_mut())
+                {
                     map_view.insert("height".to_string(), json!(h));
                 }
-                if let Some(world_view) =
-                    building.get_mut("worldView").and_then(|v| v.as_object_mut())
+                if let Some(world_view) = building
+                    .get_mut("worldView")
+                    .and_then(|v| v.as_object_mut())
                 {
                     world_view.insert("shellHeight".to_string(), json!(h));
                 }
@@ -2524,7 +2528,6 @@ mod tests {
 
 #[cfg(test)]
 mod l4_live_probe {
-    use super::*;
     use std::path::PathBuf;
 
     /// Optional golden: mini-buildings `bldg_5` emits L4 heroes when MEI_TEST_WORKSPACE is set.
@@ -2537,13 +2540,10 @@ mod l4_live_probe {
             return;
         }
         crate::clear_assemble_cache_for_app("mini-buildings");
-        let outcome = crate::assemble_scope_from_registry(
-            workspace.as_path(),
-            "mini-buildings",
-            "home",
-        )
-        .expect("assemble")
-        .expect("some");
+        let outcome =
+            crate::assemble_scope_from_registry(workspace.as_path(), "mini-buildings", "home")
+                .expect("assemble")
+                .expect("some");
         let heroes = outcome
             .map_projection
             .get("heroes")

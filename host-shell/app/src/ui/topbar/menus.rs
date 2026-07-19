@@ -58,13 +58,10 @@ pub fn resolve_workspace_brand_logo_rel(source_root: &Path, logo: &str) -> Optio
     {
         return None;
     }
-    let first = candidate
-        .components()
-        .next()
-        .and_then(|part| match part {
-            Component::Normal(value) => Some(value.to_string_lossy().to_string()),
-            _ => None,
-        })?;
+    let first = candidate.components().next().and_then(|part| match part {
+        Component::Normal(value) => Some(value.to_string_lossy().to_string()),
+        _ => None,
+    })?;
     if first != "assets" {
         return None;
     }

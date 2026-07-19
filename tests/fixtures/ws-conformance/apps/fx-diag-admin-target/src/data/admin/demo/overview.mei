@@ -1,0 +1,12 @@
+provider_binding(
+    id = "admin.demo.invalid",
+    provider_id = "config-record",
+    method = "GET",
+    target = "src/admin/demo.json",
+    payload_type = type_ref("json-object"),
+    revision = "none",
+    idempotency = "none",
+    apply_policy = "hot",
+    danger = "normal",
+    required_capabilities = ["config_upload"],
+)

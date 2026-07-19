@@ -5,12 +5,12 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::build_ops::{import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint};
 use crate::cli::{
-    AppsCommand, AppsListArgs, AppsMigrateAdminArgs, AppsStartArgs, AppsStopArgs, BuildCleanArgs,
-    BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs,
-    BuildRollbackArgs, BuildStatusArgs, Command, EvalCacheCommand, EvalCacheInvalidateArgs,
-    ImportArgs, LaunchMode, MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs,
-    ServeArgs, SnapshotCommand, SnapshotPackArgs, SnapshotUnpackArgs, VersionArgs,
-    WorkspaceCommand, WorkspaceInitArgs,
+    AppsCommand, AppsListArgs, AppsStartArgs, AppsStopArgs, BuildCleanArgs, BuildCommand,
+    BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs,
+    BuildStatusArgs, Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, LaunchMode,
+    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs,
+    SnapshotCommand, SnapshotPackArgs, SnapshotUnpackArgs, VersionArgs, WorkspaceCommand,
+    WorkspaceInitArgs,
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
@@ -142,64 +142,7 @@ fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
         AppsCommand::List(args) => run_apps_list(args),
         AppsCommand::Start(args) => run_apps_start(args),
         AppsCommand::Stop(args) => run_apps_stop(args),
-        AppsCommand::MigrateAdmin(args) => run_apps_migrate_admin(args),
     }
-}
-
-fn run_apps_migrate_admin(args: AppsMigrateAdminArgs) -> anyhow::Result<()> {
-    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
-    let app_id = args.app.trim();
-    anyhow::ensure!(!app_id.is_empty(), "--app is required");
-    let app_root = mei_lang_kernel::resolve_app_root(&workspace, app_id);
-    let app_toml_path = app_root.join(mei_lang_kernel::APP_TOML_FILENAME);
-    let raw = fs::read_to_string(&app_toml_path)?;
-    let document: mei_lang_kernel::AppTomlDocument = toml::from_str(&raw)?;
-    let manifest_path = mei_lang_kernel::resolve_admin_manifest_path(&app_root, &document.admin)?
-        .ok_or_else(|| {
-        anyhow::anyhow!("app {app_id:?} has no legacy [admin].manifest pointer")
-    })?;
-    let manifest = mei_lang_kernel::load_admin_manifest(&manifest_path)?;
-    let target_root = app_root.join("src/admin");
-    let targets = manifest
-        .resources
-        .iter()
-        .map(|resource| {
-            (
-                target_root.join(format!("{}.admin.mdx", resource.resource_id)),
-                mei_lang_kernel::render_admin_resource_mdx(resource),
-            )
-        })
-        .collect::<Vec<_>>();
-    for (target, _) in &targets {
-        println!("{}", target.display());
-    }
-    if !args.write {
-        println!("dry-run: pass --write to create Admin MDX and remove [admin].manifest");
-        return Ok(());
-    }
-    if let Some(existing) = targets
-        .iter()
-        .map(|(path, _)| path)
-        .find(|path| path.exists())
-    {
-        anyhow::bail!("refusing to overwrite existing {}", existing.display());
-    }
-    fs::create_dir_all(&target_root)?;
-    for (target, content) in &targets {
-        fs::write(target, content)?;
-    }
-    let mut app_toml = raw.parse::<toml::Value>()?;
-    let root = app_toml
-        .as_table_mut()
-        .ok_or_else(|| anyhow::anyhow!("app.toml root is not a table"))?;
-    root.remove("admin");
-    fs::write(&app_toml_path, toml::to_string_pretty(&app_toml)?)?;
-    println!(
-        "migrated {} resources; legacy manifest retained at {} but is no longer referenced",
-        targets.len(),
-        manifest_path.display()
-    );
-    Ok(())
 }
 
 fn run_apps_list(args: AppsListArgs) -> anyhow::Result<()> {

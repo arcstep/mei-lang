@@ -133,11 +133,7 @@ impl CompiledApp {
             self.stage_registry
                 .get(id)
                 .map(|d| d.profile)
-                .or_else(|| {
-                    self.stage_programs
-                        .get(id)
-                        .map(|p| p.profile)
-                })
+                .or_else(|| self.stage_programs.get(id).map(|p| p.profile))
         });
         let source_anchor = stage_id.as_deref().and_then(|id| {
             self.stage_registry

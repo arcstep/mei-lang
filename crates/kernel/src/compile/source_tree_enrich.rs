@@ -37,7 +37,12 @@ fn scene_example_title(examples: &Value) -> Option<String> {
 }
 
 fn call_arg_string(args: &CallArgs, key: &str) -> Option<String> {
-    let expr = args.keywords.iter().find(|(name, _)| name == key)?.1.clone();
+    let expr = args
+        .keywords
+        .iter()
+        .find(|(name, _)| name == key)?
+        .1
+        .clone();
     match expr {
         V2Expr::String(s) => {
             let trimmed = s.trim();

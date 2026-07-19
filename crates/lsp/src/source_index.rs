@@ -439,9 +439,10 @@ scene(
             index.symbols
         );
         assert!(
-            index.references.iter().any(|r| {
-                r.kind == "plane" && r.value == "fx-structure/home/t1"
-            }),
+            index
+                .references
+                .iter()
+                .any(|r| { r.kind == "plane" && r.value == "fx-structure/home/t1" }),
             "expected plane_ref, got {:?}",
             index.references
         );
@@ -465,4 +466,3 @@ plane_layout(
         assert_eq!(plane.name, "fx-structure/home/t1");
     }
 }
-

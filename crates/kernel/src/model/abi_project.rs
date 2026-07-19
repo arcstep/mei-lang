@@ -2,8 +2,8 @@
 //!
 //! Also computes structure_digest / narration_digest and emits Gate 3 diagnostics.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
 use serde_json::Value;
@@ -11,9 +11,7 @@ use serde_json::Value;
 use super::content_capability_abi::ContentCapability;
 use super::contract::SceneContract;
 use super::diagnostic::{Diagnostic, Severity};
-use super::narration_abi::{
-    NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack,
-};
+use super::narration_abi::NarrationCatalog;
 use super::presentation_map_schema::accept_presentation_map;
 use super::scene_slot_abi::{
     SceneSlotModule, SceneSlotModuleId, SemanticSlotDecl, SlotCardinality,
@@ -83,7 +81,9 @@ pub fn compute_structure_digest(
         private.sort();
         parts.push(format!(
             "cap:{id}:v{}:fill={}:private={}",
-            cap.version, cap.supports_fill, private.join(",")
+            cap.version,
+            cap.supports_fill,
+            private.join(",")
         ));
     }
     parts.sort();
@@ -96,16 +96,21 @@ pub fn compute_narration_digest(catalogs: &BTreeMap<String, NarrationCatalog>) -
     for (id, catalog) in catalogs {
         parts.push(format!("catalog:{id}"));
         for track in &catalog.tracks {
-            parts.push(format!("track:{}", track.id));
+            parts.push(format!(
+                "track:{}:{}:{:?}:{:?}:{}",
+                track.id, track.title, track.default_for, track.default_timing_ms, track.digest
+            ));
             for cue in &track.cues {
                 parts.push(format!(
-                    "cue:{}:{}:{}:cap={:?}:notes={:?}:t={:?}",
+                    "cue:{}:{}:body={:?}:cap={:?}:notes={:?}:actions={:?}:t={:?}:anchor={}",
                     cue.id,
-                    cue.target.kind_slug(),
-                    cue.target.id(),
+                    cue.target_ref,
+                    cue.body,
                     cue.caption,
                     cue.speaker_notes,
-                    cue.timing_ms
+                    cue.actions,
+                    cue.timing,
+                    cue.source_anchor,
                 ));
             }
         }
@@ -116,10 +121,7 @@ pub fn compute_narration_digest(catalogs: &BTreeMap<String, NarrationCatalog>) -
 
 fn is_t2_or_overlay_scope(preview_scope: &str) -> bool {
     let s = preview_scope.replace('\\', "/").to_ascii_lowercase();
-    s.contains("/t2/")
-        || s.contains("/overlay/")
-        || s.contains("/t2")
-        || s.contains("/plane-")
+    s.contains("/t2/") || s.contains("/overlay/") || s.contains("/t2") || s.contains("/plane-")
 }
 
 fn content_key_from_preview(preview_scope: &str) -> String {
@@ -182,10 +184,7 @@ fn walk_panels_for_content(panel: &UiNodeDecl, out: &mut Vec<(String, String, Ve
 pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
     let mut out = AbiProjection::default();
     let stage_id = input.stage_id.unwrap_or("default");
-    let source_anchor = input
-        .stage_source_anchor
-        .unwrap_or("")
-        .replace('\\', "/");
+    let source_anchor = input.stage_source_anchor.unwrap_or("").replace('\\', "/");
     let module_id = SceneSlotModuleId::for_stage(stage_id);
     let profile = input.profile.unwrap_or(StageProfile::Cockpit);
 
@@ -225,9 +224,11 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
             // Nested Content under Content = private card/field; not a public Stage slot.
             // Content under Slot = metric-card field / layout cell — also private.
             if let Some(parent_id) = node.parent_id.as_deref() {
-                if index.nodes.get(parent_id).is_some_and(|p| {
-                    matches!(p.role, UiScopeRole::Content | UiScopeRole::Slot)
-                }) {
+                if index
+                    .nodes
+                    .get(parent_id)
+                    .is_some_and(|p| matches!(p.role, UiScopeRole::Content | UiScopeRole::Slot))
+                {
                     continue;
                 }
             }
@@ -270,9 +271,9 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
                     None
                 },
             });
-            capabilities
-                .entry(slot_id.clone())
-                .or_insert_with(|| ContentCapability::from_content_panel(&slot_id, &def_anchor, Vec::new()));
+            capabilities.entry(slot_id.clone()).or_insert_with(|| {
+                ContentCapability::from_content_panel(&slot_id, &def_anchor, Vec::new())
+            });
         }
     }
 
@@ -418,213 +419,7 @@ pub fn project_abi(input: &AbiProjectionInput<'_>) -> AbiProjection {
     }
     out.content_capabilities = capabilities;
 
-    // Narration: only if authored default_script / steps exist.
-    let catalog_id = format!("narration:{stage_id}");
-    let catalog = project_narration_catalog(
-        &catalog_id,
-        &source_anchor,
-        presentation_map,
-        &out.scene_slot_modules,
-        &out.content_capabilities,
-        &mut out.diagnostics,
-    );
-    if !catalog.is_empty() {
-        out.narration_catalogs.insert(catalog_id, catalog);
-    }
-
     out
-}
-
-fn project_narration_catalog(
-    catalog_id: &str,
-    source_anchor: &str,
-    presentation_map: Option<&Value>,
-    slot_modules: &BTreeMap<String, SceneSlotModule>,
-    capabilities: &BTreeMap<String, ContentCapability>,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> NarrationCatalog {
-    let Some(map) = presentation_map else {
-        return NarrationCatalog {
-            catalog_id: catalog_id.to_string(),
-            tracks: Vec::new(),
-            source_anchor: Some(source_anchor.to_string()),
-        };
-    };
-    let script = map
-        .get("defaultScript")
-        .or_else(|| map.get("default_script"));
-    let steps = script
-        .and_then(|s| s.get("steps"))
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    if steps.is_empty() {
-        // No authored script → do not synthesize cues (0409).
-        return NarrationCatalog {
-            catalog_id: catalog_id.to_string(),
-            tracks: Vec::new(),
-            source_anchor: Some(source_anchor.to_string()),
-        };
-    }
-
-    let mut public_targets: BTreeSet<String> = BTreeSet::new();
-    for module in slot_modules.values() {
-        for slot in &module.slots {
-            public_targets.insert(slot.slot_id.clone());
-            for a in &slot.anchors {
-                public_targets.insert(a.clone());
-            }
-        }
-    }
-    for id in capabilities.keys() {
-        public_targets.insert(id.clone());
-    }
-    if let Some(deck) = map.get("deck").and_then(|d| d.get("slides")).and_then(|v| v.as_array())
-    {
-        for slide in deck {
-            if let Some(id) = slide.get("id").and_then(|v| v.as_str()) {
-                public_targets.insert(id.to_string());
-            }
-        }
-    }
-    if let Some(viewpoints) = map.get("viewpoints").and_then(|v| v.as_object()) {
-        for id in viewpoints.keys() {
-            public_targets.insert(id.clone());
-        }
-    }
-
-    let mut cues = Vec::new();
-    for (idx, step) in steps.iter().enumerate() {
-        let cue_id = step
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("cue-{idx}"));
-        let target_raw = step
-            .get("target")
-            .or_else(|| step.get("viewpointId"))
-            .or_else(|| step.get("viewpoint_id"))
-            .or_else(|| step.get("slideId"))
-            .or_else(|| step.get("slide_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let target = if target_raw.is_empty() {
-            // Fallback: focus field
-            let focus = step
-                .get("focus")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if focus.is_empty() {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Warning,
-                    code: "narration_target_invalid".to_string(),
-                    message: format!("narration cue `{cue_id}` has no public target"),
-                    source_path: Some(source_anchor.to_string()),
-                });
-                continue;
-            }
-            resolve_cue_target(focus, &public_targets, map)
-        } else {
-            resolve_cue_target(target_raw, &public_targets, map)
-        };
-        let Some(target) = target else {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                code: "narration_target_invalid".to_string(),
-                message: format!(
-                    "narration cue `{cue_id}` target is not a public Slot/Capability/Stage target"
-                ),
-                source_path: Some(source_anchor.to_string()),
-            });
-            continue;
-        };
-        let caption = step
-            .get("caption")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let speaker_notes = step
-            .get("speakerNotes")
-            .or_else(|| step.get("speaker_notes"))
-            .or_else(|| step.get("notes"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let timing_ms = step
-            .get("timingMs")
-            .or_else(|| step.get("timing_ms"))
-            .or_else(|| step.get("durationMs"))
-            .and_then(|v| v.as_u64());
-        cues.push(NarrationCue {
-            id: cue_id,
-            target,
-            caption,
-            speaker_notes,
-            actions: Vec::new(),
-            timing_ms,
-            source_anchor: source_anchor.to_string(),
-        });
-    }
-
-    NarrationCatalog {
-        catalog_id: catalog_id.to_string(),
-        tracks: if cues.is_empty() {
-            Vec::new()
-        } else {
-            vec![NarrationTrack {
-                id: format!("{catalog_id}:default"),
-                cues,
-                profile: Some("slides".to_string()),
-            }]
-        },
-        source_anchor: Some(source_anchor.to_string()),
-    }
-}
-
-fn resolve_cue_target(
-    raw: &str,
-    public_targets: &BTreeSet<String>,
-    map: &Value,
-) -> Option<NarrationCueTarget> {
-    let id = raw.trim();
-    if id.is_empty() {
-        return None;
-    }
-    // Reject obvious DOM / mesh paths.
-    if id.contains("document.") || id.contains("mesh:") || id.starts_with('#') {
-        return None;
-    }
-    if !public_targets.contains(id) {
-        // Still allow if it looks like a slide id present in deck.
-        let in_deck = map
-            .pointer("/deck/slides")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
-            })
-            .unwrap_or(false);
-        if !in_deck {
-            return None;
-        }
-        return Some(NarrationCueTarget::Slide(id.to_string()));
-    }
-    if map
-        .get("viewpoints")
-        .and_then(|v| v.as_object())
-        .is_some_and(|o| o.contains_key(id))
-    {
-        return Some(NarrationCueTarget::Viewpoint(id.to_string()));
-    }
-    if map
-        .pointer("/deck/slides")
-        .and_then(|v| v.as_array())
-        .is_some_and(|arr| {
-            arr.iter()
-                .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
-        })
-    {
-        return Some(NarrationCueTarget::Slide(id.to_string()));
-    }
-    Some(NarrationCueTarget::Slot(id.to_string()))
 }
 
 /// Validate fills implied by StageProgram units against Slot ABI (Gate 3 diagnostics).
@@ -632,7 +427,7 @@ pub fn validate_abi_against_programs(
     programs: &StageProgramIndex,
     slot_modules: &BTreeMap<String, SceneSlotModule>,
     capabilities: &BTreeMap<String, ContentCapability>,
-    narration_catalogs: &BTreeMap<String, NarrationCatalog>,
+    _narration_catalogs: &BTreeMap<String, NarrationCatalog>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for program in programs.programs.values() {
@@ -692,38 +487,12 @@ pub fn validate_abi_against_programs(
                 });
             }
         }
-        // Slot-targeted narration cues that miss public slots carry author source_path.
-        if let Some(catalog) = narration_catalogs.get(&format!("narration:{}", program.stage_id)) {
-            for track in &catalog.tracks {
-                for cue in &track.cues {
-                    let NarrationCueTarget::Slot(target_id) = &cue.target else {
-                        continue;
-                    };
-                    if capabilities.contains_key(target_id) {
-                        continue;
-                    }
-                    if module.get_slot(target_id).is_some() {
-                        continue;
-                    }
-                    if let Some(diag) = diagnose_slot_missing(
-                        module,
-                        target_id.as_str(),
-                        Some(program.source_anchor.as_str()),
-                    ) {
-                        diagnostics.push(diag);
-                    }
-                }
-            }
-        }
     }
     diagnostics
 }
 
 /// Apply projection onto StagePrograms (refs + digests).
-pub fn bind_programs_to_abi(
-    programs: &mut StageProgramIndex,
-    projection: &AbiProjection,
-) {
+pub fn bind_programs_to_abi(programs: &mut StageProgramIndex, projection: &AbiProjection) {
     let structure = compute_structure_digest(
         &projection.scene_slot_modules,
         &projection.content_capabilities,
@@ -746,7 +515,9 @@ pub fn bind_programs_to_abi(
             .contains_key(&narr_key)
             .then_some(narr_key);
         program.structure_digest = Some(structure.clone());
-        let narr_digest = if let Some(cat) = projection.narration_catalogs.get(&format!("narration:{stage_id}"))
+        let narr_digest = if let Some(cat) = projection
+            .narration_catalogs
+            .get(&format!("narration:{stage_id}"))
         {
             let mut one = BTreeMap::new();
             one.insert(format!("narration:{stage_id}"), cat.clone());
@@ -781,8 +552,9 @@ pub fn diagnose_slot_missing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::stage_registry::{StageDescriptor, StageId, StageProfile, StageRegistry};
     use crate::model::stage_program::StageProgramIndex;
+    use crate::model::stage_registry::{StageDescriptor, StageId, StageProfile, StageRegistry};
+    use crate::model::{NarrationCue, NarrationTrack};
 
     #[test]
     fn structure_digest_ignores_narration_caption_changes() {
@@ -822,27 +594,24 @@ mod tests {
                 catalog_id: "narration:home".to_string(),
                 tracks: vec![NarrationTrack {
                     id: "t".to_string(),
+                    title: "Track".to_string(),
+                    scope: "app".to_string(),
                     cues: vec![NarrationCue {
                         id: "c1".to_string(),
-                        target: NarrationCueTarget::Slot("metric".to_string()),
+                        target_ref: "stage:home/viewpoint:metric".to_string(),
                         caption: Some("A".to_string()),
-                        speaker_notes: None,
-                        actions: Vec::new(),
-                        timing_ms: None,
                         source_anchor: "x".to_string(),
+                        ..NarrationCue::default()
                     }],
-                    profile: None,
+                    source_anchor: "x".to_string(),
+                    digest: "track-digest".to_string(),
+                    ..NarrationTrack::default()
                 }],
-                source_anchor: None,
+                ..NarrationCatalog::default()
             },
         );
         let mut narr_b = narr_a.clone();
-        narr_b
-            .get_mut("narration:home")
-            .unwrap()
-            .tracks[0]
-            .cues[0]
-            .caption = Some("B".to_string());
+        narr_b.get_mut("narration:home").unwrap().tracks[0].cues[0].caption = Some("B".to_string());
         let n1 = compute_narration_digest(&narr_a);
         let n2 = compute_narration_digest(&narr_b);
         assert_ne!(n1, n2);
@@ -864,33 +633,6 @@ mod tests {
         };
         let d = diagnose_slot_missing(&module, "metric", Some("x.mei")).unwrap();
         assert_eq!(d.code, "slot_missing");
-    }
-
-    #[test]
-    fn narration_target_invalid_for_unknown_focus() {
-        let map = serde_json::json!({
-            "scene": "intro",
-            "viewpoints": { "vp_a": {} },
-            "defaultScript": {
-                "steps": [{ "id": "bad", "target": "dom.querySelector('#x')" }]
-            }
-        });
-        let input = AbiProjectionInput {
-            stage_id: Some("intro"),
-            stage_source_anchor: Some("src/presentation/intro/intro.deck.mdx"),
-            profile: Some(StageProfile::Slides),
-            scene_contract: None,
-            ui_layout_index: None,
-            presentation_map: Some(&map),
-        };
-        let proj = project_abi(&input);
-        assert!(
-            proj.diagnostics
-                .iter()
-                .any(|d| d.code == "narration_target_invalid"),
-            "expected narration_target_invalid, got {:?}",
-            proj.diagnostics
-        );
     }
 
     #[test]
@@ -938,25 +680,6 @@ mod tests {
             diags.iter().any(|d| d.code == "capability_mismatch"),
             "expected capability_mismatch, got {diags:?}"
         );
-    }
-
-    #[test]
-    fn empty_default_script_yields_empty_catalog() {
-        let map = serde_json::json!({
-            "scene": "intro",
-            "viewpoints": {},
-            "defaultScript": { "steps": [] }
-        });
-        let input = AbiProjectionInput {
-            stage_id: Some("intro"),
-            stage_source_anchor: Some("src/presentation/intro/intro.deck.mdx"),
-            profile: Some(StageProfile::Slides),
-            scene_contract: None,
-            ui_layout_index: None,
-            presentation_map: Some(&map),
-        };
-        let proj = project_abi(&input);
-        assert!(proj.narration_catalogs.is_empty());
     }
 
     #[test]

@@ -14,24 +14,18 @@ let client;
 let adminDiagnostics;
 
 const ADMIN_FRONTMATTER_FIELDS = new Set([
-  "resource_id",
+  "api_version",
   "title",
   "description",
-  "template",
-  "provider",
-  "record_path",
-  "config_path",
+  "menu",
+  "parent",
+  "order",
+  "keywords",
+  "default",
   "required_capabilities",
   "scope",
   "audit",
   "danger_level",
-  "revision_policy",
-  "dirty_policy",
-  "apply_policy",
-  "navigation_menu",
-  "navigation_parent",
-  "navigation_order",
-  "navigation_keywords",
 ]);
 
 function adminDiagnostic(document, line, message, code) {
@@ -91,10 +85,8 @@ function validateAdminMdx(document) {
     }
   }
   for (const required of [
-    "resource_id",
+    "api_version",
     "title",
-    "template",
-    "provider",
     "required_capabilities",
   ]) {
     if (!values.get(required)) {
@@ -103,30 +95,20 @@ function validateAdminMdx(document) {
       );
     }
   }
-  const templates = new Set([
-    "singleton-form",
-    "collection-detail",
-    "asset-slot-collection",
-    "action-job-console",
-  ]);
-  if (values.has("template") && !templates.has(values.get("template"))) {
+  if (
+    values.has("api_version") &&
+    values.get("api_version") !== "mei-admin-resource-v2"
+  ) {
     diagnostics.push(
-      adminDiagnostic(document, 0, `未知 template ${values.get("template")}`, "admin_mdx_parse")
+      adminDiagnostic(
+        document,
+        0,
+        `不支持 api_version ${values.get("api_version")}`,
+        "admin_api_version_unsupported"
+      )
     );
   }
-  const providers = new Set([
-    "config-record",
-    "crud-collection",
-    "asset-slot",
-    "command-job",
-  ]);
-  if (values.has("provider") && !providers.has(values.get("provider"))) {
-    diagnostics.push(
-      adminDiagnostic(document, 0, `未知 provider ${values.get("provider")}`, "admin_mdx_parse")
-    );
-  }
-  const directives =
-    /^@(field|column|upload|action|readonly_content|readonly_chart|readonly_canvas)\(.+\)$/;
+  const directives = /^@(scene|fill)\(.+\)$/;
   for (let index = end + 1; index < lines.length; index += 1) {
     const raw = lines[index].trim();
     if (!raw) continue;

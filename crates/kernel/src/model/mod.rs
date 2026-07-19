@@ -8,6 +8,7 @@ mod dataset;
 mod diagnostic;
 mod layout;
 mod narration_abi;
+mod narration_discover;
 mod object_catalog;
 mod page_program;
 mod presentation_map_schema;
@@ -51,7 +52,13 @@ pub use dataset::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
-pub use narration_abi::{NarrationCatalog, NarrationCue, NarrationCueTarget, NarrationTrack};
+pub use narration_abi::{NarrationCatalog, NarrationCue, NarrationTiming, NarrationTrack};
+pub use narration_discover::{
+    apply_app_narration_catalog, discover_narration_catalog, discover_narration_track_paths,
+    NarrationTargetCatalog, NarrationTrackRegistry, NarrationTrackRegistryEntry,
+    NARRATION_DEFAULT_TRACK_AMBIGUOUS, NARRATION_TARGET_PRIVATE, NARRATION_TARGET_UNKNOWN,
+    NARRATION_TRACK_ID_DUPLICATE,
+};
 pub use object_catalog::{
     derive_object_field_links, DefaultObjectAssembly, InteractionBinding, InteractionEvent,
     InteractionIntent, InteractionSubject, ObjectCatalog, ObjectCatalogAuthoringMode,
@@ -66,7 +73,7 @@ pub use object_catalog::{
     DEFAULT_OBJECT_ASSEMBLY_KIND, INTERACTION_PROTOCOL_SCHEMA_VERSION,
     OBJECT_CATALOG_SCHEMA_VERSION, OBJECT_INDEX_ENTRY_KIND, OBJECT_RECIPE_SCHEMA_VERSION,
 };
-pub use page_program::{AdminPageProgram, PageProgram};
+pub use page_program::{PageFill, PageProgram, PageVisibleBody};
 pub use presentation_map_schema::{
     accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
     presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,

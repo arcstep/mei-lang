@@ -14,8 +14,10 @@ use serde_json::Value;
 
 use crate::{
     eval::evaluate_mei_file,
-    mei_config::{resolve_app_entry_main, resolve_app_main_path, resolve_app_root},
-    model::{CompiledApp, CompiledSceneRoute, Diagnostic, SceneContract, Severity},
+    mei_config::{
+        load_app_manifest, resolve_app_entry_main, resolve_app_main_path, resolve_app_root,
+    },
+    model::{AppDecl, CompiledApp, CompiledSceneRoute, Diagnostic, SceneContract, Severity},
     typed_refs::SceneRegistry,
     workspace::load_component_assets,
 };
@@ -113,11 +115,37 @@ pub fn compile_app_from_root_with_options_and_revision(
         content_hash_misses: file_content_hash_cache_metrics_snapshot().1,
     };
     let app_entry_main = resolve_app_entry_main(app_root);
-    let app_main = resolve_app_main_path(app_root);
-    let app_decls = evaluate_mei_file(&app_main)?;
-    let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
-    let app_decl =
-        app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+    let (app_main, app_decls, app_decl, mut diagnostics) = if app_entry_main.is_empty() {
+        let manifest = load_app_manifest(app_root);
+        let app_id = manifest.app_id.clone().unwrap_or_else(|| {
+            app_root
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("app")
+                .to_string()
+        });
+        let app_decl = AppDecl {
+            kind: "app".to_string(),
+            id: app_id,
+            title: manifest.title,
+            default_stage: manifest.default_stage,
+            scene: None,
+        };
+        let app_decls = serde_json::to_value(vec![app_decl.clone()])?;
+        (
+            app_root.join(crate::mei_config::APP_TOML_FILENAME),
+            app_decls,
+            app_decl,
+            Vec::new(),
+        )
+    } else {
+        let app_main = resolve_app_main_path(app_root);
+        let app_decls = evaluate_mei_file(&app_main)?;
+        let (app_decl, diagnostics) = decode_app_decl(&app_main, &app_decls);
+        let app_decl = app_decl
+            .ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+        (app_main, app_decls, app_decl, diagnostics)
+    };
     let mut route_registry =
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 

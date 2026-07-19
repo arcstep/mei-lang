@@ -26,6 +26,15 @@ impl DatasetCatalogFilter {
             || !self.metric_ids.is_empty()
             || !self.dataset_paths.is_empty()
     }
+
+    pub fn all_data_modules(app_root: &Path) -> Self {
+        Self {
+            dataset_paths: collect_dataset_catalog_mei_files(app_root)
+                .into_iter()
+                .collect(),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,10 +109,11 @@ pub fn build_dataset_catalog_filter(
     filter
 }
 
-/// 收集应用内所有 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**/datasets/**`）。
+/// 收集应用内所有 data module；`src/data/**` 是 v2 真源，旧目录仅供非 Admin
+/// 业务模块完成迁移前继续参与普通 dataset catalog。
 pub(crate) fn collect_dataset_catalog_mei_files(app_root: &Path) -> Vec<String> {
     let mut mei_files = Vec::new();
-    for root_rel in ["data/dataset", "scenes"] {
+    for root_rel in ["src/data", "data/dataset", "scenes"] {
         let root = app_root.join(root_rel);
         if !root.is_dir() {
             continue;

@@ -1,82 +1,52 @@
-//! Discover and project app admin resources for Host Registry (0547).
+//! Convention-only v2 Admin Entry discovery and kernel projection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use mei_syntax::v2::{parse_v2_source_file, V2Expr, V2Item};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use crate::model::{AdminPageProgram, PageProgram};
+use crate::model::{PageFill, PageProgram};
 
-use super::admin_manifest::{
-    load_admin_manifest, load_admin_mdx_resource, resolve_admin_manifest_path,
-    validate_admin_manifest, AdminManifest, AdminProviderKind, AdminResourceSpec, AdminTemplate,
-    AppAdminRef, ADMIN_RESOURCE_API_VERSION,
+use super::admin_registry::{
+    AdminArtifactRefs, AdminDangerLevel, AdminNavigation, AdminRegistryEntry,
+    ADMIN_RESOURCE_API_VERSION,
 };
-use super::app_manifest::AppTomlDocument;
+use super::provider_binding::{discover_provider_binding_catalog, provider_bindings_for_scene};
 use super::types::APP_TOML_FILENAME;
 
-/// Successful per-app admin projection.
+pub const ADMIN_SOURCE_PATH_INVALID: &str = "admin_source_path_invalid";
+pub const ADMIN_MODULE_ID_DUPLICATE: &str = "admin_module_id_duplicate";
+pub const ADMIN_ENTRY_MODULE_FORBIDDEN: &str = "admin_entry_module_forbidden";
+pub const ADMIN_SCENE_ROOT_UNKNOWN: &str = "admin_scene_root_unknown";
+pub const ADMIN_SCENE_ROOT_DUPLICATE: &str = "admin_scene_root_duplicate";
+pub const ADMIN_LEGACY_MANIFEST_FORBIDDEN: &str = "admin_legacy_manifest_forbidden";
+pub const ADMIN_LEGACY_DATA_JSON_FORBIDDEN: &str = "admin_legacy_data_json_forbidden";
+pub const ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN: &str = "admin_legacy_dual_projection_forbidden";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminRegistryProjection {
     pub app_id: String,
     pub api_version: String,
-    pub manifest_digest: String,
-    pub resources: Vec<AdminResourceProjection>,
+    pub admin_registry_digest: String,
+    pub page_structure_digest: String,
+    pub resources: Vec<AdminEntryProjection>,
 }
 
-/// How Admin Shell should mount the resource main pane (0548 Host builtins / 0549 asset-slot).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum AdminUiSurface {
-    /// Phase B Form Card + config-record.
-    #[default]
-    FormCard,
-    /// Embed manage-ops-panel; writes via `/api/ops/*`.
-    OpsEmbed,
-    /// Embed upload-panel; writes via `/api/upload/*`.
-    UploadEmbed,
-    /// Phase D Asset Slot Kit; writes via `/api/admin/providers/asset-slot`.
-    AssetSlotCollection,
-}
-
-fn ui_surface_for_template(template: AdminTemplate) -> AdminUiSurface {
-    match template {
-        AdminTemplate::AssetSlotCollection => AdminUiSurface::AssetSlotCollection,
-        AdminTemplate::SingletonForm
-        | AdminTemplate::CollectionDetail
-        | AdminTemplate::ActionJobConsole => AdminUiSurface::FormCard,
-    }
-}
-
-/// One navigable / callable resource after Host namespace injection.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AdminResourceProjection {
-    pub resource_key: String,
-    pub resource_id: String,
-    pub app_id: String,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub template: AdminTemplate,
-    pub provider: AdminProviderKind,
-    pub required_capabilities: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub record_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_path: Option<String>,
-    pub href: String,
-    pub page_program: AdminPageProgram,
+pub struct AdminEntryProjection {
+    pub registry_entry: AdminRegistryEntry,
+    pub page_program: PageProgram,
+    pub page_structure_digest: String,
     #[serde(default)]
-    pub ui_surface: AdminUiSurface,
-    pub spec: AdminResourceSpec,
+    pub artifact_refs: AdminArtifactRefs,
 }
 
-/// Isolated discovery failure for one app (does not poison Host).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminDiscoveryDiagnostic {
@@ -92,52 +62,117 @@ pub enum AdminDiscoverOutcome {
     Err(AdminDiscoveryDiagnostic),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SceneRootCatalogEntry {
+    pub root_id: String,
+    pub source_anchor: String,
+}
+
 pub fn discover_app_admin_resources(app_root: &Path, app_id: &str) -> AdminDiscoverOutcome {
-    let toml_path = app_root.join(APP_TOML_FILENAME);
-    if !toml_path.is_file() {
-        return AdminDiscoverOutcome::None;
+    if let Some(diagnostic) = reject_legacy_manifest_pointer(app_root, app_id) {
+        return AdminDiscoverOutcome::Err(diagnostic);
     }
-    let raw = match fs::read_to_string(&toml_path) {
-        Ok(raw) => raw,
-        Err(e) => {
-            return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-                app_id: app_id.to_string(),
-                kind: "io".into(),
-                message: format!("read {}: {e}", toml_path.display()),
-            });
-        }
-    };
-    let doc: AppTomlDocument = match toml::from_str(&raw) {
-        Ok(doc) => doc,
-        Err(e) => {
-            return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-                app_id: app_id.to_string(),
-                kind: "parse".into(),
-                message: format!("parse {}: {e}", toml_path.display()),
-            });
-        }
-    };
-    let mdx_paths = match discover_admin_mdx_paths(app_root) {
+    if let Some(diagnostic) = reject_legacy_admin_sources(app_root, app_id) {
+        return AdminDiscoverOutcome::Err(diagnostic);
+    }
+    let paths = match discover_admin_mdx_paths(app_root) {
+        Ok(paths) if paths.is_empty() => return AdminDiscoverOutcome::None,
         Ok(paths) => paths,
-        Err(message) => {
-            return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-                app_id: app_id.to_string(),
-                kind: "io".into(),
-                message,
-            });
-        }
+        Err(message) => return diagnostic_from_message(app_id, message),
     };
-    if !mdx_paths.is_empty() {
-        if !doc.admin.is_empty() {
-            return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
+    let scene_catalog = match discover_scene_root_catalog(app_root) {
+        Ok(catalog) => catalog,
+        Err(message) => return diagnostic_from_message(app_id, message),
+    };
+    let provider_catalog = match discover_provider_binding_catalog(app_root) {
+        Ok(catalog) => catalog,
+        Err(message) => return diagnostic_from_message(app_id, message),
+    };
+    project_entries(app_root, app_id, &paths, &scene_catalog, &provider_catalog)
+}
+
+fn reject_legacy_admin_sources(app_root: &Path, app_id: &str) -> Option<AdminDiscoveryDiagnostic> {
+    let legacy_root = app_root.join("admin");
+    if legacy_root.is_dir() {
+        let legacy_json = WalkDir::new(&legacy_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+            .find(|entry| {
+                entry.file_type().is_file()
+                    && entry.path().extension().and_then(|value| value.to_str()) == Some("json")
+            });
+        if let Some(entry) = legacy_json {
+            return Some(AdminDiscoveryDiagnostic {
                 app_id: app_id.to_string(),
-                kind: "dual-source".into(),
-                message: "admin resources must use either src/admin/**/*.admin.mdx or [admin].manifest, not both".into(),
+                kind: ADMIN_LEGACY_DATA_JSON_FORBIDDEN.to_string(),
+                message: format!(
+                    "[{ADMIN_LEGACY_DATA_JSON_FORBIDDEN}] source Admin JSON is forbidden: `{}`",
+                    entry.path().display()
+                ),
             });
         }
-        return discover_from_admin_mdx(app_root, app_id, &mdx_paths);
     }
-    discover_from_admin_ref(app_root, app_id, &doc.admin)
+
+    let source_root = app_root.join("src/admin");
+    if !source_root.is_dir() {
+        return None;
+    }
+    let mut legacy_index = None;
+    let mut legacy_page = None;
+    for entry in WalkDir::new(&source_root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+    {
+        let name = entry.file_name().to_string_lossy();
+        if name == "index.admin.mdx" {
+            legacy_index = Some(entry.path().to_path_buf());
+        } else if name == "page.mei" {
+            legacy_page = Some(entry.path().to_path_buf());
+        }
+    }
+    match (legacy_index, legacy_page) {
+        (Some(index), Some(page)) => Some(AdminDiscoveryDiagnostic {
+            app_id: app_id.to_string(),
+            kind: ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN.to_string(),
+            message: format!(
+                "[{ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN}] legacy Admin dual projection is forbidden: `{}` + `{}`",
+                index.display(),
+                page.display()
+            ),
+        }),
+        _ => None,
+    }
+}
+
+fn reject_legacy_manifest_pointer(
+    app_root: &Path,
+    app_id: &str,
+) -> Option<AdminDiscoveryDiagnostic> {
+    let path = app_root.join(APP_TOML_FILENAME);
+    let raw = fs::read_to_string(path).ok()?;
+    let value = toml::from_str::<toml::Value>(&raw).ok()?;
+    value.get("admin").map(|_| AdminDiscoveryDiagnostic {
+        app_id: app_id.to_string(),
+        kind: ADMIN_LEGACY_MANIFEST_FORBIDDEN.to_string(),
+        message: "`app.toml [admin].manifest` is not supported by Admin v2".to_string(),
+    })
+}
+
+fn diagnostic_from_message(app_id: &str, message: String) -> AdminDiscoverOutcome {
+    let kind = message
+        .strip_prefix('[')
+        .and_then(|value| value.split_once(']'))
+        .map(|(code, _)| code)
+        .unwrap_or("io")
+        .to_string();
+    AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
+        app_id: app_id.to_string(),
+        kind,
+        message,
+    })
 }
 
 pub fn discover_admin_mdx_paths(app_root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -146,215 +181,372 @@ pub fn discover_admin_mdx_paths(app_root: &Path) -> Result<Vec<PathBuf>, String>
         return Ok(Vec::new());
     }
     let mut paths = Vec::new();
+    let mut keys = BTreeSet::new();
     for entry in WalkDir::new(&source_root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|entry| {
-            let name = entry.file_name().to_string_lossy();
-            !name.starts_with('.') && name != "node_modules"
-        })
+        .filter_entry(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
     {
         let entry = entry.map_err(|error| format!("walk {}: {error}", source_root.display()))?;
-        if entry.file_type().is_file()
-            && entry
-                .path()
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with(".admin.mdx"))
-        {
-            paths.push(entry.into_path());
+        if !entry.file_type().is_file() {
+            continue;
         }
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(&source_root)
+            .map_err(|_| format!("[{ADMIN_SOURCE_PATH_INVALID}] {}", path.display()))?;
+        let components = relative.components().collect::<Vec<_>>();
+        let extension = path.extension().and_then(|value| value.to_str());
+        if extension != Some("mdx") {
+            return Err(format!(
+                "[{ADMIN_ENTRY_MODULE_FORBIDDEN}] src/admin contains non-MDX file `{}`",
+                relative.display()
+            ));
+        }
+        if components.len() != 2 {
+            return Err(format!(
+                "[{ADMIN_SOURCE_PATH_INVALID}] `{}` must match src/admin/{{resource}}/{{module}}.mdx",
+                relative.display()
+            ));
+        }
+        let resource_id = components[0].as_os_str().to_string_lossy();
+        let module_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !valid_identity(&resource_id)
+            || !valid_identity(module_id)
+            || file_name.ends_with(".admin.mdx")
+            || file_name == "index.admin.mdx"
+        {
+            return Err(format!(
+                "[{ADMIN_SOURCE_PATH_INVALID}] invalid Admin Entry path `{}`",
+                relative.display()
+            ));
+        }
+        let key = (resource_id.into_owned(), module_id.to_string());
+        if !keys.insert(key.clone()) {
+            return Err(format!(
+                "[{ADMIN_MODULE_ID_DUPLICATE}] duplicate Admin Entry `{}/{}`",
+                key.0, key.1
+            ));
+        }
+        paths.push(path.to_path_buf());
     }
     paths.sort();
     Ok(paths)
 }
 
-fn discover_from_admin_mdx(
+pub fn discover_scene_root_catalog(
+    app_root: &Path,
+) -> Result<BTreeMap<String, SceneRootCatalogEntry>, String> {
+    let scene_root = app_root.join("src/scene");
+    if !scene_root.is_dir() {
+        return Ok(BTreeMap::new());
+    }
+    let mut catalog = BTreeMap::new();
+    for entry in WalkDir::new(&scene_root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+    {
+        let entry = entry.map_err(|error| format!("walk {}: {error}", scene_root.display()))?;
+        let path = entry.path();
+        if !entry.file_type().is_file()
+            || path.extension().and_then(|value| value.to_str()) != Some("mei")
+        {
+            continue;
+        }
+        let source_anchor = path
+            .strip_prefix(app_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let root_ids = scene_ids_from_v2(path);
+        let root_ids = if root_ids.is_empty() {
+            vec![fallback_scene_id(&scene_root, path)]
+        } else {
+            root_ids
+        };
+        for root_id in root_ids {
+            let value = SceneRootCatalogEntry {
+                root_id: root_id.clone(),
+                source_anchor: source_anchor.clone(),
+            };
+            if let Some(previous) = catalog.insert(root_id.clone(), value) {
+                return Err(format!(
+                    "[{ADMIN_SCENE_ROOT_DUPLICATE}] scene root `{root_id}` is declared by `{}` and `{source_anchor}`",
+                    previous.source_anchor
+                ));
+            }
+        }
+    }
+    Ok(catalog)
+}
+
+fn scene_ids_from_v2(path: &Path) -> Vec<String> {
+    let Ok(source) = parse_v2_source_file(path) else {
+        return Vec::new();
+    };
+    source
+        .items
+        .into_iter()
+        .filter_map(|item| {
+            let V2Item::TopLevel { name, args } = item else {
+                return None;
+            };
+            if name != "scene" {
+                return None;
+            }
+            args.keywords
+                .into_iter()
+                .find_map(|(key, value)| match (key.as_str(), value) {
+                    ("id", V2Expr::String(id)) => Some(id),
+                    _ => None,
+                })
+        })
+        .collect()
+}
+
+fn fallback_scene_id(scene_root: &Path, path: &Path) -> String {
+    path.strip_prefix(scene_root)
+        .unwrap_or(path)
+        .with_extension("")
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn project_entries(
     app_root: &Path,
     app_id: &str,
     paths: &[PathBuf],
+    scene_catalog: &BTreeMap<String, SceneRootCatalogEntry>,
+    provider_catalog: &BTreeMap<String, super::admin_registry::ProviderBinding>,
 ) -> AdminDiscoverOutcome {
+    let admin_root = app_root.join("src/admin");
     let mut resources = Vec::new();
-    let mut digest_input = Vec::new();
-    let mut source_anchors = BTreeMap::new();
     for path in paths {
-        let resource = match load_admin_mdx_resource(path) {
-            Ok(resource) => resource,
+        let relative_admin = path
+            .strip_prefix(&admin_root)
+            .expect("validated Admin path");
+        let resource_id = relative_admin
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            .expect("validated resource");
+        let module_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .expect("validated module");
+        let source_anchor = path
+            .strip_prefix(app_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let document = match mei_syntax::parse_admin_mdx_file(path) {
+            Ok(document) => document,
             Err(error) => {
                 return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
                     app_id: app_id.to_string(),
-                    kind: "validation".into(),
-                    message: format!("{}: {error}", path.display()),
+                    kind: error.code.clone(),
+                    message: error.to_string(),
                 });
             }
         };
-        let raw = match fs::read(path) {
-            Ok(raw) => raw,
-            Err(error) => {
-                return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-                    app_id: app_id.to_string(),
-                    kind: "io".into(),
-                    message: format!("read {}: {error}", path.display()),
-                });
-            }
-        };
-        let relative = path.strip_prefix(app_root).unwrap_or(path);
-        let source_anchor = relative.to_string_lossy().replace('\\', "/");
-        digest_input.extend_from_slice(source_anchor.as_bytes());
-        digest_input.push(0);
-        digest_input.extend_from_slice(&raw);
-        digest_input.push(0xff);
-        source_anchors.insert(resource.resource_id.clone(), source_anchor);
-        resources.push(resource);
-    }
-    let manifest = AdminManifest {
-        api_version: ADMIN_RESOURCE_API_VERSION.to_string(),
-        resources,
-    };
-    if let Err(error) = validate_admin_manifest(&manifest) {
-        return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-            app_id: app_id.to_string(),
-            kind: "validation".into(),
-            message: error.to_string(),
-        });
-    }
-    AdminDiscoverOutcome::Ok(project_manifest_with_digest(
-        app_id,
-        &manifest,
-        hex_sha256(&digest_input),
-        &source_anchors,
-    ))
-}
-
-pub fn discover_from_admin_ref(
-    app_root: &Path,
-    app_id: &str,
-    admin_ref: &AppAdminRef,
-) -> AdminDiscoverOutcome {
-    let manifest_path = match resolve_admin_manifest_path(app_root, admin_ref) {
-        Ok(Some(path)) => path,
-        Ok(None) => return AdminDiscoverOutcome::None,
-        Err(e) => {
+        let Some(scene) = scene_catalog.get(&document.scene_use) else {
             return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
                 app_id: app_id.to_string(),
-                kind: "validation".into(),
-                message: e.to_string(),
-            });
-        }
-    };
-    if !manifest_path.is_file() {
-        return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-            app_id: app_id.to_string(),
-            kind: "not-found".into(),
-            message: format!("admin manifest missing: {}", manifest_path.display()),
-        });
-    }
-    let manifest = match load_admin_manifest(&manifest_path) {
-        Ok(m) => m,
-        Err(e) => {
-            return AdminDiscoverOutcome::Err(AdminDiscoveryDiagnostic {
-                app_id: app_id.to_string(),
-                kind: "validation".into(),
-                message: e.to_string(),
-            });
-        }
-    };
-    match project_manifest(app_id, &manifest, &manifest_path) {
-        Ok(projection) => AdminDiscoverOutcome::Ok(projection),
-        Err(diag) => AdminDiscoverOutcome::Err(diag),
-    }
-}
-
-fn project_manifest(
-    app_id: &str,
-    manifest: &AdminManifest,
-    manifest_path: &Path,
-) -> Result<AdminRegistryProjection, AdminDiscoveryDiagnostic> {
-    let raw = fs::read_to_string(manifest_path).map_err(|e| AdminDiscoveryDiagnostic {
-        app_id: app_id.to_string(),
-        kind: "io".into(),
-        message: e.to_string(),
-    })?;
-    let digest = hex_sha256(raw.as_bytes());
-    let source_anchor = manifest_path.to_string_lossy().replace('\\', "/");
-    let source_anchors = manifest
-        .resources
-        .iter()
-        .map(|resource| (resource.resource_id.clone(), source_anchor.clone()))
-        .collect();
-    Ok(project_manifest_with_digest(
-        app_id,
-        manifest,
-        digest,
-        &source_anchors,
-    ))
-}
-
-fn project_manifest_with_digest(
-    app_id: &str,
-    manifest: &AdminManifest,
-    digest: String,
-    source_anchors: &BTreeMap<String, String>,
-) -> AdminRegistryProjection {
-    let resources = manifest
-        .resources
-        .iter()
-        .map(|spec| {
-            let source_anchor = source_anchors
-                .get(&spec.resource_id)
-                .cloned()
-                .unwrap_or_else(|| format!("src/admin/{}.admin.mdx", spec.resource_id));
-            AdminResourceProjection {
-                resource_key: format!("app:{app_id}.{}", spec.resource_id),
-                resource_id: spec.resource_id.clone(),
-                app_id: app_id.to_string(),
-                title: spec.title.clone(),
-                description: spec.description.clone(),
-                template: spec.template,
-                provider: spec.provider,
-                required_capabilities: spec.required_capabilities.clone(),
-                record_path: spec.record_path.clone(),
-                config_path: spec.config_path.clone(),
-                href: format!("/admin/apps/{app_id}/{}", spec.resource_id),
-                page_program: AdminPageProgram::new(
-                    spec.resource_id.clone(),
-                    PageProgram::from_scene_ref(
-                        spec.resource_id.clone(),
-                        Some(spec.title.clone()),
-                        source_anchor,
-                        format!("admin/{}", spec.resource_id),
-                    ),
+                kind: ADMIN_SCENE_ROOT_UNKNOWN.to_string(),
+                message: format!(
+                    "[{ADMIN_SCENE_ROOT_UNKNOWN}] `{}` references unknown scene root `{}`",
+                    source_anchor, document.scene_use
                 ),
-                ui_surface: ui_surface_for_template(spec.template),
-                spec: spec.clone(),
-            }
-        })
-        .collect();
-    AdminRegistryProjection {
+            });
+        };
+        let scene_path = app_root.join(&scene.source_anchor);
+        let provider_bindings = match provider_bindings_for_scene(&scene_path, provider_catalog) {
+            Ok(bindings) => bindings,
+            Err(message) => return diagnostic_from_message(app_id, message),
+        };
+        let dependency_digest = match scene_dependency_digest(app_root, &scene_path) {
+            Ok(digest) => digest,
+            Err(message) => return diagnostic_from_message(app_id, message),
+        };
+        let page_structure_digest = digest_serializable(&(
+            &document.visible_body,
+            &document.scene_use,
+            &document.fills,
+            dependency_digest,
+            &provider_bindings,
+        ));
+        let page_id = format!("{resource_id}.{module_id}");
+        let fills = document
+            .fills
+            .iter()
+            .map(|fill| PageFill {
+                slot: fill.slot.clone(),
+                content: fill.content.clone(),
+                source: fill.source.clone(),
+                source_anchor: format!("{source_anchor}:{}", fill.line),
+            })
+            .collect();
+        let page_program = PageProgram::from_admin_entry(
+            page_id,
+            Some(document.frontmatter.title.clone()),
+            source_anchor.clone(),
+            document.scene_use,
+            scene.source_anchor.clone(),
+            document.visible_body.markdown,
+            document.visible_body.html,
+            fills,
+            provider_bindings,
+        );
+        let navigation = if document.frontmatter.menu.is_some()
+            || document.frontmatter.parent.is_some()
+            || document.frontmatter.order.is_some()
+            || !document.frontmatter.keywords.is_empty()
+            || document.frontmatter.default.is_some()
+        {
+            Some(AdminNavigation {
+                menu: document.frontmatter.menu,
+                parent: document.frontmatter.parent,
+                order: document.frontmatter.order,
+                keywords: document.frontmatter.keywords,
+                default: document.frontmatter.default,
+            })
+        } else {
+            None
+        };
+        let registry_entry = AdminRegistryEntry {
+            api_version: document.frontmatter.api_version,
+            app_id: app_id.to_string(),
+            resource_id: resource_id.to_string(),
+            module_id: module_id.to_string(),
+            resource_key: format!("app:{app_id}.{resource_id}.{module_id}"),
+            canonical_route: format!("/admin/apps/{app_id}/{resource_id}/{module_id}"),
+            title: document.frontmatter.title,
+            description: document.frontmatter.description,
+            navigation,
+            required_capabilities: document.frontmatter.required_capabilities,
+            scope: document
+                .frontmatter
+                .scope
+                .unwrap_or_else(|| "app".to_string()),
+            audit: document.frontmatter.audit.unwrap_or(true),
+            danger_level: AdminDangerLevel::parse(document.frontmatter.danger_level.as_deref()),
+            source_anchor,
+        };
+        resources.push(AdminEntryProjection {
+            registry_entry,
+            page_program,
+            page_structure_digest,
+            artifact_refs: AdminArtifactRefs::default(),
+        });
+    }
+    let admin_registry_digest = digest_serializable(
+        &resources
+            .iter()
+            .map(|resource| &resource.registry_entry)
+            .collect::<Vec<_>>(),
+    );
+    let page_structure_digest = digest_serializable(
+        &resources
+            .iter()
+            .map(|resource| resource.page_structure_digest.as_str())
+            .collect::<Vec<_>>(),
+    );
+    AdminDiscoverOutcome::Ok(AdminRegistryProjection {
         app_id: app_id.to_string(),
         api_version: ADMIN_RESOURCE_API_VERSION.to_string(),
-        manifest_digest: digest,
+        admin_registry_digest,
+        page_structure_digest,
         resources,
+    })
+}
+
+fn scene_dependency_digest(app_root: &Path, scene_path: &Path) -> Result<String, String> {
+    let canonical_root = app_root
+        .canonicalize()
+        .map_err(|error| format!("resolve app root {}: {error}", app_root.display()))?;
+    let mut pending = vec![scene_path.to_path_buf()];
+    let mut visited = BTreeSet::new();
+    let mut sources = Vec::new();
+    while let Some(path) = pending.pop() {
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("read scene dependency {}: {error}", path.display()))?;
+        if !canonical.starts_with(&canonical_root) || !visited.insert(canonical.clone()) {
+            continue;
+        }
+        let raw = fs::read_to_string(&canonical)
+            .map_err(|error| format!("read scene dependency {}: {error}", canonical.display()))?;
+        let anchor = canonical
+            .strip_prefix(&canonical_root)
+            .unwrap_or(canonical.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let parsed = parse_v2_source_file(&canonical)
+            .map_err(|error| format!("parse scene dependency {anchor}: {error}"))?;
+        for item in parsed.items {
+            if let V2Item::UseTemplate { path, .. } = item {
+                let candidate = resolve_dependency_path(app_root, &canonical, path.as_str());
+                if candidate.is_file() {
+                    pending.push(candidate);
+                }
+            }
+        }
+        sources.push((anchor, raw));
+    }
+    sources.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(digest_serializable(&sources))
+}
+
+fn resolve_dependency_path(app_root: &Path, source: &Path, reference: &str) -> PathBuf {
+    let reference = Path::new(reference);
+    if reference.is_absolute() {
+        return reference.to_path_buf();
+    }
+    let relative = source.parent().unwrap_or(app_root).join(reference);
+    if relative.is_file() {
+        relative
+    } else {
+        app_root.join("src").join(reference)
     }
 }
 
-fn hex_sha256(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+fn digest_serializable(value: &impl Serialize) -> String {
+    let encoded = serde_json::to_vec(value).expect("Admin digest input must serialize");
+    format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
-/// Filter resources the principal may see in navigation (capability names as strings).
+fn valid_identity(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|character| character.is_ascii_lowercase())
+        && chars.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        })
+}
+
 pub fn filter_admin_resources_for_capabilities<'a>(
-    resources: &'a [AdminResourceProjection],
+    resources: &'a [AdminEntryProjection],
     has_capability: &dyn Fn(&str) -> bool,
-) -> Vec<&'a AdminResourceProjection> {
+) -> Vec<&'a AdminEntryProjection> {
     resources
         .iter()
-        .filter(|r| {
-            r.required_capabilities
+        .filter(|resource| {
+            resource
+                .registry_entry
+                .required_capabilities
                 .iter()
-                .all(|cap| has_capability(cap.as_str()))
+                .all(|capability| has_capability(capability))
         })
         .collect()
 }
@@ -362,225 +554,167 @@ pub fn filter_admin_resources_for_capabilities<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
-    fn fixtures_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
+    fn write_entry(root: &Path, governance: &str, prose: &str, scene: &str) {
+        fs::create_dir_all(root.join("src/admin/organization")).unwrap();
+        fs::create_dir_all(root.join("src/scene/admin/organization")).unwrap();
+        fs::write(
+            root.join("app.toml"),
+            "schema_version = \"mei-app-v1\"\ntitle = \"Admin v2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/admin/organization/overview.mdx"),
+            format!(
+                "---\napi_version: mei-admin-resource-v2\ntitle: 单位信息\nrequired_capabilities: [config_upload]\n{governance}---\n\n{prose}\n\n@scene(use=\"{scene}\")\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/scene/admin/organization/overview.mei"),
+            "scene(id = \"admin.organization.overview\", profile = \"page\")\n",
+        )
+        .unwrap();
     }
 
-    #[test]
-    fn discovers_valid_admin_loop_fixture() {
-        let app_root = fixtures_root().join("admin-loop-app");
-        if !app_root.join("app.toml").is_file() {
-            // Fixture created in same Phase B task; skip soft only if missing mid-edit.
-            // Prefer fail when fixture expected — create before this test lands.
-            panic!("missing tests/fixtures/admin-loop-app (Phase B fixture)");
-        }
-        match discover_app_admin_resources(&app_root, "admin-loop-app") {
-            AdminDiscoverOutcome::Ok(proj) => {
-                assert_eq!(proj.app_id, "admin-loop-app");
-                assert!(proj
-                    .resources
-                    .iter()
-                    .any(|r| r.resource_id == "organization"));
-                let org = proj
-                    .resources
-                    .iter()
-                    .find(|r| r.resource_id == "organization")
-                    .unwrap();
-                assert_eq!(org.href, "/admin/apps/admin-loop-app/organization");
-                assert_eq!(org.resource_key, "app:admin-loop-app.organization");
-            }
-            other => panic!("expected Ok, got {other:?}"),
+    fn projection(root: &Path) -> AdminRegistryProjection {
+        match discover_app_admin_resources(root, "demo") {
+            AdminDiscoverOutcome::Ok(projection) => projection,
+            other => panic!("expected projection, got {other:?}"),
         }
     }
 
     #[test]
-    fn discovers_convention_admin_mdx_without_manifest_pointer() {
-        let app_root = fixtures_root().join("admin-mdx-app");
-        match discover_app_admin_resources(&app_root, "admin-mdx-app") {
-            AdminDiscoverOutcome::Ok(projection) => {
-                let ids = projection
-                    .resources
-                    .iter()
-                    .map(|resource| resource.resource_id.as_str())
-                    .collect::<Vec<_>>();
-                assert_eq!(ids, vec!["organization", "theme"]);
-                let organization = projection
-                    .resources
-                    .iter()
-                    .find(|resource| resource.resource_id == "organization")
-                    .expect("organization");
-                assert_eq!(organization.spec.sections.len(), 1);
-                assert_eq!(organization.spec.sections[0].fields.len(), 2);
-                assert_eq!(organization.page_program.page.surface.as_str(), "document");
-                assert_eq!(
-                    organization.page_program.page.source_anchor,
-                    "src/admin/organization.admin.mdx"
-                );
-                assert_eq!(
-                    organization.spec.apply_policy,
-                    Some(super::super::admin_manifest::AdminApplyPolicy::Hot)
-                );
-                let theme = projection
-                    .resources
-                    .iter()
-                    .find(|resource| resource.resource_id == "theme")
-                    .expect("theme");
-                assert_eq!(theme.config_path.as_deref(), Some("ops.themes.cockpit"));
-                assert_eq!(
-                    theme.spec.apply_policy,
-                    Some(super::super::admin_manifest::AdminApplyPolicy::Hot)
-                );
-                assert_eq!(
-                    theme.page_program.page.source_anchor,
-                    "src/admin/theme.admin.mdx"
-                );
-            }
-            other => panic!("expected convention MDX projection, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn discovers_phase_d_fixture_from_admin_mdx_without_toml_manifest() {
-        let app_root = fixtures_root().join("admin-phase-d-app");
-        assert!(!app_root.join("admin/admin.toml").is_file());
-        match discover_app_admin_resources(&app_root, "admin-phase-d-app") {
-            AdminDiscoverOutcome::Ok(projection) => {
-                let ids = projection
-                    .resources
-                    .iter()
-                    .map(|resource| resource.resource_id.as_str())
-                    .collect::<Vec<_>>();
-                assert_eq!(ids, vec!["datasources", "organization"]);
-                let datasources = projection
-                    .resources
-                    .iter()
-                    .find(|resource| resource.resource_id == "datasources")
-                    .expect("datasources");
-                assert_eq!(
-                    datasources.page_program.page.source_anchor,
-                    "src/admin/datasources.admin.mdx"
-                );
-                assert_eq!(datasources.ui_surface, AdminUiSurface::AssetSlotCollection);
-            }
-            other => panic!("expected phase-d MDX projection, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rejects_toml_and_mdx_dual_source() {
+    fn admin_v2_derives_identity_route_and_scene_relation() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("src/admin")).unwrap();
-        fs::create_dir_all(dir.path().join("admin")).unwrap();
+        write_entry(
+            dir.path(),
+            "audit: true\n",
+            "维护单位信息。",
+            "admin.organization.overview",
+        );
+        let projection = projection(dir.path());
+        let entry = &projection.resources[0];
+        assert_eq!(entry.registry_entry.resource_id, "organization");
+        assert_eq!(entry.registry_entry.module_id, "overview");
+        assert_eq!(
+            entry.registry_entry.canonical_route,
+            "/admin/apps/demo/organization/overview"
+        );
+        assert_eq!(
+            entry.page_program.root.scene_ref(),
+            "admin.organization.overview"
+        );
+        assert_eq!(
+            entry.page_program.visible_body.source_anchor,
+            "src/admin/organization/overview.mdx"
+        );
+    }
+
+    #[test]
+    fn admin_digests_are_orthogonal() {
+        let dir = tempfile::tempdir().unwrap();
+        write_entry(
+            dir.path(),
+            "audit: true\n",
+            "第一版帮助。",
+            "admin.organization.overview",
+        );
+        let first = projection(dir.path());
+        write_entry(
+            dir.path(),
+            "audit: true\n",
+            "第二版帮助。",
+            "admin.organization.overview",
+        );
+        let prose = projection(dir.path());
+        assert_eq!(first.admin_registry_digest, prose.admin_registry_digest);
+        assert_ne!(first.page_structure_digest, prose.page_structure_digest);
+        write_entry(
+            dir.path(),
+            "audit: false\n",
+            "第二版帮助。",
+            "admin.organization.overview",
+        );
+        let governance = projection(dir.path());
+        assert_ne!(
+            prose.admin_registry_digest,
+            governance.admin_registry_digest
+        );
+        assert_eq!(
+            prose.page_structure_digest,
+            governance.page_structure_digest
+        );
+
         fs::write(
-            dir.path().join("src/admin/organization.admin.mdx"),
-            fs::read_to_string(
-                fixtures_root().join("admin-mdx-app/src/admin/organization.admin.mdx"),
-            )
-            .unwrap(),
+            dir.path()
+                .join("src/scene/admin/organization/overview.mei"),
+            "scene(id = \"admin.organization.overview\", profile = \"page\", summary = \"changed\")\n",
         )
         .unwrap();
-        fs::write(
-            dir.path().join("admin/admin.toml"),
-            fs::read_to_string(fixtures_root().join("admin-loop-app/admin/admin.toml")).unwrap(),
-        )
-        .unwrap();
-        fs::write(
-            dir.path().join("app.toml"),
-            "schema_version = \"mei-app-v1\"\n[admin]\nmanifest = \"admin/admin.toml\"\n",
-        )
-        .unwrap();
-        match discover_app_admin_resources(dir.path(), "dual") {
+        let scene_changed = projection(dir.path());
+        assert_eq!(
+            governance.admin_registry_digest,
+            scene_changed.admin_registry_digest
+        );
+        assert_ne!(
+            governance.page_structure_digest,
+            scene_changed.page_structure_digest
+        );
+    }
+
+    #[test]
+    fn admin_rejects_invalid_path_non_mdx_and_unknown_root() {
+        let invalid = tempfile::tempdir().unwrap();
+        fs::create_dir_all(invalid.path().join("src/admin")).unwrap();
+        fs::write(invalid.path().join("src/admin/legacy.admin.mdx"), "").unwrap();
+        let error = discover_admin_mdx_paths(invalid.path()).unwrap_err();
+        assert!(error.contains(ADMIN_SOURCE_PATH_INVALID));
+
+        let polluted = tempfile::tempdir().unwrap();
+        fs::create_dir_all(polluted.path().join("src/admin/organization")).unwrap();
+        fs::write(polluted.path().join("src/admin/organization/page.mei"), "").unwrap();
+        let error = discover_admin_mdx_paths(polluted.path()).unwrap_err();
+        assert!(error.contains(ADMIN_ENTRY_MODULE_FORBIDDEN));
+
+        let unknown = tempfile::tempdir().unwrap();
+        write_entry(unknown.path(), "", "帮助。", "admin.organization.missing");
+        match discover_app_admin_resources(unknown.path(), "demo") {
             AdminDiscoverOutcome::Err(diagnostic) => {
-                assert_eq!(diagnostic.kind, "dual-source");
+                assert_eq!(diagnostic.kind, ADMIN_SCENE_ROOT_UNKNOWN);
             }
-            other => panic!("expected dual-source diagnostic, got {other:?}"),
+            other => panic!("expected unknown root, got {other:?}"),
         }
     }
 
     #[test]
-    fn admin_mdx_fixture_theme_config_path_round_trip() {
-        use crate::mei_config::admin_record::{get_config_path_record, put_config_path_record};
-        use crate::mei_config::types::APP_TOML_FILENAME;
-
-        let src = fixtures_root().join("admin-mdx-app");
-        let dir = tempfile::tempdir().unwrap();
-        let app_root = dir.path().join("app");
-        copy_dir_recursive(&src, &app_root);
-
-        match discover_app_admin_resources(&app_root, "admin-mdx-app") {
-            AdminDiscoverOutcome::Ok(projection) => {
-                let theme = projection
-                    .resources
-                    .iter()
-                    .find(|resource| resource.resource_id == "theme")
-                    .expect("theme");
-                let config_path = theme.config_path.as_deref().expect("config_path");
-                assert_eq!(config_path, "ops.themes.cockpit");
-                let before = get_config_path_record(&app_root, config_path).unwrap();
-                assert_eq!(before.data["tokens"]["font"]["family_ui"], "system-ui");
-                let after = put_config_path_record(
-                    &app_root,
-                    config_path,
-                    before.revision,
-                    {
-                        let mut next = before.data.clone();
-                        next["tokens"]["font"]["family_ui"] = serde_json::json!("IBM Plex Sans");
-                        next
-                    },
-                    "tester",
-                    "admin-mdx-app",
-                    "theme",
-                    "corr-theme",
-                )
-                .unwrap();
-                assert_eq!(after.revision, before.revision + 1);
-                let loaded = get_config_path_record(&app_root, config_path).unwrap();
-                assert_eq!(loaded.data["tokens"]["font"]["family_ui"], "IBM Plex Sans");
-                let raw = fs::read_to_string(app_root.join(APP_TOML_FILENAME)).unwrap();
-                assert!(raw.contains("title = \"Admin MDX Fixture\""));
-                assert!(raw.contains("IBM Plex Sans"));
-            }
-            other => panic!("expected Ok, got {other:?}"),
-        }
-    }
-
-    fn copy_dir_recursive(src: &Path, dst: &Path) {
-        fs::create_dir_all(dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            let to = dst.join(entry.file_name());
-            if entry.file_type().unwrap().is_dir() {
-                copy_dir_recursive(&entry.path(), &to);
-            } else {
-                fs::copy(entry.path(), to).unwrap();
-            }
-        }
-    }
-
-    #[test]
-    fn isolates_bad_manifest() {
-        let app_root = fixtures_root().join("admin-manifest");
-        // Point at invalid host_namespace via a synthetic app.toml would need temp dir;
-        // use load path through discover_from_admin_ref with bad file.
-        let dir = tempfile::tempdir().unwrap();
-        let admin_dir = dir.path().join("admin");
-        fs::create_dir_all(&admin_dir).unwrap();
+    fn admin_rejects_legacy_manifest_pointer_and_duplicate_scene_roots() {
+        let legacy = tempfile::tempdir().unwrap();
         fs::write(
-            admin_dir.join("admin.toml"),
-            fs::read_to_string(app_root.join("invalid/host_namespace.toml")).unwrap(),
+            legacy.path().join("app.toml"),
+            "[admin]\nmanifest = \"admin/admin.toml\"\n",
         )
         .unwrap();
-        let admin_ref = AppAdminRef {
-            manifest: Some("admin/admin.toml".into()),
-        };
-        match discover_from_admin_ref(dir.path(), "bad-app", &admin_ref) {
-            AdminDiscoverOutcome::Err(diag) => {
-                assert_eq!(diag.app_id, "bad-app");
-                assert!(diag.message.contains("host") || diag.message.contains("namespace"));
+        match discover_app_admin_resources(legacy.path(), "demo") {
+            AdminDiscoverOutcome::Err(diagnostic) => {
+                assert_eq!(diagnostic.kind, ADMIN_LEGACY_MANIFEST_FORBIDDEN);
             }
-            other => panic!("expected Err, got {other:?}"),
+            other => panic!("expected legacy manifest diagnostic, got {other:?}"),
         }
+
+        let duplicate = tempfile::tempdir().unwrap();
+        fs::create_dir_all(duplicate.path().join("src/scene/a")).unwrap();
+        fs::write(
+            duplicate.path().join("src/scene/a/one.mei"),
+            "scene(id = \"admin.shared.root\", profile = \"page\")\n",
+        )
+        .unwrap();
+        fs::write(
+            duplicate.path().join("src/scene/a/two.mei"),
+            "scene(id = \"admin.shared.root\", profile = \"page\")\n",
+        )
+        .unwrap();
+        let error = discover_scene_root_catalog(duplicate.path()).unwrap_err();
+        assert!(error.contains(ADMIN_SCENE_ROOT_DUPLICATE));
     }
 }

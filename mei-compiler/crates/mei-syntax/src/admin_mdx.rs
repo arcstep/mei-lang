@@ -1,8 +1,7 @@
-//! Restricted Admin Page MDX front-end (`src/admin/**/*.admin.mdx`).
+//! Restricted v2 Admin Entry MDX front-end.
 //!
-//! The syntax is intentionally shallower than Scene `.mei`: frontmatter owns
-//! resource governance while body directives describe Page/Form blocks.
-//! JSX, HTML, JavaScript expressions, and arbitrary directives are rejected.
+//! Identity and routing are deliberately absent: the kernel derives them from
+//! `src/admin/{resource_id}/{module_id}.mdx`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,33 +10,46 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::stage_mdx::{
-    check_markdown_line, find_frontmatter_end, markdown_from_lines, parse_frontmatter_map,
-    parse_heading, parse_named_directive_args, validate_id_token, StageMarkdown,
+    check_markdown_line, find_frontmatter_end, markdown_from_lines, parse_named_directive_args,
+    unquote, validate_id_token, MarkdownForbidden, StageMarkdown,
 };
 
+pub const ADMIN_API_VERSION: &str = "mei-admin-resource-v2";
 pub const ADMIN_MDX_PARSE: &str = "admin_mdx_parse";
 pub const ADMIN_MDX_JSX_FORBIDDEN: &str = "admin_mdx_jsx_forbidden";
 pub const ADMIN_MDX_JS_FORBIDDEN: &str = "admin_mdx_js_forbidden";
+pub const ADMIN_IDENTITY_REDECLARATION_FORBIDDEN: &str = "admin_identity_redeclaration_forbidden";
+pub const ADMIN_FRONTMATTER_FIELD_FORBIDDEN: &str = "admin_frontmatter_field_forbidden";
+pub const ADMIN_API_VERSION_UNSUPPORTED: &str = "admin_api_version_unsupported";
+pub const ADMIN_MDX_FORBIDDEN_PRESENTATION: &str = "admin_mdx_forbidden_presentation";
+pub const ADMIN_SCENE_PHYSICAL_PATH_FORBIDDEN: &str = "admin_scene_physical_path_forbidden";
+pub const ADMIN_SCENE_ROOT_MISSING: &str = "admin_scene_root_missing";
+pub const ADMIN_SCENE_ROOT_DUPLICATE: &str = "admin_scene_root_duplicate";
 
 const FRONTMATTER_FIELDS: &[&str] = &[
-    "resource_id",
+    "api_version",
     "title",
     "description",
-    "template",
-    "provider",
-    "record_path",
-    "config_path",
+    "menu",
+    "parent",
+    "order",
+    "keywords",
+    "default",
     "required_capabilities",
     "scope",
     "audit",
     "danger_level",
-    "revision_policy",
-    "dirty_policy",
-    "apply_policy",
-    "navigation_menu",
-    "navigation_parent",
-    "navigation_order",
-    "navigation_keywords",
+];
+
+const IDENTITY_FIELDS: &[&str] = &["resource_id", "module_id"];
+const PRESENTATION_FIELDS: &[&str] = &[
+    "sections",
+    "columns",
+    "fields",
+    "actions",
+    "data",
+    "provider",
+    "validation",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -79,7 +91,7 @@ impl AdminMdxError {
             1,
             1,
             ADMIN_MDX_PARSE,
-            format!("failed to read admin mdx: {error}"),
+            format!("failed to read admin entry: {error}"),
         )
     }
 }
@@ -87,99 +99,34 @@ impl AdminMdxError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminMdxDocument {
     pub frontmatter: AdminMdxFrontmatter,
-    pub blocks: Vec<AdminMdxBlock>,
+    pub visible_body: StageMarkdown,
+    pub scene_use: String,
+    pub fills: Vec<AdminMdxFill>,
     pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminMdxFrontmatter {
-    pub resource_id: String,
+    pub api_version: String,
     pub title: String,
     pub description: Option<String>,
-    pub template: String,
-    pub provider: String,
-    pub record_path: Option<String>,
-    pub config_path: Option<String>,
+    pub menu: Option<String>,
+    pub parent: Option<String>,
+    pub order: Option<i64>,
+    pub keywords: Vec<String>,
+    pub default: Option<bool>,
     pub required_capabilities: Vec<String>,
     pub scope: Option<String>,
     pub audit: Option<bool>,
     pub danger_level: Option<String>,
-    pub revision_policy: Option<String>,
-    pub dirty_policy: Option<String>,
-    pub apply_policy: Option<String>,
-    pub navigation_menu: Option<String>,
-    pub navigation_parent: Option<String>,
-    pub navigation_order: Option<i64>,
-    pub navigation_keywords: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AdminMdxBlock {
-    Markdown {
-        content: StageMarkdown,
-    },
-    Section {
-        id: String,
-        title: String,
-        fields: Vec<AdminMdxField>,
-    },
-    Column(AdminMdxColumn),
-    Upload(AdminMdxUpload),
-    Action(AdminMdxAction),
-    Readonly(AdminMdxReadonly),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxField {
-    pub id: String,
-    pub path: Option<String>,
-    pub label: String,
-    pub control: String,
-    pub required: Option<bool>,
-    pub readonly: Option<bool>,
-    pub description: Option<String>,
-    pub options: Vec<AdminMdxOption>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxOption {
-    pub value: String,
-    pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxColumn {
-    pub id: String,
-    pub label: String,
-    pub control: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxUpload {
-    pub accept: Vec<String>,
-    pub max_bytes: Option<u64>,
-    pub replace_modes: Vec<String>,
-    pub retain_versions: Option<bool>,
-    pub schema_ref: Option<String>,
-    pub requires_review: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxAction {
-    pub id: String,
-    pub label: String,
-    pub provider: String,
-    pub method: String,
-    pub danger_level: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AdminMdxReadonly {
-    pub content_kind: String,
-    pub id: String,
-    pub title: Option<String>,
-    pub data_ref: Option<String>,
+pub struct AdminMdxFill {
+    pub slot: String,
+    pub content: String,
+    pub source: Option<String>,
+    pub line: usize,
 }
 
 pub fn parse_admin_mdx_source(source: &str) -> Result<AdminMdxDocument, AdminMdxError> {
@@ -199,15 +146,98 @@ fn parse_admin_mdx_at(
 ) -> Result<AdminMdxDocument, AdminMdxError> {
     let lines: Vec<&str> = source.lines().collect();
     let frontmatter_end = find_frontmatter_end(path, &lines).map_err(map_stage_error)?;
-    let values = parse_frontmatter_map(path, &lines[1..frontmatter_end], 2, FRONTMATTER_FIELDS)
-        .map_err(map_stage_error)?;
+    let values = parse_frontmatter(path, &lines[1..frontmatter_end], 2)?;
     let frontmatter = lower_frontmatter(path, &values)?;
-    let blocks = parse_body(path, &lines, frontmatter_end + 1)?;
+    let (visible_body, scene_use, fills) = parse_body(path, &lines, frontmatter_end + 1)?;
     Ok(AdminMdxDocument {
         frontmatter,
-        blocks,
+        visible_body,
+        scene_use,
+        fills,
         source_path: None,
     })
+}
+
+fn parse_frontmatter(
+    path: Option<&Path>,
+    lines: &[&str],
+    start_line: usize,
+) -> Result<BTreeMap<String, (String, usize)>, AdminMdxError> {
+    let mut values = BTreeMap::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let line_number = start_line + index;
+        let line = lines[index].trim();
+        if line.is_empty() {
+            index += 1;
+            continue;
+        }
+        let Some((key, raw_value)) = line.split_once(':') else {
+            return Err(AdminMdxError::new(
+                path,
+                line_number,
+                1,
+                ADMIN_MDX_PARSE,
+                "frontmatter entries must use `key: value`",
+            ));
+        };
+        let key = key.trim();
+        let code = if IDENTITY_FIELDS.contains(&key) {
+            ADMIN_IDENTITY_REDECLARATION_FORBIDDEN
+        } else if PRESENTATION_FIELDS.contains(&key) {
+            ADMIN_MDX_FORBIDDEN_PRESENTATION
+        } else {
+            ADMIN_FRONTMATTER_FIELD_FORBIDDEN
+        };
+        if !FRONTMATTER_FIELDS.contains(&key) {
+            return Err(AdminMdxError::new(
+                path,
+                line_number,
+                1,
+                code,
+                format!("frontmatter field `{key}` is forbidden"),
+            ));
+        }
+        let mut value = unquote(raw_value.trim());
+        if value.is_empty() {
+            let mut items = Vec::new();
+            let mut cursor = index + 1;
+            while cursor < lines.len() {
+                let candidate = lines[cursor].trim();
+                let Some(item) = candidate.strip_prefix("- ") else {
+                    break;
+                };
+                items.push(unquote(item.trim()));
+                cursor += 1;
+            }
+            if items.is_empty() {
+                return Err(AdminMdxError::new(
+                    path,
+                    line_number,
+                    key.len() + 2,
+                    ADMIN_MDX_PARSE,
+                    format!("frontmatter field `{key}` cannot be empty"),
+                ));
+            }
+            value = items.join(",");
+            index = cursor;
+        } else {
+            index += 1;
+        }
+        if values
+            .insert(key.to_string(), (value, line_number))
+            .is_some()
+        {
+            return Err(AdminMdxError::new(
+                path,
+                line_number,
+                1,
+                ADMIN_MDX_PARSE,
+                format!("duplicate frontmatter field `{key}`"),
+            ));
+        }
+    }
+    Ok(values)
 }
 
 fn lower_frontmatter(
@@ -228,36 +258,62 @@ fn lower_frontmatter(
                 )
             })
     };
-    let resource_id = required("resource_id")?;
-    if !validate_id_token(&resource_id) {
+    let api_version = required("api_version")?;
+    if api_version != ADMIN_API_VERSION {
         return Err(AdminMdxError::new(
             path,
-            values["resource_id"].1,
+            values["api_version"].1,
             1,
-            ADMIN_MDX_PARSE,
-            format!("invalid resource_id `{resource_id}`"),
+            ADMIN_API_VERSION_UNSUPPORTED,
+            format!("expected api_version `{ADMIN_API_VERSION}`, got `{api_version}`"),
         ));
     }
-
+    let required_capabilities = list_value(values, "required_capabilities");
+    if required_capabilities.is_empty() {
+        return Err(AdminMdxError::new(
+            path,
+            1,
+            1,
+            ADMIN_MDX_PARSE,
+            "`required_capabilities` must contain at least one capability",
+        ));
+    }
+    let scope = optional(values, "scope");
+    if scope.as_deref().is_some_and(|scope| scope != "app") {
+        return Err(AdminMdxError::new(
+            path,
+            values["scope"].1,
+            1,
+            ADMIN_MDX_PARSE,
+            "application Admin scope must be `app`",
+        ));
+    }
+    let danger_level = optional(values, "danger_level");
+    if danger_level
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "normal" | "elevated" | "critical"))
+    {
+        return Err(AdminMdxError::new(
+            path,
+            values["danger_level"].1,
+            1,
+            ADMIN_MDX_PARSE,
+            "`danger_level` must be normal, elevated, or critical",
+        ));
+    }
     Ok(AdminMdxFrontmatter {
-        resource_id,
+        api_version,
         title: required("title")?,
         description: optional(values, "description"),
-        template: required("template")?,
-        provider: required("provider")?,
-        record_path: optional(values, "record_path"),
-        config_path: optional(values, "config_path"),
-        required_capabilities: list_value(values, "required_capabilities"),
-        scope: optional(values, "scope"),
+        menu: optional(values, "menu"),
+        parent: optional(values, "parent"),
+        order: optional_i64(path, values, "order")?,
+        keywords: list_value(values, "keywords"),
+        default: optional_bool(path, values, "default")?,
+        required_capabilities,
+        scope,
         audit: optional_bool(path, values, "audit")?,
-        danger_level: optional(values, "danger_level"),
-        revision_policy: optional(values, "revision_policy"),
-        dirty_policy: optional(values, "dirty_policy"),
-        apply_policy: optional(values, "apply_policy"),
-        navigation_menu: optional(values, "navigation_menu"),
-        navigation_parent: optional(values, "navigation_parent"),
-        navigation_order: optional_i64(path, values, "navigation_order")?,
-        navigation_keywords: list_value(values, "navigation_keywords"),
+        danger_level,
     })
 }
 
@@ -265,240 +321,112 @@ fn parse_body(
     path: Option<&Path>,
     lines: &[&str],
     mut index: usize,
-) -> Result<Vec<AdminMdxBlock>, AdminMdxError> {
-    let mut blocks = Vec::new();
+) -> Result<(StageMarkdown, String, Vec<AdminMdxFill>), AdminMdxError> {
+    let mut prose = Vec::new();
+    let mut scene_use = None;
+    let mut fills = Vec::new();
     while index < lines.len() {
-        let trimmed = lines[index].trim();
+        let raw = lines[index];
+        let trimmed = raw.trim();
         let line = index + 1;
-        if trimmed.is_empty() {
-            index += 1;
-            continue;
-        }
-        if let Some((title, id)) = parse_heading(trimmed, 2) {
-            if !validate_id_token(&id) {
+        if let Some(args) = parse_named_directive_args(trimmed, "@scene") {
+            ensure_only(path, line, &args, &["use"])?;
+            let use_id = required_arg(path, line, &args, "scene", "use")?;
+            if is_physical_scene_reference(&use_id) {
+                return Err(AdminMdxError::new(
+                    path,
+                    line,
+                    1,
+                    ADMIN_SCENE_PHYSICAL_PATH_FORBIDDEN,
+                    format!("`@scene` must use a stable root id, not `{use_id}`"),
+                ));
+            }
+            if !validate_stable_scene_id(&use_id) {
                 return Err(AdminMdxError::new(
                     path,
                     line,
                     1,
                     ADMIN_MDX_PARSE,
-                    format!("invalid section id `{id}`"),
+                    format!("invalid stable scene root id `{use_id}`"),
                 ));
             }
-            index += 1;
-            let mut fields = Vec::new();
-            while index < lines.len() {
-                let candidate = lines[index].trim();
-                if candidate.is_empty() {
-                    index += 1;
-                    continue;
-                }
-                let Some(args) = parse_named_directive_args(candidate, "@field") else {
-                    break;
-                };
-                fields.push(parse_field(path, index + 1, &args)?);
-                index += 1;
+            if scene_use.replace(use_id).is_some() {
+                return Err(AdminMdxError::new(
+                    path,
+                    line,
+                    1,
+                    ADMIN_SCENE_ROOT_DUPLICATE,
+                    "Admin Entry must contain exactly one `@scene` root",
+                ));
             }
-            blocks.push(AdminMdxBlock::Section { id, title, fields });
-            continue;
-        }
-        if let Some(args) = parse_named_directive_args(trimmed, "@column") {
-            blocks.push(AdminMdxBlock::Column(parse_column(path, line, &args)?));
-            index += 1;
-            continue;
-        }
-        if let Some(args) = parse_named_directive_args(trimmed, "@upload") {
-            blocks.push(AdminMdxBlock::Upload(parse_upload(path, line, &args)?));
-            index += 1;
-            continue;
-        }
-        if let Some(args) = parse_named_directive_args(trimmed, "@action") {
-            blocks.push(AdminMdxBlock::Action(parse_action(path, line, &args)?));
-            index += 1;
-            continue;
-        }
-        let mut readonly_handled = false;
-        for (directive, kind) in [
-            ("@readonly_content", "content"),
-            ("@readonly_chart", "chart"),
-            ("@readonly_canvas", "canvas"),
-        ] {
-            if let Some(args) = parse_named_directive_args(trimmed, directive) {
-                blocks.push(AdminMdxBlock::Readonly(parse_readonly(
-                    path, line, kind, &args,
-                )?));
-                index += 1;
-                readonly_handled = true;
-                break;
+        } else if let Some(args) = parse_named_directive_args(trimmed, "@fill") {
+            ensure_only(path, line, &args, &["slot", "content", "source"])?;
+            let slot = required_arg(path, line, &args, "fill", "slot")?;
+            let content = required_arg(path, line, &args, "fill", "content")?;
+            let source = args.get("source").cloned();
+            if !validate_id_token(&slot)
+                || !validate_public_reference(&content)
+                || source
+                    .as_deref()
+                    .is_some_and(|value| !validate_public_reference(value))
+            {
+                return Err(AdminMdxError::new(
+                    path,
+                    line,
+                    1,
+                    ADMIN_MDX_PARSE,
+                    "`@fill` requires public slot/content/source ids",
+                ));
             }
-        }
-        if readonly_handled {
-            continue;
-        }
-        if trimmed.starts_with('@') {
+            fills.push(AdminMdxFill {
+                slot,
+                content,
+                source,
+                line,
+            });
+        } else if trimmed.starts_with('@') {
+            let code = if ["@field", "@column", "@upload", "@action"]
+                .iter()
+                .any(|directive| trimmed.starts_with(directive))
+            {
+                ADMIN_MDX_FORBIDDEN_PRESENTATION
+            } else {
+                ADMIN_MDX_PARSE
+            };
             return Err(AdminMdxError::new(
                 path,
                 line,
                 1,
-                ADMIN_MDX_PARSE,
-                format!("unknown or malformed admin directive `{trimmed}`"),
+                code,
+                format!("forbidden or malformed Admin directive `{trimmed}`"),
             ));
-        }
-
-        let start = index;
-        while index < lines.len() {
-            let candidate = lines[index].trim();
-            if candidate.starts_with('@') || parse_heading(candidate, 2).is_some() {
-                break;
-            }
-            if let Err(forbidden) = check_markdown_line(lines[index]) {
-                return Err(AdminMdxError::new(
+        } else {
+            check_markdown_line(raw).map_err(|forbidden| {
+                AdminMdxError::new(
                     path,
-                    index + 1,
+                    line,
                     1,
                     match forbidden {
-                        crate::stage_mdx::MarkdownForbidden::JsxHtml => ADMIN_MDX_JSX_FORBIDDEN,
+                        MarkdownForbidden::JsxHtml => ADMIN_MDX_JSX_FORBIDDEN,
                         _ => ADMIN_MDX_JS_FORBIDDEN,
                     },
                     forbidden.message(),
-                ));
-            }
-            index += 1;
+                )
+            })?;
+            prose.push(raw);
         }
-        blocks.push(AdminMdxBlock::Markdown {
-            content: markdown_from_lines(&lines[start..index]),
-        });
+        index += 1;
     }
-    Ok(blocks)
-}
-
-fn parse_field(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-) -> Result<AdminMdxField, AdminMdxError> {
-    ensure_only(
-        path,
-        line,
-        args,
-        &[
-            "id",
-            "path",
-            "label",
-            "control",
-            "required",
-            "readonly",
-            "description",
-            "options",
-        ],
-    )?;
-    Ok(AdminMdxField {
-        id: required_arg(path, line, args, "field", "id")?,
-        path: args.get("path").cloned(),
-        label: required_arg(path, line, args, "field", "label")?,
-        control: required_arg(path, line, args, "field", "control")?,
-        required: arg_bool(path, line, args, "required")?,
-        readonly: arg_bool(path, line, args, "readonly")?,
-        description: args.get("description").cloned(),
-        options: parse_options(args.get("options").map(String::as_str).unwrap_or_default()),
-    })
-}
-
-fn parse_column(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-) -> Result<AdminMdxColumn, AdminMdxError> {
-    ensure_only(path, line, args, &["id", "label", "control"])?;
-    Ok(AdminMdxColumn {
-        id: required_arg(path, line, args, "column", "id")?,
-        label: required_arg(path, line, args, "column", "label")?,
-        control: args.get("control").cloned(),
-    })
-}
-
-fn parse_upload(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-) -> Result<AdminMdxUpload, AdminMdxError> {
-    ensure_only(
-        path,
-        line,
-        args,
-        &[
-            "accept",
-            "max_bytes",
-            "replace_modes",
-            "retain_versions",
-            "schema_ref",
-            "requires_review",
-        ],
-    )?;
-    Ok(AdminMdxUpload {
-        accept: split_list(args.get("accept").map(String::as_str).unwrap_or_default()),
-        max_bytes: arg_u64(path, line, args, "max_bytes")?,
-        replace_modes: split_list(
-            args.get("replace_modes")
-                .map(String::as_str)
-                .unwrap_or_default(),
-        ),
-        retain_versions: arg_bool(path, line, args, "retain_versions")?,
-        schema_ref: args.get("schema_ref").cloned(),
-        requires_review: arg_bool(path, line, args, "requires_review")?,
-    })
-}
-
-fn parse_action(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-) -> Result<AdminMdxAction, AdminMdxError> {
-    ensure_only(
-        path,
-        line,
-        args,
-        &["id", "label", "provider", "method", "danger_level"],
-    )?;
-    Ok(AdminMdxAction {
-        id: required_arg(path, line, args, "action", "id")?,
-        label: required_arg(path, line, args, "action", "label")?,
-        provider: required_arg(path, line, args, "action", "provider")?,
-        method: required_arg(path, line, args, "action", "method")?,
-        danger_level: args.get("danger_level").cloned(),
-    })
-}
-
-fn parse_readonly(
-    path: Option<&Path>,
-    line: usize,
-    content_kind: &str,
-    args: &BTreeMap<String, String>,
-) -> Result<AdminMdxReadonly, AdminMdxError> {
-    ensure_only(path, line, args, &["id", "title", "data_ref"])?;
-    Ok(AdminMdxReadonly {
-        content_kind: content_kind.to_string(),
-        id: required_arg(path, line, args, "readonly", "id")?,
-        title: args.get("title").cloned(),
-        data_ref: args.get("data_ref").cloned(),
-    })
-}
-
-fn required_arg(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-    directive: &str,
-    key: &str,
-) -> Result<String, AdminMdxError> {
-    args.get(key).cloned().ok_or_else(|| {
+    let scene_use = scene_use.ok_or_else(|| {
         AdminMdxError::new(
             path,
-            line,
+            lines.len().max(1),
             1,
-            ADMIN_MDX_PARSE,
-            format!("`@{directive}` requires `{key}=\"…\"`"),
+            ADMIN_SCENE_ROOT_MISSING,
+            "Admin Entry requires exactly one `@scene(use=\"stable.id\")`",
         )
-    })
+    })?;
+    Ok((markdown_from_lines(&prose), scene_use, fills))
 }
 
 fn ensure_only(
@@ -519,6 +447,40 @@ fn ensure_only(
     Ok(())
 }
 
+fn required_arg(
+    path: Option<&Path>,
+    line: usize,
+    args: &BTreeMap<String, String>,
+    directive: &str,
+    key: &str,
+) -> Result<String, AdminMdxError> {
+    args.get(key).cloned().ok_or_else(|| {
+        AdminMdxError::new(
+            path,
+            line,
+            1,
+            ADMIN_MDX_PARSE,
+            format!("`@{directive}` requires `{key}=\"…\"`"),
+        )
+    })
+}
+
+fn is_physical_scene_reference(value: &str) -> bool {
+    value.contains('/')
+        || value.contains('\\')
+        || value.starts_with('.')
+        || value.ends_with(".mei")
+        || Path::new(value).is_absolute()
+}
+
+fn validate_stable_scene_id(value: &str) -> bool {
+    !value.is_empty() && value.split('.').all(validate_id_token)
+}
+
+fn validate_public_reference(value: &str) -> bool {
+    !is_physical_scene_reference(value) && value.split('.').all(validate_id_token)
+}
+
 fn optional(values: &BTreeMap<String, (String, usize)>, key: &str) -> Option<String> {
     values.get(key).map(|(value, _)| value.clone())
 }
@@ -526,36 +488,19 @@ fn optional(values: &BTreeMap<String, (String, usize)>, key: &str) -> Option<Str
 fn list_value(values: &BTreeMap<String, (String, usize)>, key: &str) -> Vec<String> {
     values
         .get(key)
-        .map(|(value, _)| split_list(value))
-        .unwrap_or_default()
-}
-
-fn split_list(value: &str) -> Vec<String> {
-    value
-        .trim()
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .split([',', '|'])
-        .map(str::trim)
-        .map(|item| item.trim_matches(['"', '\'']))
-        .filter(|item| !item.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-fn parse_options(value: &str) -> Vec<AdminMdxOption> {
-    split_list(value)
-        .into_iter()
-        .map(|entry| {
-            let (value, label) = entry
-                .split_once('=')
-                .map_or_else(|| (entry.as_str(), entry.as_str()), |pair| pair);
-            AdminMdxOption {
-                value: value.trim().to_string(),
-                label: label.trim().to_string(),
-            }
+        .map(|(value, _)| {
+            value
+                .trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split([',', '|'])
+                .map(str::trim)
+                .map(|item| item.trim_matches(['"', '\'']))
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
         })
-        .collect()
+        .unwrap_or_default()
 }
 
 fn optional_bool(
@@ -566,7 +511,17 @@ fn optional_bool(
     let Some((value, line)) = values.get(key) else {
         return Ok(None);
     };
-    parse_bool(path, *line, key, value).map(Some)
+    match value.as_str() {
+        "true" => Ok(Some(true)),
+        "false" => Ok(Some(false)),
+        _ => Err(AdminMdxError::new(
+            path,
+            *line,
+            1,
+            ADMIN_MDX_PARSE,
+            format!("`{key}` must be true or false"),
+        )),
+    }
 }
 
 fn optional_i64(
@@ -588,57 +543,6 @@ fn optional_i64(
     })
 }
 
-fn arg_bool(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-    key: &str,
-) -> Result<Option<bool>, AdminMdxError> {
-    args.get(key)
-        .map(|value| parse_bool(path, line, key, value))
-        .transpose()
-}
-
-fn arg_u64(
-    path: Option<&Path>,
-    line: usize,
-    args: &BTreeMap<String, String>,
-    key: &str,
-) -> Result<Option<u64>, AdminMdxError> {
-    args.get(key)
-        .map(|value| {
-            value.parse::<u64>().map_err(|_| {
-                AdminMdxError::new(
-                    path,
-                    line,
-                    1,
-                    ADMIN_MDX_PARSE,
-                    format!("`{key}` must be a non-negative integer"),
-                )
-            })
-        })
-        .transpose()
-}
-
-fn parse_bool(
-    path: Option<&Path>,
-    line: usize,
-    key: &str,
-    value: &str,
-) -> Result<bool, AdminMdxError> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(AdminMdxError::new(
-            path,
-            line,
-            1,
-            ADMIN_MDX_PARSE,
-            format!("`{key}` must be true or false"),
-        )),
-    }
-}
-
 fn map_stage_error(error: crate::stage_mdx::StageMdxError) -> AdminMdxError {
     let code = match error.code.as_str() {
         crate::stage_mdx::codes::JSX_FORBIDDEN => ADMIN_MDX_JSX_FORBIDDEN,
@@ -658,56 +562,68 @@ fn map_stage_error(error: crate::stage_mdx::StageMdxError) -> AdminMdxError {
 mod tests {
     use super::*;
 
-    const FORM: &str = r#"---
-resource_id: organization
+    const ENTRY: &str = r#"---
+api_version: mei-admin-resource-v2
 title: 单位信息
-template: singleton-form
-provider: config-record
-record_path: admin/data/organization.json
-required_capabilities: [config_upload]
-scope: app
-revision_policy: optimistic
-dirty_policy: block-leave
+menu: 应用管理
+required_capabilities:
+  - config_upload
 audit: true
-navigation_menu: 管理
-navigation_order: 10
 ---
 
-单位基础信息。
+维护单位信息。
 
-## 基本信息 {#basic}
-@field(id="name", label="单位名称", control="text", required=true)
-@field(id="contact", label="联系人", control="text")
+@scene(use="admin.organization.overview")
+@fill(slot="summary", content="organization.summary", source="organization.current")
 "#;
 
     #[test]
-    fn parses_form_page() {
-        let document = parse_admin_mdx_source(FORM).expect("admin mdx");
-        assert_eq!(document.frontmatter.resource_id, "organization");
-        assert_eq!(
-            document.frontmatter.required_capabilities,
-            vec!["config_upload"]
-        );
-        assert!(document
-            .blocks
-            .iter()
-            .any(|block| matches!(block, AdminMdxBlock::Markdown { .. })));
-        let section = document
-            .blocks
-            .iter()
-            .find_map(|block| match block {
-                AdminMdxBlock::Section { fields, .. } => Some(fields),
-                _ => None,
-            })
-            .expect("section");
-        assert_eq!(section.len(), 2);
-        assert_eq!(section[0].id, "name");
+    fn parses_v2_admin_entry() {
+        let document = parse_admin_mdx_source(ENTRY).expect("admin entry");
+        assert_eq!(document.frontmatter.api_version, ADMIN_API_VERSION);
+        assert_eq!(document.scene_use, "admin.organization.overview");
+        assert_eq!(document.fills.len(), 1);
+        assert!(document.visible_body.markdown.contains("维护单位信息"));
     }
 
     #[test]
-    fn rejects_jsx() {
-        let source = format!("{FORM}\n<div />\n");
-        let error = parse_admin_mdx_source(&source).expect_err("jsx");
-        assert_eq!(error.code, ADMIN_MDX_JSX_FORBIDDEN);
+    fn rejects_identity_and_presentation_dsl() {
+        let identity = ENTRY.replace("title:", "resource_id: organization\ntitle:");
+        assert_eq!(
+            parse_admin_mdx_source(&identity).unwrap_err().code,
+            ADMIN_IDENTITY_REDECLARATION_FORBIDDEN
+        );
+        let field = format!("{ENTRY}\n@field(id=\"name\")");
+        assert_eq!(
+            parse_admin_mdx_source(&field).unwrap_err().code,
+            ADMIN_MDX_FORBIDDEN_PRESENTATION
+        );
+        let route = ENTRY.replace("title:", "route: /admin/custom\ntitle:");
+        assert_eq!(
+            parse_admin_mdx_source(&route).unwrap_err().code,
+            ADMIN_FRONTMATTER_FIELD_FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn rejects_jsx_physical_path_and_duplicate_scene() {
+        let jsx = ENTRY.replace("维护单位信息。", "<div />");
+        assert_eq!(
+            parse_admin_mdx_source(&jsx).unwrap_err().code,
+            ADMIN_MDX_JSX_FORBIDDEN
+        );
+        let path = ENTRY.replace(
+            "admin.organization.overview",
+            "src/scene/admin/organization/overview.mei",
+        );
+        assert_eq!(
+            parse_admin_mdx_source(&path).unwrap_err().code,
+            ADMIN_SCENE_PHYSICAL_PATH_FORBIDDEN
+        );
+        let duplicate = format!("{ENTRY}\n@scene(use=\"admin.organization.other\")");
+        assert_eq!(
+            parse_admin_mdx_source(&duplicate).unwrap_err().code,
+            ADMIN_SCENE_ROOT_DUPLICATE
+        );
     }
 }

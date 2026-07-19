@@ -17,8 +17,10 @@ use serde_json::json;
 use crate::presentation_compile::presentation_image_assets_for_app;
 use crate::state::SharedState;
 
-const SCRIPT_SUFFIX_PRESENTATION: &str = ".presentation.mdx";
-const SCRIPT_SUFFIX_SCENE: &str = ".scene.mdx";
+// Session-only drafts. AOT authored narration is discovered exclusively from
+// `src/narration/**/*.track.mdx` by the compiler.
+const SCRIPT_SUFFIX_PRESENTATION: &str = ".presentation.session.track.mdx";
+const SCRIPT_SUFFIX_SCENE: &str = ".scene.session.track.mdx";
 const MAX_SCRIPT_BYTES: usize = 512 * 1024;
 
 #[derive(Debug, Clone)]
@@ -761,16 +763,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn script_id_from_file_name_parses_presentation_and_scene_mdx() {
+    fn script_id_from_file_name_parses_session_tracks_only() {
         assert_eq!(
-            script_id_from_file_name("intro.presentation.mdx").as_deref(),
+            script_id_from_file_name("intro.presentation.session.track.mdx").as_deref(),
             Some("intro")
         );
         assert_eq!(
-            script_id_from_file_name("home.scene.mdx").as_deref(),
+            script_id_from_file_name("home.scene.session.track.mdx").as_deref(),
             Some("home")
         );
-        assert!(script_id_from_file_name("intro.mdx").is_none());
+        assert!(script_id_from_file_name("intro.presentation.mdx").is_none());
+        assert!(script_id_from_file_name("home.scene.mdx").is_none());
     }
 
     #[test]

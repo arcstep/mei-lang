@@ -7,10 +7,11 @@ use anyhow::{Context, Result};
 
 use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
-    canonical_app_source_rel_path, load_workspace_config, resolve_app_entry_main, resolve_app_root,
-    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
-    LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    canonical_app_source_rel_path, load_workspace_config, resolve_app_entry_main,
+    resolve_app_main_path, resolve_app_root, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
+    RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceWarmupDatasetConfig,
+    WorkspaceWarmupXlsxConfig, LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::model::{Diagnostic, Severity};
 use crate::workspace::discover_build_apps;
@@ -99,7 +100,13 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
             let entry_main = resolve_app_entry_main(&app_root);
             // Graph-native apps (empty entry) leave focuses empty; stage warmup uses hot_stages.
             if !entry_main.trim().is_empty() {
-                focuses.push(entry_main);
+                let entry_path = resolve_app_main_path(&app_root);
+                let focus = entry_path
+                    .strip_prefix(&app_root)
+                    .unwrap_or(entry_path.as_path())
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                focuses.push(focus);
             }
         }
         validate_warmup_focus_paths(app_root.as_path(), &focuses)?;
@@ -277,7 +284,10 @@ fn validate_warmup_focus_paths(app_root: &Path, focuses: &[String]) -> Result<()
     for focus in &missing {
         push_warmup_build_diagnostic(
             "warmup_focus_not_found",
-            format!("warmup focus file missing under `{}`: {focus}", app_root.display()),
+            format!(
+                "warmup focus file missing under `{}`: {focus}",
+                app_root.display()
+            ),
             Some(focus),
         );
     }
@@ -415,7 +425,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
-    use crate::mei_config::{app_mei_config_path, write_mei_config, AppEntryConfig, MeiConfig};
+    use crate::mei_config::{APP_TOML_FILENAME, WORKSPACE_CONFIG_FILENAME};
 
     fn temp_workspace_root(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -428,16 +438,16 @@ mod tests {
     #[test]
     fn build_manifest_includes_default_entry_focus() {
         let workspace_root = temp_workspace_root("focus");
-        let app_root = workspace_root.join("demo");
-        fs::create_dir_all(&app_root).expect("create app root");
+        let app_root = workspace_root.join("apps/demo");
+        fs::create_dir_all(app_root.join("src")).expect("create app root");
         fs::write(
-            app_root.join("main.mei"),
+            app_root.join("src/main.mei"),
             "app(id=\"demo\")\nscene(id=\"home\", target=\"home.mei\")\n",
         )
         .expect("write main");
-        fs::write(app_root.join("home.mei"), "frame()").expect("write scene");
+        fs::write(app_root.join("src/home.mei"), "frame()").expect("write scene");
         fs::write(
-            workspace_root.join(".mei-workspace.json"),
+            workspace_root.join(WORKSPACE_CONFIG_FILENAME),
             r#"{"warmup":{"apps":{"demo":{"hotScenes":["home"]}}}}"#,
         )
         .expect("write workspace config");
@@ -445,7 +455,7 @@ mod tests {
         let manifest = build_runtime_warmup_manifest(&workspace_root).expect("build manifest");
         assert!(manifest.enabled);
         assert_eq!(manifest.apps.len(), 1);
-        assert_eq!(manifest.apps[0].focuses, vec!["main.mei".to_string()]);
+        assert_eq!(manifest.apps[0].focuses, vec!["src/main.mei".to_string()]);
 
         let _ = fs::remove_dir_all(workspace_root);
     }
@@ -532,27 +542,32 @@ mod tests {
     #[test]
     fn custom_entry_main_becomes_default_focus() {
         let workspace_root = temp_workspace_root("custom-main");
-        let app_root = workspace_root.join("demo");
-        fs::create_dir_all(&app_root).expect("create app root");
+        let app_root = workspace_root.join("apps/demo");
+        fs::create_dir_all(app_root.join("src")).expect("create app root");
         fs::write(
-            app_root.join("main.mei"),
+            app_root.join("src/custom.mei"),
             "app(id=\"demo\")\nscene(id=\"home\", target=\"home.mei\")\n",
         )
-        .expect("write main");
-        fs::write(app_root.join("home.mei"), "frame()").expect("write scene");
-        let mut mei_config = MeiConfig::default();
-        mei_config.entry = AppEntryConfig {
-            main: "custom.mei".to_string(),
-        };
-        write_mei_config(&app_mei_config_path(&app_root), &mei_config).expect("write mei config");
+        .expect("write custom entry");
+        fs::write(app_root.join("src/home.mei"), "frame()").expect("write scene");
         fs::write(
-            workspace_root.join(".mei-workspace.json"),
+            app_root.join(APP_TOML_FILENAME),
+            r#"schema_version = "mei-app-v1"
+app_id = "demo"
+
+[entry]
+main = "src/custom.mei"
+"#,
+        )
+        .expect("write app.toml");
+        fs::write(
+            workspace_root.join(WORKSPACE_CONFIG_FILENAME),
             r#"{"warmup":{"apps":{"demo":{}}}}"#,
         )
         .expect("write workspace config");
 
         let manifest = build_runtime_warmup_manifest(&workspace_root).expect("build manifest");
-        assert_eq!(manifest.apps[0].focuses, vec!["custom.mei".to_string()]);
+        assert_eq!(manifest.apps[0].focuses, vec!["src/custom.mei".to_string()]);
 
         let _ = fs::remove_dir_all(workspace_root);
     }

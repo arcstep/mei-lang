@@ -301,7 +301,7 @@ fn assemble_scope_from_registry_uncached(
         scene_summary,
         scene_profile,
         scene_theme,
-        presentation_default_script,
+        _presentation_default_script,
         scene_shared,
         scene_local_nav,
         scene_params,
@@ -431,12 +431,12 @@ fn assemble_scope_from_registry_uncached(
         &mut object_catalogs,
     );
     let mut object_resolver = ObjectResolver::from_catalogs(object_catalogs.iter());
-    let presentation_map = presentation_map_to_value(
+    let mut presentation_map = presentation_map_to_value(
         &build_presentation_map_with_default_script_resolver_and_catalogs(
             &scene_id,
             &flat_panels,
             &panel_payloads,
-            presentation_default_script,
+            None,
             &mut object_resolver,
             &object_catalogs,
         ),
@@ -527,6 +527,8 @@ fn assemble_scope_from_registry_uncached(
     );
     compiled.rebuild_abi_projection(Some(&presentation_map));
     apply_stage_mdx_from_app_root(&mut compiled, app_root.as_path());
+    mei_lang_kernel::apply_app_narration_catalog(&mut compiled, app_root.as_path());
+    project_legacy_default_script_from_catalog(&mut presentation_map, &compiled, scene_id.as_str());
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
 
@@ -540,6 +542,50 @@ fn assemble_scope_from_registry_uncached(
         map_projection: world_exchange.map_projection,
         overlay_defaults,
     }))
+}
+
+fn project_legacy_default_script_from_catalog(
+    presentation_map: &mut Value,
+    compiled: &CompiledApp,
+    stage_id: &str,
+) {
+    let entry = format!("stage:{stage_id}");
+    let Some(catalog) = compiled.narration_catalogs.values().next() else {
+        return;
+    };
+    let Some(track_id) = catalog.default_track_by_entry.get(&entry) else {
+        return;
+    };
+    let Some(track) = catalog.tracks.iter().find(|track| &track.id == track_id) else {
+        return;
+    };
+    let steps: Vec<Value> = track
+        .cues
+        .iter()
+        .map(|cue| {
+            json!({
+                "id": cue.id,
+                "target": cue.target_ref,
+                "body": cue.body,
+                "caption": cue.caption,
+                "speaker_notes": cue.speaker_notes,
+                "actions": cue.actions,
+                "timing": cue.timing,
+                "source_anchor": cue.source_anchor,
+            })
+        })
+        .collect();
+    if let Some(map) = presentation_map.as_object_mut() {
+        map.insert(
+            "defaultScript".to_string(),
+            json!({
+                "id": track.id,
+                "title": track.title,
+                "source": "narration_catalog",
+                "steps": steps,
+            }),
+        );
+    }
 }
 
 fn load_object_catalogs(
@@ -784,7 +830,30 @@ fn resolve_assembly_key(
     if let Some(prog) =
         crate::stage_program_discover::discover_program_for_stage(&programs, scene_id)
     {
-        return prog.assembly_key.clone();
+        if registry.nodes.iter().any(|node| {
+            matches!(
+                node.id.kind,
+                GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph
+            ) && node.id.key == prog.assembly_key
+        }) {
+            return prog.assembly_key.clone();
+        }
+        let page_instance_prefix = format!(
+            "{}:{}@",
+            prog.stage_id,
+            prog.target_file.trim_start_matches('/')
+        );
+        if let Some(key) = registry
+            .nodes
+            .iter()
+            .find(|node| {
+                node.id.kind == GraphNodeKind::PageInstance
+                    && node.id.key.starts_with(page_instance_prefix.as_str())
+            })
+            .map(|node| node.id.key.clone())
+        {
+            return key;
+        }
     }
     let scene_id = resolve_scene_id_for_assembly(source_root, app_id, registry, scene_id);
     if scene_id == "home" {
@@ -1488,7 +1557,11 @@ fn resolve_link_ref_to_scene_popup(
         if let Some(workspace) = overlay_workspace {
             map.insert("overlay_workspace".to_string(), workspace);
         }
-        if let Some(title) = payload.get("title").cloned().filter(|value| !value.is_null()) {
+        if let Some(title) = payload
+            .get("title")
+            .cloned()
+            .filter(|value| !value.is_null())
+        {
             map.insert("title".to_string(), title);
         }
     }

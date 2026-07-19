@@ -10,9 +10,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_list_smoke_under_workspace_app() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -50,9 +50,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_get_scope_denied_for_unknown_id() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -90,9 +90,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_list_denied_when_world_snapshot_missing() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/_invalid/07-app-missing-scene".into()),
@@ -130,9 +130,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_world_tools_rejected_under_local_only() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -166,9 +166,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_runtime_peek_ok_with_valid_snapshot_scope() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -206,9 +206,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_runtime_trace_export_ok_with_valid_snapshot_scope() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -246,9 +246,9 @@ mod resource_tool_bridge_tests {
     #[test]
     fn resource_business_summary_ok_with_bound_scope() {
         let Some(state) = test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("examples/core/01-single-file-doc".into()),

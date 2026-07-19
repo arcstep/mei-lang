@@ -16,8 +16,7 @@ fn ws_demo_v2() -> Option<PathBuf> {
 fn ensure_imported() -> Option<PathBuf> {
     let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
-        let bundle =
-            workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
+        let bundle = workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         let ctx = HostContext::new(workspace.clone(), "zhifa");
         import_bundle(
             &ctx,
@@ -56,10 +55,9 @@ fn zhifa_map_stage_resolves_maplibre_in_region_tree() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
-            .expect("assemble")
-            .expect("home");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
     let contract = outcome.compiled.scene_contract.as_ref().unwrap();
     let map_stage =
         find_panel_by_id(&contract.panels, "map_stage").expect("map_stage region panel");
@@ -159,10 +157,9 @@ fn zhifa_ui_structure_includes_header_section() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
-            .expect("assemble")
-            .expect("home");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
     let header = find_panel_by_id(
         &outcome.compiled.scene_contract.as_ref().unwrap().panels,
         "home_header",
@@ -197,10 +194,9 @@ fn zhifa_ui_structure_includes_left_rail_sections() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
-            .expect("assemble")
-            .expect("home");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
     let left_rail = find_panel_by_id(
         &outcome.compiled.scene_contract.as_ref().unwrap().panels,
         "left_rail",
@@ -246,10 +242,9 @@ fn zhifa_penalty_section_surfaces_contract_level_charts() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
-            .expect("assemble")
-            .expect("home");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
     let ui = build_ui_layout_index(&outcome.compiled);
     let penalty_scopes: Vec<_> = ui
         .index
@@ -288,10 +283,9 @@ fn zhifa_assemble_accepts_legacy_assembly_scene_id() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "assembly")
-            .expect("assemble")
-            .expect("home via assembly alias");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "assembly")
+        .expect("assemble")
+        .expect("home via assembly alias");
     assert_eq!(
         outcome.compiled.active_scene.as_deref(),
         Some("home"),
@@ -370,10 +364,9 @@ fn zhifa_warnings_drilldown_has_runtime_projection_slots() {
         eprintln!("skip: ws-demo-v2 not present (local monorepo optional)");
         return;
     };
-    let outcome =
-        assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
-            .expect("assemble")
-            .expect("home");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
     let mut assembly = outcome
         .compiled
         .scene_projection_assembly_by_id

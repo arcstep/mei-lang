@@ -144,18 +144,6 @@
         "enabled": { "type": "boolean" },
         "apps": { "type": "object", "additionalProperties": true }
       }
-    },
-    "admin": {
-      "type": "object",
-      "description": "Legacy Admin TOML compatibility pointer. New resources are convention-discovered from src/admin/**/*.admin.mdx.",
-      "deprecated": true,
-      "additionalProperties": false,
-      "properties": {
-        "manifest": {
-          "type": "string",
-          "description": "Path relative to app root, e.g. admin/admin.toml. No .. or absolute paths."
-        }
-      }
     }
   }
 }

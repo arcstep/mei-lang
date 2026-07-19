@@ -10,10 +10,7 @@ use axum::{
 };
 use chrono::{Local, TimeZone};
 use mei_lang_app::{HostAccountView, UploadFileEntry};
-use mei_lang_kernel::{
-    load_mei_config_for_app, resolve_default_scene_from_root, CompiledApp, HostSurface,
-    WorkspaceAppMeta,
-};
+use mei_lang_kernel::{load_mei_config_for_app, CompiledApp, HostSurface};
 
 use super::super::super::compile_cache::CompileWithCacheOutcome;
 use super::page::compile::CompileFeedbackMetadata;
@@ -234,24 +231,6 @@ pub(super) fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<Up
     let mut out = Vec::new();
     push_upload_entries(upload_root, "", &mut out);
     out
-}
-
-pub(super) fn app_title_for(apps: &[WorkspaceAppMeta], app_id: &str) -> String {
-    apps.iter()
-        .find(|app| app.id == app_id)
-        .map(|app| app.title.clone())
-        .unwrap_or_else(|| app_id.to_string())
-}
-
-pub(super) fn lightweight_access_scene(
-    app_root: &Path,
-    query_scene: Option<&str>,
-) -> Option<String> {
-    query_scene
-        .map(str::trim)
-        .filter(|scene| !scene.is_empty())
-        .map(str::to_string)
-        .or_else(|| resolve_default_scene_from_root(app_root).ok().flatten())
 }
 
 pub(super) fn access_only_surface_enabled() -> bool {

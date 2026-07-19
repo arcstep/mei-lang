@@ -1,0 +1,9 @@
+schema_version = "mei-app-v1"
+title = "Conformance Minimal Deck"
+default_stage = "intro"
+app_id = "fx-deck-minimal"
+generation = "current"
+data_mode_ceiling = "static"
+
+[warmup]
+enabled = false

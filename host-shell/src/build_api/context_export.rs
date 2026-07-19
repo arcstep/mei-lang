@@ -259,7 +259,10 @@ pub async fn api_build_context_export(
             ));
             if !program.units.is_empty() {
                 let unit_ids: Vec<&str> = program.unit_ids();
-                md.push_str(&format!("- stage_program_units: `{}`\n", unit_ids.join(", ")));
+                md.push_str(&format!(
+                    "- stage_program_units: `{}`\n",
+                    unit_ids.join(", ")
+                ));
             }
             if let Some(slot_ref) = program.slot_module_ref.as_deref() {
                 md.push_str(&format!("- slot_module_ref: `{slot_ref}`\n"));
@@ -270,7 +273,10 @@ pub async fn api_build_context_export(
             if let Some(digest) = program.narration_digest.as_deref() {
                 md.push_str(&format!("- narration_digest: `{digest}`\n"));
             }
-            md.push_str(&format!("- stage_surface: `{}`\n", program.surface.as_str()));
+            md.push_str(&format!(
+                "- stage_surface: `{}`\n",
+                program.surface.as_str()
+            ));
             let policy = mei_lang_kernel::ProfileLayoutPolicy::for_profile(program.profile);
             md.push_str(&format!(
                 "- profile_layout_policy: `{}`\n",
@@ -319,10 +325,7 @@ pub async fn api_build_context_export(
         }
         let narr_key = format!("narration:{stage_id}");
         if let Some(catalog) = compiled.narration_catalogs.get(&narr_key) {
-            md.push_str(&format!(
-                "- narration_cues: {}\n",
-                catalog.cue_count()
-            ));
+            md.push_str(&format!("- narration_cues: {}\n", catalog.cue_count()));
         }
     }
     md.push_str(&format!("- resources: {}\n", compiled.resources.len()));

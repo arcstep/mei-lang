@@ -76,32 +76,6 @@ pub fn runtime_href(app_path: &str, node: Option<&str>, tab: Option<&str>) -> St
     host_runtime_href(Some(app_path), node, tab)
 }
 
-pub fn config_href(app_path: &str) -> String {
-    host_config_href(Some(app_path))
-}
-
-pub fn upload_href(app_path: &str, file: Option<&str>) -> String {
-    host_upload_href(Some(app_path), file)
-}
-
-pub fn host_config_href(app_path: Option<&str>) -> String {
-    match app_path.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(app) => format!("/config?app={}", encode_query_value(app)),
-        None => "/config".to_string(),
-    }
-}
-
-pub fn host_upload_href(app_path: Option<&str>, file: Option<&str>) -> String {
-    let mut base = match app_path.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(app) => format!("/upload?app={}", encode_query_value(app)),
-        None => "/upload".to_string(),
-    };
-    if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
-        base = format!("{base}&file={}", encode_query_value(f));
-    }
-    base
-}
-
 pub fn host_runtime_href(app_path: Option<&str>, node: Option<&str>, tab: Option<&str>) -> String {
     let mut parts = Vec::new();
     if let Some(app) = app_path.map(str::trim).filter(|s| !s.is_empty()) {

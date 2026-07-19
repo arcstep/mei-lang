@@ -1,0 +1,28 @@
+{
+  "components": {
+    "admin.form-card": {
+      "tag": "mei-admin-form-card",
+      "script": "runtime.js"
+    },
+    "admin.data-grid": {
+      "tag": "mei-admin-data-grid",
+      "script": "runtime.js"
+    },
+    "admin.asset-slot": {
+      "tag": "mei-admin-asset-slot",
+      "script": "runtime.js"
+    },
+    "admin.action-strip": {
+      "tag": "mei-admin-action-strip",
+      "script": "runtime.js"
+    },
+    "admin.job-status": {
+      "tag": "mei-admin-job-status",
+      "script": "runtime.js"
+    },
+    "admin.navigator": {
+      "tag": "mei-admin-navigator",
+      "script": "runtime.js"
+    }
+  }
+}

@@ -210,7 +210,7 @@ fn build_analysis_contracts_detail_prefers_lineage_when_composition_present() {
         .expect("composition tab");
     assert_eq!(
         composition.get("metric_id").and_then(Value::as_str),
-        Some("verify_rate::breakdown_table")
+        Some("verify_rate::composition")
     );
 }
 

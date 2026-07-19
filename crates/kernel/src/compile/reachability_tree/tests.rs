@@ -9,7 +9,7 @@ fn reachability_tree_includes_routes_and_world() {
     let mut compiled = CompiledApp {
         app_id: "demo".to_string(),
         title: "demo".to_string(),
-        app_root: ".".to_string(),
+        app_root: "/__mei_test_missing_app_root__".to_string(),
         scene_routes: vec![crate::model::CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -114,7 +114,7 @@ fn reachability_tree_expands_scene_panels_from_assembly() {
     let compiled = CompiledApp {
         app_id: "demo".to_string(),
         title: "demo".to_string(),
-        app_root: ".".to_string(),
+        app_root: "/__mei_test_missing_app_root__".to_string(),
         scene_routes: vec![crate::model::CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -148,20 +148,24 @@ fn reachability_tree_expands_scene_panels_from_assembly() {
         ui_layout_index: Default::default(),
     };
     let roots = build_reachability_tree(&compiled);
-    let scene = &roots[0].children[0];
-    let panels_group = scene
-        .children
+    let structure = &roots
         .iter()
-        .find(|node| node.label == "Panels")
-        .expect("panels group");
-    assert_eq!(panels_group.children.len(), 1);
-    assert_eq!(panels_group.children[0].label, "KPI 行");
-    assert_eq!(panels_group.children[0].children.len(), 1);
-    assert_eq!(panels_group.children[0].children[0].label, "待办数");
-    assert!(panels_group.children[0].children[0]
-        .badges
-        .iter()
-        .any(|badge| badge.contains("agency_objects")));
+        .find(|root| root.group == "ui_structure")
+        .expect("ui structure root")
+        .children;
+    fn find_label<'a>(
+        nodes: &'a [ReachabilityTreeNode],
+        label: &str,
+    ) -> Option<&'a ReachabilityTreeNode> {
+        nodes.iter().find_map(|node| {
+            (node.label == label)
+                .then_some(node)
+                .or_else(|| find_label(&node.children, label))
+        })
+    }
+    let panel_node = find_label(structure, "KPI 行").expect("KPI panel");
+    let metric_node = find_label(&panel_node.children, "待办数").expect("metric content");
+    assert_eq!(metric_node.kind, "ui_scope");
 }
 
 fn sample_catalog_scene_node(scene_id: &str, target_file: &str) -> ReachabilityTreeNode {

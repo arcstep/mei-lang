@@ -55,11 +55,12 @@ mod tests {
             r#"{"schemaVersion":2,"stock":{"bootstrap":{"refresh":false}}}"#,
         )
         .expect("write workspace.json");
-        assert!(
-            ensure_workspace_stock_materialized(workspace_root.as_path(), package_root.as_path())
-                .expect("ensure with refresh false")
-                .is_none()
-        );
+        assert!(ensure_workspace_stock_materialized(
+            workspace_root.as_path(),
+            package_root.as_path()
+        )
+        .expect("ensure with refresh false")
+        .is_none());
         assert!(
             !dest.is_file(),
             "deleted file must not be restored when refresh=false"

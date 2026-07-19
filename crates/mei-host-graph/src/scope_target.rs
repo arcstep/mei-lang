@@ -158,14 +158,7 @@ fn finish_unique(
             let candidates = many
                 .iter()
                 .take(8)
-                .map(|node| {
-                    format!(
-                        "{} ({}/{})",
-                        node.node_id,
-                        node.ui_role,
-                        node.preview_scope
-                    )
-                })
+                .map(|node| format!("{} ({}/{})", node.node_id, node.ui_role, node.preview_scope))
                 .collect::<Vec<_>>()
                 .join("; ");
             Err(ScopeTargetResolveError::Ambiguous {
@@ -263,11 +256,7 @@ pub fn resolve_scope_target(
                                 .unwrap_or(false))
                 })
                 .collect();
-            finish_unique(
-                &format!("{role_n}/{local_id}"),
-                stage_id,
-                matches,
-            )
+            finish_unique(&format!("{role_n}/{local_id}"), stage_id, matches)
         }
     }
 }
@@ -526,9 +515,7 @@ mod tests {
     fn parse_temp_stage_and_legacy_tail() {
         assert_eq!(
             parse_temp_stage_target("home/T1/r-right-rail"),
-            Some(ScopeTargetHint::PreviewScope(
-                "home/T1/r-right-rail".into()
-            ))
+            Some(ScopeTargetHint::PreviewScope("home/T1/r-right-rail".into()))
         );
         assert_eq!(
             parse_temp_stage_target("node/ui-scope:home/T1"),

@@ -5,7 +5,9 @@ use mei_lang_kernel::{resolve_app_root, CompiledApp};
 use serde_json::Value;
 
 use crate::graph::bridge::export_bridge;
-use crate::graph::content_store::{APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, SCENE_PAYLOAD};
+use crate::graph::content_store::{
+    APP_SKELETON, CONTENT_PANEL, METRIC_DEF_BUNDLE, PAGE_INSTANCE, SCENE_PAYLOAD,
+};
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mcg::app_skeleton::{
     app_skeleton_revision, load_app_skeleton_artifact, persist_app_skeleton_artifact,
@@ -271,7 +273,7 @@ pub fn update_mcg_after_compile(
         key: target_file.clone(),
         revision: scene_revision.clone(),
     };
-    let (_, assembly_inputs) = assemble_page_instance(
+    let (page_instance, assembly_inputs) = assemble_page_instance(
         compiled.clone(),
         PageInstanceInputs {
             scene_payload: Some(scene_input),
@@ -281,6 +283,18 @@ pub fn update_mcg_after_compile(
     );
     let av_revision = page_instance_revision(&assembly_inputs);
     outcome.page_instance_revision = Some(av_revision.clone());
+    let page_instance_payload = serde_json::json!({ "payload": page_instance });
+    let page_instance_bytes = serde_json::to_vec(&page_instance_payload)?;
+    let page_instance_persisted = crate::graph::content_store::put_if_absent(
+        app_root.as_path(),
+        PAGE_INSTANCE,
+        page_instance_bytes.as_slice(),
+    )?;
+    let page_instance_ref = PayloadRef::new(
+        PAGE_INSTANCE,
+        page_instance_persisted.content_hash,
+        "mei-assembly-view-v1",
+    );
 
     registry.upsert_node(McgNodeRecord {
         id: GraphNodeId::new(
@@ -290,11 +304,7 @@ pub fn update_mcg_after_compile(
         revision: av_revision.clone(),
         state: MaterialState::Ready,
         layer: "assembly".to_string(),
-        payload_ref: Some(PayloadRef::new(
-            "page_instance",
-            av_revision,
-            "mei-assembly-view-v1",
-        )),
+        payload_ref: Some(page_instance_ref),
         deps: vec![format!("scene_payload:{target_file}")],
         defs_fingerprint: None,
         owner_resource_id: None,

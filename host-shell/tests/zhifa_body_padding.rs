@@ -111,7 +111,7 @@ fn zhifa_home_ssr_applies_titled_shell_body_padding() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     let body_cell = enforcement_body_cell_style(html.as_str());
     assert!(

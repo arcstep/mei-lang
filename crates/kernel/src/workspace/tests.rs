@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::mei_config::{write_mei_config, MeiConfig, MEI_CONFIG_FILENAME};
+use crate::mei_config::{APP_TOML_FILENAME, MEI_CONFIG_FILENAME};
 use crate::WorkspaceNode;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,30 +19,34 @@ fn temp_test_root(label: &str) -> PathBuf {
 }
 
 fn write_main_mei(dir: &Path, app_id: &str) {
-    fs::create_dir_all(dir).expect("mkdir app dir");
+    let src = dir.join("src");
+    fs::create_dir_all(&src).expect("mkdir app src");
     let body = format!(
         r#"app(id="{app_id}")
 scene(id="home", target="home.mei")
 "#
     );
-    fs::write(dir.join("main.mei"), body).expect("write main.mei");
-    fs::write(dir.join("home.mei"), "frame()").expect("write home.mei");
+    fs::write(src.join("main.mei"), body).expect("write main.mei");
+    fs::write(src.join("home.mei"), "frame()").expect("write home.mei");
 }
 
 #[test]
-fn discover_prefers_mei_config_over_nested_main() {
+fn discover_prefers_app_toml_over_nested_main() {
     let root = temp_test_root("discover_config");
-    let segment = root.join("demo");
-    fs::create_dir_all(&segment).expect("mkdir segment");
-    let app = segment.join("myapp");
-    fs::create_dir_all(app.join("nested")).expect("mkdir");
-    write_mei_config(&app.join(MEI_CONFIG_FILENAME), &MeiConfig::default()).expect("write config");
-    write_main_mei(&app.join("nested"), "nested-app");
-    write_main_mei(&segment.join("legacy"), "legacy-app");
+    let apps_root = root.join("apps");
+    let app = apps_root.join("myapp");
+    fs::create_dir_all(&app).expect("mkdir app");
+    fs::write(
+        app.join(APP_TOML_FILENAME),
+        "schema_version = \"mei-app-v1\"\napp_id = \"myapp\"\n",
+    )
+    .expect("write app.toml");
+    write_main_mei(&app.join("src/nested"), "nested-app");
+    write_main_mei(&apps_root.join("legacy"), "legacy-app");
 
     let apps = discover_apps(&root).expect("discover");
     let ids: Vec<_> = apps.iter().map(|app| app.id.as_str()).collect();
-    assert!(ids.contains(&"demo/myapp"));
+    assert!(ids.contains(&"myapp"));
     assert!(!ids.iter().any(|id| id.contains("nested")));
     let _ = fs::remove_dir_all(&root);
 }
@@ -50,17 +54,16 @@ fn discover_prefers_mei_config_over_nested_main() {
 #[test]
 fn discover_falls_back_to_main_mei_without_config() {
     let root = temp_test_root("discover_main");
-    let segment = root.join("examples");
-    write_main_mei(&segment.join("core/foo"), "foo");
+    write_main_mei(&root.join("apps/core/foo"), "foo");
 
     let apps = discover_apps(&root).expect("discover");
     assert_eq!(apps.len(), 1);
-    assert_eq!(apps[0].id, "examples/core/foo");
+    assert_eq!(apps[0].id, "foo");
     let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
-fn source_tree_includes_root_mei_config_only() {
+fn source_tree_includes_root_app_config_only() {
     let root = temp_test_root("source_tree");
     fs::write(root.join(MEI_CONFIG_FILENAME), "{}").expect("root config");
     fs::create_dir_all(root.join("sub")).expect("mkdir sub");
@@ -69,7 +72,7 @@ fn source_tree_includes_root_mei_config_only() {
 
     let nodes = source_tree(&root).expect("tree");
     let paths: Vec<_> = flatten_paths(&nodes);
-    assert!(paths.contains(&".mei-config.json".to_string()));
+    assert!(paths.contains(&MEI_CONFIG_FILENAME.to_string()));
     assert!(!paths.iter().any(|p| p.contains("sub/.mei-config")));
     assert!(paths.contains(&"visible.txt".to_string()));
     let _ = fs::remove_dir_all(&root);

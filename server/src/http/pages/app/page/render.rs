@@ -333,7 +333,7 @@ pub(super) fn render_compiled_success(
                 None,
                 None,
                 None,
-                            &[],
+                &[],
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });

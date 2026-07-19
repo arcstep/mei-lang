@@ -602,7 +602,8 @@ mod tests {
             }
         });
         let mut diagnostics = Vec::new();
-        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        let normalized =
+            normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
         let shell = normalized.get("shell_contract").expect("shell_contract");
         assert_eq!(
             shell.get("layout_mode").and_then(Value::as_str),
@@ -638,13 +639,14 @@ mod tests {
             }
         });
         let mut diagnostics = Vec::new();
-        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        let normalized =
+            normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
         assert!(normalized.get("shell_contract").is_some());
-        assert!(diagnostics.iter().any(|d| d.code == "frame_topology_plane_missing"));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.code == "frame_topology_plane_missing"));
         assert_eq!(
-            normalized
-                .pointer("/layout/gap")
-                .and_then(Value::as_str),
+            normalized.pointer("/layout/gap").and_then(Value::as_str),
             Some(HIERARCHY_PX_1)
         );
     }
@@ -660,8 +662,7 @@ mod tests {
             app_root: app_root.as_path(),
             registry: &registry,
         };
-        let FrameDeriveResult::Derived(explicit_frame) =
-            derive_frame_for_page_instance(&ctx, key)
+        let FrameDeriveResult::Derived(explicit_frame) = derive_frame_for_page_instance(&ctx, key)
         else {
             panic!("expected plane-derived frame for isomorphic explicit test");
         };
@@ -676,7 +677,8 @@ mod tests {
             }
         });
         let mut diagnostics = Vec::new();
-        let normalized = normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
+        let normalized =
+            normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
         assert!(normalized.get("shell_contract").is_some());
         assert!(
             !diagnostics
@@ -725,6 +727,8 @@ mod tests {
         let mut diagnostics = Vec::new();
         let _normalized =
             normalize_page_instance_payload(payload, Some(&ctx), &mut diagnostics, None);
-        assert!(diagnostics.iter().any(|d| d.code == "frame_derivation_conflict"));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.code == "frame_derivation_conflict"));
     }
 }

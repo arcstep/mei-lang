@@ -193,7 +193,9 @@ pub fn begin_prebuild_generation_with_hint(
         let same_gen_cas_backup = previous_active
             .as_ref()
             .filter(|active_ver| *active_ver == &env_version)
-            .and_then(|_| snapshot_build_content_store_aside(app_root.as_path(), env_version.as_str()));
+            .and_then(|_| {
+                snapshot_build_content_store_aside(app_root.as_path(), env_version.as_str())
+            });
         let (build_dir, _var_dir) =
             replace_env_generation(app_root.as_path(), env_version.as_str())?;
         if let Some(backup) = same_gen_cas_backup {

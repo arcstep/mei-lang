@@ -43,7 +43,9 @@ fn ensure_imported() -> Option<PathBuf> {
 
 #[test]
 fn data_demo_scene_examples_by_id_matches_page_instance() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");

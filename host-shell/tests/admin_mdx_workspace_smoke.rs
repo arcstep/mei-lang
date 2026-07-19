@@ -1,7 +1,7 @@
 use mei_lang_kernel::{discover_app_admin_resources, resolve_app_root, AdminDiscoverOutcome};
 
 #[test]
-fn optional_mini_data_admin_mdx_projects_page_and_theme_resources() {
+fn optional_v2_admin_entries_project_plain_page_programs() {
     let Some(workspace) = mei_test_support::optional_external_workspace() else {
         return;
     };
@@ -13,26 +13,27 @@ fn optional_mini_data_admin_mdx_projects_page_and_theme_resources() {
         );
         return;
     }
+    let Ok(paths) = mei_lang_kernel::discover_admin_mdx_paths(&app_root) else {
+        return;
+    };
+    if paths.is_empty() {
+        return;
+    }
     match discover_app_admin_resources(&app_root, "mini-data") {
         AdminDiscoverOutcome::Ok(projection) => {
-            let ids = projection
-                .resources
-                .iter()
-                .map(|resource| resource.resource_id.as_str())
-                .collect::<Vec<_>>();
-            assert_eq!(ids, vec!["datasources", "organization", "theme"]);
-            let theme = projection
-                .resources
-                .iter()
-                .find(|resource| resource.resource_id == "theme")
-                .expect("theme resource");
-            assert_eq!(theme.config_path.as_deref(), Some("ops.themes.cockpit"));
-            assert_eq!(theme.page_program.page.surface.as_str(), "document");
-            assert!(theme
-                .page_program
-                .page
-                .source_anchor
-                .ends_with("src/admin/theme.admin.mdx"));
+            assert!(!projection.resources.is_empty());
+            assert!(projection.resources.iter().all(|entry| {
+                entry.page_program.surface.as_str() == "document"
+                    && entry.page_program.source_anchor.starts_with("src/admin/")
+                    && entry.page_program.source_anchor.ends_with(".mdx")
+                    && entry.registry_entry.module_id
+                        == entry
+                            .registry_entry
+                            .canonical_route
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or_default()
+            }));
         }
         outcome => panic!("mini-data Admin MDX discovery failed: {outcome:?}"),
     }

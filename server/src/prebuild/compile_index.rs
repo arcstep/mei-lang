@@ -597,4 +597,3 @@ pub(crate) fn disk_usage_report(summary: DirSizeSummary) -> PrebuildDiskUsageRep
         bytes: summary.bytes,
     }
 }
-

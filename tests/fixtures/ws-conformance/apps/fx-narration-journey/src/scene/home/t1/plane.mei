@@ -1,0 +1,6 @@
+plane_layout(
+    id = "t1",
+    key = "fx-narration-journey/home/t1",
+    tier = "t1",
+    regions = [],
+)

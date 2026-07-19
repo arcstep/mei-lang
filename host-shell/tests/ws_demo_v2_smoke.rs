@@ -127,7 +127,9 @@ fn ws_demo_v2_upload_dir_separate_from_assets() {
 
 #[test]
 fn ws_demo_v2_import_and_assemble_home() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let routes = list_scope_routes(workspace.as_path(), "data-demo").expect("routes");
     assert!(!routes.is_empty());
 
@@ -192,7 +194,9 @@ fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
 
 #[test]
 fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -311,7 +315,7 @@ fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("supervision-stats"),
@@ -327,7 +331,9 @@ fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
 
 #[test]
 fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -375,7 +381,7 @@ fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("component-host") || html.contains("mei-cockpit-header-brand"),
@@ -409,7 +415,9 @@ fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
 
 #[test]
 fn ws_demo_v2_board_semantic_ids_present() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let registry = McgRegistryWriter::load(workspace.as_path(), "data-demo");
     let assembly_keys: Vec<_> = registry
         .nodes
@@ -427,7 +435,9 @@ fn ws_demo_v2_board_semantic_ids_present() {
 
 #[test]
 fn ws_demo_v2_all_board_scenes_assemble() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let scenes = collect_all_t2_page_scenes(workspace.as_path(), "data-demo");
     assert!(scenes.len() >= 43);
     for scene in scenes {
@@ -440,7 +450,9 @@ fn ws_demo_v2_all_board_scenes_assemble() {
 
 #[test]
 fn ws_demo_v2_scene_routes_include_graph_native_t2_boards() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -510,7 +522,9 @@ fn ws_demo_v2_assemble_relative_workspace_path() {
 
 #[test]
 fn ws_demo_v2_home_layer_plan_and_presentation_map() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -583,7 +597,9 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
 
 #[test]
 fn ws_demo_v2_home_panels_emit_tier_props() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -627,7 +643,9 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
 
 #[test]
 fn ws_demo_v2_serve_html_emits_data_mei_tier() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -676,7 +694,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("data-mei-tier=\"t0\""),
@@ -690,7 +708,9 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
 
 #[test]
 fn ws_demo_v2_presentation_map_viewpoints() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -731,7 +751,9 @@ fn ws_demo_v2_presentation_map_viewpoints() {
 
 #[test]
 fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -780,7 +802,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("data-mei-view-family=\"map\""),
@@ -806,7 +828,9 @@ fn ws_demo_v2_discovers_zhifa_and_mini_park() {
 
 #[test]
 fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -863,7 +887,7 @@ fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("Data Demo v2"),
@@ -1147,7 +1171,7 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("data-mei-view-family=\"map\""),
@@ -1185,8 +1209,7 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
         eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
         return;
     };
-    let presentation =
-        workspace.join("apps/mini-park/src/presentation/intro.presentation.json");
+    let presentation = workspace.join("apps/mini-park/src/presentation/intro.presentation.json");
     if !presentation.is_file() {
         return;
     }
@@ -1571,7 +1594,9 @@ fn ws_demo_v2_mini_park_home_assembles_when_prebuilt() {
 
 #[test]
 fn ws_demo_v2_home_assemble_populates_scene_examples_map() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -1591,7 +1616,9 @@ fn ws_demo_v2_home_assemble_populates_scene_examples_map() {
 
 #[test]
 fn ws_demo_v2_prototype_render_uses_static_metric_skeleton() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -1640,7 +1667,7 @@ fn ws_demo_v2_prototype_render_uses_static_metric_skeleton() {
         None,
         None,
         None,
-                            &[],
+        &[],
     );
     assert!(
         html.contains("mei-text--static-skeleton") || html.contains("static_skeleton"),

@@ -9,10 +9,10 @@ use serde_json::Value;
 use crate::{
     eval::evaluate_mei_file,
     mei_config::{
-        app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MeiConfig,
-        MEI_CONFIG_FILENAME,
+        app_mei_config_path, load_app_manifest, load_mei_config_for_app, resolve_app_entry_main,
+        resolve_app_main_path, APP_TOML_FILENAME, MEI_CONFIG_FILENAME,
     },
-    model::CompiledSceneRoute,
+    model::{AppDecl, CompiledSceneRoute},
     typed_refs::SceneRegistry,
     workspace::load_component_assets,
 };
@@ -267,11 +267,36 @@ pub fn compile_revision_plan_from_root_with_options(
     options: &CompileOptions,
 ) -> Result<CompileRevisionPlan> {
     let app_entry_main = resolve_app_entry_main(app_root);
-    let app_main = resolve_app_main_path(app_root);
-    let app_decls = evaluate_mei_file(&app_main)?;
-    let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
-    let app_decl =
-        app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+    let (app_main, app_decls, app_decl, mut diagnostics) = if app_entry_main.is_empty() {
+        let manifest = load_app_manifest(app_root);
+        let app_id = manifest.app_id.clone().unwrap_or_else(|| {
+            app_root
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("app")
+                .to_string()
+        });
+        let app_decl = AppDecl {
+            kind: "app".to_string(),
+            id: app_id,
+            title: manifest.title,
+            default_stage: manifest.default_stage,
+            scene: None,
+        };
+        (
+            app_root.join(APP_TOML_FILENAME),
+            serde_json::to_value(vec![app_decl.clone()])?,
+            app_decl,
+            Vec::new(),
+        )
+    } else {
+        let app_main = resolve_app_main_path(app_root);
+        let app_decls = evaluate_mei_file(&app_main)?;
+        let (app_decl, diagnostics) = decode_app_decl(&app_main, &app_decls);
+        let app_decl = app_decl
+            .ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+        (app_main, app_decls, app_decl, diagnostics)
+    };
     let mut route_registry =
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
     let asset_map = load_component_assets(source_root)?;
@@ -343,7 +368,9 @@ pub fn compile_revision_plan_from_root_with_options(
 
     let dataset_manage_preview = is_dataset_manage_preview(options, app_entry_main.as_str());
     let catalog_focus = catalog_focus_target(options, Some(primary_target.as_str()));
-    let catalog_filter = if dataset_manage_preview {
+    let catalog_filter = if app_entry_main.is_empty() {
+        DatasetCatalogFilter::all_data_modules(app_root)
+    } else if dataset_manage_preview {
         DatasetCatalogFilter::default()
     } else {
         build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
@@ -415,19 +442,38 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
             }
         }
     }
+    for path in crate::model::discover_narration_track_paths(app_root) {
+        let rel = path
+            .strip_prefix(app_root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        watched_paths.insert(rel.clone());
+        token_parts.insert(
+            format!("narration:{rel}"),
+            crate::compile::source_file_content_signature(path.as_path(), rel.as_str()),
+        );
+    }
 
+    let app_toml_path = app_root.join(APP_TOML_FILENAME);
     let config_path = app_mei_config_path(app_root);
-    if config_path.is_file() {
-        watched_paths.insert(MEI_CONFIG_FILENAME.to_string());
-        if let Ok(config) = MeiConfig::load_from_path(&config_path) {
-            token_parts.insert(
-                "mei-config".to_string(),
-                crate::mei_config::mei_config_compile_revision_digest(&config),
-            );
-            let themes_rev = crate::mei_config::ops_themes_revision_digest(&config);
-            if !themes_rev.is_empty() {
-                token_parts.insert("ops-themes".to_string(), themes_rev);
+    if app_toml_path.is_file() || config_path.is_file() {
+        watched_paths.insert(
+            if app_toml_path.is_file() {
+                APP_TOML_FILENAME
+            } else {
+                MEI_CONFIG_FILENAME
             }
+            .to_string(),
+        );
+        let config = load_mei_config_for_app(app_root, None);
+        token_parts.insert(
+            "mei-config".to_string(),
+            crate::mei_config::mei_config_compile_revision_digest(&config),
+        );
+        let themes_rev = crate::mei_config::ops_themes_revision_digest(&config);
+        if !themes_rev.is_empty() {
+            token_parts.insert("ops-themes".to_string(), themes_rev);
         }
         append_ops_source_revision_tokens(app_root, &mut token_parts, &mut watched_paths);
     }
@@ -461,10 +507,7 @@ fn append_ops_source_revision_tokens(
     token_parts: &mut BTreeMap<String, String>,
     watched_paths: &mut BTreeSet<String>,
 ) {
-    let config_path = app_mei_config_path(app_root);
-    let Ok(config) = MeiConfig::load_from_path(&config_path) else {
-        return;
-    };
+    let config = load_mei_config_for_app(app_root, None);
     for (source_id, entry) in &config.ops.sources {
         let rel = entry.path.trim().replace('\\', "/");
         if rel.is_empty() {
@@ -526,7 +569,6 @@ pub(crate) fn scoped_dependency_graph_routes(
 mod tests {
     use super::append_ops_source_revision_tokens;
     use crate::compile::source_file_content_signature;
-    use serde_json::json;
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::path::PathBuf;
@@ -547,18 +589,14 @@ mod tests {
         fs::create_dir_all(app_root.join("upload")).expect("create upload dir");
         fs::write(app_root.join("upload/test.xlsx"), b"hello world").expect("write source");
         fs::write(
-            app_root.join(".mei-config.json"),
-            serde_json::to_string_pretty(&json!({
-                "ops": {
-                    "sources": {
-                        "ledger": {
-                            "kind": "xlsx",
-                            "path": "upload/test.xlsx"
-                        }
-                    }
-                }
-            }))
-            .expect("serialize config"),
+            app_root.join("app.toml"),
+            r#"schema_version = "mei-app-v1"
+app_id = "demo"
+
+[ops.sources.ledger]
+kind = "xlsx"
+path = "upload/test.xlsx"
+"#,
         )
         .expect("write config");
 
@@ -579,7 +617,6 @@ mod tests {
         let _ = fs::remove_dir_all(app_root);
     }
 }
-
 
 #[cfg(test)]
 mod default_scene_v2_tests {

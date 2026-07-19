@@ -182,6 +182,9 @@ fn ref_keyword_parser() -> impl Parser<char, String, Error = Simple<char>> + Clo
         just("source_feature_ref").to("source_feature_ref"),
         just("feature_ref").to("feature_ref"),
         just("object_ref").to("object_ref"),
+        just("provider_ref").to("provider_ref"),
+        just("type_ref").to("type_ref"),
+        just("schema_ref").to("schema_ref"),
     ))
     .map(str::to_string)
 }

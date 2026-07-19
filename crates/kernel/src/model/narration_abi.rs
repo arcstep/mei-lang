@@ -1,48 +1,23 @@
-//! Phase 3 Narration ABI minimum freeze (0409 / 0105 §8).
-//!
-//! Projected from presentation_map.defaultScript / deck steps.
-//! No authored script ⇒ empty catalog (do not synthesize default cues).
+//! App-level Narration Track ABI (0409 / 0119).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-/// Public cue target kinds (no DOM / mesh paths).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
-pub enum NarrationCueTarget {
-    Slide(String),
-    Slot(String),
-    Viewpoint(String),
-    T2Page(String),
-    WorldEntity(String),
-}
-
-impl NarrationCueTarget {
-    pub fn kind_slug(&self) -> &'static str {
-        match self {
-            Self::Slide(_) => "slide",
-            Self::Slot(_) => "slot",
-            Self::Viewpoint(_) => "viewpoint",
-            Self::T2Page(_) => "t2_page",
-            Self::WorldEntity(_) => "world_entity",
-        }
-    }
-
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Slide(id)
-            | Self::Slot(id)
-            | Self::Viewpoint(id)
-            | Self::T2Page(id)
-            | Self::WorldEntity(id) => id.as_str(),
-        }
-    }
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum NarrationTiming {
+    Milliseconds(u64),
+    Manual,
 }
 
 /// One narration cue.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct NarrationCue {
     pub id: String,
-    pub target: NarrationCueTarget,
+    /// Fully-qualified public target. It is intentionally not split into stage/slide fields.
+    pub target_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,27 +25,45 @@ pub struct NarrationCue {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timing_ms: Option<u64>,
+    pub timing: Option<NarrationTiming>,
     pub source_anchor: String,
 }
 
 /// Ordered cue track.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct NarrationTrack {
     pub id: String,
+    pub title: String,
+    pub scope: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_for: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     #[serde(default)]
     pub cues: Vec<NarrationCue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<String>,
+    pub default_timing_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    pub source_anchor: String,
+    pub digest: String,
 }
 
-/// Stage-level narration catalog.
+/// App-level catalog. A single catalog may target multiple Stage/Admin entries.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct NarrationCatalog {
     #[serde(default)]
     pub catalog_id: String,
     #[serde(default)]
+    pub app_id: String,
+    #[serde(default)]
     pub tracks: Vec<NarrationTrack>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub default_track_by_entry: BTreeMap<String, String>,
+    #[serde(default)]
+    pub source_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_anchor: Option<String>,
 }

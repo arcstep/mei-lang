@@ -65,34 +65,34 @@ pub async fn authoring_structure_get(
                 .unwrap_or(path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let kind = if rel.ends_with("plane.mei") || rel.contains("/plane-") && rel.ends_with(".mei")
-            {
-                "plane"
-            } else if rel.ends_with("region.mei")
-                || (Path::new(&rel)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|n| n.starts_with("r-") && n.ends_with(".mei")))
-            {
-                "region"
-            } else if rel.ends_with("section.mei")
-                || (Path::new(&rel)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|n| n.starts_with("s-") && n.ends_with(".mei")))
-            {
-                "section"
-            } else if rel.ends_with("assembly.mei") {
-                "assembly"
-            } else if rel.ends_with("layout.mei") {
-                "layout"
-            } else if rel.ends_with("content.mei") {
-                "content"
-            } else if rel.ends_with(".mei") {
-                "mei"
-            } else {
-                continue;
-            };
+            let kind =
+                if rel.ends_with("plane.mei") || rel.contains("/plane-") && rel.ends_with(".mei") {
+                    "plane"
+                } else if rel.ends_with("region.mei")
+                    || (Path::new(&rel)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .is_some_and(|n| n.starts_with("r-") && n.ends_with(".mei")))
+                {
+                    "region"
+                } else if rel.ends_with("section.mei")
+                    || (Path::new(&rel)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .is_some_and(|n| n.starts_with("s-") && n.ends_with(".mei")))
+                {
+                    "section"
+                } else if rel.ends_with("assembly.mei") {
+                    "assembly"
+                } else if rel.ends_with("layout.mei") {
+                    "layout"
+                } else if rel.ends_with("content.mei") {
+                    "content"
+                } else if rel.ends_with(".mei") {
+                    "mei"
+                } else {
+                    continue;
+                };
             nodes.push(json!({
                 "path": rel,
                 "kind": kind,

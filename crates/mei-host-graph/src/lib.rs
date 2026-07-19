@@ -70,7 +70,7 @@ pub use eval_slot_group::{
     build_eval_slot_group_document, collect_slot_groups, ensure_eval_slot_group_cached,
     persist_eval_slot_group, EvalSlotGroupDocument, EVAL_SLOT_GROUP_SCHEMA,
 };
-pub use import::{import_bundle, load_block_artifact, ImportOptions};
+pub use import::{compile_and_import_workspace, import_bundle, load_block_artifact, ImportOptions};
 pub use layer_overlay::{
     default_theme_tokens, ensure_layout_overlay_cached, ensure_theme_tokens_cached,
     layout_overlay_from_draft, persist_layout_overlay, persist_theme_tokens, LayoutOverlayDocument,
@@ -94,6 +94,7 @@ pub use mei_lang_kernel::{
     accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
     presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,
 };
+pub use metric_hydrate::load_app_metric_resources;
 pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
@@ -169,7 +170,8 @@ pub use shell_layer::{
     ShellLayerDocument, SHELL_LAYER_SCHEMA,
 };
 pub use stage_bootstrap::{
-    narration_catalogs_bootstrap, stage_programs_bootstrap, stage_registry_bootstrap,
+    narration_catalog_digest_bootstrap, narration_catalogs_bootstrap, stage_programs_bootstrap,
+    stage_registry_bootstrap,
 };
 pub use stage_program_discover::{
     discover_program_for_stage, discover_stage_programs, scene_use_to_target,

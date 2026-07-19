@@ -165,6 +165,43 @@ impl BindingValue {
 
 pub fn decode_ref_value(value: &Value) -> Option<RefExpr> {
     if let Some(obj) = value.as_object() {
+        if let (Some(call), Some(args)) = (
+            obj.get("__call").and_then(Value::as_str),
+            obj.get("__args").and_then(Value::as_object),
+        ) {
+            let ref_kind = match call {
+                "scene_ref" => RefKind::Scene,
+                "world_ref" => RefKind::World,
+                "flow_ref" => RefKind::Flow,
+                "frame_ref" => RefKind::Frame,
+                "panel_ref" => RefKind::Panel,
+                "dataset_ref" | "data_ref" => RefKind::Dataset,
+                "metric_ref" => RefKind::Metric,
+                "resource_ref" => RefKind::Resource,
+                "entity_ref" | "object_ref" => RefKind::Entity,
+                "component_ref" => RefKind::Component,
+                _ => return None,
+            };
+            let id = args
+                .get("id")
+                .or_else(|| args.get("arg0"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string);
+            let use_key = args
+                .get("use")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string);
+            return Some(RefExpr {
+                kind: ref_kind,
+                id,
+                locator: decode_locator(args),
+                use_key,
+            });
+        }
         if let Some(kind) = obj.get("__ref").and_then(Value::as_str) {
             let ref_kind = match kind {
                 "scene" => RefKind::Scene,

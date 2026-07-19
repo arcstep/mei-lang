@@ -119,10 +119,7 @@ pub fn collect_serve_launch_targets(
 }
 
 /// Merge CLI `--app` target over `--launch` / `--app-config` (CLI wins per app).
-pub fn merge_launch_targets(
-    base: Vec<LaunchTarget>,
-    cli: Vec<LaunchTarget>,
-) -> Vec<LaunchTarget> {
+pub fn merge_launch_targets(base: Vec<LaunchTarget>, cli: Vec<LaunchTarget>) -> Vec<LaunchTarget> {
     if cli.is_empty() {
         return dedupe_by_app(base);
     }

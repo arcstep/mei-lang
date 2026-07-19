@@ -16,8 +16,8 @@ use mei_host_core::HostContext;
 use mei_host_graph::{
     assemble_scope_from_registry, build_structure_full_document, clear_assemble_cache_for_app,
     collect_all_t2_page_scenes, import_bundle, list_scope_routes, ImportOptions, McgRegistryWriter,
-    MrgRegistryWriter, SCENE_VIEW_MANIFEST_SCHEMA, STRUCTURE_FULL_SCHEMA,
-    MCG_REGISTRY_SCHEMA_VERSION, MRG_REGISTRY_SCHEMA_V3,
+    MrgRegistryWriter, MCG_REGISTRY_SCHEMA_VERSION, MRG_REGISTRY_SCHEMA_V3,
+    SCENE_VIEW_MANIFEST_SCHEMA, STRUCTURE_FULL_SCHEMA,
 };
 use serde_json::{json, Value};
 
@@ -205,7 +205,10 @@ fn layer_plan_summary(plan: &Value) -> Value {
     let mut tier_counts = BTreeMap::new();
     if let Some(tiers) = plan.get("tiers").and_then(|v| v.as_object()) {
         for (tier, entries) in tiers {
-            tier_counts.insert(tier.clone(), entries.as_array().map(|a| a.len()).unwrap_or(0));
+            tier_counts.insert(
+                tier.clone(),
+                entries.as_array().map(|a| a.len()).unwrap_or(0),
+            );
         }
     }
     json!({
@@ -258,7 +261,9 @@ fn normalize_unit(workspace: &Path, app_id: &str, scene_id: &str) -> Value {
     let mrg = MrgRegistryWriter::load(workspace, app_id);
     let mut mcg_kinds = BTreeMap::new();
     for node in &mcg.nodes {
-        *mcg_kinds.entry(node.id.kind.slug().to_string()).or_insert(0usize) += 1;
+        *mcg_kinds
+            .entry(node.id.kind.slug().to_string())
+            .or_insert(0usize) += 1;
     }
 
     let structure = build_structure_full_document(&outcome.compiled, "phase0-baseline");
@@ -297,8 +302,11 @@ fn normalize_unit(workspace: &Path, app_id: &str, scene_id: &str) -> Value {
                 })
             })
             .collect();
-        let registry_ids: std::collections::BTreeSet<_> =
-            registry.stages.iter().map(|s| s.id.as_str().to_string()).collect();
+        let registry_ids: std::collections::BTreeSet<_> = registry
+            .stages
+            .iter()
+            .map(|s| s.id.as_str().to_string())
+            .collect();
         let excluded_t2: Vec<String> = t2_pages
             .iter()
             .filter(|id| !registry_ids.contains(id.as_str()))
@@ -314,7 +322,10 @@ fn normalize_unit(workspace: &Path, app_id: &str, scene_id: &str) -> Value {
             .collect();
         assert_eq!(
             registry.stage_ids(),
-            legacy_stage_ids.iter().map(String::as_str).collect::<Vec<_>>(),
+            legacy_stage_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             "{app_id}/{scene_id}: stage_registry must match filtered scene_routes"
         );
         for t2 in &t2_pages {
@@ -527,9 +538,10 @@ fn normalize_unit(workspace: &Path, app_id: &str, scene_id: &str) -> Value {
                 "mini-park cockpit must keep strict Fill-down policy"
             );
         }
-        let profile_layout_policy = compiled.stage_programs.get(scene_id).map(|p| {
-            mei_lang_kernel::ProfileLayoutPolicy::for_profile(p.profile).summary_label()
-        });
+        let profile_layout_policy = compiled
+            .stage_programs
+            .get(scene_id)
+            .map(|p| mei_lang_kernel::ProfileLayoutPolicy::for_profile(p.profile).summary_label());
         let stage_surface = compiled
             .stage_programs
             .get(scene_id)
@@ -666,7 +678,8 @@ fn stage_architecture_runtime_baseline_assembles_golden_units() {
         }
         let expected = read_fixture(&path);
         assert_eq!(
-            summary, expected,
+            summary,
+            expected,
             "{} / {}: runtime baseline mismatch.\n\
              Re-run with MEI_UPDATE_STAGE_BASELINE=1 after intentional changes.\n\
              actual={}\nexpected={}",
@@ -686,7 +699,9 @@ fn stage_architecture_runtime_baseline_schema_ledger_constants_match_0106() {
         Some("mei-mcg-registry-v2")
     );
     assert_eq!(
-        ledger.get("mrg_registry_host_graph").and_then(|v| v.as_str()),
+        ledger
+            .get("mrg_registry_host_graph")
+            .and_then(|v| v.as_str()),
         Some("mei-mrg-registry-v3")
     );
     assert_eq!(

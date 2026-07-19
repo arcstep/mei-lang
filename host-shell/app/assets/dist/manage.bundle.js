@@ -232,14 +232,12 @@
     return isWorkspaceSurfaceRoute(pathname);
   }
 
-  function isConfigRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/config" || path.startsWith("/config?") || path.startsWith("/apps/config/");
+  function isConfigRoute() {
+    return false;
   }
 
-  function isUploadRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/upload" || path.startsWith("/upload?") || path.startsWith("/apps/upload/");
+  function isUploadRoute() {
+    return false;
   }
 
   function isStandaloneViewRoute(pathname = global.location?.pathname) {
@@ -1598,8 +1596,6 @@
     const path = String(global.location?.pathname || "");
     if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
     if (path === "/home" || path === "/") return "home";
-    if (path.startsWith("/config")) return "config";
-    if (path.startsWith("/upload")) return "upload";
     if (path.startsWith("/mcg")) return "mcg";
     return "";
   }
@@ -3896,11 +3892,6 @@
                 : ""
             }
           </header>
-          <div class="mei-runtime-control__app-card-admin">
-            <a class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" href="/admin/apps/${encodeURIComponent(appId)}/ops_config">配置</a>
-            <a class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" href="/admin/apps/${encodeURIComponent(appId)}/upload_files">上传</a>
-            <a class="mei-text-muted mei-font-1" href="/config?app=${encodeURIComponent(appId)}">旧 /config</a>
-          </div>
           <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
           <div class="mei-runtime-control__app-card-launch">
             <label class="mei-runtime-control__mode-field">
@@ -15959,14 +15950,7 @@
     if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, [
-      "/upload",
-      "/upload?",
-      "/apps/upload/",
-      "/config",
-      "/config?",
-      "/apps/config/",
-    ]);
+    return null;
   }
 
 

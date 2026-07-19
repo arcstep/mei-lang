@@ -367,8 +367,7 @@ mod tests {
     #[test]
     fn warming_page_keeps_only_the_actionable_status_copy() {
         let html = render_startup_warming_main_html("工作区尚未配置");
-        let script =
-            startup_warming_poll_script("/apps/zhifa/home", "zhifa", "home", "app");
+        let script = startup_warming_poll_script("/apps/zhifa/home", "zhifa", "home", "app");
 
         assert!(html.contains("工作区尚未配置"));
         assert!(html.contains("mei-host-shell__progress"));

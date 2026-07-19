@@ -87,7 +87,10 @@ fn inject_runtime_component_scripts(
     if scripts.is_empty() {
         return (html, 0);
     }
-    (inject_html_before_head_close(html, scripts.as_str()), assets.len())
+    (
+        inject_html_before_head_close(html, scripts.as_str()),
+        assets.len(),
+    )
 }
 
 /// Cache token so a later import that adds/removes scene components (e.g. `cockpit.data-table`)
@@ -204,8 +207,7 @@ fn finalize_access_html(
         app_id,
     )
     .client_payload();
-    let bootstrap_status =
-        mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
+    let bootstrap_status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
     let client_revision = bootstrap_status
         .allowed
         .then_some(bootstrap_status.client_revision)
@@ -356,11 +358,7 @@ pub async fn access_app_stage(
                 .into_response();
         }
     }
-    let surface = if is_surface_slug {
-        route.slug()
-    } else {
-        "app"
-    };
+    let surface = if is_surface_slug { route.slug() } else { "app" };
     let mut html = finalize_access_html(&state, app_id.as_str(), scene_id.as_str(), surface);
     html = stamp_temp_stage_axes(html, &query);
     html_response(html)
@@ -374,10 +372,7 @@ fn stamp_temp_stage_axes(html: String, query: &AccessQuery) -> String {
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        attrs.push_str(&format!(
-            " data-mei-scope=\"{}\"",
-            html_escape_attr(scope)
-        ));
+        attrs.push_str(&format!(" data-mei-scope=\"{}\"", html_escape_attr(scope)));
     }
     if let Some(focus) = query
         .focus
@@ -386,10 +381,7 @@ fn stamp_temp_stage_axes(html: String, query: &AccessQuery) -> String {
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        attrs.push_str(&format!(
-            " data-mei-focus=\"{}\"",
-            html_escape_attr(focus)
-        ));
+        attrs.push_str(&format!(" data-mei-focus=\"{}\"", html_escape_attr(focus)));
     }
     if attrs.is_empty() {
         return html;

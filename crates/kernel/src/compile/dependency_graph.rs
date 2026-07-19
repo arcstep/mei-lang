@@ -283,6 +283,16 @@ fn collect_direct_dependencies(
     }
 
     if let Ok(content) = std::fs::read_to_string(resolve_app_mei_file_path(app_root, &target)) {
+        if let Ok(pattern) = regex::Regex::new(r#"scene_file\s*=\s*"([^"]+)""#) {
+            for captures in pattern.captures_iter(&content) {
+                if let Some(path) = captures.get(1) {
+                    let dep = normalize_rel_path(path.as_str());
+                    if !dep.is_empty() {
+                        deps.insert(dep);
+                    }
+                }
+            }
+        }
         for from_dataset in extract_from_dataset_tokens(&content) {
             let dep = normalize_rel_path(&from_dataset);
             if dep.ends_with(".mei") {
@@ -362,13 +372,14 @@ mod tests {
         fs::create_dir_all(app.join("src/scenes")).expect("mkdir");
         fs::write(
             app.join("src/main.mei"),
-            r#"[
-  {"kind":"app","id":"demo"},
-  {"kind":"ref","scene":"scenes/home.mei"}
-]"#,
+            r#"app(
+    id = "demo",
+    default_stage = "home",
+    scene = scene_ref(scene_file = "scenes/home.mei"),
+)"#,
         )
         .expect("write main");
-        fs::write(app.join("src/scenes/home.mei"), r#"scene(id=home)"#).expect("write scene");
+        fs::write(app.join("src/scenes/home.mei"), r#"scene(id = "home")"#).expect("write scene");
         let app_decls = evaluate_mei_file_cached(&resolve_app_mei_file_path(&app, "main.mei"))
             .expect("main decls");
         let routes = vec![CompiledSceneRoute {

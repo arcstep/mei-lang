@@ -1,0 +1,10 @@
+page_instance(
+    key = "fx-narration-journey/home/t2/warnings-detail",
+    scene = "warnings-detail",
+    profile = "cockpit",
+    summary = "Narration target fixture page",
+    capabilities = [],
+    bindings = {
+        "projection_slots": [],
+    },
+)

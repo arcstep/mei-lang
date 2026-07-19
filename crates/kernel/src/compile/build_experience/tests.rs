@@ -171,6 +171,18 @@ fn compile_coordinate_for_template_file_uses_authoring_preview() {
     };
     use std::collections::BTreeMap;
 
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source_root = temp.path();
+    let app_root = source_root.join("apps/demo");
+    std::fs::create_dir_all(source_root.join("stock/templates/cockpit"))
+        .expect("create template dir");
+    std::fs::create_dir_all(&app_root).expect("create app dir");
+    std::fs::write(source_root.join("workspace.json"), "{}").expect("write workspace config");
+    std::fs::write(
+        source_root.join("stock/templates/cockpit/main.mei"),
+        "scene(id = \"preview\")",
+    )
+    .expect("write preview template");
     let mut templates = BTreeMap::new();
     templates.insert(
         "cockpit.main".to_string(),
@@ -194,7 +206,7 @@ fn compile_coordinate_for_template_file_uses_authoring_preview() {
     let compiled = CompiledApp {
         app_id: "demo".to_string(),
         title: "demo".to_string(),
-        app_root: "zhifa".to_string(),
+        app_root: app_root.to_string_lossy().to_string(),
         scene_routes: vec![CompiledSceneRoute {
             scene_id: "home".to_string(),
             frame_id: None,
@@ -230,7 +242,10 @@ fn compile_coordinate_for_template_file_uses_authoring_preview() {
     let node = BuildNodeId::template("cockpit/main.mei");
     let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
     assert_eq!(coord.scene_id, None);
-    assert_eq!(coord.preview_target, "../stock/templates/cockpit/main.mei");
+    assert_eq!(
+        coord.preview_target,
+        "../../stock/templates/cockpit/main.mei"
+    );
     assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
 }
 

@@ -36,9 +36,12 @@ pub fn admin_nav_items_for_app(
         .nav_items_for_capabilities(app_id, &caps)
         .into_iter()
         .map(|r| AdminNavItem {
-            id: r.resource_id,
-            label: r.title,
-            href: r.href,
+            id: format!(
+                "{}.{}",
+                r.registry_entry.resource_id, r.registry_entry.module_id
+            ),
+            label: r.registry_entry.title.clone(),
+            href: r.registry_entry.canonical_route.clone(),
         })
         .collect()
 }

@@ -551,8 +551,11 @@ mod tests {
         let app = root.join("apps/demo");
         let plane = app.join("src/scene/home/t1/plane.mei");
         fs::create_dir_all(plane.parent().unwrap()).expect("mkdir");
-        fs::write(app.join("app.toml"), "title = \"demo\"\ndefault_stage = \"home\"\n")
-            .expect("toml");
+        fs::write(
+            app.join("app.toml"),
+            "title = \"demo\"\ndefault_stage = \"home\"\n",
+        )
+        .expect("toml");
         fs::write(&plane, "plane_layout(id = \"t1\")\n").expect("plane");
         assert_eq!(find_app_root(&plane).as_deref(), Some(app.as_path()));
         let _ = fs::remove_dir_all(&root);
@@ -567,7 +570,10 @@ mod tests {
         fs::write(&main, "app(id = \"hello\")\n").expect("main");
         assert_eq!(find_app_root(&main).as_deref(), Some(app.as_path()));
         // Must not treat `src/` as the app root.
-        assert_ne!(find_app_root(&main).as_deref(), Some(app.join("src").as_path()));
+        assert_ne!(
+            find_app_root(&main).as_deref(),
+            Some(app.join("src").as_path())
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

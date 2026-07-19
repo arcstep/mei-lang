@@ -7,7 +7,6 @@ use crate::model::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-
 fn optional_external_workspace() -> Option<std::path::PathBuf> {
     let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
     let path = std::path::PathBuf::from(raw.trim());
@@ -46,7 +45,7 @@ fn sample_scene_contract(panels: Vec<UiNodeDecl>) -> SceneContract {
             bindings: Value::Null,
             examples: Value::Null,
             access_export: true,
-        t2_pages: Vec::new(),
+            t2_pages: Vec::new(),
         },
         themes: Vec::new(),
         shared: Value::Null,

@@ -50,7 +50,9 @@ fn ensure_imported() -> Option<PathBuf> {
 
 #[test]
 fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
-    let Some(workspace) = ensure_imported() else { return; };
+    let Some(workspace) = ensure_imported() else {
+        return;
+    };
     let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
     let targets = collect_warmup_targets(&ctx, Some("home")).expect("warmup targets");
     assert!(

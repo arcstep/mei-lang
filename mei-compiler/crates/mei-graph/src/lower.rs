@@ -91,6 +91,7 @@ fn lower_top_level(
             | "page_instance"
             | "link_decl"
             | "navigation"
+            | "provider_binding"
     ) {
         if let Some(obj) = payload.as_object_mut() {
             obj.entry("source_file".to_string())
@@ -155,6 +156,7 @@ fn schema_for_constructor(name: &str) -> &'static str {
         "metric_def_bundle" => "mei-metric-def-bundle-artifact-v1",
         "navigation" | "link_decl" => "mei-navigation-artifact-v1",
         "warmup_policy" => "mei-warmup-policy-artifact-v1",
+        "provider_binding" => "mei-provider-binding-v1",
         "object_catalog" => "mei-object-catalog-v1",
         _ => "mei-graph-block-v2",
     }
@@ -204,6 +206,7 @@ fn derive_block_id(
         }
         "metric_def_bundle" => kw_string(obj, "key").map(|key| format!("metric_def_bundle:{key}")),
         "object_catalog" => kw_string(obj, "id").map(|id| format!("object_catalog:{id}")),
+        "provider_binding" => kw_string(obj, "id").map(|id| format!("provider_binding:{id}")),
         "world" => kw_string(obj, "id").map(|id| format!("world_model:{id}")),
         "warmup_policy" => {
             let scope = obj.get("scope").cloned().unwrap_or(JsonValue::Null);
@@ -645,19 +648,17 @@ fn derive_object_field_links_json(
     relations: &BTreeMap<String, Vec<JsonValue>>,
 ) -> BTreeMap<String, Vec<JsonValue>> {
     let mut links: BTreeMap<String, Vec<JsonValue>> = BTreeMap::new();
-    let self_detail = slots
-        .get("detail")
-        .and_then(|slot| {
-            if slot.get("kind").and_then(JsonValue::as_str) == Some("page_ref") {
-                slot.get("id")
-                    .and_then(JsonValue::as_str)
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string)
-            } else {
-                None
-            }
-        });
+    let self_detail = slots.get("detail").and_then(|slot| {
+        if slot.get("kind").and_then(JsonValue::as_str) == Some("page_ref") {
+            slot.get("id")
+                .and_then(JsonValue::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        }
+    });
     let self_has_detail = self_detail.is_some();
     let identity_field = identity_field.trim();
     if !identity_field.is_empty() {

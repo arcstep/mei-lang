@@ -299,53 +299,41 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
 ];
 
 pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
-    "host-banner-drag.js",
-    "host-http-feedback.js",
-    "host-auth-session.js",
-    "host-heartbeat.js",
-    "topbar-app-group-menu.js",
-    "statusbar.js",
-    "manage-ops-panel/p1.js",
-    "manage-ops-panel/p2.js",
-    "manage-ops-panel/p3.js",
-    "manage-ops-panel/p4.js",
+
 ];
 
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
-    "host-banner-drag.js",
-    "host-http-feedback.js",
-    "host-auth-session.js",
-    "host-heartbeat.js",
-    "topbar-app-group-menu.js",
-    "statusbar.js",
-    "workspace-splitters.js",
-    "source-tree-controls.js",
-    "upload-upload-panel/p1.js",
-    "upload-upload-panel/p2.js",
+
 ];
 
 pub(super) const BUNDLE_ADMIN_SCRIPTS: &[&str] = &[
+    "spa-navigation/route-predicates-standalone.js",
     "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
     "topbar-app-group-menu.js",
     "statusbar.js",
-    "workspace-splitters.js",
-    "source-tree-controls.js",
-    "admin-kit/form-card.js",
-    "admin-kit/asset-slot.js",
-    "manage-ops-panel/p1.js",
-    "manage-ops-panel/p2.js",
-    "manage-ops-panel/p3.js",
-    "manage-ops-panel/p4.js",
-    "upload-upload-panel/p1.js",
-    "upload-upload-panel/p2.js",
+    "spa-navigation/preamble.js",
+    "spa-navigation/constants.js",
+    "spa-navigation/events.js",
+    "spa-navigation/route-predicates.js",
+    "spa-navigation/spa/revision-contract.js",
+    "spa-navigation/spa/view-context.js",
+    "spa-navigation/spa/layer-artifact-cache.js",
+    "spa-navigation/spa/layer-store.js",
+    "spa-navigation/spa/view-revision-client.js",
+    "spa-navigation/spa/scene-manifest-loader.js",
+    "spa-navigation/spa/view-compositor.js",
+    "spa-navigation/spa/preview-materializer.js",
+    "spa-navigation/spa/script-loader.js",
+    "spa-navigation/spa/initial-scene-restore.js",
+    "spa-navigation/spa/thin-shell-host.js",
+    "spa-navigation/epilogue.js",
 ];
 
 pub(super) const BUNDLE_STYLES_ORDER: &[&str] = &[
     "app-shell.css",
-    "admin-kit/admin-kit.css",
     "tailwind.css",
     "vendor/codemirror.css",
     "vendor/codemirror-merge.css",

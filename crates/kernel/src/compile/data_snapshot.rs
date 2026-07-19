@@ -122,9 +122,12 @@ pub fn parquet_snapshot_path(
 
     // Sealed portable snapshot: resolve via import-manifest without requiring xlsx on disk.
     if snapshot_sealed_data_enabled(app_root) {
-        if let Some(entry) =
-            resolve_sealed_import_entry(app_root, source_path, Some(sheet).filter(|s| !s.is_empty()), header)
-        {
+        if let Some(entry) = resolve_sealed_import_entry(
+            app_root,
+            source_path,
+            Some(sheet).filter(|s| !s.is_empty()),
+            header,
+        ) {
             let store = data_snapshot_store_root(app_root);
             let artifact = PathBuf::from(&entry.artifact_path);
             let candidate = if artifact.is_file() {
@@ -463,12 +466,9 @@ pub fn try_load_xlsx_parquet_snapshot(
     let file = File::open(&path).ok()?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
     let (stored_sig, columns) = parquet_meta_sig_and_columns(&builder);
-    if let Some(entry) = resolve_sealed_import_entry(
-        app_root,
-        source_path.trim(),
-        sheet,
-        header_row.max(1),
-    ) {
+    if let Some(entry) =
+        resolve_sealed_import_entry(app_root, source_path.trim(), sheet, header_row.max(1))
+    {
         if !stored_sig.is_empty() && stored_sig != entry.content_signature {
             return None;
         }

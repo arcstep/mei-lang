@@ -91,8 +91,9 @@ pub(crate) fn vscode_language_extension_guidance(workspace_root: &Path) -> Edito
                     .and_then(|v| v.as_array())
                     .is_some_and(|items| {
                         items.iter().any(|item| {
-                            item.as_str()
-                                .is_some_and(|id| id == "mei-lang.mei-lang" || id.starts_with("mei-lang."))
+                            item.as_str().is_some_and(|id| {
+                                id == "mei-lang.mei-lang" || id.starts_with("mei-lang.")
+                            })
                         })
                     });
                 if recommends_mei {

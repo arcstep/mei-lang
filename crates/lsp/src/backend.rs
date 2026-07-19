@@ -83,7 +83,8 @@ impl Backend {
                     uri.clone(),
                     vec![compile_failure_diagnostic(
                         "app_root_not_found",
-                        "未找到 app 根目录（需要 app.toml、app.config.json 或 src/main.mei）".to_string(),
+                        "未找到 app 根目录（需要 app.toml、app.config.json 或 src/main.mei）"
+                            .to_string(),
                         None,
                     )],
                     None,

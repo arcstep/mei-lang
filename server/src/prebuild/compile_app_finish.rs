@@ -104,11 +104,16 @@ pub(crate) fn finish_run_prebuild_for_app(
         }
     }
 
-    let required_xlsx_sources = collect_required_xlsx_sources(
+    let mut required_xlsx_sources = collect_required_xlsx_sources(
         app,
         unique_prepared_outcomes_for_artifacts(&prepared_outcomes)
             .iter()
             .map(|prepared| prepared.outcome.compiled.as_ref()),
+    );
+    required_xlsx_sources.extend(
+        mei_host_graph::collect_app_xlsx_sources(source_root, app.app_id.as_str()).with_context(
+            || format!("collect native graph data sources for app `{}`", app.app_id),
+        )?,
     );
     let snapshot_started = Instant::now();
     let data_snapshots = match mode {

@@ -46,8 +46,6 @@
     const path = String(global.location?.pathname || "");
     if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
     if (path === "/home" || path === "/") return "home";
-    if (path.startsWith("/config")) return "config";
-    if (path.startsWith("/upload")) return "upload";
     if (path.startsWith("/mcg")) return "mcg";
     return "";
   }

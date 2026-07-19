@@ -67,9 +67,7 @@ pub fn tiles_dir_has_mbtiles(tiles_dir: &Path) -> bool {
 }
 
 /// Spawn Martin for `{workspace}/stock/gis/tiles`, or `Ok(None)` when skipped.
-pub async fn spawn_managed_martin(
-    workspace_root: &Path,
-) -> anyhow::Result<Option<ManagedMartin>> {
+pub async fn spawn_managed_martin(workspace_root: &Path) -> anyhow::Result<Option<ManagedMartin>> {
     if external_gis_upstream_configured() {
         tracing::info!(
             "skipping managed Martin; MEI_GIS_PROXY_UPSTREAM is set (external upstream)"

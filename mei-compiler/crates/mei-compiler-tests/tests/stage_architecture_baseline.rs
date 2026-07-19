@@ -127,9 +127,7 @@ fn deck_slide_summary(blocks: &[GraphBlock]) -> Value {
             b.kind.contains("step")
                 || b.block_id.contains("@step")
                 || b.block_id.contains("step:")
-                || b.payload
-                    .to_string()
-                    .contains("\"@step\"")
+                || b.payload.to_string().contains("\"@step\"")
         })
         .map(|b| b.block_id.clone())
         .collect();
@@ -184,7 +182,11 @@ fn stage_registry_summary(blocks: &[GraphBlock], default_scene: &str) -> Value {
         if !(key.starts_with("access:") || block.block_id.starts_with("navigation:access:")) {
             continue;
         }
-        let scene = args.get("scene").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let scene = args
+            .get("scene")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         if scene.is_empty() || !seen.insert(scene.to_string()) {
             continue;
         }
@@ -226,7 +228,11 @@ fn stage_registry_summary(blocks: &[GraphBlock], default_scene: &str) -> Value {
     excluded_t2.sort();
     let default_stage_id = stages
         .iter()
-        .find(|s| s.get("is_default").and_then(|v| v.as_bool()).unwrap_or(false))
+        .find(|s| {
+            s.get("is_default")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
         .and_then(|s| s.get("stage_id").and_then(|v| v.as_str()))
         .map(str::to_string)
         .or_else(|| {
@@ -392,14 +398,15 @@ fn normalize_summary(outcome: &CompileOutcome) -> Value {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            if let Some(stage) = registry
-                .get("stages")
-                .and_then(|v| v.as_array())
-                .and_then(|stages| {
-                    stages.iter().find(|s| {
-                        s.get("stage_id").and_then(|v| v.as_str()) == Some(stage_id.as_str())
+            if let Some(stage) =
+                registry
+                    .get("stages")
+                    .and_then(|v| v.as_array())
+                    .and_then(|stages| {
+                        stages.iter().find(|s| {
+                            s.get("stage_id").and_then(|v| v.as_str()) == Some(stage_id.as_str())
+                        })
                     })
-                })
             {
                 if let Some(anchor) = stage.get("source_anchor").and_then(|v| v.as_str()) {
                     if !anchor.is_empty() {
@@ -421,7 +428,8 @@ fn normalize_summary(outcome: &CompileOutcome) -> Value {
                     if scene != stage_id {
                         continue;
                     }
-                    if !(key.starts_with("access:") || block.block_id.starts_with("navigation:access:"))
+                    if !(key.starts_with("access:")
+                        || block.block_id.starts_with("navigation:access:"))
                     {
                         continue;
                     }
@@ -515,7 +523,8 @@ fn stage_architecture_baseline_compiles_six_goldens() {
         }
         let expected = read_fixture(&path);
         assert_eq!(
-            summary_a, expected,
+            summary_a,
+            expected,
             "{app_id}: compiler baseline mismatch.\n\
              Re-run with MEI_UPDATE_STAGE_BASELINE=1 after intentional source changes.\n\
              actual={}\nexpected={}",

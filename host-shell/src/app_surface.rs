@@ -105,8 +105,7 @@ mod tests {
 
     #[test]
     fn parse_surface_path() {
-        let (app, mode, tail) =
-            parse_apps_surface_path("/apps/zhifa/layout").expect("layout path");
+        let (app, mode, tail) = parse_apps_surface_path("/apps/zhifa/layout").expect("layout path");
         assert_eq!(app, "zhifa");
         assert_eq!(mode, UiRouteMode::Layout);
         assert!(tail.is_empty());

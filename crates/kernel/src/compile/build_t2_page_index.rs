@@ -402,7 +402,8 @@ mod tests {
                 world_metric_id: None,
                 explain_block_id: None,
                 semantic_label: Some(
-                    "mini-data/home/t1/region-right-rail/section-warning/plane-warnings".to_string(),
+                    "mini-data/home/t1/region-right-rail/section-warning/plane-warnings"
+                        .to_string(),
                 ),
                 children: Vec::new(),
             }],

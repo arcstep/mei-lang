@@ -7,9 +7,7 @@ use std::path::Path;
 
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
-use crate::ui::view_routing::{
-    app_scene_href, cross_app_href, home_href, host_runtime_href,
-};
+use crate::ui::view_routing::{app_scene_href, cross_app_href, home_href, host_runtime_href};
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
 use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
@@ -18,8 +16,6 @@ use crate::ui::topbar::menus::{DEFAULT_BRAND_LOGO_HREF, DEFAULT_BRAND_TITLE};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellNavActive {
     Home,
-    Config,
-    Upload,
     Runtime,
     Mcg,
 }
@@ -316,11 +312,7 @@ pub(crate) fn topbar_view(
         }
         .into_any()
     };
-    let system_toolbar = shell_nav_view(
-        shell_nav_active,
-        auth_enabled,
-        auth_account,
-    );
+    let system_toolbar = shell_nav_view(shell_nav_active, auth_enabled, auth_account);
     let account_view = account_menu_view(auth_enabled, auth_account);
     let app_context_class = if has_app_context {
         "topbar-app-context has-app-context"

@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 use mei_host_auth::html_escape;
-use mei_lang_kernel::{AdminPageProgram, PageProgram};
+use mei_lang_kernel::{AdminArtifactRefs, AdminEntryProjection, AdminRegistryEntry, PageProgram};
 use sha2::{Digest, Sha256};
 
 mod home_generated {
@@ -17,8 +17,30 @@ pub(crate) struct HostPagePack {
     pub pack_id: String,
     pub digest: String,
     pub page_program: PageProgram,
-    pub admin_page_program: Option<AdminPageProgram>,
     pub aot_body_template: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AdminHostPagePack {
+    pub registry_ref: AdminRegistryEntry,
+    pub page_program: PageProgram,
+    pub admin_registry_digest: String,
+    pub page_structure_digest: String,
+    pub artifact_refs: AdminArtifactRefs,
+}
+
+pub(crate) fn admin_page_pack(
+    entry: &AdminEntryProjection,
+    admin_registry_digest: &str,
+) -> AdminHostPagePack {
+    AdminHostPagePack {
+        registry_ref: entry.registry_entry.clone(),
+        page_program: entry.page_program.clone(),
+        admin_registry_digest: admin_registry_digest.to_string(),
+        page_structure_digest: entry.page_structure_digest.clone(),
+        artifact_refs: entry.artifact_refs.clone(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +73,6 @@ pub(crate) fn home_page_pack() -> &'static HostPagePack {
             home_generated::HOME_PAGE_SOURCE_ANCHOR,
             home_generated::HOME_PAGE_SCENE_REF,
         ),
-        admin_page_program: None,
         aot_body_template: home_generated::HOME_PAGE_PACK_TEMPLATE.to_string(),
     })
 }
@@ -67,26 +88,19 @@ pub(crate) fn runtime_page_pack() -> &'static HostPagePack {
             runtime_generated::RUNTIME_PAGE_SOURCE_ANCHOR,
             runtime_generated::RUNTIME_PAGE_SCENE_REF,
         ),
-        admin_page_program: None,
         aot_body_template: runtime_generated::RUNTIME_PAGE_PACK_TEMPLATE.to_string(),
     })
 }
 
 fn canonical_page_pack_payload(pack: &HostPagePack) -> String {
-    let admin_resource_id = pack
-        .admin_page_program
-        .as_ref()
-        .map(|program| program.resource_id.as_str())
-        .unwrap_or_default();
     format!(
-        "host-page-pack-v1\npack_id:{}\npage_id:{}\ntitle:{}\nsource_anchor:{}\nsurface:{}\nscene_ref:{}\nadmin_resource_id:{}\naot_body:\n{}",
+        "host-page-pack-v1\npack_id:{}\npage_id:{}\ntitle:{}\nsource_anchor:{}\nsurface:{}\nscene_ref:{}\nadmin_resource_id:\naot_body:\n{}",
         pack.pack_id,
         pack.page_program.page_id,
         pack.page_program.title.as_deref().unwrap_or_default(),
         pack.page_program.source_anchor,
         pack.page_program.surface.as_str(),
         pack.page_program.root.scene_ref(),
-        admin_resource_id,
         pack.aot_body_template,
     )
 }
@@ -108,8 +122,7 @@ fn validate_page_pack<'a>(
         && pack.page_program.title == expected.page_program.title
         && pack.page_program.source_anchor == expected.page_program.source_anchor
         && pack.page_program.surface.as_str() == "document"
-        && pack.page_program.root.scene_ref() == expected.page_program.root.scene_ref()
-        && pack.admin_page_program.is_none();
+        && pack.page_program.root.scene_ref() == expected.page_program.root.scene_ref();
     if !metadata_valid {
         return Err(HostPagePackError::InvalidMetadata);
     }
@@ -212,7 +225,6 @@ mod tests {
             "host://pagepacks/home.page.mdx"
         );
         assert_eq!(pack.page_program.root.scene_ref(), "host/home");
-        assert!(pack.admin_page_program.is_none());
         assert_eq!(pack.digest, digest_for_page_pack(pack));
         assert_eq!(pack.digest.len(), "sha256:".len() + 64);
         assert!(std::ptr::eq(pack, home_page_pack()));

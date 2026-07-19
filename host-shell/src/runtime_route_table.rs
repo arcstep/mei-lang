@@ -208,4 +208,3 @@ mod tests {
         assert!(table.load().identity_for("zhifa", None).is_none());
     }
 }
-

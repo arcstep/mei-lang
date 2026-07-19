@@ -16,8 +16,7 @@ fn ws_demo_v2() -> Option<PathBuf> {
 fn ensure_zhifa_imported() -> Option<PathBuf> {
     let workspace = ws_demo_v2()?;
     INIT.call_once(|| {
-        let bundle =
-            workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
+        let bundle = workspace.join("apps/zhifa/env/current/build/exchange/zhifa.meibundle");
         if !bundle.is_file() {
             return;
         }

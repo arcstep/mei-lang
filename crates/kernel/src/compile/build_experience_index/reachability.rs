@@ -91,6 +91,11 @@ fn strip_stock_facet_roots_for_business_app(
 fn ensure_mcg_root(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
     roots.retain(|root| root.group != "mcg");
     let source_root = source_root_from_app(compiled);
+    let app_root =
+        crate::mei_config::resolve_app_root(source_root.as_path(), compiled.app_id.as_str());
+    if crate::mei_config::resolve_app_env_dir_following_current(app_root.as_path()).is_none() {
+        return;
+    }
     let mcg_root = crate::compile::build_mcg_index::build_mcg_tree_root(
         source_root.as_path(),
         compiled.app_id.as_str(),

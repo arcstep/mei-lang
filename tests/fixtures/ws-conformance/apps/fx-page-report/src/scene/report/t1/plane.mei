@@ -1,0 +1,6 @@
+plane_layout(
+    id = "t1",
+    key = "fx-page-report/report/t1",
+    tier = "t1",
+    regions = [],
+)

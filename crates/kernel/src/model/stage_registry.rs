@@ -191,7 +191,8 @@ impl StageRegistry {
             if stages.iter().any(|s: &StageDescriptor| s.id.as_str() == id) {
                 continue;
             }
-            let profile = StageProfile::from_route_meta(route.kind.as_str(), route.target_file.as_str());
+            let profile =
+                StageProfile::from_route_meta(route.kind.as_str(), route.target_file.as_str());
             stages.push(StageDescriptor {
                 id: StageId::new(id),
                 profile,
@@ -202,10 +203,7 @@ impl StageRegistry {
             });
         }
 
-        let mut default_stage_id = stages
-            .iter()
-            .find(|s| s.is_default)
-            .map(|s| s.id.clone());
+        let mut default_stage_id = stages.iter().find(|s| s.is_default).map(|s| s.id.clone());
         if default_stage_id.is_none() {
             default_stage_id = stages.first().map(|s| s.id.clone());
             if let Some(default_id) = default_stage_id.as_ref() {
@@ -232,16 +230,12 @@ pub fn is_stage_registry_candidate(route: &CompiledSceneRoute) -> bool {
         return false;
     }
     let kind = route.kind.trim().to_ascii_lowercase();
-    if kind == "page" || kind == "board" || kind == "scene_first_board" || kind == "board_capsule"
-    {
+    if kind == "page" || kind == "board" || kind == "scene_first_board" || kind == "board_capsule" {
         return false;
     }
     let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
     // Legacy central t2/ plus colocated T2 page-planes (`.../plane-{id}/...` per 025004).
-    if target.contains("/t2/")
-        || target.contains("/overlay/")
-        || target.contains("/plane-")
-    {
+    if target.contains("/t2/") || target.contains("/overlay/") || target.contains("/plane-") {
         return false;
     }
     kind == "scene"

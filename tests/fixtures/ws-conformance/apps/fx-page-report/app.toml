@@ -1,0 +1,9 @@
+schema_version = "mei-app-v1"
+title = "Conformance Page Report"
+default_stage = "report"
+app_id = "fx-page-report"
+generation = "current"
+data_mode_ceiling = "static"
+
+[warmup]
+enabled = false

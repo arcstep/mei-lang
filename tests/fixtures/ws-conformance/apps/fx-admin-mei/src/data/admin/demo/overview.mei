@@ -1,0 +1,13 @@
+provider_binding(
+    id = "admin.demo.organization",
+    provider_id = "config-record",
+    method = "GET",
+    target = "ops.organization",
+    payload_type = type_ref("json-object", schema = "admin.demo.organization"),
+    validator = schema_ref("admin.demo.organization"),
+    revision = "required",
+    idempotency = "none",
+    apply_policy = "hot",
+    danger = "normal",
+    required_capabilities = ["config_upload"],
+)

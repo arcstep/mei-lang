@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::io::{read_json_registry, write_json_registry};
-use crate::mrg::nodes::{
-    deserialize_mrg_nodes, serialize_mrg_nodes, MrgNodeRecord,
-};
+use crate::mrg::nodes::{deserialize_mrg_nodes, serialize_mrg_nodes, MrgNodeRecord};
 use crate::paths::{mrg_registry_path, resolve_graph_root};
 use crate::types::{current_time_ms, stable_hash, GraphNodeId, MaterialState, PayloadRef};
 use mei_host_core::CacheLayersReady;
@@ -186,10 +184,7 @@ pub struct MrgRegistry {
 
 #[derive(Debug, Clone)]
 pub enum MrgRegistryLoadError {
-    UnsupportedSchema {
-        got: String,
-        path: PathBuf,
-    },
+    UnsupportedSchema { got: String, path: PathBuf },
     Io(String),
 }
 
@@ -306,11 +301,7 @@ impl MrgRegistry {
         state: MaterialState,
     ) {
         let record = MrgNodeRecord::navigation(key, url, scene_id, target_file, state);
-        if let Some(existing) = self
-            .nodes
-            .iter_mut()
-            .find(|node| node.node_key() == key)
-        {
+        if let Some(existing) = self.nodes.iter_mut().find(|node| node.node_key() == key) {
             *existing = record;
         } else {
             self.nodes.push(record);
@@ -414,7 +405,9 @@ impl MrgRegistryWriter {
                 MrgRegistry::empty(app_id)
             }
             Err(MrgRegistryLoadError::Io(message)) => {
-                eprintln!("mei_host_graph::mrg: MRG registry load failed ({message}); returning empty");
+                eprintln!(
+                    "mei_host_graph::mrg: MRG registry load failed ({message}); returning empty"
+                );
                 MrgRegistry::empty(app_id)
             }
         }

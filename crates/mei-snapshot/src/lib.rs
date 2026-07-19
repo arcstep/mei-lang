@@ -16,9 +16,7 @@ pub use manifest::{
 pub use pack::{pack_portable_snapshot, pack_snapshot, PackOptions, PortablePackOptions};
 pub use paths::{resolve_app_env_root, resolve_bundle_path};
 pub use portable_config::{build_portable_app_toml, PortableConfigResult, PortableSource};
-pub use resources::{
-    ResourceEntry, ResourceSeverity, ResourceState, ResourcesDocument,
-};
+pub use resources::{ResourceEntry, ResourceSeverity, ResourceState, ResourcesDocument};
 pub use unpack::{unpack_snapshot, UnpackResult};
 
 /// Desktop Viewer readiness probe contract (control plane).

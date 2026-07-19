@@ -150,8 +150,10 @@ pub fn ensure_runtime_plans_cached(
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         if crate::schema_gate::layer_bytes_match_schema(bytes.as_slice(), RUNTIME_PLANS_SCHEMA) {
             let doc: RuntimePlansDocument = serde_json::from_slice(bytes.as_slice())?;
-            if crate::schema_gate::document_schema_ok(doc.schema_version.as_str(), RUNTIME_PLANS_SCHEMA)
-                && mei_lang_kernel::presentation_map_schema_ok(&doc.presentation_map)
+            if crate::schema_gate::document_schema_ok(
+                doc.schema_version.as_str(),
+                RUNTIME_PLANS_SCHEMA,
+            ) && mei_lang_kernel::presentation_map_schema_ok(&doc.presentation_map)
             {
                 let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
                 let pref = PayloadRef::new(

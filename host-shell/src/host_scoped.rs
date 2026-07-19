@@ -37,8 +37,6 @@ fn resolve_scope_app_id<'a>(
 
 fn workspace_shell_nav_for_route(route_path: &str) -> WorkspaceShellNav {
     match route_path {
-        "/config" => WorkspaceShellNav::Config,
-        "/upload" => WorkspaceShellNav::Upload,
         "/runtime" => WorkspaceShellNav::Runtime,
         _ => WorkspaceShellNav::Home,
     }
@@ -51,33 +49,12 @@ fn render_scope_picker_body_html(apps: &[WorkspaceAppMeta], route_path: &str) ->
         let links = apps
             .iter()
             .map(|app| {
-                let href = match route_path {
-                    "/config" => format!(
-                        "/admin/apps/{}/ops_config",
-                        urlencoding_path(app.id.as_str())
-                    ),
-                    "/upload" => format!(
-                        "/admin/apps/{}/upload_files",
-                        urlencoding_path(app.id.as_str())
-                    ),
-                    _ => format!("{route_path}?app={}", urlencoding_path(app.id.as_str())),
-                };
-                let legacy = match route_path {
-                    "/config" | "/upload" => format!(
-                        r#" <a class="mei-host-shell__link mei-text-muted" href="{legacy}">旧入口</a>"#,
-                        legacy = html_escape(&format!(
-                            "{route_path}?app={}",
-                            urlencoding_path(app.id.as_str())
-                        )),
-                    ),
-                    _ => String::new(),
-                };
+                let href = format!("{route_path}?app={}", urlencoding_path(app.id.as_str()));
                 format!(
-                    r#"<li><a class="mei-host-shell__link" href="{href}"><code>{app_id}</code> — {title}</a>{legacy}</li>"#,
+                    r#"<li><a class="mei-host-shell__link" href="{href}"><code>{app_id}</code> — {title}</a></li>"#,
                     href = html_escape(href.as_str()),
                     app_id = html_escape(app.id.as_str()),
                     title = html_escape(app.title.as_str()),
-                    legacy = legacy,
                 )
             })
             .collect::<Vec<_>>()
@@ -161,147 +138,6 @@ async fn host_scoped_context(
         auth_enabled,
         account_view,
     )
-}
-
-async fn host_scoped_light_page(
-    state: State<SharedState>,
-    auth: State<AuthServeState>,
-    principal: Option<Extension<AuthPrincipal>>,
-    route_mode: UiRouteMode,
-    route_label: &'static str,
-    route_path: &'static str,
-    Query(query): Query<HostScopeQuery>,
-) -> Response {
-    let principal_ref = principal.as_ref().map(|Extension(p)| p);
-    let (workspace_root, apps, topbar_apps, auth_enabled, account_view) =
-        host_scoped_context(&state, &auth, principal_ref).await;
-    let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
-    let Some(app) = resolve_scope_app_id(apps.as_slice(), query.app.as_deref()) else {
-        let html = render_scope_picker_html(
-            workspace_root.as_path(),
-            apps.as_slice(),
-            topbar_apps.as_slice(),
-            &topbar_menu,
-            route_label,
-            route_path,
-            auth_enabled,
-            account_view.as_ref(),
-        );
-        return Html(html).into_response();
-    };
-    let guard = state.read().expect("state lock");
-    let package_root = guard.package_root.clone();
-    let admin_registry = guard.admin_registry.clone();
-    drop(guard);
-    let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
-    let app_title = app.title.as_str();
-    let scene_for_links = query
-        .page
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    // Phase C: dual-render /config and /upload through Admin Shell (same chrome as /admin/...).
-    if matches!(route_mode, UiRouteMode::Config | UiRouteMode::Upload) {
-        let resource_id = match route_mode {
-            UiRouteMode::Config => "ops_config",
-            UiRouteMode::Upload => "upload_files",
-            _ => unreachable!(),
-        };
-        if route_mode == UiRouteMode::Upload {
-            let app_root =
-                mei_lang_kernel::resolve_app_root(workspace_root.as_path(), app.id.as_str());
-            if crate::upload_support::upload_rel_from_config(
-                app_root.as_path(),
-                workspace_root.as_path(),
-            )
-            .is_none()
-            {
-                return (
-                    axum::http::StatusCode::NOT_FOUND,
-                    format!("{route_label} is not available for app `{}`", app.id),
-                )
-                    .into_response();
-            }
-        }
-        let html = crate::admin_pages::render_admin_resource_html(
-            crate::admin_pages::AdminPageRenderArgs {
-                workspace_root: workspace_root.as_path(),
-                registry: &admin_registry,
-                apps: apps.as_slice(),
-                topbar_apps: topbar_apps.as_slice(),
-                app_id: app.id.as_str(),
-                app_title,
-                resource_id,
-                topbar_menu: &topbar_menu,
-                auth_enabled,
-                account_view: account_view.as_ref(),
-                principal_ref,
-                upload_selected_file: query.page.file.as_deref(),
-            },
-        );
-        return crate::light_pages::light_page_response(html);
-    }
-
-    if let Some(response) =
-        crate::light_pages::try_render_light_page(crate::light_pages::LightPageContext {
-            workspace_root: workspace_root.as_path(),
-            _package_root: package_root.as_path(),
-            route_mode,
-            app_id: app.id.as_str(),
-            apps: topbar_apps.as_slice(),
-            app_title,
-            topbar_menu: &topbar_menu,
-            lightweight_scene: scene_for_links,
-            request_file: query.page.file.as_deref(),
-            auth_enabled,
-            account_view: account_view.as_ref(),
-        })
-    {
-        return response;
-    }
-    (
-        axum::http::StatusCode::NOT_FOUND,
-        format!("{route_label} is not available for app `{}`", app.id),
-    )
-        .into_response()
-}
-
-pub async fn host_config_page(
-    state: State<SharedState>,
-    auth: State<AuthServeState>,
-    principal: Option<Extension<AuthPrincipal>>,
-    query: Query<HostScopeQuery>,
-) -> Response {
-    host_scoped_light_page(
-        state,
-        auth,
-        principal,
-        UiRouteMode::Config,
-        "配置",
-        "/config",
-        query,
-    )
-    .await
-}
-
-pub async fn host_upload_page(
-    state: State<SharedState>,
-    auth: State<AuthServeState>,
-    principal: Option<Extension<AuthPrincipal>>,
-    query: Query<HostScopeQuery>,
-) -> Response {
-    host_scoped_light_page(
-        state,
-        auth,
-        principal,
-        UiRouteMode::Upload,
-        "上传",
-        "/upload",
-        query,
-    )
-    .await
 }
 
 pub async fn host_runtime_observation_page(

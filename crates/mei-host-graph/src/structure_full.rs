@@ -127,8 +127,10 @@ fn enrich_structure_bindings(document: &mut StructureFullDocument) {
                 node.use_keys = vec![content_kind_to_use_key(kind)];
             }
         }
-        if matches!(node.ui_role.as_str(), "slot" | "section" | "slide" | "region")
-            && !node.preview_scope.trim().is_empty()
+        if matches!(
+            node.ui_role.as_str(),
+            "slot" | "section" | "slide" | "region"
+        ) && !node.preview_scope.trim().is_empty()
         {
             node.panel_id = Some(node.preview_scope.clone());
         }
@@ -349,9 +351,10 @@ pub fn closure_for_preview_scope(
     if needle.is_empty() {
         return None;
     }
-    let target = document.nodes.iter().find(|node| {
-        node.preview_scope.trim().trim_matches('/') == needle
-    })?;
+    let target = document
+        .nodes
+        .iter()
+        .find(|node| node.preview_scope.trim().trim_matches('/') == needle)?;
     closure_for_node_id(document, target.node_id.as_str())
 }
 
@@ -494,7 +497,7 @@ mod tests {
                 bindings: json!({}),
                 examples: json!({}),
                 access_export: true,
-            t2_pages: Vec::new(),
+                t2_pages: Vec::new(),
             },
             themes: vec![],
             shared: json!({}),

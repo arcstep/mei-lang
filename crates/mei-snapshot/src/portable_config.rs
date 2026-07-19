@@ -85,10 +85,7 @@ fn value_to_toml_inline(value: &Value) -> Option<String> {
             Some(format!("\"{}\"", toml_escape(s)))
         }
         Value::Array(items) => {
-            let parts: Vec<String> = items
-                .iter()
-                .filter_map(value_to_toml_inline)
-                .collect();
+            let parts: Vec<String> = items.iter().filter_map(value_to_toml_inline).collect();
             Some(format!("[{}]", parts.join(", ")))
         }
         Value::Object(_) => {
@@ -139,7 +136,10 @@ fn json_to_toml_value(value: &Value) -> Option<toml::Value> {
 
 /// Load workspace app.toml (or JSON pair via kernel is not available here — TOML only)
 /// and emit a portable subset.
-pub fn build_portable_app_toml(app_root: &Path, app_id: &str) -> anyhow::Result<PortableConfigResult> {
+pub fn build_portable_app_toml(
+    app_root: &Path,
+    app_id: &str,
+) -> anyhow::Result<PortableConfigResult> {
     let toml_path = app_root.join("app.toml");
     let mut result = PortableConfigResult::default();
 
@@ -155,7 +155,9 @@ pub fn build_portable_app_toml(app_root: &Path, app_id: &str) -> anyhow::Result<
         return Ok(result);
     };
 
-    let parsed: toml::Value = raw.parse().map_err(|e| anyhow::anyhow!("parse app.toml: {e}"))?;
+    let parsed: toml::Value = raw
+        .parse()
+        .map_err(|e| anyhow::anyhow!("parse app.toml: {e}"))?;
     let table = parsed.as_table().cloned().unwrap_or_default();
 
     let mut out = String::new();
@@ -176,7 +178,10 @@ pub fn build_portable_app_toml(app_root: &Path, app_id: &str) -> anyhow::Result<
         .unwrap_or(app_id);
 
     out.push_str(&format!("title = \"{}\"\n", toml_escape(title)));
-    out.push_str(&format!("default_stage = \"{}\"\n", toml_escape(default_stage)));
+    out.push_str(&format!(
+        "default_stage = \"{}\"\n",
+        toml_escape(default_stage)
+    ));
     out.push_str(&format!("app_id = \"{}\"\n", toml_escape(resolved_app_id)));
     out.push_str("generation = \"current\"\n");
 
@@ -199,17 +204,32 @@ pub fn build_portable_app_toml(app_root: &Path, app_id: &str) -> anyhow::Result<
     // ops.sources / themes / basemaps / params / fill flags
     let ops = table.get("ops").and_then(|v| v.as_table());
     if let Some(ops) = ops {
-        if let Some(strict) = ops.get("strictFillDown").or_else(|| ops.get("strict_fill_down")) {
+        if let Some(strict) = ops
+            .get("strictFillDown")
+            .or_else(|| ops.get("strict_fill_down"))
+        {
             if let Some(b) = strict.as_bool() {
                 out.push_str("\n[ops]\n");
                 out.push_str(&format!("strictFillDown = {b}\n"));
-                if let Some(fd) = ops.get("fillDown").or_else(|| ops.get("fill_down")).and_then(|v| v.as_bool()) {
+                if let Some(fd) = ops
+                    .get("fillDown")
+                    .or_else(|| ops.get("fill_down"))
+                    .and_then(|v| v.as_bool())
+                {
                     out.push_str(&format!("fillDown = {fd}\n"));
                 }
             }
-        } else if ops.get("fillDown").or_else(|| ops.get("fill_down")).is_some() {
+        } else if ops
+            .get("fillDown")
+            .or_else(|| ops.get("fill_down"))
+            .is_some()
+        {
             out.push_str("\n[ops]\n");
-            if let Some(fd) = ops.get("fillDown").or_else(|| ops.get("fill_down")).and_then(|v| v.as_bool()) {
+            if let Some(fd) = ops
+                .get("fillDown")
+                .or_else(|| ops.get("fill_down"))
+                .and_then(|v| v.as_bool())
+            {
                 out.push_str(&format!("fillDown = {fd}\n"));
             }
         }

@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use mei_syntax::parse_deck_source_file;
 use mei_syntax::v2::parse_v2_source_file;
 use mei_syntax::StageMdxError;
+use mei_syntax::{parse_deck_source_file, parse_narration_track_file};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
@@ -58,6 +58,10 @@ pub enum CompileAppError {
     LegacyPresentationForbidden { path: PathBuf },
     #[error("{error}")]
     StageMdxParse { error: StageMdxError },
+    #[error("{error}")]
+    NarrationTrackParse {
+        error: mei_syntax::NarrationParseError,
+    },
     #[error(
         "narration_aot_session_dual_source: cockpit stage `{stage_id}` has both `src/stage/{{id}}.stage.mdx` and default AOT `*.scene.mdx` at `{scene_mdx}`"
     )]
@@ -138,6 +142,19 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         .map(|entry| entry.into_path())
         .collect();
     stage_mdx_paths.sort();
+    let mut narration_track_paths: Vec<PathBuf> = WalkDir::new(src_root.join("narration"))
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.ends_with(".track.mdx"))
+        })
+        .map(|entry| entry.into_path())
+        .collect();
+    narration_track_paths.sort();
 
     reject_legacy_presentation_authoring(&src_root)?;
 
@@ -188,6 +205,15 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         })?;
         blocks.extend(outcome.blocks.clone());
         files.push(outcome);
+    }
+    for path in &narration_track_paths {
+        parse_narration_track_file(path)
+            .map_err(|error| CompileAppError::NarrationTrackParse { error })?;
+        files.push(GraphOutcome {
+            graph_schema_version: "mei-compiler-graph-v2".to_string(),
+            source_file: source_relative_path(&src_root, path),
+            blocks: Vec::new(),
+        });
     }
 
     for path in &deck_paths {
@@ -324,7 +350,9 @@ fn reject_stage_mdx_scene_dual_source(
     if file_stem.is_empty() {
         return Ok(());
     }
-    let scene_mdx = src_root.join("scene").join(format!("{file_stem}.scene.mdx"));
+    let scene_mdx = src_root
+        .join("scene")
+        .join(format!("{file_stem}.scene.mdx"));
     if !scene_mdx.is_file() {
         return Ok(());
     }
@@ -497,7 +525,10 @@ fn is_legacy_presentation_mei_path(src_root: &Path, path: &Path) -> bool {
     {
         return false;
     }
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
     if file_name == "presentation.mei" || file_name == "p.mei" {
         return true;
     }

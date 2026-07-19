@@ -65,9 +65,8 @@ pub fn enrich_object_catalogs_field_links(
                     }
                     if target.resolve == ObjectFieldLinkResolve::Mapping {
                         if let Some(mapping_ref) = target.mapping_ref.clone() {
-                            let mapping = mapping_cache
-                                .entry(mapping_ref.clone())
-                                .or_insert_with(|| {
+                            let mapping =
+                                mapping_cache.entry(mapping_ref.clone()).or_insert_with(|| {
                                     load_mapping_document(app_root, mapping_ref.as_str())
                                         .unwrap_or(Value::Null)
                                 });
@@ -116,10 +115,7 @@ pub fn enrich_object_catalogs_field_links(
                     if column_key.starts_with("__mapping__:") {
                         continue;
                     }
-                    rewritten
-                        .entry(column_key)
-                        .or_default()
-                        .push(target);
+                    rewritten.entry(column_key).or_default().push(target);
                 }
             }
             assembly.object_field_links = rewritten;
@@ -184,21 +180,18 @@ fn apply_mapping_to_target(target: &mut ObjectFieldLinkTarget, mapping_doc: &Val
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let entry = relations
-        .get(relation)
-        .cloned()
-        .or_else(|| {
-            relations
-                .values()
-                .find(|value| {
-                    value
-                        .get("relation")
-                        .and_then(Value::as_str)
-                        .map(|text| text.contains(target.object_type.as_str()))
-                        .unwrap_or(false)
-                })
-                .cloned()
-        });
+    let entry = relations.get(relation).cloned().or_else(|| {
+        relations
+            .values()
+            .find(|value| {
+                value
+                    .get("relation")
+                    .and_then(Value::as_str)
+                    .map(|text| text.contains(target.object_type.as_str()))
+                    .unwrap_or(false)
+            })
+            .cloned()
+    });
     let Some(entry) = entry else {
         return;
     };
@@ -258,9 +251,10 @@ fn resolve_page_open_popup(
     registry: &McgRegistry,
     page_key: &str,
 ) -> Option<Value> {
-    let node = registry.nodes.iter().find(|node| {
-        node.id.kind == GraphNodeKind::PageInstance && node.id.key == page_key
-    })?;
+    let node = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == page_key)?;
     let pref = node.payload_ref.as_ref()?;
     let artifact = load_block_artifact(app_root, pref).ok()??;
     let payload = artifact.get("payload")?;
@@ -355,12 +349,8 @@ mod tests {
                 },
             ],
         );
-        let links = derive_object_field_links(
-            "zhifa.Warning",
-            &["预警ID".to_string()],
-            &slots,
-            &relations,
-        );
+        let links =
+            derive_object_field_links("zhifa.Warning", &["预警ID".to_string()], &slots, &relations);
         assert!(links.contains_key("预警ID"));
         assert!(links.keys().any(|key| key.starts_with("__mapping__:")));
         let self_link = &links["预警ID"][0];

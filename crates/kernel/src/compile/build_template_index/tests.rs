@@ -3,7 +3,6 @@ use super::*;
 use crate::model::{BlockDecl, ComponentAsset, SceneContract, TemplateConsumerAnchor, UiNodeDecl};
 use std::collections::BTreeMap;
 
-
 fn optional_external_workspace() -> Option<std::path::PathBuf> {
     let raw = std::env::var("MEI_TEST_WORKSPACE").ok()?;
     let path = std::path::PathBuf::from(raw.trim());
@@ -68,7 +67,7 @@ fn template_index_collects_consumer_anchors() {
                 bindings: serde_json::Value::Null,
                 examples: serde_json::Value::Null,
                 access_export: true,
-            t2_pages: Vec::new(),
+                t2_pages: Vec::new(),
             },
             themes: Vec::new(),
             shared: serde_json::Value::Null,

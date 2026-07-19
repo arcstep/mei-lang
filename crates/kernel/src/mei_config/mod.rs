@@ -5,14 +5,15 @@
 mod admin_asset_slot;
 mod admin_command_job;
 mod admin_discover;
-mod admin_manifest;
 mod admin_record;
+mod admin_registry;
 mod app_manifest;
 mod auth_bundle;
 mod authoring_policy;
 mod build_store;
 mod io;
 mod ops;
+mod provider_binding;
 mod shell_theme;
 mod stock_catalog;
 mod theme_layout_overlay;
@@ -23,35 +24,35 @@ mod workspace_paths;
 #[cfg(test)]
 mod tests;
 
-pub use admin_asset_slot::{
-    get_asset_slot, list_asset_slots, replace_asset_slot, resolve_slot_defs, AssetSlotDef,
-    AssetSlotSchemaDoc, AssetSlotView,
-};
+pub use admin_asset_slot::{get_asset_slot, list_asset_slots, replace_asset_slot, AssetSlotView};
 pub use admin_command_job::{
     get_command_job, run_import_job, AdminJobRecord, AdminJobStatus, ADMIN_JOBS_REL_DIR,
 };
 pub use admin_discover::{
-    discover_admin_mdx_paths, discover_app_admin_resources, discover_from_admin_ref,
+    discover_admin_mdx_paths, discover_app_admin_resources, discover_scene_root_catalog,
     filter_admin_resources_for_capabilities, AdminDiscoverOutcome, AdminDiscoveryDiagnostic,
-    AdminRegistryProjection, AdminResourceProjection, AdminUiSurface,
-};
-pub use admin_manifest::{
-    load_admin_manifest, load_admin_mdx_resource, lower_admin_mdx_document, parse_admin_manifest,
-    parse_and_validate_admin_manifest, render_admin_resource_mdx, resolve_admin_manifest_path,
-    validate_admin_manifest, validate_relative_sandbox_path, AdminAction, AdminApplyPolicy,
-    AdminColumn, AdminDangerLevel, AdminDirtyPolicy, AdminField, AdminFieldControl,
-    AdminFieldOption, AdminIdempotency, AdminManifest, AdminManifestError, AdminMenuValue,
-    AdminNavigation, AdminProviderKind, AdminResourceSpec, AdminRevisionPolicy, AdminSection,
-    AdminTemplate, AdminUploadSpec, AppAdminRef, ADMIN_RESOURCE_API_VERSION,
+    AdminEntryProjection, AdminRegistryProjection, SceneRootCatalogEntry,
+    ADMIN_ENTRY_MODULE_FORBIDDEN, ADMIN_LEGACY_DATA_JSON_FORBIDDEN,
+    ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN, ADMIN_LEGACY_MANIFEST_FORBIDDEN,
+    ADMIN_MODULE_ID_DUPLICATE, ADMIN_SCENE_ROOT_DUPLICATE, ADMIN_SCENE_ROOT_UNKNOWN,
+    ADMIN_SOURCE_PATH_INVALID,
 };
 pub use admin_record::{
-    append_admin_audit, get_config_path_record, get_config_record, put_config_path_record,
-    put_config_record, resolve_config_record_path, AdminAuditEntry, AdminRecordError,
+    append_admin_audit, get_config_record, put_config_record, AdminAuditEntry, AdminRecordError,
     ConfigRecordFile, ADMIN_AUDIT_REL_PATH,
+};
+pub use admin_registry::{
+    AdminApplyPolicy, AdminArtifactRef, AdminArtifactRefs, AdminDangerLevel, AdminNavigation,
+    AdminRegistryEntry, ProviderBinding, ProviderPayloadType, ProviderValidator,
+    ADMIN_RESOURCE_API_VERSION,
 };
 pub use app_manifest::{
     load_app_manifest, load_app_manifest_from_json_pair, load_app_manifest_from_toml,
     migrate_json_pair_to_toml, write_app_toml, AppManifest, AppTomlDocument, APP_TOML_SCHEMA,
+};
+pub use provider_binding::{
+    discover_provider_binding_catalog, provider_bindings_for_scene, PROVIDER_BINDING_DUPLICATE,
+    PROVIDER_BINDING_INVALID, PROVIDER_BINDING_UNKNOWN,
 };
 
 pub use auth_bundle::{
@@ -71,20 +72,20 @@ pub use build_store::{
     read_build_manifest, read_links_state, record_toolchain_install_links, replace_env_generation,
     resolve_active_build_id, resolve_active_build_identity, resolve_active_build_identity_for_app,
     resolve_active_build_identity_with_hint, resolve_app_build_generation_from_current,
-    resolve_build_footer_label, resolve_build_footer_label_with_hint,
-    resolve_build_generation_for_prebuild, resolve_dev_toolchain_version,
-    resolve_env_generation_id, resolve_env_generation_id_for_prebuild, resolve_env_version,
-    resolve_toolchain_version, resolve_toolchain_version_with_hint,
-    resolve_version_display_identity, resolve_version_display_identity_for_app,
-    resolve_version_display_identity_with_hint, resolve_workspace_app_build_generations,
-    resolve_workspace_default_app_id, resolve_workspace_footer_label,
-    resolve_workspace_footer_label_with_hint, resolve_workspace_version,
-    restore_prebuild_build_root_override, rollback_build, set_prebuild_build_root_override,
-    snapshot_prebuild_build_root_override, toolchain_store_dir, write_build_manifest,
-    write_links_state, BuildGenerationSpec, BuildLinks, BuildManifest, CleanEnvEntry,
-    CleanEnvPolicy, CleanEnvReport, LinksState, MigrateEnvReport, PrebuildGeneration,
-    ToolchainLinks, VersionDisplayIdentity, BUILD_MANIFEST_SCHEMA, DEV_TOOLCHAIN_ALIAS,
-    DEV_TOOLCHAIN_VERSION, LINKS_STATE_SCHEMA,
+    resolve_app_env_dir_following_current, resolve_build_footer_label,
+    resolve_build_footer_label_with_hint, resolve_build_generation_for_prebuild,
+    resolve_dev_toolchain_version, resolve_env_generation_id,
+    resolve_env_generation_id_for_prebuild, resolve_env_version, resolve_toolchain_version,
+    resolve_toolchain_version_with_hint, resolve_version_display_identity,
+    resolve_version_display_identity_for_app, resolve_version_display_identity_with_hint,
+    resolve_workspace_app_build_generations, resolve_workspace_default_app_id,
+    resolve_workspace_footer_label, resolve_workspace_footer_label_with_hint,
+    resolve_workspace_version, restore_prebuild_build_root_override, rollback_build,
+    set_prebuild_build_root_override, snapshot_prebuild_build_root_override, toolchain_store_dir,
+    write_build_manifest, write_links_state, BuildGenerationSpec, BuildLinks, BuildManifest,
+    CleanEnvEntry, CleanEnvPolicy, CleanEnvReport, LinksState, MigrateEnvReport,
+    PrebuildGeneration, ToolchainLinks, VersionDisplayIdentity, BUILD_MANIFEST_SCHEMA,
+    DEV_TOOLCHAIN_ALIAS, DEV_TOOLCHAIN_VERSION, LINKS_STATE_SCHEMA,
 };
 pub(crate) use io::write_string_atomically;
 pub use io::{

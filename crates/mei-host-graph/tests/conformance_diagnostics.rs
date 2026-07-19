@@ -14,10 +14,7 @@ use mei_test_support::{
 };
 
 fn assert_has_diag(diags: &[Diagnostic], code: &str, source_substr: &str) {
-    let matched: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code == code)
-        .collect();
+    let matched: Vec<_> = diags.iter().filter(|d| d.code == code).collect();
     assert!(
         !matched.is_empty(),
         "expected diagnostic code `{code}`, got: {:?}",
@@ -71,11 +68,7 @@ fn conformance_diag_grid_track_unresolved() {
 #[test]
 fn conformance_diag_unknown_component() {
     let diags = assemble_diags(APP_DIAG_UNKNOWN_COMPONENT);
-    assert_has_diag(
-        &diags,
-        "unknown_component",
-        "section.mei",
-    );
+    assert_has_diag(&diags, "unknown_component", "section.mei");
 }
 
 #[test]

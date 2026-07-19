@@ -17,20 +17,11 @@ default_for_stage: true
 # Claim and evidence {#slide-01}
 @template(claim_evidence)
 @chapter(Opening)
-@caption
-Visible **caption**.
-@end
-@speaker_notes
-Private `notes`.
-@end
 ## claim {#vp_claim}
 The **claim**.
 ## evidence {#vp_evidence}
 - First
 - Second
-@step(vp_evidence)
-Focus evidence.
-@end
 
 # Finish {#slide-02}
 @template(full_bleed)
@@ -85,7 +76,7 @@ template claim_evidence_layout():
 }
 
 #[test]
-fn compiles_deck_as_single_source_with_order_and_script() {
+fn compiles_deck_as_structure_only_source() {
     let fixture = Fixture::new(VALID_DECK);
     let outcome = compile_app(&fixture.root, "demo").expect("compile deck");
 
@@ -94,10 +85,7 @@ fn compiles_deck_as_single_source_with_order_and_script() {
         .iter()
         .find(|f| f.source_file.ends_with("intro.deck.mdx"))
         .expect("deck source file");
-    assert_eq!(
-        deck_file.source_file,
-        "presentation/intro/intro.deck.mdx"
-    );
+    assert_eq!(deck_file.source_file, "presentation/intro/intro.deck.mdx");
     assert_eq!(deck_file.blocks.len(), 10);
     assert_kind_count(&outcome.blocks, "presentation", 1);
     assert_kind_count(&outcome.blocks, "plane_layout", 1);
@@ -111,30 +99,9 @@ fn compiles_deck_as_single_source_with_order_and_script() {
         presentation.get("key").and_then(Value::as_str),
         Some("intro@src/presentation/intro/intro.deck.mdx")
     );
-    let script = presentation
-        .get("default_script")
-        .and_then(Value::as_object)
-        .expect("default script");
-    assert_eq!(script.get("id").and_then(Value::as_str), Some("intro"));
-    let steps = script
-        .get("steps")
-        .and_then(Value::as_array)
-        .expect("script steps");
-    assert_eq!(steps.len(), 3, "two show_page steps plus one highlight");
-    assert_eq!(steps[0]["actions"][0]["type"].as_str(), Some("show_page"));
-    assert_eq!(steps[0]["actions"][0]["pageId"].as_str(), Some("slide-01"));
-    assert_eq!(steps[1]["actions"][0]["type"].as_str(), Some("highlight"));
-    assert_eq!(
-        steps[1]["actions"][0]["viewpoint"].as_str(),
-        Some("vp_evidence")
-    );
-    assert_eq!(
-        steps[0]["captionHtml"].as_str(),
-        Some("<p>Visible <strong>caption</strong>.</p>")
-    );
-    assert_eq!(
-        steps[0]["speakerNotesMarkdown"].as_str(),
-        Some("Private `notes`.")
+    assert!(
+        presentation.get("default_script").is_none(),
+        "deck lowering must not create a second narration source"
     );
 
     let plane = block_payload(&outcome.blocks, "plane_layout");
@@ -168,6 +135,39 @@ fn compiles_deck_as_single_source_with_order_and_script() {
     assert_eq!(
         panel.payload["blocks"][0]["__args"]["props"]["__mei_viewpoint"].as_str(),
         Some("vp_claim")
+    );
+}
+
+#[test]
+fn import_parses_app_level_narration_track_independently() {
+    let fixture = Fixture::new(VALID_DECK);
+    let narration = fixture.root.join("apps/demo/src/narration/intro.track.mdx");
+    fs::create_dir_all(narration.parent().expect("narration parent")).expect("mkdir narration");
+    fs::write(
+        &narration,
+        r#"---
+id: intro
+title: Intro Narration
+scope: app
+default_for: [stage:intro]
+---
+@cue(stage:intro/slide:slide-01)
+@caption
+Visible caption.
+@end
+@end
+"#,
+    )
+    .expect("write narration");
+    let outcome = compile_app(&fixture.root, "demo").expect("compile track");
+    let file = outcome
+        .files
+        .iter()
+        .find(|file| file.source_file == "narration/intro.track.mdx")
+        .expect("independently parsed narration source");
+    assert!(
+        file.blocks.is_empty(),
+        "Track does not lower to PageProgram graph"
     );
 }
 
@@ -226,8 +226,11 @@ fn rejects_legacy_presentation_tree_without_deck() {
         r#"{"paths":{"templates":"stock/templates"}}"#,
     )
     .expect("workspace config");
-    fs::write(templates.join("slide-patterns.mei"), "template full_bleed_layout():\n    grid()\n")
-        .expect("templates");
+    fs::write(
+        templates.join("slide-patterns.mei"),
+        "template full_bleed_layout():\n    grid()\n",
+    )
+    .expect("templates");
     let presentation = stage.join("presentation.mei");
     fs::write(&presentation, "presentation(id = \"intro\")").expect("legacy root");
     let error = compile_app(&root, "demo").expect_err("legacy alone");

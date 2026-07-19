@@ -1,7 +1,0 @@
-schema_version = "mei-app-v1"
-title = "Admin Loop Fixture"
-default_stage = "home"
-generation = "current"
-
-[admin]
-manifest = "admin/admin.toml"

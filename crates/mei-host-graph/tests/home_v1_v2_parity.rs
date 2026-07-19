@@ -85,7 +85,9 @@ fn panel_titles(panels: &[UiNodeDecl]) -> Vec<String> {
 
 #[test]
 fn home_v2_matches_v1_component_shape() {
-    let Some(workspace) = ensure_v2_imported() else { return; };
+    let Some(workspace) = ensure_v2_imported() else {
+        return;
+    };
     let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
@@ -149,7 +151,9 @@ fn walk_panels<'a>(panels: &'a [UiNodeDecl], f: &mut dyn FnMut(&'a UiNodeDecl)) 
 
 #[test]
 fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
-    let Some(workspace) = ensure_v2_imported() else { return; };
+    let Some(workspace) = ensure_v2_imported() else {
+        return;
+    };
     let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
@@ -189,7 +193,9 @@ fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
 
 #[test]
 fn home_v2_resolves_metric_card_link_ref_popup() {
-    let Some(workspace) = ensure_v2_imported() else { return; };
+    let Some(workspace) = ensure_v2_imported() else {
+        return;
+    };
     let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");
@@ -248,7 +254,9 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
 
 #[test]
 fn home_v2_analytics_board_assemblies_include_projection_slots() {
-    let Some(workspace) = ensure_v2_imported() else { return; };
+    let Some(workspace) = ensure_v2_imported() else {
+        return;
+    };
     let v2 = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home");

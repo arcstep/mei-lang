@@ -25,6 +25,14 @@ pub struct ImportOptions {
     pub bundle_path: Option<std::path::PathBuf>,
 }
 
+pub fn compile_and_import_workspace(workspace_root: &Path, app_id: &str) -> Result<ImportReport> {
+    let outcome = mei_graph::compile_app(workspace_root, app_id)
+        .with_context(|| format!("compile native v2 graph for app `{app_id}`"))?;
+    let exchange = mei_bundle::exchange_from_outcome(&outcome);
+    let ctx = HostContext::new(workspace_root, app_id);
+    import_exchange(&ctx, &exchange)
+}
+
 pub fn import_bundle(ctx: &HostContext, options: &ImportOptions) -> Result<ImportReport> {
     let bundle_path = options
         .bundle_path

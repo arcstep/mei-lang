@@ -232,14 +232,12 @@
     return isWorkspaceSurfaceRoute(pathname);
   }
 
-  function isConfigRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/config" || path.startsWith("/config?") || path.startsWith("/apps/config/");
+  function isConfigRoute() {
+    return false;
   }
 
-  function isUploadRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/upload" || path.startsWith("/upload?") || path.startsWith("/apps/upload/");
+  function isUploadRoute() {
+    return false;
   }
 
   function isStandaloneViewRoute(pathname = global.location?.pathname) {
@@ -1598,8 +1596,6 @@
     const path = String(global.location?.pathname || "");
     if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
     if (path === "/home" || path === "/") return "home";
-    if (path.startsWith("/config")) return "config";
-    if (path.startsWith("/upload")) return "upload";
     if (path.startsWith("/mcg")) return "mcg";
     return "";
   }
@@ -17975,14 +17971,7 @@
     if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, [
-      "/upload",
-      "/upload?",
-      "/apps/upload/",
-      "/config",
-      "/config?",
-      "/apps/config/",
-    ]);
+    return null;
   }
 
 

@@ -111,11 +111,7 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(HOST_LABEL);
-        write!(
-            writer,
-            "{} ",
-            format_service_prefix(label, self.ansi)
-        )?;
+        write!(writer, "{} ", format_service_prefix(label, self.ansi))?;
 
         let meta = event.metadata();
         if self.ansi {
@@ -126,11 +122,7 @@ where
                 tracing::Level::DEBUG => "34",
                 tracing::Level::TRACE => "90",
             };
-            write!(
-                writer,
-                "\x1b[{level_color}m{:>5}\x1b[0m ",
-                meta.level()
-            )?;
+            write!(writer, "\x1b[{level_color}m{:>5}\x1b[0m ", meta.level())?;
         } else {
             write!(writer, "{:>5} ", meta.level())?;
         }
@@ -153,7 +145,10 @@ mod tests {
 
     #[test]
     fn app_color_is_stable() {
-        assert_eq!(stable_app_ansi("mei-tutorial"), stable_app_ansi("mei-tutorial"));
+        assert_eq!(
+            stable_app_ansi("mei-tutorial"),
+            stable_app_ansi("mei-tutorial")
+        );
         assert_ne!(stable_app_ansi("a"), stable_app_ansi("zzzz"));
     }
 }

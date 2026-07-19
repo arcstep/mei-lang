@@ -8,26 +8,22 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use mei_host_auth::{account_view_for_principal, AuthEnforcement, AuthPrincipal, AuthServeState};
-use mei_lang_app::{load_topbar_menu_context, HostAccountView, TopbarMenuContext, WorkspaceShellNav};
+use mei_lang_app::{
+    load_topbar_menu_context, HostAccountView, TopbarMenuContext, WorkspaceShellNav,
+};
 use mei_lang_kernel::WorkspaceAppMeta;
 use std::path::Path;
 
 fn runtime_hub_host_tools_html() -> String {
-    let config_href = mei_lang_app::host_config_href(None);
-    let upload_href = mei_lang_app::host_upload_href(None, None);
     let mcg_href = mei_lang_app::mcg_href(None);
     format!(
         r#"<nav class="mei-runtime-control__host-tools" aria-label="系统工具">
-    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{config_href}">配置</a>
-    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{upload_href}">上传</a>
     <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{mcg_href}">MCG</a>
   </nav>"#
     )
 }
 
 fn runtime_hub_control_html() -> String {
-    // Host tools: scope pickers still on /config|/upload (dual-render Admin Shell once app chosen).
-    // Per-app cards link to /admin/apps/{id}/ops_config|upload_files (see host-runtime-control-center.js).
     r#"<div class="mei-runtime-control" data-host-runtime-control-center>
   <div class="mei-runtime-control__toolbar">
     <p class="mei-runtime-control__live" data-runtime-live role="status" aria-live="polite">正在载入应用…</p>
@@ -44,7 +40,9 @@ fn runtime_hub_control_html() -> String {
         .to_string()
 }
 
-fn render_runtime_hub_body_html_with_pack(pack: Option<&HostPagePack>) -> Result<String, crate::host_page_pack::HostPagePackError> {
+fn render_runtime_hub_body_html_with_pack(
+    pack: Option<&HostPagePack>,
+) -> Result<String, crate::host_page_pack::HostPagePackError> {
     render_runtime_page_body(
         pack,
         runtime_hub_host_tools_html().as_str(),
@@ -128,8 +126,8 @@ mod tests {
         assert!(html.contains(r#"data-mei-pagepack="host.runtime""#));
         assert!(html.contains(r#"data-mei-page-surface="document""#));
         assert!(html.contains(r#"data-mei-pagepack-digest="sha256:"#));
-        assert!(html.contains("href=\"/config\""));
-        assert!(html.contains("href=\"/upload\""));
+        assert!(!html.contains("href=\"/config\""));
+        assert!(!html.contains("href=\"/upload\""));
         assert!(html.contains("href=\"/mcg\""));
         assert!(!html.contains("data-runtime-page-status"));
         assert!(!html.contains("运行控制中心"));

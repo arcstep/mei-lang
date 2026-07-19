@@ -15,9 +15,10 @@ pub(crate) use mei_lang_datasets::{
 pub(crate) use mei_lang_kernel::{
     begin_prebuild_generation, clear_prebuild_build_root_override,
     data_snapshot_import_manifest_path, data_snapshot_store_root, finish_prebuild_generation,
-    resolve_app_root, resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest,
-    set_prebuild_build_root_override, CompileOptions, CompiledApp, DatasetView, LoadedResource,
-    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    resolve_app_entry_main, resolve_app_root, resolve_data_snapshot_import_entry,
+    resolve_runtime_warmup_manifest, resolve_scene_assembly_rel, set_prebuild_build_root_override,
+    CompileOptions, CompiledApp, DatasetView, LoadedResource, RuntimeWarmupApp,
+    RuntimeWarmupDatasetRequest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 pub(crate) use mei_lang_toolchain::{self as toolchain, PublishDataSnapshotsReport, WorldScope};
 pub(crate) use serde::{Deserialize, Serialize};

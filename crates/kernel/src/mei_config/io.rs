@@ -31,9 +31,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
 
 pub fn resolve_app_entry_main(app_root: &Path) -> String {
     let config = load_mei_config_for_app(app_root, None);
-    let has_toml = app_root
-        .join(super::types::APP_TOML_FILENAME)
-        .is_file();
+    let has_toml = app_root.join(super::types::APP_TOML_FILENAME).is_file();
     let configured = config.entry.main.trim();
     let entry = if configured.is_empty() {
         if has_toml {

@@ -49,7 +49,12 @@ pub fn synthesize_app_skeleton(app_root: &Path, app_id: &str, blocks: &mut Vec<G
     let block_id = format!("app_skeleton:{id}");
     if let Some(existing) = blocks.iter_mut().find(|b| b.kind == "app_skeleton") {
         if let Some(obj) = existing.payload.as_object_mut() {
-            if identity.title.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) {
+            if identity
+                .title
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|s| !s.is_empty())
+            {
                 obj.insert("title".to_string(), json!(title));
             }
             if identity

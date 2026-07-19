@@ -1108,10 +1108,16 @@ mod tests {
         let app_root = workspace.join("apps").join("demo");
         ensure_app_env_current(app_root.as_path());
         std::fs::write(
-            app_root.join("app.config.json"),
-            r#"{"runtime":{"clientBootstrap":{"enabled":true,"embedMode":"inline"}}}"#,
+            app_root.join("app.toml"),
+            r#"schema_version = "mei-app-v1"
+app_id = "demo"
+
+[runtime.clientBootstrap]
+enabled = true
+embedMode = "inline"
+"#,
         )
-        .expect("app.config");
+        .expect("app.toml");
         let mut metrics = BTreeMap::new();
         metrics.insert(
             "metric_a".to_string(),

@@ -1,7 +1,6 @@
 mod access_gate;
 mod catalog_redirect;
 pub(super) mod compile;
-mod light_pages;
 mod render;
 mod scene_redirect;
 
@@ -28,8 +27,8 @@ use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
 use super::super::util::{elapsed_ms, is_script_target};
 use super::page_render::{
-    access_only_surface_enabled, account_view_for_principal, app_title_for,
-    lightweight_access_scene, list_upload_files, upload_rel_from_config,
+    access_only_surface_enabled, account_view_for_principal, list_upload_files,
+    upload_rel_from_config,
 };
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location,
@@ -46,7 +45,6 @@ use crate::http::compile_cache::{
 use access_gate::check_access_scene_gate;
 use catalog_redirect::try_catalog_redirect;
 use compile::{maybe_handle_compile_bootstrap_probe, resolve_compile_outcome, CompileResolution};
-use light_pages::{try_render_light_page, LightPageContext};
 use scene_redirect::try_scene_projection_redirect;
 
 pub async fn app_page(
@@ -106,6 +104,23 @@ pub async fn app_page(
             .into_response());
     }
     let route_mode = UiRouteMode::from_slug(&mode);
+    if matches!(route_mode, UiRouteMode::Config | UiRouteMode::Upload) {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(host_error_page::render_error_page(
+                StatusCode::NOT_FOUND,
+                "旧管理页面已移除",
+                "请使用包含 resource_id 与 module_id 的 Admin v2 页面路由。",
+                Some("/home"),
+                &[HostShellAction {
+                    href: "/home".to_string(),
+                    label: "返回首页".to_string(),
+                    primary: true,
+                }],
+            )),
+        )
+            .into_response());
+    }
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
     let (app_id, url_path_scene, copilot_presentation_id) = if route_mode == UiRouteMode::Copilot {
         if let Some((app, presentation_id)) = parse_copilot_presentation_tail(&app_id_trimmed) {
@@ -324,15 +339,6 @@ pub async fn app_page(
                 .into_response(),
         );
     }
-    if route_mode == UiRouteMode::Layout {
-        if request_file
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|file| file == ".mei-config.json")
-        {
-            return Ok(Redirect::temporary(&format!("/apps/config/{app_id}")).into_response());
-        }
-    }
     if route_mode.uses_scene_route() {
         if let Some(ref file) = request_file {
             if is_script_target(file) {
@@ -343,14 +349,6 @@ pub async fn app_page(
                 };
                 return Ok(Redirect::temporary(&location).into_response());
             }
-        }
-    }
-    if route_mode == UiRouteMode::Upload {
-        if upload_rel_from_config(&app_root, &state.source_root).is_none() {
-            return Err(AppError::status(
-                axum::http::StatusCode::NOT_FOUND,
-                "app has no paths.upload configured",
-            ));
         }
     }
     let access_static_file = if route_mode == UiRouteMode::App {
@@ -383,7 +381,6 @@ pub async fn app_page(
         }
     }
     let discover_ms = elapsed_ms(discover_started);
-    let app_title = app_title_for(&apps, &app_id);
     let chrome_hidden = route_mode == UiRouteMode::Run
         || route_mode == UiRouteMode::Copilot
         || access_only_surface
@@ -400,27 +397,6 @@ pub async fn app_page(
         .map(|rel| list_upload_files(&app_root.join(rel), rel))
         .unwrap_or_default();
     let upload_root_label = upload_rel.as_deref().unwrap_or("upload").to_string();
-    let lightweight_scene = lightweight_access_scene(&app_root, query.scene.as_deref());
-    if let Some(response) = try_render_light_page(LightPageContext {
-        state: &state,
-        route_mode,
-        app_id: &app_id,
-        query: &query,
-        apps: &apps,
-        app_title: app_title.as_str(),
-        topbar_menus: &topbar_menus,
-        lightweight_scene: lightweight_scene.as_deref(),
-        upload_enabled,
-        upload_root_label: upload_root_label.as_str(),
-        upload_files: &upload_files,
-        auth_enabled,
-        account_view: account_view.as_ref(),
-        request_file: request_file.as_deref(),
-        manage_file: manage_file.as_deref(),
-        app_started,
-    }) {
-        return Ok(response);
-    }
     let compile_resolution = resolve_compile_outcome(
         &state,
         route_mode,

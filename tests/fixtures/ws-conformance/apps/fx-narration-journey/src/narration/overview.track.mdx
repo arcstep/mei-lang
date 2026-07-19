@@ -1,0 +1,45 @@
+---
+id: overview
+title: Narration Journey Overview
+scope: app
+entry: stage:home
+default_for: [stage:home, stage:journey]
+summary: Cross-profile narration conformance track
+default_timing_ms: 8000
+---
+
+# Cockpit
+
+@cue(stage:home/viewpoint:warnings_main)
+Start from the cockpit warning summary.
+@caption
+Start from the cockpit warning summary.
+@end
+@speaker_notes
+This cue is authored only in the App-level Narration Track.
+@end
+@timing(6000)
+@end
+@end
+
+@cue(stage:home/t2_page:warnings-detail)
+@action
+  open_t2: stage:home/t2_page:warnings-detail
+@end
+@timing(manual)
+@end
+@end
+
+# Slides
+
+@cue(stage:journey/slide:mission)
+@caption
+One narration can explain multiple surfaces.
+@end
+@end
+
+@cue(stage:journey/slide:mission/slot:evidence)
+@action
+  focus_slot: stage:journey/slide:mission/slot:evidence
+@end
+@end

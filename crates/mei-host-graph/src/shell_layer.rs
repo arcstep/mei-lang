@@ -164,12 +164,7 @@ mod gate_c_tests {
             SHELL_LAYER_SCHEMA,
         );
         let stale = br#"{"schema_version":"shell-v0","route_mode":"app","tab":"scene","chrome":"full","topbar_html":"<header class=\"mei-shell-topbar mei-shell-rich\">stale shell content that is long enough to avoid placeholder detection path when schema matched</header>","statusbar_html":""}"#;
-        store_layer(
-            cache_key,
-            "shell.app",
-            "stale-hash",
-            stale,
-        );
+        store_layer(cache_key, "shell.app", "stale-hash", stale);
 
         let rich = ShellLayerDocument {
             schema_version: SHELL_LAYER_SCHEMA.to_string(),
@@ -179,27 +174,17 @@ mod gate_c_tests {
             topbar_html: "<header class=\"mei-shell-topbar mei-shell-rich\">rebuilt shell content long enough to not be treated as placeholder bootstrap stub</header>".to_string(),
             statusbar_html: String::new(),
         };
-        let (doc, hit) = ensure_shell_layer_rendered(
-            app_id,
-            scene_id,
-            route_mode,
-            tab,
-            chrome,
-            None,
-            || rich.clone(),
-        );
+        let (doc, hit) =
+            ensure_shell_layer_rendered(app_id, scene_id, route_mode, tab, chrome, None, || {
+                rich.clone()
+            });
         assert!(!hit, "wrong schema must miss and rebuild");
         assert_eq!(doc.schema_version, SHELL_LAYER_SCHEMA);
 
-        let (doc2, hit2) = ensure_shell_layer_rendered(
-            app_id,
-            scene_id,
-            route_mode,
-            tab,
-            chrome,
-            None,
-            || panic!("must hit cache after rebuild"),
-        );
+        let (doc2, hit2) =
+            ensure_shell_layer_rendered(app_id, scene_id, route_mode, tab, chrome, None, || {
+                panic!("must hit cache after rebuild")
+            });
         assert!(hit2);
         assert_eq!(doc2.schema_version, SHELL_LAYER_SCHEMA);
     }

@@ -1,19 +1,20 @@
 //! Cockpit Stage MDX profile (`*.stage.mdx`).
 //!
-//! Provisional directives (Phase 4 freeze):
+//! Frozen structural directives:
 //! - `@scene(use="scene/home")`
 //! - `@fill(slot="…", content="…")`
-//! - shared narration: `@step(target)` / `@caption` / `@speaker_notes` with `@end`
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use super::core::{
-    check_markdown_line, codes, find_frontmatter_end, looks_like_private_scene_path,
-    markdown_from_lines, parse_directive_arg, parse_frontmatter_map, parse_named_directive_args,
-    validate_id_token, StageMarkdown, StageMdxError,
+    codes, find_frontmatter_end, looks_like_private_scene_path, parse_directive_arg,
+    parse_frontmatter_map, parse_named_directive_args, validate_id_token, StageMarkdown,
+    StageMdxError,
 };
+
+pub const STAGE_NARRATION_DIRECTIVE_FORBIDDEN: &str = "stage_narration_directive_forbidden";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CockpitStageFile {
@@ -71,7 +72,13 @@ fn parse_cockpit_stage_at(
         .get("stage_id")
         .map(|(v, _)| v.clone())
         .ok_or_else(|| {
-            StageMdxError::new(path, 1, 1, codes::PARSE, "missing required frontmatter field `stage_id`")
+            StageMdxError::new(
+                path,
+                1,
+                1,
+                codes::PARSE,
+                "missing required frontmatter field `stage_id`",
+            )
         })?;
     if !validate_id_token(&stage_id) {
         let line = values["stage_id"].1;
@@ -219,19 +226,29 @@ impl CockpitParser<'_> {
                 continue;
             }
             if let Some(target) = parse_directive_arg(trimmed, "@step") {
-                if !validate_id_token(target) {
-                    return Err(StageMdxError::new(
-                        self.path,
-                        line,
-                        1,
-                        codes::PARSE,
-                        format!("invalid @step target `{target}`"),
-                    ));
-                }
-                self.index += 1;
-                let step = self.collect_step(target, line, self.steps.len())?;
-                self.steps.push(step);
-                continue;
+                return Err(StageMdxError::new(
+                    self.path,
+                    line,
+                    1,
+                    STAGE_NARRATION_DIRECTIVE_FORBIDDEN,
+                    format!(
+                        "legacy Stage narration directive `@step({target})` is forbidden; use `src/narration/**/*.track.mdx`"
+                    ),
+                ));
+            }
+            if matches!(trimmed, "@caption" | "@speaker_notes")
+                || trimmed.starts_with("@timing(")
+                || trimmed == "@action"
+            {
+                return Err(StageMdxError::new(
+                    self.path,
+                    line,
+                    1,
+                    STAGE_NARRATION_DIRECTIVE_FORBIDDEN,
+                    format!(
+                        "legacy Stage narration directive `{trimmed}` is forbidden; use `src/narration/**/*.track.mdx`"
+                    ),
+                ));
             }
             if trimmed.starts_with('@') {
                 return Err(StageMdxError::new(
@@ -247,115 +264,10 @@ impl CockpitParser<'_> {
                 line,
                 1,
                 codes::PARSE,
-                "cockpit body must use `@scene` / `@fill` / `@step` directives",
+                "cockpit body must use `@scene` / `@fill` directives",
             ));
         }
         Ok(())
-    }
-
-    fn collect_step(
-        &mut self,
-        target: &str,
-        directive_line: usize,
-        index: usize,
-    ) -> Result<CockpitNarrationStep, StageMdxError> {
-        let mut caption = None;
-        let mut speaker_notes = None;
-        while self.index < self.lines.len() {
-            let trimmed = self.lines[self.index].trim();
-            let line = self.index + 1;
-            if trimmed == "@end" {
-                self.index += 1;
-                return Ok(CockpitNarrationStep {
-                    id: format!("step-{index}-{target}"),
-                    target: target.to_string(),
-                    caption,
-                    speaker_notes,
-                    line: directive_line,
-                });
-            }
-            if trimmed == "@caption" {
-                if caption.is_some() {
-                    return Err(StageMdxError::new(
-                        self.path,
-                        line,
-                        1,
-                        codes::PARSE,
-                        "@caption may appear once per @step",
-                    ));
-                }
-                self.index += 1;
-                caption = Some(self.collect_markdown_block("@caption", line)?);
-                continue;
-            }
-            if trimmed == "@speaker_notes" {
-                if speaker_notes.is_some() {
-                    return Err(StageMdxError::new(
-                        self.path,
-                        line,
-                        1,
-                        codes::PARSE,
-                        "@speaker_notes may appear once per @step",
-                    ));
-                }
-                self.index += 1;
-                speaker_notes = Some(self.collect_markdown_block("@speaker_notes", line)?);
-                continue;
-            }
-            if trimmed.is_empty() {
-                self.index += 1;
-                continue;
-            }
-            return Err(StageMdxError::new(
-                self.path,
-                line,
-                1,
-                codes::PARSE,
-                format!("unexpected content inside @step; got `{trimmed}`"),
-            ));
-        }
-        Err(StageMdxError::new(
-            self.path,
-            directive_line,
-            1,
-            codes::PARSE,
-            "`@step` block is missing `@end`",
-        ))
-    }
-
-    fn collect_markdown_block(
-        &mut self,
-        directive: &str,
-        directive_line: usize,
-    ) -> Result<StageMarkdown, StageMdxError> {
-        let start = self.index;
-        while self.index < self.lines.len() {
-            let raw = self.lines[self.index];
-            if raw.trim() == "@end" {
-                for (offset, line) in self.lines[start..self.index].iter().enumerate() {
-                    if let Err(kind) = check_markdown_line(line) {
-                        return Err(StageMdxError::new(
-                            self.path,
-                            start + offset + 1,
-                            1,
-                            kind.code(),
-                            kind.message(),
-                        ));
-                    }
-                }
-                let md = markdown_from_lines(&self.lines[start..self.index]);
-                self.index += 1;
-                return Ok(md);
-            }
-            self.index += 1;
-        }
-        Err(StageMdxError::new(
-            self.path,
-            directive_line,
-            1,
-            codes::PARSE,
-            format!("`{directive}` block is missing `@end`"),
-        ))
     }
 }
 
@@ -397,24 +309,19 @@ title: Mini
     }
 
     #[test]
-    fn parses_narration_step() {
+    fn rejects_legacy_narration_step() {
         let source = format!(
             "{MINIMAL}\n@step(mini-metric)\n@caption\nHello\n@end\n@speaker_notes\nNotes\n@end\n@end\n"
         );
-        let doc = parse_cockpit_stage_source(&source).expect("parse");
-        assert_eq!(doc.steps.len(), 1);
-        assert_eq!(doc.steps[0].target, "mini-metric");
-        assert!(doc.steps[0]
-            .caption
-            .as_ref()
-            .is_some_and(|c| c.markdown.contains("Hello")));
+        let error = parse_cockpit_stage_source(&source).expect_err("legacy narration");
+        assert_eq!(error.code, STAGE_NARRATION_DIRECTIVE_FORBIDDEN);
     }
 
     #[test]
-    fn rejects_jsx_in_caption() {
+    fn rejects_caption_as_legacy_narration_before_markdown_parse() {
         let source = format!("{MINIMAL}\n@step(x)\n@caption\n<div/>\n@end\n@end\n");
-        let err = parse_cockpit_stage_source(&source).expect_err("jsx");
-        assert_eq!(err.code, codes::JSX_FORBIDDEN);
+        let err = parse_cockpit_stage_source(&source).expect_err("legacy narration");
+        assert_eq!(err.code, STAGE_NARRATION_DIRECTIVE_FORBIDDEN);
     }
 
     #[test]

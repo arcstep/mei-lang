@@ -105,7 +105,8 @@ struct MaterializeContext<'a> {
 
 fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     let app_root = resolve_app_root(workspace_root, app_id);
-    let mei_config = mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let mei_config =
+        mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
     let data_gen =
         mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
     // Phase 6: include cockpit profile policy digest (ops + profile), not only data_generation.
@@ -176,9 +177,8 @@ fn load_materialize_context_with_core<'a>(
     semantic_core: Option<SemanticCacheCore>,
 ) -> Result<MaterializeContext<'a>> {
     let layout_rev = layout_policy_revision(workspace_root, app_id);
-    let semantic_core = semantic_core.unwrap_or_else(|| {
-        build_semantic_core_for_scene(workspace_root, app_id, scene_id)
-    });
+    let semantic_core = semantic_core
+        .unwrap_or_else(|| build_semantic_core_for_scene(workspace_root, app_id, scene_id));
     Ok(MaterializeContext {
         workspace_root,
         app_id,
@@ -729,53 +729,54 @@ fn build_and_store_manifest_index(
     let manifest_revision_digest = manifest_revision_digest(&semantic_manifest, None);
 
     let mut surfaces = Vec::new();
-    let route_slug = "app";
-    let tab = "scene";
-    let review_projection = default_ssr_review_projection(data_mode);
-    ctx.route_mode = route_slug;
-    ctx.tab = tab;
-    ctx.chrome = "full";
-    let compose_defaults = ComposeRequest {
-        route_mode: Some(route_slug.to_string()),
-        tab: Some(tab.to_string()),
-        chrome: Some("full".to_string()),
-        review_projection: Some(review_projection.to_string()),
-        data_mode: Some(data_mode.slug().to_string()),
-        focus: None,
-        scope: semantic_core.preview_scope.clone(),
-        scope_target: None,
-    };
-    let shell_doc = materialize_shell(&mut ctx, hits, shell_chrome, None);
-    let shell_layer_name = format!("shell.{route_slug}");
-    let mut shell_layer_ref = BTreeMap::new();
-    if let Some(layer_ref) = layer_ref_from_materialized(&shell_doc) {
-        shell_layer_ref.insert(shell_layer_name.clone(), layer_ref);
+    for route_slug in ["app", "admin"] {
+        let tab = "scene";
+        let review_projection = default_ssr_review_projection(data_mode);
+        ctx.route_mode = route_slug;
+        ctx.tab = tab;
+        ctx.chrome = "full";
+        let compose_defaults = ComposeRequest {
+            route_mode: Some(route_slug.to_string()),
+            tab: Some(tab.to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: Some(review_projection.to_string()),
+            data_mode: Some(data_mode.slug().to_string()),
+            focus: None,
+            scope: semantic_core.preview_scope.clone(),
+            scope_target: None,
+        };
+        let shell_doc = materialize_shell(&mut ctx, hits, shell_chrome, None);
+        let shell_layer_name = format!("shell.{route_slug}");
+        let mut shell_layer_ref = BTreeMap::new();
+        if let Some(layer_ref) = layer_ref_from_materialized(&shell_doc) {
+            shell_layer_ref.insert(shell_layer_name.clone(), layer_ref);
+        }
+        let mut layers = semantic_layers_from_refs(&semantic_layer_refs);
+        if let Some(shell_ref) = layer_ref_from_materialized(&shell_doc) {
+            layers.insert(
+                shell_layer_name.clone(),
+                serde_json::to_value(shell_ref).unwrap_or(Value::Null),
+            );
+        }
+        let surface_manifest = SceneViewManifest {
+            schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
+            app_id: app_id.to_string(),
+            scene_id: scene_id.to_string(),
+            semantic_core: semantic_core.clone(),
+            revision_digest: manifest_revision_digest.clone(),
+            layers,
+            compose_defaults: Some(compose_defaults.clone()),
+            surface_revision_digest: None,
+        };
+        let surface_revision_digest = surface_revision_digest_from_manifest(&surface_manifest);
+        surfaces.push(SurfaceManifestSlice {
+            route_mode: route_slug.to_string(),
+            shell_layer_name,
+            surface_revision_digest: surface_revision_digest.unwrap_or_default(),
+            compose_defaults,
+            shell_layer_ref,
+        });
     }
-    let mut layers = semantic_layers_from_refs(&semantic_layer_refs);
-    if let Some(shell_ref) = layer_ref_from_materialized(&shell_doc) {
-        layers.insert(
-            shell_layer_name.clone(),
-            serde_json::to_value(shell_ref).unwrap_or(Value::Null),
-        );
-    }
-    let surface_manifest = SceneViewManifest {
-        schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
-        app_id: app_id.to_string(),
-        scene_id: scene_id.to_string(),
-        semantic_core: semantic_core.clone(),
-        revision_digest: manifest_revision_digest.clone(),
-        layers,
-        compose_defaults: Some(compose_defaults.clone()),
-        surface_revision_digest: None,
-    };
-    let surface_revision_digest = surface_revision_digest_from_manifest(&surface_manifest);
-    surfaces.push(SurfaceManifestSlice {
-        route_mode: route_slug.to_string(),
-        shell_layer_name,
-        surface_revision_digest: surface_revision_digest.unwrap_or_default(),
-        compose_defaults,
-        shell_layer_ref,
-    });
 
     let index = ManifestIndexDocument {
         schema_version: MANIFEST_INDEX_SCHEMA.to_string(),

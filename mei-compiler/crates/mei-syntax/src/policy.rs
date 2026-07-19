@@ -5,10 +5,7 @@ use thiserror::Error;
 const FORBIDDEN_TOKENS: &[&str] = &["for", "while", "lambda", "load", "import", "open"];
 const WORLD_MEI_SUFFIX: &str = ".world.mei";
 const WORLD_ALLOWED_TOKENS: &[&str] = &["for", "enum"];
-const GRID_ONLY_POLICY_ROOTS: &[&str] = &[
-    "/stock/templates/cockpit/",
-    "/apps/",
-];
+const GRID_ONLY_POLICY_ROOTS: &[&str] = &["/stock/templates/cockpit/", "/apps/"];
 /// Author DSL patterns rejected on all paths (Phase 3 layout purge).
 const GLOBAL_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
     ("frame.add_panel(", "frame.add_panel(...)"),
@@ -310,9 +307,7 @@ mod tests {
 
     #[test]
     fn grid_only_policy_keeps_legacy_paths_compatible() {
-        let path = Path::new(
-            "/tmp/fixture/stock/components/chart/echarts/previews/chart.bar.mei",
-        );
+        let path = Path::new("/tmp/fixture/stock/components/chart/echarts/previews/chart.bar.mei");
         validate_authoring_policy_for_path(
             path,
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
@@ -355,9 +350,7 @@ mod tests {
 
     #[test]
     fn region_layout_rejects_direct_contents() {
-        let path = Path::new(
-            "/tmp/fixture/apps/mini-park/src/scene/home/t1/r-header/layout.mei",
-        );
+        let path = Path::new("/tmp/fixture/apps/mini-park/src/scene/home/t1/r-header/layout.mei");
         let err = validate_authoring_policy_for_path(
             path,
             r#"region_layout(
@@ -387,9 +380,7 @@ mod tests {
 
     #[test]
     fn region_layout_rejects_stage_anchor() {
-        let path = Path::new(
-            "/tmp/fixture/apps/zhifa/src/scene/home/t0/r-map-stage/layout.mei",
-        );
+        let path = Path::new("/tmp/fixture/apps/zhifa/src/scene/home/t0/r-map-stage/layout.mei");
         let err = validate_authoring_policy_for_path(
             path,
             r#"region_layout(

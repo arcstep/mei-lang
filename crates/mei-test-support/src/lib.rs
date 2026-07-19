@@ -41,7 +41,9 @@ pub fn mei_lang_root_from(start: &Path) -> PathBuf {
 pub fn mei_lang_root() -> PathBuf {
     if let Ok(raw) = std::env::var("MEI_PACKAGE_ROOT") {
         let p = PathBuf::from(raw);
-        if p.join("tests/fixtures/ws-conformance/workspace.json").is_file() {
+        if p.join("tests/fixtures/ws-conformance/workspace.json")
+            .is_file()
+        {
             return p;
         }
     }
@@ -95,10 +97,7 @@ pub fn conformance_workspace() -> PathBuf {
             }
             copy_dir_recursive(&src, &dest);
             materialize_workspace_stock(&dest, &package, true).unwrap_or_else(|e| {
-                panic!(
-                    "materialize stock into {}: {e:#}",
-                    dest.display()
-                );
+                panic!("materialize stock into {}: {e:#}", dest.display());
             });
             dest
         })
@@ -163,6 +162,11 @@ pub fn ensure_imported(app_id: &str) -> PathBuf {
 
 pub const APP_STRUCTURE: &str = "fx-structure";
 pub const APP_DATA: &str = "fx-data";
+pub const APP_ADMIN_MEI: &str = "fx-admin-mei";
+pub const APP_DECK_MINIMAL: &str = "fx-deck-minimal";
+pub const APP_DUAL_STAGE: &str = "fx-dual-stage";
+pub const APP_NARRATION_JOURNEY: &str = "fx-narration-journey";
+pub const APP_PAGE_REPORT: &str = "fx-page-report";
 
 pub const APP_DIAG_LINK_TARGET: &str = "fx-diag-link-target";
 pub const APP_DIAG_LINK_PARAM: &str = "fx-diag-link-param";

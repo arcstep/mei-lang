@@ -50,11 +50,28 @@ pub fn ops_themes_revision_digest(config: &MeiConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mei_config::types::{AppEntryConfig, AppFeaturesConfig, AppPathsConfig};
+    use crate::mei_config::types::{
+        AppEntryConfig, AppFeaturesConfig, AppPathsConfig, OpsSourceEntry,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
     fn sample_config(themes: BTreeMap<String, Value>) -> MeiConfig {
+        let sources = BTreeMap::from([(
+            "demo".to_string(),
+            OpsSourceEntry {
+                kind: "xlsx".to_string(),
+                path: "upload/demo.xlsx".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+            },
+        )]);
         MeiConfig {
             schema_version: 1,
             entry: AppEntryConfig {
@@ -63,6 +80,7 @@ mod tests {
             paths: AppPathsConfig::default(),
             features: AppFeaturesConfig::default(),
             ops: OpsConfig {
+                sources,
                 themes,
                 ..Default::default()
             },

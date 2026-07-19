@@ -11,8 +11,6 @@ use super::{HostAccountView, TopbarMenuContext};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceShellNav {
     Home,
-    Config,
-    Upload,
     Runtime,
     Mcg,
 }
@@ -21,8 +19,6 @@ impl WorkspaceShellNav {
     fn shell_nav_active(self) -> ShellNavActive {
         match self {
             Self::Home => ShellNavActive::Home,
-            Self::Config => ShellNavActive::Config,
-            Self::Upload => ShellNavActive::Upload,
             Self::Runtime => ShellNavActive::Runtime,
             Self::Mcg => ShellNavActive::Mcg,
         }
@@ -30,8 +26,7 @@ impl WorkspaceShellNav {
 
     fn document_route_mode(self) -> UiRouteMode {
         match self {
-            Self::Home | Self::Config => UiRouteMode::Config,
-            Self::Upload => UiRouteMode::Upload,
+            Self::Home => UiRouteMode::App,
             Self::Runtime => UiRouteMode::Runtime,
             Self::Mcg => UiRouteMode::Layout,
         }
@@ -40,8 +35,6 @@ impl WorkspaceShellNav {
     fn status_path(self) -> &'static str {
         match self {
             Self::Home => "/home",
-            Self::Config => "/config",
-            Self::Upload => "/upload",
             Self::Runtime => "/runtime",
             Self::Mcg => "/mcg",
         }

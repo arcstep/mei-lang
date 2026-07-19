@@ -32,8 +32,6 @@ pub enum AppsCommand {
     List(AppsListArgs),
     Start(AppsStartArgs),
     Stop(AppsStopArgs),
-    /// Convert legacy `[admin].manifest` TOML resources to `src/admin/*.admin.mdx`.
-    MigrateAdmin(AppsMigrateAdminArgs),
 }
 
 #[derive(Args, Debug)]
@@ -70,18 +68,6 @@ pub struct AppsStopArgs {
     pub app: String,
     #[arg(long = "control-url", value_name = "URL")]
     pub control_url: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct AppsMigrateAdminArgs {
-    #[arg(long)]
-    pub workspace: PathBuf,
-    #[arg(long)]
-    pub app: String,
-    /// Write generated MDX files and remove the legacy manifest pointer.
-    /// Without this flag the command prints the planned targets only.
-    #[arg(long)]
-    pub write: bool,
 }
 
 /// How serve chooses which apps to autostart (internal).

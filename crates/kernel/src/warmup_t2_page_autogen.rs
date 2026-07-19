@@ -334,9 +334,7 @@ scene_export(
             "legacy board should still work: {suggestions:?}"
         );
         assert!(
-            suggestions
-                .iter()
-                .all(|s| !s.focus.ends_with("/plane.mei")),
+            suggestions.iter().all(|s| !s.focus.ends_with("/plane.mei")),
             "pure plane.mei must be skipped: {suggestions:?}"
         );
         let _ = fs::remove_dir_all(app_root);

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::stage_registry::{StageDescriptor, StageId, StageProfile, StageRegistry};
-use super::{AdminPageProgram, PageProgram};
+use super::PageProgram;
 
 /// Stage Surface (viewport / paged / document; Access kept as wire-compat alias).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -249,12 +249,6 @@ impl StageProgram {
             self.source_anchor.clone(),
             scene_ref,
         ))
-    }
-
-    /// Wrap this page-profile stage for an admin resource route.
-    pub fn admin_page_program(&self, resource_id: impl Into<String>) -> Option<AdminPageProgram> {
-        self.page_program()
-            .map(|page| AdminPageProgram::new(resource_id, page))
     }
 }
 

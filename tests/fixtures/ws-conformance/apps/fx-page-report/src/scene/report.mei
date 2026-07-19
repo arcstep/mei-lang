@@ -1,0 +1,19 @@
+scene(
+    id = "report",
+    key = "report@src/scene/report.mei",
+    profile = "page",
+    summary = "Long-form report document root",
+    planes = [
+        plane_ref("fx-page-report/report/t1"),
+    ],
+)
+
+content_panel(
+    id = "report_body",
+    blocks = [
+        content_block(
+            format = "markdown",
+            content = "This self-contained report verifies the document Stage surface.",
+        ),
+    ],
+)

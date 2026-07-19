@@ -107,10 +107,16 @@ fn ssr_bootstrap_head_fragment_inline_mode_contains_json_script() {
     let app_root = workspace.join("apps").join("demo");
     seed_test_app_env(app_root.as_path());
     std::fs::write(
-        app_root.join("app.config.json"),
-        r#"{"runtime":{"clientBootstrap":{"enabled":true,"embedMode":"inline"}}}"#,
+        app_root.join("app.toml"),
+        r#"schema_version = "mei-app-v1"
+app_id = "demo"
+
+[runtime.clientBootstrap]
+enabled = true
+embedMode = "inline"
+"#,
     )
-    .expect("app.config");
+    .expect("app.toml");
 
     let mut metrics = BTreeMap::new();
     metrics.insert(
@@ -205,6 +211,9 @@ fn bootstrap_embed_status_reports_manifest_missing() {
     let temp = tempfile::tempdir().expect("tempdir");
     let app_root = temp.path().join("apps").join("demo");
     seed_test_app_env(app_root.as_path());
+    let descriptor = sample_descriptor("workset:home:0::metric_a", "hash-a");
+    record_slots_from_descriptors(temp.path(), "demo", std::slice::from_ref(&descriptor))
+        .expect("record required client slot");
     let status = bootstrap_embed_status(temp.path(), "demo", "home");
     assert!(!status.allowed);
     assert_eq!(status.reason, "manifest_missing");

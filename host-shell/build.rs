@@ -171,7 +171,8 @@ fn compile_page_pack(manifest_dir: &std::path::Path, spec: &PagePackSpec) {
         source_anchor = spec.source_anchor,
         scene_ref = spec.scene_ref,
     );
-    let output_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join(spec.generated_file);
+    let output_path =
+        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join(spec.generated_file);
     if fs::read_to_string(&output_path).ok().as_deref() != Some(generated.as_str()) {
         fs::write(&output_path, generated)
             .unwrap_or_else(|err| panic!("write {}: {err}", output_path.display()));

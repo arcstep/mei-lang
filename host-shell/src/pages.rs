@@ -617,36 +617,9 @@ pub async fn app_page(
         principal.as_ref().map(|Extension(p)| p),
     );
     if route_mode == UiRouteMode::Config || route_mode == UiRouteMode::Upload {
-        let app_title = apps
-            .iter()
-            .find(|app| app.id == app_id)
-            .map(|app| app.title.as_str())
-            .unwrap_or(app_id.as_str());
-        let scene_for_links = query
-            .scene
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        if let Some(response) =
-            crate::light_pages::try_render_light_page(crate::light_pages::LightPageContext {
-                workspace_root,
-                _package_root: package_root,
-                route_mode,
-                app_id: app_id.as_str(),
-                apps: apps.as_slice(),
-                app_title,
-                topbar_menu: &topbar_menu,
-                lightweight_scene: scene_for_links,
-                request_file: query.file.as_deref(),
-                auth_enabled,
-                account_view: account_view.as_ref(),
-            })
-        {
-            return response;
-        }
         return (
             StatusCode::NOT_FOUND,
-            format!("route mode `{}` is not available for this app", mode),
+            format!("route mode `{mode}` was removed; use a module-qualified Admin v2 route"),
         )
             .into_response();
     }
@@ -2394,10 +2367,14 @@ pub(crate) fn inject_layer_plane_scripts(
         &outcome.compiled,
     ))
     .unwrap_or_else(|_| "{}".to_string());
+    let narration_catalog_digest = serde_json::to_string(
+        &mei_host_graph::narration_catalog_digest_bootstrap(&outcome.compiled),
+    )
+    .unwrap_or_else(|_| "\"\"".to_string());
     let scene_routes =
         serde_json::to_string(&outcome.compiled.scene_routes).unwrap_or_else(|_| "[]".to_string());
     let scripts = format!(
-        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script type="application/json" id="mei-world-plan">{world_plan}</script><script type="application/json" id="mei-map-projection">{map_projection}</script><script>window.__mei=window.__mei||{{}};window.__mei.layer_plan={layer_plan};window.__mei.presentation_map={presentation_map};window.__mei.world_plan={world_plan};window.__mei.map_projection={map_projection};window.__mei.overlay_defaults={overlay_defaults};window.__mei.t2_overlay_defaults={overlay_defaults};window.__mei.page_overlay_defaults={overlay_defaults};window.__mei.component_assets={component_assets};window.__mei.scene_routes={scene_routes};window.__mei.stage_registry={stage_registry};window.__mei.stage_programs={stage_programs};window.__mei.narration_catalogs={narration_catalogs};</script>"#
+        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script type="application/json" id="mei-world-plan">{world_plan}</script><script type="application/json" id="mei-map-projection">{map_projection}</script><script>window.__mei=window.__mei||{{}};window.__mei.layer_plan={layer_plan};window.__mei.presentation_map={presentation_map};window.__mei.world_plan={world_plan};window.__mei.map_projection={map_projection};window.__mei.overlay_defaults={overlay_defaults};window.__mei.t2_overlay_defaults={overlay_defaults};window.__mei.page_overlay_defaults={overlay_defaults};window.__mei.component_assets={component_assets};window.__mei.scene_routes={scene_routes};window.__mei.stage_registry={stage_registry};window.__mei.stage_programs={stage_programs};window.__mei.narration_catalogs={narration_catalogs};window.__mei.narration_catalog_digest={narration_catalog_digest};</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + scripts.len());

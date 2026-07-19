@@ -13,7 +13,9 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
-use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset, workspace_brand_asset};
+use crate::assets::{
+    app_asset, app_bundle, component_asset, workspace_app_asset, workspace_brand_asset,
+};
 use crate::build_api::{
     api_build_context_export, api_build_graph_mcg, api_build_graph_mcg_artifact,
     api_build_graph_mcg_node,
@@ -25,7 +27,7 @@ use crate::generation_lifecycle::{
 };
 use crate::host_home::host_home_page;
 use crate::host_mcg::host_mcg_page;
-use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
+use crate::host_scoped::host_runtime_page;
 use crate::instance_api::{
     api_host_instance_restart, api_host_instance_stop, api_host_instances, api_host_launch_manifest,
 };
@@ -51,9 +53,8 @@ use crate::runtime_api::{
 };
 use crate::shell_redirects::{
     redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_scene_id,
-    redirect_apps_app_to_stage, redirect_apps_config, redirect_apps_layout_to_stage,
-    redirect_apps_prototype_to_stage, redirect_apps_runtime, redirect_apps_upload,
-    redirect_apps_view_to_stage, redirect_host_config, redirect_host_runtime, redirect_host_upload,
+    redirect_apps_app_to_stage, redirect_apps_layout_to_stage, redirect_apps_prototype_to_stage,
+    redirect_apps_runtime, redirect_apps_view_to_stage, redirect_host_runtime,
     redirect_mode_first_app_root, redirect_mode_first_app_scene, redirect_mode_first_app_tail,
     redirect_root_to_home,
 };
@@ -77,12 +78,10 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/", get(redirect_root_to_home))
         .route("/host", get(redirect_root_to_home))
         .route("/home", get(host_home_page))
-        .route("/config", get(host_config_page))
-        .route("/upload", get(host_upload_page))
         .route("/runtime", get(host_runtime_page))
         .route("/mcg", get(host_mcg_page))
         .route(
-            "/admin/apps/:app_id/:resource_id",
+            "/admin/apps/:app_id/:resource_id/:module_id",
             get(crate::admin_pages::host_admin_resource_page),
         )
         .route(
@@ -90,29 +89,24 @@ pub fn router(state: HostHttpState) -> Router {
             get(crate::admin_api::api_admin_resources),
         )
         .route(
-            "/api/admin/providers/config-record",
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/config-record",
             get(crate::admin_api::api_config_record_get)
                 .put(crate::admin_api::api_config_record_put),
         )
         .route(
-            "/api/admin/providers/asset-slot",
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot",
             get(crate::admin_api::api_asset_slot_get),
         )
         .route(
-            "/api/admin/providers/asset-slot/replace",
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot/replace",
             axum::routing::post(crate::admin_api::api_asset_slot_replace),
         )
         .route(
-            "/api/admin/providers/command-job",
-            get(crate::admin_api::api_command_job_get)
-                .post(crate::admin_api::api_command_job_run),
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/command-job",
+            get(crate::admin_api::api_command_job_get).post(crate::admin_api::api_command_job_run),
         )
-        .route("/host/config", get(redirect_host_config))
-        .route("/host/upload", get(redirect_host_upload))
         .route("/host/runtime", get(redirect_host_runtime))
         .route("/host/starting", get(host_starting_page))
-        .route("/apps/upload/:app_id", get(redirect_apps_upload))
-        .route("/apps/config/:app_id", get(redirect_apps_config))
         .route("/apps/runtime/:app_id", get(redirect_apps_runtime))
         .route("/apps/access/:app_id", get(redirect_apps_access))
         .route("/apps/app/:app_id", get(redirect_mode_first_app_root))
@@ -362,10 +356,7 @@ pub fn router(state: HostHttpState) -> Router {
             get(redirect_apps_prototype_to_stage),
         )
         // Phase 8.5 temporary Stage MUST register before bare `/:stage_id`.
-        .route(
-            "/apps/:app_id/~/*target_tail",
-            get(app_temp_stage_page),
-        )
+        .route("/apps/:app_id/~/*target_tail", get(app_temp_stage_page))
         // Legacy deep scoped tails redirect to `/apps/{app}/~/…`.
         .route(
             "/apps/:app_id/:stage_id/*scoped_tail",
@@ -430,10 +421,9 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
             guard.warmed_up = warmed_up;
         }
     }
-    let has_active_profile = crate::workspace_profile_api::read_host_control_state(
-        workspace_root.as_path(),
-    )
-    .is_some_and(|value| value.get("activeProfile").is_some());
+    let has_active_profile =
+        crate::workspace_profile_api::read_host_control_state(workspace_root.as_path())
+            .is_some_and(|value| value.get("activeProfile").is_some());
     let default_phase = if ops_running {
         "building"
     } else if !has_active_profile {
@@ -452,10 +442,8 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
     let any_app_access_ready = discovered_apps
         .iter()
         .any(|app| app.get("accessReady").and_then(|value| value.as_bool()) == Some(true));
-    let descriptor = build_info::version_descriptor(
-        Some(workspace_root.as_path()),
-        Some(host_started_at_ms),
-    );
+    let descriptor =
+        build_info::version_descriptor(Some(workspace_root.as_path()), Some(host_started_at_ms));
     let display_label = descriptor
         .get("displayLabel")
         .and_then(|value| value.as_str())
@@ -787,7 +775,10 @@ async fn api_datasets_metrics(
 ) -> Response {
     let (plug_ds, runtime_identity) = {
         let guard = http.shell.read().expect("state lock");
-        if !guard.data_mode_ceiling_for(app_id.as_str()).allows_eval_api() {
+        if !guard
+            .data_mode_ceiling_for(app_id.as_str())
+            .allows_eval_api()
+        {
             return (
                 StatusCode::FORBIDDEN,
                 Json(json!({
@@ -1944,7 +1935,7 @@ mod tests {
         assert!(html.contains("topbar-shell"));
         assert!(html.contains("statusbar-shell"));
         assert!(html.contains("host-shell.css"));
-        assert!(html.contains("/config"));
+        assert!(!html.contains("href=\"/config\""));
     }
 
     #[tokio::test]
@@ -1984,7 +1975,6 @@ mod tests {
         for uri in [
             "/home",
             "/runtime",
-            "/config",
             "/api/host/runtime/profile",
             "/api/host/workspace-profiles",
         ] {
@@ -2023,7 +2013,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn host_config_route_without_app_shows_picker() {
+    async fn removed_config_route_returns_not_found() {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(tmp.path().join("apps/data-demo")).expect("mkdir app");
         std::fs::write(
@@ -2046,17 +2036,7 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .expect("body")
-            .to_bytes();
-        let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("请选择要管理的应用"));
-        assert!(html.contains("data-demo"));
-        assert!(html.contains("topbar-shell"));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -2083,7 +2063,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_host_upload_redirects_to_shell_upload() {
+    async fn removed_host_upload_route_returns_not_found() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
@@ -2095,14 +2075,7 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(
-            response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok()),
-            Some("/upload?app=demo")
-        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -2179,272 +2152,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_loop_resources_page_and_config_record() {
+    async fn conformance_admin_v2_route_is_module_qualified_and_uses_thin_shell() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let workspace = tmp.path();
-        let apps = workspace.join("apps");
-        std::fs::create_dir_all(&apps).unwrap();
-        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../tests/fixtures/admin-loop-app");
-        assert!(fixture.join("app.toml").is_file(), "admin-loop-app fixture missing");
-        let dest = apps.join("admin-loop-app");
-        copy_dir_recursive(&fixture, &dest);
+        let app_root = workspace.join("apps/demo");
+        std::fs::create_dir_all(app_root.join("src/admin/organization")).unwrap();
+        std::fs::create_dir_all(app_root.join("src/scene/admin/organization")).unwrap();
+        std::fs::create_dir_all(app_root.join("env/admin-v2/build/registry")).unwrap();
+        std::fs::create_dir_all(app_root.join("env/admin-v2/var")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("admin-v2", app_root.join("env/current")).unwrap();
         std::fs::write(
             workspace.join("workspace.json"),
-            r#"{"schemaVersion":2,"workspace":{"id":"admin-loop"}}"#,
+            r#"{"schemaVersion":2,"workspace":{"id":"admin-v2"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            app_root.join("app.toml"),
+            "schema_version = \"mei-app-v1\"\ntitle = \"Admin v2\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            app_root.join("src/admin/organization/overview.mdx"),
+            "---\napi_version: mei-admin-resource-v2\ntitle: 单位信息\nrequired_capabilities: [config_upload]\n---\n\n@scene(use=\"admin.organization.overview\")\n",
+        )
+        .unwrap();
+        std::fs::write(
+            app_root.join("src/scene/admin/organization/overview.mei"),
+            "scene(id = \"admin.organization.overview\", profile = \"page\")\n",
         )
         .unwrap();
 
-        let state = test_state(workspace.to_path_buf());
-        let app = router(state);
-
+        let app = router(test_state(workspace.to_path_buf()));
         let list = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/api/admin/resources?app_id=admin-loop-app")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(list.status(), StatusCode::OK);
-        let list_body = list.into_body().collect().await.unwrap().to_bytes();
-        let list_json: serde_json::Value = serde_json::from_slice(&list_body).unwrap();
-        assert!(list_json["resources"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r["resourceId"] == "organization"));
-        assert!(list_json["resources"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r["resourceId"] == "ops_config"));
-        assert!(list_json["resources"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r["resourceId"] == "upload_files"));
-
-        let page = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/apps/admin-loop-app/organization")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(page.status(), StatusCode::OK);
-        let html = String::from_utf8(page.into_body().collect().await.unwrap().to_bytes().to_vec())
-            .unwrap();
-        assert!(html.contains("admin-form-root"));
-        assert!(html.contains("id=\"mei-admin-compose-root\""));
-        assert!(html.contains("data-mei-stage-surface=\"document\""));
-        assert!(html.contains("data-mei-admin-compose=\"document\""));
-        assert!(html.contains("data-mei-page-surface=\"document\""));
-        assert!(html.contains("data-mei-source-anchor="));
-        assert!(html.contains("data-mei-projection-digest="));
-        assert!(html.contains("admin.bundle.js") || html.contains("/app-bundles/admin.js"));
-        // Phase C: Host builtins coexist on the same topbar strip.
-        assert!(html.contains("/admin/apps/admin-loop-app/ops_config"));
-        assert!(html.contains("运维配置") || html.contains("ops_config"));
-
-        let ops_page = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/apps/admin-loop-app/ops_config")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(ops_page.status(), StatusCode::OK);
-        let ops_html =
-            String::from_utf8(ops_page.into_body().collect().await.unwrap().to_bytes().to_vec())
-                .unwrap();
-        assert!(ops_html.contains("manage-ops-editor-root"));
-        assert!(!ops_html.contains("id=\"admin-form-root\""));
-
-        let dual_config = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/config?app=admin-loop-app")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(dual_config.status(), StatusCode::OK);
-        let dual_html = String::from_utf8(
-            dual_config
-                .into_body()
-                .collect()
-                .await
-                .unwrap()
-                .to_bytes()
-                .to_vec(),
-        )
-        .unwrap();
-        assert!(dual_html.contains("manage-ops-editor-root"));
-        assert!(dual_html.contains("admin.bundle.js") || dual_html.contains("/app-bundles/admin.js"));
-
-        // Upload dual render requires paths.upload in app.toml (preferred over .mei-config.json).
-        let mut app_toml = std::fs::read_to_string(dest.join("app.toml")).unwrap();
-        app_toml.push_str("\n[paths]\nupload = \"upload\"\n");
-        std::fs::write(dest.join("app.toml"), app_toml).unwrap();
-        std::fs::create_dir_all(dest.join("upload")).unwrap();
-        std::fs::write(dest.join("upload/sample.txt"), "ok").unwrap();
-
-        let upload_admin = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/apps/admin-loop-app/upload_files")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(upload_admin.status(), StatusCode::OK);
-        let upload_admin_html = String::from_utf8(
-            upload_admin
-                .into_body()
-                .collect()
-                .await
-                .unwrap()
-                .to_bytes()
-                .to_vec(),
-        )
-        .unwrap();
-        assert!(upload_admin_html.contains("upload-panel-root"));
-        assert!(upload_admin_html.contains("upload-file-list"));
-
-        let dual_upload = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/upload?app=admin-loop-app")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(dual_upload.status(), StatusCode::OK);
-        let dual_upload_html = String::from_utf8(
-            dual_upload
-                .into_body()
-                .collect()
-                .await
-                .unwrap()
-                .to_bytes()
-                .to_vec(),
-        )
-        .unwrap();
-        assert!(dual_upload_html.contains("upload-panel-root"));
-        assert!(
-            dual_upload_html.contains("admin.bundle.js")
-                || dual_upload_html.contains("/app-bundles/admin.js")
-        );
-
-        let put = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/admin/providers/config-record")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "appId": "admin-loop-app",
-                            "resourceId": "organization",
-                            "revision": 0,
-                            "idempotencyKey": "http-test-1",
-                            "payload": {"name": "HTTP单位"}
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(put.status(), StatusCode::OK);
-
-        let conflict = app
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/admin/providers/config-record")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "appId": "admin-loop-app",
-                            "resourceId": "organization",
-                            "revision": 0,
-                            "idempotencyKey": "http-test-2",
-                            "payload": {"name": "冲突"}
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(conflict.status(), StatusCode::CONFLICT);
-    }
-
-    #[tokio::test]
-    async fn admin_phase_d_datasources_asset_slot_and_import_job() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let workspace = tmp.path();
-        let apps = workspace.join("apps");
-        std::fs::create_dir_all(&apps).unwrap();
-        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../tests/fixtures/admin-phase-d-app");
-        assert!(
-            fixture.join("app.toml").is_file(),
-            "admin-phase-d-app fixture missing"
-        );
-        let dest = apps.join("admin-phase-d-app");
-        copy_dir_recursive(&fixture, &dest);
-        std::fs::write(
-            workspace.join("workspace.json"),
-            r#"{"schemaVersion":2,"workspace":{"id":"admin-phase-d"}}"#,
-        )
-        .unwrap();
-
-        let state = test_state(workspace.to_path_buf());
-        let app = router(state);
-
-        let page = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/apps/admin-phase-d-app/datasources")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(page.status(), StatusCode::OK);
-        let html = String::from_utf8(page.into_body().collect().await.unwrap().to_bytes().to_vec())
-            .unwrap();
-        assert!(html.contains("admin-asset-slot-root"));
-        assert!(html.contains("id=\"mei-admin-compose-root\""));
-        assert!(html.contains("data-mei-stage-surface=\"document\""));
-        assert!(html.contains("data-mei-admin-compose=\"document\""));
-        assert!(html.contains("单位信息") || html.contains("organization"));
-        assert!(html.contains("数据源") || html.contains("datasources"));
-
-        let list = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/admin/providers/asset-slot?appId=admin-phase-d-app&resourceId=datasources")
+                    .uri("/api/admin/resources?app_id=demo")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2453,74 +2197,43 @@ mod tests {
         assert_eq!(list.status(), StatusCode::OK);
         let list_json: serde_json::Value =
             serde_json::from_slice(&list.into_body().collect().await.unwrap().to_bytes()).unwrap();
-        assert_eq!(list_json["slots"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            list_json["resources"][0]["registryEntry"]["canonicalRoute"],
+            "/admin/apps/demo/organization/overview"
+        );
 
-        let import = app
+        let page = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .method("POST")
-                    .uri("/api/admin/providers/command-job")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "appId": "admin-phase-d-app",
-                            "resourceId": "datasources",
-                            "action": "import",
-                            "slotId": "enforcement_objects",
-                            "filename": "enforcement-objects.csv",
-                            "idempotencyKey": "phase-d-import-1",
-                            "content": "序号,对象类别,对象名称,所属街道\n99,测试,导入对象,测试街\n"
-                        })
-                        .to_string(),
-                    ))
+                    .uri("/admin/apps/demo/organization/overview")
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(import.status(), StatusCode::OK);
-        let import_json: serde_json::Value =
-            serde_json::from_slice(&import.into_body().collect().await.unwrap().to_bytes())
+        assert_eq!(page.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            page.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(html.contains("id=\"mei-compose-root\""));
+        assert!(html.contains("data-module-id=\"overview\""));
+        assert!(html.contains("data-mei-admin-entry=\"v2\""));
+        assert!(!html.contains("data-admin-resource="));
+
+        for removed in ["/config?app=demo", "/upload?app=demo"] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(removed).body(Body::empty()).unwrap())
+                .await
                 .unwrap();
-        assert_eq!(import_json["job"]["status"], "succeeded");
-
-        let written = std::fs::read_to_string(dest.join("upload/enforcement-objects.csv")).unwrap();
-        assert!(written.contains("导入对象"));
-
-        let bad = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/admin/providers/asset-slot/replace")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "appId": "admin-phase-d-app",
-                            "resourceId": "datasources",
-                            "slotId": "enforcement_objects",
-                            "filename": "bad.exe",
-                            "idempotencyKey": "phase-d-bad-1",
-                            "content": "nope"
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
-    }
-
-    fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
-        std::fs::create_dir_all(dst).unwrap();
-        for entry in std::fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            let to = dst.join(entry.file_name());
-            if entry.file_type().unwrap().is_dir() {
-                copy_dir_recursive(&entry.path(), &to);
-            } else {
-                std::fs::copy(entry.path(), to).unwrap();
-            }
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }
 }

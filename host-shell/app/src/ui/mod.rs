@@ -21,13 +21,11 @@ mod runtime_tree;
 mod scene_drilldown_context;
 mod shell_access;
 mod shell_admin;
-mod shell_config;
 mod shell_copilot;
 mod shell_manage;
 mod shell_presentation;
 mod shell_preview_layout;
 mod shell_runtime;
-mod shell_upload;
 mod shell_workspace;
 mod source_tree;
 mod statusbar;
@@ -36,13 +34,11 @@ mod view_routing;
 
 pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
-pub use shell_upload::UploadFileEntry;
-pub use topbar::AdminNavItem;
-pub use shell_admin::{AdminMainSurface, AdminUploadEmbed};
 pub use shell_workspace::{
     render_workspace_page, render_workspace_shell_chrome_html, WorkspaceShellNav,
 };
-pub use view_routing::{host_config_href, host_upload_href, mcg_href};
+pub use topbar::AdminNavItem;
+pub use view_routing::mcg_href;
 
 use preview_chrome::{component_script_preloads, component_scripts};
 pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
@@ -52,11 +48,9 @@ pub use shell_access::{
     render_host_ssr_bootstrap_head_revision_only, render_host_ssr_bootstrap_html,
 };
 use shell_admin::admin_shell;
-use shell_config::config_shell;
 use shell_copilot::copilot_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;
-use shell_upload::upload_shell;
 
 pub use preview::{
     build_preview_runtime_context, default_shell_body_theme_style, page_body_theme_style,
@@ -64,6 +58,16 @@ pub use preview::{
     PreviewRuntimeContext,
 };
 pub use shell_manage::{render_build_preview_fragment, BuildPreviewFragment};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UploadFileEntry {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_ms: Option<u64>,
+    pub modified_label: Option<String>,
+}
 use shell_runtime::runtime_shell;
 pub use topbar::load_topbar_menu_context;
 
@@ -190,8 +194,8 @@ pub fn render_page(
     stock_pack: Option<&str>,
     chrome_hidden: bool,
     upload_enabled: bool,
-    upload_root_label: Option<&str>,
-    upload_files: &[UploadFileEntry],
+    _upload_root_label: Option<&str>,
+    _upload_files: &[UploadFileEntry],
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     scene_component_bundle_url: Option<&str>,
@@ -295,34 +299,9 @@ pub fn render_page(
             auth_enabled,
             auth_account,
         ),
-        UiRouteMode::Config => config_shell(
-            apps,
-            compiled.title.as_str(),
-            app_path,
-            topbar_menu,
-            upload_enabled,
-            selected_scene,
-            source_meta,
-            auth_enabled,
-            auth_account,
-            admin_nav_items,
-        ),
-        UiRouteMode::Upload => upload_shell(
-            apps,
-            compiled.title.as_str(),
-            app_path,
-            topbar_menu,
-            upload_enabled,
-            selected_scene,
-            upload_root_label.unwrap_or("upload"),
-            upload_files,
-            target,
-            source,
-            source_meta,
-            auth_enabled,
-            auth_account,
-            admin_nav_items,
-        ),
+        UiRouteMode::Config | UiRouteMode::Upload => {
+            unreachable!("legacy config/upload pages were removed")
+        }
         UiRouteMode::Admin => {
             // Admin surfaces use render_admin_page; CompiledApp path is unsupported.
             access_shell(
@@ -364,13 +343,12 @@ pub fn render_admin_page(
     app_title: &str,
     app_path: &str,
     resource_id: &str,
+    module_id: &str,
     resource_title: Option<&str>,
     topbar_menu: Option<&TopbarMenuContext>,
     admin_nav_items: &[AdminNavItem],
     admin_active_id: Option<&str>,
-    resource_json: &str,
-    surface: AdminMainSurface,
-    upload_embed: Option<AdminUploadEmbed<'_>>,
+    scene_id: &str,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     shell_body_theme_style: &str,
@@ -378,119 +356,30 @@ pub fn render_admin_page(
     access_scene: Option<&str>,
     source_anchor: &str,
     projection_digest: &str,
+    structure_digest: &str,
 ) -> String {
     let shell = admin_shell(
         apps,
         app_title,
         app_path,
         resource_id,
+        module_id,
         resource_title,
         topbar_menu,
         admin_nav_items,
         admin_active_id,
-        resource_json,
-        surface,
-        upload_embed,
+        scene_id,
         auth_enabled,
         auth_account,
         access_stage_routes,
         access_scene,
         source_anchor,
         projection_digest,
+        structure_digest,
     );
     render_document(
         app_title,
         UiRouteMode::Admin,
-        false,
-        shell,
-        view! { <></> }.into_any(),
-        view! { <></> }.into_any(),
-        auth_enabled,
-        auth_account,
-        shell_body_theme_style,
-        None,
-        None,
-    )
-}
-
-pub fn render_config_page(
-    apps: &[WorkspaceAppMeta],
-    app_title: &str,
-    app_path: &str,
-    topbar_menu: Option<&TopbarMenuContext>,
-    source: Option<&str>,
-    source_meta: Option<&SourcePanelMeta>,
-    selected_scene: Option<&str>,
-    upload_enabled: bool,
-    auth_enabled: bool,
-    auth_account: Option<&HostAccountView>,
-    shell_body_theme_style: &str,
-    admin_nav_items: &[AdminNavItem],
-) -> String {
-    let _ = source;
-    let shell = config_shell(
-        apps,
-        app_title,
-        app_path,
-        topbar_menu,
-        upload_enabled,
-        selected_scene,
-        source_meta,
-        auth_enabled,
-        auth_account,
-        admin_nav_items,
-    );
-    render_document(
-        app_title,
-        UiRouteMode::Config,
-        false,
-        shell,
-        view! { <></> }.into_any(),
-        view! { <></> }.into_any(),
-        auth_enabled,
-        auth_account,
-        shell_body_theme_style,
-        None,
-        None,
-    )
-}
-
-pub fn render_upload_page(
-    apps: &[WorkspaceAppMeta],
-    app_title: &str,
-    app_path: &str,
-    topbar_menu: Option<&TopbarMenuContext>,
-    target: Option<&str>,
-    source: Option<&str>,
-    source_meta: Option<&SourcePanelMeta>,
-    selected_scene: Option<&str>,
-    upload_enabled: bool,
-    upload_root_label: Option<&str>,
-    upload_files: &[UploadFileEntry],
-    auth_enabled: bool,
-    auth_account: Option<&HostAccountView>,
-    shell_body_theme_style: &str,
-    admin_nav_items: &[AdminNavItem],
-) -> String {
-    let shell = upload_shell(
-        apps,
-        app_title,
-        app_path,
-        topbar_menu,
-        upload_enabled,
-        selected_scene,
-        upload_root_label.unwrap_or("upload"),
-        upload_files,
-        target,
-        source,
-        source_meta,
-        auth_enabled,
-        auth_account,
-        admin_nav_items,
-    );
-    render_document(
-        app_title,
-        UiRouteMode::Upload,
         false,
         shell,
         view! { <></> }.into_any(),
@@ -509,7 +398,7 @@ mod tests {
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
         resolve_build_query, route_query, BuildReviewAxes, WorldSemanticQuery, OPS_CONFIG_TARGET,
     };
-    use super::view_routing::{build_href_with_catalog, config_href};
+    use super::view_routing::build_href_with_catalog;
     use super::UiRouteMode;
     use mei_lang_kernel::BuildViewTab;
 
@@ -528,7 +417,6 @@ mod tests {
             build_href_with_catalog("zhifa", Some("main.mei"), Some("preview"), None, None),
             "/apps/zhifa/home"
         );
-        assert_eq!(config_href("zhifa"), "/config?app=zhifa");
     }
 
     #[test]

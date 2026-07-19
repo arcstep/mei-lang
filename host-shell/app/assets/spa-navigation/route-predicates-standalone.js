@@ -229,14 +229,12 @@
     return isWorkspaceSurfaceRoute(pathname);
   }
 
-  function isConfigRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/config" || path.startsWith("/config?") || path.startsWith("/apps/config/");
+  function isConfigRoute() {
+    return false;
   }
 
-  function isUploadRoute(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return path === "/upload" || path.startsWith("/upload?") || path.startsWith("/apps/upload/");
+  function isUploadRoute() {
+    return false;
   }
 
   function isStandaloneViewRoute(pathname = global.location?.pathname) {

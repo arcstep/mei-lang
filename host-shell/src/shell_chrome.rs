@@ -331,8 +331,6 @@ pub async fn api_host_shell_chrome(
 fn parse_workspace_shell_nav(raw: Option<&str>) -> Option<mei_lang_app::WorkspaceShellNav> {
     match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
         Some("home") => Some(mei_lang_app::WorkspaceShellNav::Home),
-        Some("config") => Some(mei_lang_app::WorkspaceShellNav::Config),
-        Some("upload") => Some(mei_lang_app::WorkspaceShellNav::Upload),
         Some("runtime") => Some(mei_lang_app::WorkspaceShellNav::Runtime),
         Some("mcg") => Some(mei_lang_app::WorkspaceShellNav::Mcg),
         _ => None,
@@ -479,7 +477,6 @@ pub fn render_shell_chrome_payload(
         "runningAppIds": apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>(),
     }))
 }
-
 
 #[cfg(test)]
 mod tests {

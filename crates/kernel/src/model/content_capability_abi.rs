@@ -78,7 +78,11 @@ fn default_cap_version() -> String {
 }
 
 impl ContentCapability {
-    pub fn from_content_panel(id: &str, source_anchor: &str, private_children: Vec<String>) -> Self {
+    pub fn from_content_panel(
+        id: &str,
+        source_anchor: &str,
+        private_children: Vec<String>,
+    ) -> Self {
         let mut cap = Self {
             id: ContentCapabilityId::new(id),
             version: default_cap_version(),

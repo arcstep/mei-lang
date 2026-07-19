@@ -231,6 +231,10 @@ mod tests {
     fn bump_changes_global_generation() {
         let dir = tempfile::tempdir().expect("tempdir");
         let app_root = dir.path();
+        std::fs::create_dir_all(app_root.join("env/WS-20260719.0/var")).expect("create active env");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260719.0", app_root.join("env/current"))
+            .expect("link active env");
         let before = load_cache_generation(app_root, "demo");
         let after = bump_cache_generation(app_root, "demo", None).expect("bump");
         assert_ne!(before.data_generation, after.data_generation);

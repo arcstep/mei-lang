@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use super::resolve::{resolve_value, RuntimeSceneAnchor};
-use super::{build_preview_runtime_context, nodes, resolve, style, theme, viewport};
 use mei_lang_kernel::{
     build_runtime_analysis_contracts, build_runtime_analysis_graph, build_runtime_resource_index,
     build_runtime_resource_map, CompiledApp, DatasetView, LoadedResource, MetricContract,
@@ -29,7 +28,7 @@ pub(super) fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
-        t2_pages: Vec::new(),
+            t2_pages: Vec::new(),
         },
         themes: vec![],
         shared: json!({}),

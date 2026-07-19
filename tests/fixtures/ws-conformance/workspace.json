@@ -7,12 +7,23 @@
   "workspace": {
     "id": "ws-conformance",
     "label": "MeiLang Conformance Fixture",
-    "version": "20260715",
+    "version": "20260719",
     "defaultApp": "fx-structure"
   },
   "paths": {
     "components": "stock/components",
     "templates": "stock/templates",
     "apps": "apps"
+  },
+  "conformance": {
+    "apps": [
+      "fx-admin-mei",
+      "fx-deck-minimal",
+      "fx-dual-stage",
+      "fx-narration-journey",
+      "fx-page-report",
+      "fx-structure",
+      "fx-data"
+    ]
   }
 }

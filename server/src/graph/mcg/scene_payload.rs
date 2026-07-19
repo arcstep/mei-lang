@@ -207,11 +207,7 @@ pub fn scene_payload_is_assemblable(compiled: &CompiledApp) -> bool {
         return true;
     }
     // Analytics / export boards often persist slim payloads without scene_contract.
-    if compiled
-        .active_target_file
-        .trim()
-        .ends_with(".board.mei")
-    {
+    if compiled.active_target_file.trim().ends_with(".board.mei") {
         return true;
     }
     compiled.resources.iter().any(|resource| {

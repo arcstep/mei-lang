@@ -1,0 +1,7 @@
+scene(
+    id = "admin.demo.overview",
+    profile = "page",
+    summary = "Admin v2 conformance page",
+    provider = provider_ref("admin.demo.organization"),
+    document_anchors = ["basic"],
+)

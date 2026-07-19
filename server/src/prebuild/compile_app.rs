@@ -130,6 +130,21 @@ pub(crate) fn run_prebuild_for_app(
     );
     let components_root = toolchain::resolve_components_root(source_root);
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
+    let graph_native = resolve_app_entry_main(app_root.as_path()).is_empty();
+    if graph_native {
+        let imported =
+            mei_host_graph::compile_and_import_workspace(source_root, app.app_id.as_str())
+                .with_context(|| {
+                    format!(
+                        "compile and import native v2 graph for app `{}`",
+                        app.app_id
+                    )
+                })?;
+        prebuild_emit_progress(format!(
+            "[{}] native v2 graph | blocks {} | MCG nodes {}",
+            app.app_id, imported.block_count, imported.mcg_nodes
+        ));
+    }
     let compile_index = load_prebuild_compile_index(app_root.as_path()).unwrap_or_else(|error| {
         tracing::warn!(
             app_id = %app.app_id,
@@ -172,7 +187,21 @@ pub(crate) fn run_prebuild_for_app(
             .max(warmup_requests.len())
             .max(1),
     );
-    let default_scope = CompileScope::default_scope();
+    let default_scope = if !graph_native {
+        CompileScope::default_scope()
+    } else {
+        let scene_id = app
+            .default_scene
+            .clone()
+            .unwrap_or_else(|| "home".to_string());
+        CompileScope {
+            requested_scene_id: Some(scene_id.clone()),
+            requested_target_file: Some(resolve_scene_assembly_rel(
+                app_root.as_path(),
+                scene_id.as_str(),
+            )),
+        }
+    };
     let pre_mcg_bundle_revisions =
         crate::graph::bundle_unchanged_owners(source_root, app.app_id.as_str());
     let compile_started = Instant::now();

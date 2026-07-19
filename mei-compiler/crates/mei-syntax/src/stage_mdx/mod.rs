@@ -11,6 +11,7 @@ pub mod core;
 pub use cockpit::{
     parse_cockpit_stage_file, parse_cockpit_stage_source, scene_id_from_use, CockpitFill,
     CockpitFrontmatter, CockpitNarrationStep, CockpitStageFile,
+    STAGE_NARRATION_DIRECTIVE_FORBIDDEN,
 };
 pub use core::{
     check_markdown_line, codes, find_frontmatter_end, looks_like_private_scene_path,

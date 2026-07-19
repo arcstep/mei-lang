@@ -11,9 +11,7 @@ fn optional_external_workspace() -> Option<PathBuf> {
 
 fn skip_if_data_demo_missing(workspace: &Path) -> bool {
     let app = workspace.join("apps/data-demo");
-    !app.is_dir()
-        && !app.join("app.config.json").is_file()
-        && !app.join("app.toml").is_file()
+    !app.is_dir() && !app.join("app.config.json").is_file() && !app.join("app.toml").is_file()
 }
 
 #[test]

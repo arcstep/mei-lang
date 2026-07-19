@@ -326,9 +326,9 @@ mod tests {
     #[test]
     fn world_directive_blocked_for_local_only() {
         let Some(state) = crate::test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: "/world context\n".into(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -352,9 +352,9 @@ mod tests {
     #[test]
     fn world_runtime_scope_denied_without_snapshot() {
         let Some(state) = crate::test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: "/world runtime\n".into(),
             app_id: Some("examples/core/_invalid/07-app-missing-scene".into()),
@@ -378,9 +378,9 @@ mod tests {
     #[test]
     fn world_runtime_inlines_bounded_json_for_valid_app() {
         let Some(state) = crate::test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: "/world runtime\n".into(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -404,9 +404,9 @@ mod tests {
     #[test]
     fn world_assets_list_respects_inventory_filter() {
         let Some(state) = crate::test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: "/world assets all 200\n".into(),
             app_id: Some("examples/core/01-single-file-doc".into()),
@@ -443,9 +443,9 @@ mod tests {
     #[test]
     fn world_asset_scope_denied_when_id_not_in_allowed_inventory() {
         let Some(state) = crate::test_support::test_app_state() else {
-        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
-        return;
-    };
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
         let mut request = BridgePromptRequest {
             text: "/world asset __definitely_not_allowed_id__\n".into(),
             app_id: Some("examples/core/01-single-file-doc".into()),

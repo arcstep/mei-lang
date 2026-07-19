@@ -13,9 +13,7 @@ use crate::manifest::{
 };
 use crate::paths::{resolve_app_env_root, resolve_bundle_path};
 use crate::portable_config::build_portable_app_toml;
-use crate::resources::{
-    ResourceEntry, ResourceSeverity, ResourceState, ResourcesDocument,
-};
+use crate::resources::{ResourceEntry, ResourceSeverity, ResourceState, ResourcesDocument};
 
 const MEDIA_EXTENSIONS: &[&str] = &[
     "mp4", "webm", "mov", "avi", "mkv", "m4v", "mp3", "wav", "pdf",
@@ -218,11 +216,11 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                         target_path: format!("apps/{app_id}/{rel}"),
                         required_for: Some("edit-source".into()),
                         severity: ResourceSeverity::Info,
-                        sha256: abs
+                        sha256: abs.is_file().then(|| sha256_file(&abs).ok()).flatten(),
+                        bytes: abs
                             .is_file()
-                            .then(|| sha256_file(&abs).ok())
+                            .then(|| fs::metadata(&abs).ok().map(|m| m.len()))
                             .flatten(),
-                        bytes: abs.is_file().then(|| fs::metadata(&abs).ok().map(|m| m.len())).flatten(),
                         hint: Some("演示使用包内 parquet；如需改表可另附原 xlsx".into()),
                         recovery: Some("import_file".into()),
                     });
@@ -312,7 +310,10 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                     required_for: Some("eval".into()),
                     severity: ResourceSeverity::Degrade,
                     sha256: abs.is_file().then(|| sha256_file(&abs).ok()).flatten(),
-                    bytes: abs.is_file().then(|| fs::metadata(&abs).ok().map(|m| m.len())).flatten(),
+                    bytes: abs
+                        .is_file()
+                        .then(|| fs::metadata(&abs).ok().map(|m| m.len()))
+                        .flatten(),
                     hint: Some("该数据源未自动入包，需另行补齐".into()),
                     recovery: Some("import_file".into()),
                 });
@@ -321,7 +322,10 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
 
         // Scan upload for media → external by default
         if upload_root.is_dir() {
-            for entry in WalkDir::new(&upload_root).into_iter().filter_map(|e| e.ok()) {
+            for entry in WalkDir::new(&upload_root)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 if !entry.file_type().is_file() {
                     continue;
                 }
@@ -579,15 +583,14 @@ fn build_readme(app_ids: &[String], resources: &ResourcesDocument) -> String {
     if !external.is_empty() {
         out.push_str("External / missing resources:\n");
         for r in external {
-            out.push_str(&format!(
-                "- [{}] {} → {}\n",
-                r.kind, r.id, r.target_path
-            ));
+            out.push_str(&format!("- [{}] {} → {}\n", r.kind, r.id, r.target_path));
             if let Some(hint) = &r.hint {
                 out.push_str(&format!("  {hint}\n"));
             }
         }
-        out.push_str("\nUse Viewer 「待补齐资源」 to import files; do not edit env/ paths by hand.\n");
+        out.push_str(
+            "\nUse Viewer 「待补齐资源」 to import files; do not edit env/ paths by hand.\n",
+        );
     }
     out
 }

@@ -6,10 +6,7 @@ use std::path::Path;
 
 use crate::lower::{GraphBlock, GraphOutcome};
 
-pub fn cockpit_stage_to_graph(
-    source_file: &str,
-    doc: &CockpitStageFile,
-) -> GraphOutcome {
+pub fn cockpit_stage_to_graph(source_file: &str, doc: &CockpitStageFile) -> GraphOutcome {
     let fills: Vec<_> = doc
         .fills
         .iter()

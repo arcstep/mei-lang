@@ -253,10 +253,7 @@ mod tests {
             resolve_gis_proxy_upstream(Some("http://127.0.0.1:5555")),
             "http://127.0.0.1:5555"
         );
-        assert_eq!(
-            resolve_gis_proxy_upstream(None),
-            "http://127.0.0.1:8080"
-        );
+        assert_eq!(resolve_gis_proxy_upstream(None), "http://127.0.0.1:8080");
         std::env::set_var("MEI_GIS_PROXY_UPSTREAM", "http://127.0.0.1:18080/");
         assert_eq!(
             resolve_gis_proxy_upstream(Some("http://127.0.0.1:5555")),

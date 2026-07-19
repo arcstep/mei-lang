@@ -131,11 +131,22 @@ fn materialize_scope_worker(
         .requested_target_file
         .as_deref()
         .filter(|value| !value.is_empty())
-        .unwrap_or("");
+        .map(str::to_string)
+        .or_else(|| {
+            scope
+                .requested_scene_id
+                .as_deref()
+                .map(|scene| resolve_scene_assembly_rel(app_root.as_path(), scene))
+        })
+        .unwrap_or_default();
     let scene = scope.requested_scene_id.as_deref();
-    let (mut compiled, compile_revision) =
-        crate::graph::try_assemble_scope_from_scene_payload(source_root, app_id, scene, target)
-            .with_context(|| format!("assemble scope `{}` for worker", scope.key()))?;
+    let (mut compiled, compile_revision) = crate::graph::try_assemble_scope_from_scene_payload(
+        source_root,
+        app_id,
+        scene,
+        target.as_str(),
+    )
+    .with_context(|| format!("assemble scope `{}` for worker", scope.key()))?;
     let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
         source_root,
         app_id,
@@ -285,8 +296,14 @@ pub(crate) fn spawn_materialize_scope_worker(
         })?;
     let _ = fs::remove_file(plan_path.as_path());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let report = serde_json::from_str::<PrebuildWorkerReport>(stdout.trim())
-        .with_context(|| format!("parse materialize worker stdout: {stdout}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let report =
+        serde_json::from_str::<PrebuildWorkerReport>(stdout.trim()).with_context(|| {
+            format!(
+                "parse materialize worker stdout (status={}): {stdout}; stderr: {stderr}",
+                output.status
+            )
+        })?;
     diagnostics.note_worker_peak_rss(report.worker_peak_rss_bytes);
     if !output.status.success() && report.ok {
         anyhow::bail!(

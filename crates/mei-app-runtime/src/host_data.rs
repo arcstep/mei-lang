@@ -30,13 +30,12 @@ fn html_escape_attr(value: &str) -> String {
 
 fn missing_scene_or_server_error(err: impl ToString) -> Response {
     let message = err.to_string();
-    let status = if message.contains("assembly view not found")
-        || message.contains("scene not found")
-    {
-        StatusCode::NOT_FOUND
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
+    let status =
+        if message.contains("assembly view not found") || message.contains("scene not found") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
     (status, Json(json!({"error": message}))).into_response()
 }
 

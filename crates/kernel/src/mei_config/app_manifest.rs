@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::admin_manifest::AppAdminRef;
 use super::types::{
     AppEntryConfig, AppFeaturesConfig, AppPathsConfig, DiscoverConfig, MeiConfig, OpsConfig,
     RuntimeConfig, WorkspaceAuthConfig, APP_CONFIG_FILENAME, APP_TOML_FILENAME,
@@ -72,7 +71,10 @@ impl AppManifest {
             }),
         );
         if let Some(ceiling) = &self.data_mode_ceiling {
-            map.insert("dataModeCeiling".to_string(), Value::String(ceiling.clone()));
+            map.insert(
+                "dataModeCeiling".to_string(),
+                Value::String(ceiling.clone()),
+            );
         }
         if let Some(plan) = &self.runtime_plan {
             map.insert("runtimePlan".to_string(), plan.clone());
@@ -156,9 +158,6 @@ pub struct AppTomlDocument {
         rename = "display_name"
     )]
     pub display_name: Option<String>,
-    /// Optional Host Admin Platform extension pointer (0545).
-    #[serde(default, skip_serializing_if = "AppAdminRef::is_empty")]
-    pub admin: AppAdminRef,
 }
 
 impl AppTomlDocument {
@@ -192,7 +191,6 @@ impl AppTomlDocument {
             theme: m.theme.clone(),
             warmup: m.warmup.as_ref().map(normalize_warmup_for_toml),
             display_name: None,
-            admin: AppAdminRef::default(),
         }
     }
 
@@ -276,36 +274,71 @@ pub fn load_app_manifest_from_json_pair(app_root: &Path) -> AppManifest {
     let config_path = app_root.join(APP_CONFIG_FILENAME);
     let mei = MeiConfig::load_or_default(&config_path);
     let launch_path = app_root.join("launch.json");
-    let (mut title, generation, data_mode_ceiling, runtime_plan, theme, warmup, launch_menu, app_id) =
-        if launch_path.is_file() {
-            match fs::read_to_string(&launch_path) {
-                Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-                    Ok(v) => (
-                        v.get("displayName")
-                            .and_then(|x| x.as_str())
-                            .map(|s| s.to_string()),
-                        v.get("generation")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("current")
-                            .to_string(),
-                        v.get("dataModeCeiling")
-                            .and_then(|x| x.as_str())
-                            .map(|s| s.to_string()),
-                        v.get("runtimePlan").cloned(),
-                        v.get("theme").cloned(),
-                        v.get("warmup").cloned(),
-                        v.get("menu").cloned(),
-                        v.get("appId")
-                            .and_then(|x| x.as_str())
-                            .map(|s| s.to_string()),
-                    ),
-                    Err(_) => (None, "current".to_string(), None, None, None, None, None, None),
-                },
-                Err(_) => (None, "current".to_string(), None, None, None, None, None, None),
-            }
-        } else {
-            (None, "current".to_string(), None, None, None, None, None, None)
-        };
+    let (
+        mut title,
+        generation,
+        data_mode_ceiling,
+        runtime_plan,
+        theme,
+        warmup,
+        launch_menu,
+        app_id,
+    ) = if launch_path.is_file() {
+        match fs::read_to_string(&launch_path) {
+            Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+                Ok(v) => (
+                    v.get("displayName")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string()),
+                    v.get("generation")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("current")
+                        .to_string(),
+                    v.get("dataModeCeiling")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string()),
+                    v.get("runtimePlan").cloned(),
+                    v.get("theme").cloned(),
+                    v.get("warmup").cloned(),
+                    v.get("menu").cloned(),
+                    v.get("appId")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string()),
+                ),
+                Err(_) => (
+                    None,
+                    "current".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+            },
+            Err(_) => (
+                None,
+                "current".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        }
+    } else {
+        (
+            None,
+            "current".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    };
 
     // Product fields: never scan app.mei skeleton (0120 C4). Fall back to Stage Registry.
     let default_stage = default_stage_from_registry(app_root);
@@ -373,14 +406,12 @@ fn rename_hot_scenes_keys(value: &Value, from: &str, to: &str) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(items) => {
-            Value::Array(
-                items
-                    .iter()
-                    .map(|v| rename_hot_scenes_keys(v, from, to))
-                    .collect(),
-            )
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|v| rename_hot_scenes_keys(v, from, to))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -448,7 +479,7 @@ main = "src/app.mei"
     }
 
     #[test]
-    fn json_pair_fallback() {
+    fn json_pair_is_not_an_app_manifest_source() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         fs::write(
@@ -462,9 +493,9 @@ main = "src/app.mei"
         )
         .unwrap();
         let m = load_app_manifest(root);
-        assert_eq!(m.title.as_deref(), Some("JSON Title"));
-        assert_eq!(m.mei.entry.main, "main.mei");
-        assert!(m.runtime_plan.is_some());
+        assert_eq!(m.title, None);
+        assert!(m.mei.entry.main.is_empty());
+        assert!(m.runtime_plan.is_none());
     }
 
     #[test]

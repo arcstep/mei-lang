@@ -1,0 +1,9 @@
+scene(
+    id = "home",
+    key = "home@src/scene/home.mei",
+    profile = "cockpit",
+    summary = "Dual Stage cockpit root",
+    planes = [
+        plane_ref("fx-dual-stage/home/t1"),
+    ],
+)

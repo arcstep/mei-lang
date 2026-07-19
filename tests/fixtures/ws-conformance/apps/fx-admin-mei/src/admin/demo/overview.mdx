@@ -1,0 +1,17 @@
+---
+api_version: mei-admin-resource-v2
+title: 示例管理
+description: 自包含 Admin v2 conformance 页面
+menu: 应用管理
+order: 10
+default: true
+required_capabilities: [config_upload]
+scope: app
+audit: true
+danger_level: normal
+---
+
+这里维护 fixture 的单位资料，并验证帮助正文与治理摘要彼此独立。
+
+@scene(use="admin.demo.overview")
+@fill(slot="summary", content="demo.summary", source="demo.organization.current")

@@ -7,6 +7,15 @@ use mei_lang_kernel::{
 };
 use serde_json::Value;
 
+pub fn load_app_metric_resources(
+    source_root: &Path,
+    app_id: &str,
+) -> anyhow::Result<Vec<LoadedResource>> {
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
+    let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    load_metric_resources_hydrated(app_root.as_path(), &registry)
+}
+
 pub fn load_metric_resources_hydrated(
     app_root: &Path,
     registry: &crate::mcg::registry::McgRegistry,

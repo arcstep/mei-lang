@@ -68,7 +68,10 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         app_entry_ok,
         "error",
         if has_app_toml {
-            format!("app.toml present at `{}`", app_root.join("app.toml").display())
+            format!(
+                "app.toml present at `{}`",
+                app_root.join("app.toml").display()
+            )
         } else {
             format!("`{}` is missing", app_main.display())
         },

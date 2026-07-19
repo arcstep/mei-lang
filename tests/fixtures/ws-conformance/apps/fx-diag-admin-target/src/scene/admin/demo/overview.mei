@@ -1,0 +1,5 @@
+scene(
+    id = "admin.demo.overview",
+    profile = "page",
+    provider = provider_ref("admin.demo.invalid"),
+)

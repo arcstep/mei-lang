@@ -55,3 +55,10 @@ pub fn stage_programs_bootstrap(compiled: &CompiledApp) -> Value {
 pub fn narration_catalogs_bootstrap(compiled: &CompiledApp) -> Value {
     serde_json::to_value(&compiled.narration_catalogs).unwrap_or_else(|_| json!({}))
 }
+
+/// App-level NarrationCatalog digest, independent from Stage/Page/Admin structure digests.
+pub fn narration_catalog_digest_bootstrap(compiled: &CompiledApp) -> Value {
+    Value::String(mei_lang_kernel::compute_narration_digest(
+        &compiled.narration_catalogs,
+    ))
+}

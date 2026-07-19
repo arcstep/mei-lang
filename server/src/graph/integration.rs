@@ -654,6 +654,25 @@ pub fn hydrate_compiled_for_prebuild_eval(
     owner_resource_ids: &[String],
 ) -> anyhow::Result<()> {
     let app_root = resolve_app_root(source_root, app_id);
+    for resource in mei_host_graph::load_app_metric_resources(source_root, app_id)? {
+        if let Some(existing) = compiled
+            .resources
+            .iter_mut()
+            .find(|existing| existing.id == resource.id)
+        {
+            match (existing.dataset.as_mut(), resource.dataset.as_ref()) {
+                (Some(into_dataset), Some(donor_dataset)) => {
+                    merge_dataset_view(into_dataset, donor_dataset);
+                }
+                (None, Some(donor_dataset)) => {
+                    existing.dataset = Some(donor_dataset.clone());
+                }
+                _ => {}
+            }
+        } else {
+            compiled.resources.push(resource);
+        }
+    }
     let target = compiled.active_target_file.trim().to_string();
     if !target.is_empty() {
         backfill_assembled_runtime_catalog(app_root.as_path(), target.as_str(), compiled);

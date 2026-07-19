@@ -1,0 +1,16 @@
+schema_version = "mei-app-v1"
+title = "Conformance Admin v2"
+app_id = "fx-admin-mei"
+generation = "current"
+data_mode_ceiling = "static"
+
+[ops.organization]
+name = "Example Agency"
+code = "FX-001"
+
+[ops.sources.demo]
+kind = "csv"
+path = "upload/demo.csv"
+
+[warmup]
+enabled = false

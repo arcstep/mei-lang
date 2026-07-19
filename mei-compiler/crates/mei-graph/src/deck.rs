@@ -1,4 +1,4 @@
-use mei_syntax::deck::{DeckFile, DeckMarkdown, DeckSlide};
+use mei_syntax::deck::{DeckFile, DeckSlide};
 use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
 use thiserror::Error;
 
@@ -37,7 +37,11 @@ pub fn deck_to_v2(
         string_kw("id", &deck.frontmatter.id),
         string_kw(
             "key",
-            &format!("{}@{}", deck.frontmatter.id, deck_assembly_path(deck_rel_path)),
+            &format!(
+                "{}@{}",
+                deck.frontmatter.id,
+                deck_assembly_path(deck_rel_path)
+            ),
         ),
         string_kw("title", &deck.frontmatter.title),
         string_kw(
@@ -51,7 +55,6 @@ pub fn deck_to_v2(
             "planes".to_string(),
             V2Expr::List(vec![ref_call("plane_ref", &plane_key)]),
         ),
-        ("default_script".to_string(), build_default_script(deck)),
     ];
     if let Some(theme) = &deck.frontmatter.theme {
         presentation_keywords.push((
@@ -182,99 +185,6 @@ fn append_slide_items(items: &mut Vec<V2Item>, deck_root: &str, slide: &DeckSlid
     ));
 }
 
-fn build_default_script(deck: &DeckFile) -> V2Expr {
-    let mut steps = Vec::new();
-    for slide in &deck.slides {
-        steps.push(script_step(
-            &format!("{}-show", slide.id),
-            &slide.title,
-            slide.caption.as_ref(),
-            slide.speaker_notes.as_ref(),
-            vec![V2Expr::Dict(vec![
-                ("type".to_string(), V2Expr::String("show_page".to_string())),
-                ("pageId".to_string(), V2Expr::String(slide.id.clone())),
-            ])],
-        ));
-        for (index, step) in slide.steps.iter().enumerate() {
-            steps.push(script_step(
-                &format!("{}-highlight-{}", slide.id, index + 1),
-                &slide.title,
-                Some(&step.content),
-                None,
-                vec![V2Expr::Dict(vec![
-                    ("type".to_string(), V2Expr::String("highlight".to_string())),
-                    (
-                        "viewpoint".to_string(),
-                        V2Expr::String(step.viewpoint_id.clone()),
-                    ),
-                ])],
-            ));
-        }
-    }
-    V2Expr::Dict(vec![
-        (
-            "id".to_string(),
-            V2Expr::String(deck.frontmatter.id.clone()),
-        ),
-        (
-            "title".to_string(),
-            V2Expr::String(deck.frontmatter.title.clone()),
-        ),
-        (
-            "default_for_stage".to_string(),
-            V2Expr::Bool(deck.frontmatter.default_for_stage),
-        ),
-        ("steps".to_string(), V2Expr::List(steps)),
-    ])
-}
-
-fn script_step(
-    id: &str,
-    title: &str,
-    caption: Option<&DeckMarkdown>,
-    speaker_notes: Option<&DeckMarkdown>,
-    actions: Vec<V2Expr>,
-) -> V2Expr {
-    let mut entries = vec![
-        ("id".to_string(), V2Expr::String(id.to_string())),
-        ("title".to_string(), V2Expr::String(title.to_string())),
-        ("actions".to_string(), V2Expr::List(actions)),
-    ];
-    if let Some(caption) = caption {
-        entries.extend([
-            (
-                "caption".to_string(),
-                V2Expr::String(caption.markdown.clone()),
-            ),
-            (
-                "captionMarkdown".to_string(),
-                V2Expr::String(caption.markdown.clone()),
-            ),
-            (
-                "captionHtml".to_string(),
-                V2Expr::String(caption.html.clone()),
-            ),
-        ]);
-    }
-    if let Some(notes) = speaker_notes {
-        entries.extend([
-            (
-                "speaker_notes".to_string(),
-                V2Expr::String(notes.markdown.clone()),
-            ),
-            (
-                "speakerNotesMarkdown".to_string(),
-                V2Expr::String(notes.markdown.clone()),
-            ),
-            (
-                "speakerNotesHtml".to_string(),
-                V2Expr::String(notes.html.clone()),
-            ),
-        ]);
-    }
-    V2Expr::Dict(entries)
-}
-
 fn slide_key(deck_root: &str, slide: &DeckSlide) -> String {
     format!("{deck_root}/p/{}", slide.id)
 }
@@ -323,7 +233,7 @@ mod tests {
     use mei_syntax::parse_deck_source;
 
     #[test]
-    fn builds_ordered_v2_items_and_default_script() {
+    fn builds_ordered_v2_items_without_authored_script() {
         let deck = parse_deck_source(
             r#"---
 id: intro
@@ -332,14 +242,8 @@ default_for_stage: true
 ---
 # First {#s1}
 @template(full_bleed)
-@caption
-Hello.
-@end
 ## hero {#vp_hero}
 **Hero**
-@step(vp_hero)
-Look here.
-@end
 "#,
         )
         .expect("deck");
@@ -357,20 +261,12 @@ Look here.
             })
             .expect("presentation");
         assert!(presentation.keywords.iter().any(|(key, value)| key == "key"
-            && value == &V2Expr::String("intro@src/presentation/intro/intro.deck.mdx".to_string())));
-        let default_script = presentation
+            && value
+                == &V2Expr::String("intro@src/presentation/intro/intro.deck.mdx".to_string())));
+        assert!(presentation
             .keywords
             .iter()
-            .find_map(|(key, value)| (key == "default_script").then_some(value))
-            .expect("default_script");
-        let V2Expr::Dict(script) = default_script else {
-            panic!("script must be dict");
-        };
-        let steps = script
-            .iter()
-            .find_map(|(key, value)| (key == "steps").then_some(value))
-            .expect("steps");
-        assert!(matches!(steps, V2Expr::List(steps) if steps.len() == 2));
+            .all(|(key, _)| key != "default_script"));
     }
 
     #[test]

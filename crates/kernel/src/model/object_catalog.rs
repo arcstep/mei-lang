@@ -236,11 +236,23 @@ pub struct ObjectFieldLinkTarget {
     pub resolve: ObjectFieldLinkResolve,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "sourceField")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sourceField"
+    )]
     pub source_field: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "mappingRef")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "mappingRef"
+    )]
     pub mapping_ref: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", rename = "targetsByValue")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        rename = "targetsByValue"
+    )]
     pub targets_by_value: BTreeMap<String, Value>,
     #[serde(default, rename = "keyMode")]
     pub key_mode: ObjectFieldLinkKeyMode,
@@ -248,7 +260,11 @@ pub struct ObjectFieldLinkTarget {
     pub filter_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "hasDetail")]
     pub has_detail: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "detailPage")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "detailPage"
+    )]
     pub detail_page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "openPopup")]
     pub open_popup: Option<Value>,
@@ -274,7 +290,11 @@ pub struct DefaultObjectAssembly {
     pub slots: BTreeMap<String, ObjectProjectionRef>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub relations: BTreeMap<String, Vec<ObjectProjectionRef>>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", rename = "object_field_links")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        rename = "object_field_links"
+    )]
     pub object_field_links: BTreeMap<String, Vec<ObjectFieldLinkTarget>>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "override")]
     pub override_props: Option<Value>,
@@ -309,20 +329,23 @@ pub fn derive_object_field_links(
         if field.is_empty() {
             continue;
         }
-        links.entry(field.to_string()).or_default().push(ObjectFieldLinkTarget {
-            role: "self".to_string(),
-            object_type: object_type_id.to_string(),
-            resolve: ObjectFieldLinkResolve::RowValue,
-            relation: None,
-            source_field: Some(field.to_string()),
-            mapping_ref: None,
-            targets_by_value: BTreeMap::new(),
-            key_mode: ObjectFieldLinkKeyMode::Identity,
-            filter_key: heuristic_filter_key(field),
-            has_detail: Some(self_has_detail),
-            detail_page: self_detail.clone(),
-            open_popup: None,
-        });
+        links
+            .entry(field.to_string())
+            .or_default()
+            .push(ObjectFieldLinkTarget {
+                role: "self".to_string(),
+                object_type: object_type_id.to_string(),
+                resolve: ObjectFieldLinkResolve::RowValue,
+                relation: None,
+                source_field: Some(field.to_string()),
+                mapping_ref: None,
+                targets_by_value: BTreeMap::new(),
+                key_mode: ObjectFieldLinkKeyMode::Identity,
+                filter_key: heuristic_filter_key(field),
+                has_detail: Some(self_has_detail),
+                detail_page: self_detail.clone(),
+                open_popup: None,
+            });
     }
 
     for (relation_name, refs) in relations {
@@ -351,20 +374,23 @@ pub fn derive_object_field_links(
             if identity_fields.iter().any(|f| f.trim() == field) {
                 continue;
             }
-            links.entry(field.to_string()).or_default().push(ObjectFieldLinkTarget {
-                role: "relation".to_string(),
-                object_type: target_type.to_string(),
-                resolve: ObjectFieldLinkResolve::RowValue,
-                relation: Some(relation_name.clone()),
-                source_field: Some(field.to_string()),
-                mapping_ref: None,
-                targets_by_value: BTreeMap::new(),
-                key_mode: ObjectFieldLinkKeyMode::Identity,
-                filter_key: heuristic_filter_key(field),
-                has_detail: None,
-                detail_page: None,
-                open_popup: None,
-            });
+            links
+                .entry(field.to_string())
+                .or_default()
+                .push(ObjectFieldLinkTarget {
+                    role: "relation".to_string(),
+                    object_type: target_type.to_string(),
+                    resolve: ObjectFieldLinkResolve::RowValue,
+                    relation: Some(relation_name.clone()),
+                    source_field: Some(field.to_string()),
+                    mapping_ref: None,
+                    targets_by_value: BTreeMap::new(),
+                    key_mode: ObjectFieldLinkKeyMode::Identity,
+                    filter_key: heuristic_filter_key(field),
+                    has_detail: None,
+                    detail_page: None,
+                    open_popup: None,
+                });
             continue;
         }
 
@@ -1534,14 +1560,14 @@ mod tests {
                 },
             ],
         );
-        let links = derive_object_field_links(
-            "zhifa.Warning",
-            &["预警ID".to_string()],
-            &slots,
-            &relations,
-        );
+        let links =
+            derive_object_field_links("zhifa.Warning", &["预警ID".to_string()], &slots, &relations);
         let targets = links.get("预警ID").expect("identity column");
-        assert_eq!(targets.len(), 1, "identity must not attach related-object chooser targets");
+        assert_eq!(
+            targets.len(),
+            1,
+            "identity must not attach related-object chooser targets"
+        );
         assert_eq!(targets[0].role, "self");
         assert_eq!(targets[0].object_type, "zhifa.Warning");
         assert_eq!(targets[0].has_detail, Some(true));
@@ -1574,7 +1600,14 @@ mod tests {
             &slots,
             &relations,
         );
-        assert!(links.get("处理结果ID").is_none() || links.get("处理结果ID").unwrap().iter().all(|t| t.role == "self"));
+        assert!(
+            links.get("处理结果ID").is_none()
+                || links
+                    .get("处理结果ID")
+                    .unwrap()
+                    .iter()
+                    .all(|t| t.role == "self")
+        );
         let warning_links = links.get("预警ID").expect("FK column on IssueResult row");
         assert_eq!(warning_links.len(), 1);
         assert_eq!(warning_links[0].role, "relation");

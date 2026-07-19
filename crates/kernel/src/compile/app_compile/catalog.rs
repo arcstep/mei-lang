@@ -60,6 +60,8 @@ pub(super) fn compile_catalog_and_merge_resources(
         dependency_graph.catalog_seed_files(app_root, app_decls, catalog_focus);
     let catalog_filter = if dataset_manage_preview {
         DatasetCatalogFilter::default()
+    } else if app_entry_main.trim().is_empty() {
+        DatasetCatalogFilter::all_data_modules(app_root)
     } else {
         build_dataset_catalog_filter(app_root, app_decls, dependency_graph, catalog_focus)
     };

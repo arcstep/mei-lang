@@ -19,8 +19,15 @@ fn mei_tutorial_intro_assembles_presentation_deck() {
         .presentation_map
         .get("deck")
         .expect("deck in presentation_map");
-    let slides = deck.get("slides").and_then(|v| v.as_array()).expect("slides");
-    assert_eq!(slides.len(), 9, "expected 9 tutorial slides, got {slides:?}");
+    let slides = deck
+        .get("slides")
+        .and_then(|v| v.as_array())
+        .expect("slides");
+    assert_eq!(
+        slides.len(),
+        9,
+        "expected 9 tutorial slides, got {slides:?}"
+    );
     assert_eq!(
         slides[0].get("id").and_then(|v| v.as_str()),
         Some("slide-01-cover")
@@ -36,23 +43,10 @@ fn mei_tutorial_intro_assembles_presentation_deck() {
         9,
         "structure index must emit UiScopeRole::Slide for each page"
     );
-    let default_script = outcome
-        .presentation_map
-        .get("defaultScript")
-        .or_else(|| outcome.presentation_map.get("default_script"))
-        .expect("AOT defaultScript");
-    let steps = default_script
-        .get("steps")
-        .and_then(|v| v.as_array())
-        .expect("defaultScript.steps");
     assert!(
-        steps.len() >= 9,
-        "expected at least one step per slide, got {}",
-        steps.len()
-    );
-    assert_eq!(
-        default_script.get("id").and_then(|v| v.as_str()),
-        Some("intro")
+        outcome.presentation_map.get("defaultScript").is_none()
+            && outcome.presentation_map.get("default_script").is_none(),
+        "deck/legacy scene sources must not synthesize an AOT defaultScript"
     );
 }
 
@@ -69,8 +63,15 @@ fn mini_data_supervision_assembles_four_slides() {
         .presentation_map
         .get("deck")
         .expect("deck in presentation_map");
-    let slides = deck.get("slides").and_then(|v| v.as_array()).expect("slides");
-    assert_eq!(slides.len(), 4, "expected 4 supervision slides, got {slides:?}");
+    let slides = deck
+        .get("slides")
+        .and_then(|v| v.as_array())
+        .expect("slides");
+    assert_eq!(
+        slides.len(),
+        4,
+        "expected 4 supervision slides, got {slides:?}"
+    );
     assert_eq!(
         slides[0].get("id").and_then(|v| v.as_str()),
         Some("slide-01-mission")

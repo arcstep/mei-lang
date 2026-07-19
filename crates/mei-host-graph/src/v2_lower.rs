@@ -688,11 +688,16 @@ fn lower_section_shell_panel(
         } else {
             None
         };
-        if let Some(padding) = explicit_padding.or(profile_padding).or(default_padding) {
+        let authored_padding = explicit_padding.or(profile_padding);
+        if let Some(padding) = authored_padding.as_ref().or(default_padding.as_ref()) {
             let mut body_map = panel.body_props.as_object().cloned().unwrap_or_default();
-            body_map
-                .entry("padding".to_string())
-                .or_insert_with(|| json!(padding));
+            if authored_padding.is_some() {
+                body_map.insert("padding".to_string(), json!(padding));
+            } else {
+                body_map
+                    .entry("padding".to_string())
+                    .or_insert_with(|| json!(padding));
+            }
             body_map
                 .entry("box_sizing".to_string())
                 .or_insert_with(|| json!("border-box"));

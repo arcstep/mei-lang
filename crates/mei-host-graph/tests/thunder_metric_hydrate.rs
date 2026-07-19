@@ -51,7 +51,10 @@ fn thunder_devices_online_evaluates_from_app_toml_fixture() {
         &outcome.compiled,
         app_root.as_path(),
         owner,
-        &["devices_online".to_string(), "storm_events_total".to_string()],
+        &[
+            "devices_online".to_string(),
+            "storm_events_total".to_string(),
+        ],
         "home",
         None,
         &QueryState::default(),

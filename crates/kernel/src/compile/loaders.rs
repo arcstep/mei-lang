@@ -192,8 +192,7 @@ mod tests {
 
     #[test]
     fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
-        let Some(path) =
-            zhifa_upload("upload/11.预警清单、问题跟踪清单20260606.xlsx")
+        let Some(path) = zhifa_upload("upload/11.预警清单、问题跟踪清单20260606.xlsx")
         else {
             eprintln!("skip: set MEI_TEST_WORKSPACE with zhifa upload xlsx");
             return;

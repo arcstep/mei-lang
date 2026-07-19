@@ -384,8 +384,11 @@ pub fn assemble_semantic_scene(
         if tier != "t2" || role != "plane" {
             return false;
         }
-        let page_regions = panel.blocks.iter().filter(|node| {
-            matches!(node, UiTreeNode::Panel(p) if p
+        let page_regions = panel
+            .blocks
+            .iter()
+            .filter(|node| {
+                matches!(node, UiTreeNode::Panel(p) if p
                 .props
                 .get("__mei_t2_page")
                 .and_then(Value::as_bool)
@@ -394,7 +397,8 @@ pub fn assemble_semantic_scene(
                     .get("__mei_t2_page")
                     .and_then(Value::as_str)
                     .is_some_and(|s| s == "true" || s == "True"))
-        }).count();
+            })
+            .count();
         page_regions > 1
     });
     if legacy_mega_t2 && t2_page_catalog.is_empty() {
@@ -1079,7 +1083,11 @@ fn build_plane_grid_panel(
             }
         });
     let layout = layout_value.as_ref().and_then(|value| {
-        lower_layout_with_source(value, plane_source.as_deref().or(ctx.source_file), &ctx.diagnostics)
+        lower_layout_with_source(
+            value,
+            plane_source.as_deref().or(ctx.source_file),
+            &ctx.diagnostics,
+        )
     });
     let mut props = json!({
         "__mei_ui_role": "plane",

@@ -123,4 +123,3 @@ mod tests {
         drop(b);
     }
 }
-

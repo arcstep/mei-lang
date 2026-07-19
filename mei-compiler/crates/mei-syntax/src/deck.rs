@@ -10,6 +10,8 @@ use crate::stage_mdx::core::{
 };
 use crate::v2::{slide_pattern_areas, SLIDE_PATTERNS};
 
+pub const DECK_NARRATION_DIRECTIVE_FORBIDDEN: &str = "deck_narration_directive_forbidden";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeckFile {
     pub frontmatter: DeckFrontmatter,
@@ -305,11 +307,11 @@ impl DeckParser<'_> {
     ) -> Result<DeckSlide, DeckParseError> {
         let mut pattern = None::<(String, usize)>;
         let mut chapter = None;
-        let mut caption = None;
-        let mut speaker_notes = None;
+        let caption = None;
+        let speaker_notes = None;
         let mut source = None;
         let mut slots = Vec::new();
-        let mut steps = Vec::new();
+        let steps = Vec::new();
 
         while self.index < self.lines.len() {
             let raw = self.lines[self.index];
@@ -420,42 +422,34 @@ impl DeckParser<'_> {
                 continue;
             }
             if trimmed == "@caption" {
-                if caption.is_some() {
-                    return Err(DeckParseError::new(
-                        self.path,
-                        current_line,
-                        1,
-                        "a slide may declare `@caption` only once",
-                    ));
-                }
-                self.index += 1;
-                caption = Some(self.collect_directive_markdown("@caption", current_line)?);
-                continue;
+                return Err(DeckParseError::new(
+                    self.path,
+                    current_line,
+                    1,
+                    format!(
+                        "[{DECK_NARRATION_DIRECTIVE_FORBIDDEN}] deck narration directive `@caption` is forbidden; use `src/narration/**/*.track.mdx`"
+                    ),
+                ));
             }
             if trimmed == "@speaker_notes" {
-                if speaker_notes.is_some() {
-                    return Err(DeckParseError::new(
-                        self.path,
-                        current_line,
-                        1,
-                        "a slide may declare `@speaker_notes` only once",
-                    ));
-                }
-                self.index += 1;
-                speaker_notes =
-                    Some(self.collect_directive_markdown("@speaker_notes", current_line)?);
-                continue;
+                return Err(DeckParseError::new(
+                    self.path,
+                    current_line,
+                    1,
+                    format!(
+                        "[{DECK_NARRATION_DIRECTIVE_FORBIDDEN}] deck narration directive `@speaker_notes` is forbidden; use `src/narration/**/*.track.mdx`"
+                    ),
+                ));
             }
-            if let Some(viewpoint_id) = parse_directive_arg(trimmed, "@step") {
-                validate_id(self.path, current_line, viewpoint_id, "step viewpoint id")?;
-                self.index += 1;
-                let content = self.collect_directive_markdown("@step", current_line)?;
-                steps.push(DeckStep {
-                    viewpoint_id: viewpoint_id.to_string(),
-                    content,
-                    line: current_line,
-                });
-                continue;
+            if parse_directive_arg(trimmed, "@step").is_some() {
+                return Err(DeckParseError::new(
+                    self.path,
+                    current_line,
+                    1,
+                    format!(
+                        "[{DECK_NARRATION_DIRECTIVE_FORBIDDEN}] deck narration directive `@step` is forbidden; use `src/narration/**/*.track.mdx`"
+                    ),
+                ));
             }
             if trimmed.starts_with('@') {
                 return Err(DeckParseError::new(
@@ -513,22 +507,6 @@ impl DeckParser<'_> {
                 ),
             ));
         }
-        for step in &steps {
-            if !slots
-                .iter()
-                .any(|slot| slot.viewpoint_id == step.viewpoint_id)
-            {
-                return Err(DeckParseError::new(
-                    self.path,
-                    step.line,
-                    1,
-                    format!(
-                        "step references unknown viewpoint `{}` in slide `{id}`",
-                        step.viewpoint_id
-                    ),
-                ));
-            }
-        }
         Ok(DeckSlide {
             id,
             title,
@@ -558,30 +536,6 @@ impl DeckParser<'_> {
             self.index += 1;
         }
         markdown_from_lines(&self.lines[start..self.index])
-    }
-
-    fn collect_directive_markdown(
-        &mut self,
-        directive: &str,
-        directive_line: usize,
-    ) -> Result<DeckMarkdown, DeckParseError> {
-        let start = self.index;
-        while self.index < self.lines.len() {
-            let raw = self.lines[self.index];
-            if raw.trim() == "@end" {
-                let markdown = markdown_from_lines(&self.lines[start..self.index])?;
-                self.index += 1;
-                return Ok(markdown);
-            }
-            validate_markdown_line(self.path, self.index + 1, raw)?;
-            self.index += 1;
-        }
-        Err(DeckParseError::new(
-            self.path,
-            directive_line,
-            1,
-            format!("`{directive}` block is missing `@end`"),
-        ))
     }
 }
 
@@ -847,12 +801,6 @@ default_for_stage: true
 # 同一套结构语言 {#slide-01-why}
 @template(claim_evidence)
 @chapter(动机)
-@caption
-一句 **重要** 的 `caption`。
-@end
-@speaker_notes
-先讲结论。
-@end
 
 ## claim {#vp_claim}
 驾驶舱与演说使用 *同一套* 结构语言。
@@ -863,10 +811,6 @@ default_for_stage: true
 ## evidence {#vp_evidence}
 1. graph
 2. runtime
-
-@step(vp_evidence)
-展开证据。
-@end
 "#;
 
     #[test]
@@ -878,14 +822,11 @@ default_for_stage: true
         let slide = &deck.slides[0];
         assert_eq!(slide.pattern, "claim_evidence");
         assert_eq!(slide.slots.len(), 2);
-        assert_eq!(slide.steps[0].viewpoint_id, "vp_evidence");
+        assert!(slide.steps.is_empty());
         assert!(slide.slots[0].content.html.contains("<em>同一套</em>"));
         assert!(slide.slots[0].content.html.contains("<ul>"));
         assert!(slide.slots[1].content.html.contains("<ol>"));
-        assert!(slide
-            .caption
-            .as_ref()
-            .is_some_and(|caption| caption.html.contains("<strong>重要</strong>")));
+        assert!(slide.caption.is_none());
     }
 
     #[test]
@@ -908,12 +849,11 @@ default_for_stage: true
     fn rejects_unknown_and_missing_slots_with_line() {
         let unknown = VALID_DECK.replace("## evidence", "## action");
         let error = parse_deck_source(&unknown).expect_err("unknown slot");
-        assert_eq!(error.line, 26);
+        assert_eq!(error.line, 20);
         assert!(error.to_string().contains("unknown slot `action`"));
 
-        let missing = VALID_DECK
-            .replace("\n## evidence {#vp_evidence}\n1. graph\n2. runtime\n", "\n")
-            .replace("\n@step(vp_evidence)\n展开证据。\n@end\n", "\n");
+        let missing =
+            VALID_DECK.replace("\n## evidence {#vp_evidence}\n1. graph\n2. runtime\n", "\n");
         let error = parse_deck_source(&missing).expect_err("missing slot");
         assert!(error.to_string().contains("missing required slot"));
         assert!(error.to_string().contains("evidence"));
@@ -957,11 +897,16 @@ default_for_stage: true
         let deck_id = VALID_DECK.replace("id: intro", "deck_id: intro");
         let error = parse_deck_source(&deck_id).expect_err("deck_id");
         let message = error.to_string();
-        assert!(message.contains("unknown frontmatter field `deck_id`"), "{message}");
+        assert!(
+            message.contains("unknown frontmatter field `deck_id`"),
+            "{message}"
+        );
         assert!(message.contains("use `id`"), "{message}");
 
-        let default_template =
-            VALID_DECK.replace("default_for_stage: true", "default_template: claim_evidence");
+        let default_template = VALID_DECK.replace(
+            "default_for_stage: true",
+            "default_template: claim_evidence",
+        );
         let error = parse_deck_source(&default_template).expect_err("default_template");
         let message = error.to_string();
         assert!(
@@ -975,5 +920,24 @@ default_for_stage: true
         assert!(error
             .to_string()
             .contains("expected `## slot-name {#viewpoint-id}`"));
+    }
+
+    #[test]
+    fn rejects_narration_directives_in_deck() {
+        for directive in [
+            "@caption\ncaption\n@end",
+            "@speaker_notes\nnotes\n@end",
+            "@step(vp_claim)\nstep\n@end",
+        ] {
+            let source =
+                VALID_DECK.replace("@chapter(动机)", &format!("@chapter(动机)\n{directive}"));
+            let error = parse_deck_source(&source).expect_err("narration must be rejected");
+            assert!(
+                error
+                    .to_string()
+                    .contains(DECK_NARRATION_DIRECTIVE_FORBIDDEN),
+                "{error}"
+            );
+        }
     }
 }
