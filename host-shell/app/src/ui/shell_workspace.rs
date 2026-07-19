@@ -12,7 +12,7 @@ use super::{HostAccountView, TopbarMenuContext};
 pub enum WorkspaceShellNav {
     Home,
     Runtime,
-    Mcg,
+    Share,
 }
 
 impl WorkspaceShellNav {
@@ -20,7 +20,7 @@ impl WorkspaceShellNav {
         match self {
             Self::Home => ShellNavActive::Home,
             Self::Runtime => ShellNavActive::Runtime,
-            Self::Mcg => ShellNavActive::Mcg,
+            Self::Share => ShellNavActive::Share,
         }
     }
 
@@ -28,7 +28,7 @@ impl WorkspaceShellNav {
         match self {
             Self::Home => UiRouteMode::App,
             Self::Runtime => UiRouteMode::Runtime,
-            Self::Mcg => UiRouteMode::Layout,
+            Self::Share => UiRouteMode::App,
         }
     }
 
@@ -36,7 +36,7 @@ impl WorkspaceShellNav {
         match self {
             Self::Home => "/home",
             Self::Runtime => "/runtime",
-            Self::Mcg => "/mcg",
+            Self::Share => "/share",
         }
     }
 }
@@ -72,11 +72,23 @@ pub(crate) fn workspace_shell(
         None,
     );
     let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
+    let main_class = match shell_nav {
+        WorkspaceShellNav::Share | WorkspaceShellNav::Runtime => {
+            "workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3"
+        }
+        _ => "workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-auto px-4 py-3",
+    };
+    let page_class = match shell_nav {
+        WorkspaceShellNav::Share | WorkspaceShellNav::Runtime => {
+            "mei-workspace-page mei-workspace-page--fill"
+        }
+        _ => "mei-workspace-page",
+    };
     view! {
         <div class="shell shell-surface workspace-view-shell mei-text-primary min-h-0 flex flex-1 flex-col">
             <div id="mei-host-topbar-slot" data-mei-host-chrome="top">{topbar}</div>
-            <main class="workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-auto px-4 py-3">
-                <div class="mei-workspace-page" inner_html=main_inner_html.to_string()></div>
+            <main class=main_class>
+                <div class=page_class inner_html=main_inner_html.to_string()></div>
             </main>
             <div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>

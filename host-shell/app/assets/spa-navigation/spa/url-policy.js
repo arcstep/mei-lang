@@ -197,7 +197,7 @@
 
   /** Host-level chrome pages that load distinct light/workspace bundles. */
   function isHostShellChromePath(pathname) {
-    return /^(?:\/home|\/config|\/upload|\/runtime|\/mcg)\/?$/.test(String(pathname || ""));
+    return /^(?:\/home|\/config|\/upload|\/runtime)\/?$/.test(String(pathname || ""));
   }
 
   function shouldForceFullPageNavigation(currentUrl, nextUrl) {

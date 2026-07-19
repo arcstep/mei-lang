@@ -2643,6 +2643,31 @@ body > .mei-floating-text-pop-backdrop {
 .preview-stage > .mei-cockpit-map-tools-plane .mei-cockpit-floating-layer-control {
   position: absolute;
 }
+.preview-stage > .mei-cockpit-map-tools-plane .mei-world-stage-layer-control {
+  min-width: 168px;
+  max-width: 240px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(8, 28, 58, 0.92);
+  color: #e2e8f0;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(2, 8, 23, 0.35);
+  pointer-events: auto;
+  z-index: calc(var(--mei-z-cockpit-map-tools) + 2);
+}
+.preview-stage > .mei-cockpit-map-tools-plane .mei-world-stage-layer-control h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+.preview-stage > .mei-cockpit-map-tools-plane .mei-world-stage-layer-control label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
 .preview-card[data-mei-panel-name="map-tools-slot"] .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
   position: relative;
   top: auto;
@@ -3488,7 +3513,8 @@ html.mei-world-stage-active .preview-stage > .mei-cockpit-map-tools-plane {
 .mei-world-stage-input-plane {
   position: absolute;
   box-sizing: border-box;
-  z-index: calc(var(--mei-z-cockpit-map-tools) - 1);
+  /* 须高于整块 T1 plane（layer_plan max 常落到 map_tools 一带），否则被左右 rail 挡住无法拖拽 */
+  z-index: calc(var(--mei-z-cockpit-map-tools) + 3);
   pointer-events: auto;
   touch-action: none;
   cursor: grab;
@@ -3545,16 +3571,7 @@ html.mei-world-stage-active .mei-world-stage-back-nav.is-visible {
   background: rgba(49, 102, 173, 0.32);
 }
 .mei-world-stage-floating-nav .nav-hint {
-  margin: 0;
-  max-width: 118px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(8, 22, 40, 0.88);
-  border: 1px solid rgba(84, 160, 255, 0.28);
-  color: rgba(200, 220, 245, 0.85);
-  font-size: 10px;
-  line-height: 1.35;
-  pointer-events: none;
+  display: none;
 }
 .mei-world-stage-transition {
   position: fixed;
@@ -5476,7 +5493,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   box-sizing: border-box;
   pointer-events: none;
 }
-/* Presentation P plane: stacked slides share the page area; FAB/MDX toggles [hidden]. */
+/* Presentation P plane: stacked slides share the page area; SlideTransport toggles [hidden]. */
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="p"] > .mei-compose-slide,
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="P"] > .mei-compose-slide {
   grid-area: page;
@@ -5490,6 +5507,110 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="p"] > .mei-compose-slide[hidden],
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="P"] > .mei-compose-slide[hidden] {
+  display: none !important;
+}
+
+/* SlideTransport chrome (0409) — native to slides surface; not FAB. */
+.mei-slide-transport {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 5400;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(8, 18, 36, 0.82);
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  color: #e8f4ff;
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: auto;
+}
+.mei-slide-transport[hidden] {
+  display: none !important;
+}
+.mei-slide-transport__btn,
+.mei-slide-transport__page {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.mei-slide-transport__btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.mei-slide-transport__btn:hover:not(:disabled),
+.mei-slide-transport__page:hover {
+  background: rgba(125, 211, 252, 0.18);
+}
+.mei-slide-transport__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.mei-slide-transport__page {
+  min-width: 64px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.mei-slide-transport__toc {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 180px;
+  max-width: min(360px, 80vw);
+  max-height: min(320px, 50vh);
+  overflow: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(8, 18, 36, 0.94);
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+.mei-slide-transport__toc[hidden] {
+  display: none !important;
+}
+.mei-slide-transport__toc-item {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: #e8f4ff;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mei-slide-transport__toc-item:hover,
+.mei-slide-transport__toc-item[aria-selected="true"] {
+  background: rgba(125, 211, 252, 0.18);
+}
+body:not([data-mei-stage-surface="paged"]):not([data-mei-stage-profile="slides"]) .mei-slide-transport {
   display: none !important;
 }
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"],

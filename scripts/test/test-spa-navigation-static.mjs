@@ -51,16 +51,37 @@ const objectSelectionModule =
   "spa-navigation/presentation/object-selection-runtime.js";
 const mapWorldBridgeModule = "spa-navigation/presentation/map-world-bridge.js";
 const focusControllerModule = "spa-navigation/presentation/focus-controller.js";
+const slideTransportModule = "spa-navigation/presentation/slide-transport.js";
 for (const scripts of [accessScripts, manageScripts]) {
   const selectionIndex = scripts.indexOf(objectSelectionModule);
   const bridgeIndex = scripts.indexOf(mapWorldBridgeModule);
   const focusIndex = scripts.indexOf(focusControllerModule);
+  const slideTransportIndex = scripts.indexOf(slideTransportModule);
   assert.ok(selectionIndex >= 0, `bundle must include ${objectSelectionModule}`);
   assert.ok(
     selectionIndex < bridgeIndex && selectionIndex < focusIndex,
     "object selection runtime must load before map-world and focus bridges",
   );
+  assert.ok(slideTransportIndex >= 0, `bundle must include ${slideTransportModule}`);
+  assert.ok(
+    focusIndex >= 0 && focusIndex < slideTransportIndex,
+    "slide transport must load after focus-controller",
+  );
 }
+const slideTransportSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/presentation/slide-transport.js"),
+  "utf8",
+);
+assert.match(
+  slideTransportSrc,
+  /mei-slide-transport/,
+  "slide transport must mount Slides Surface chrome",
+);
+assert.match(
+  slideTransportSrc,
+  /ArrowLeft|ArrowRight/,
+  "slide transport must bind keyboard shortcuts",
+);
 const assemblyModules = [
   "spa-navigation/spa/structure-tree-materializer.js",
   "spa-navigation/spa/host-capabilities-ready.js",
@@ -209,7 +230,7 @@ assert.match(
 );
 assert.match(
   appShellCss,
-  /\.topbar-more-grid[\s\S]*repeat\(auto-fit,[\s\S]*\.topbar-more-card/,
+  /\.topbar-more-grid[\s\S]*repeat\(auto-(?:fit|fill),[\s\S]*?\.topbar-more-card/,
   "topbar more panel must render a responsive card grid",
 );
 assert.match(

@@ -847,24 +847,315 @@
   background: color-mix(in srgb, var(--mei-shell-color-card-bg) 88%, transparent);
 }
 
+.mei-workspace-page--fill {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* /runtime 满高：即使服务端尚未带 --fill / overflow-hidden，也靠 :has 撑满 main */
+main.workspace-view-main:has(.mei-host-shell__runtime),
+main.workspace-view-main:has(.mei-runtime-control) {
+  overflow: hidden;
+}
+
+.mei-workspace-page:has(.mei-host-shell__runtime),
+.mei-workspace-page:has(.mei-runtime-control) {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mei-host-shell__runtime {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mei-host-shell__runtime > .mei-runtime-control__host-tools {
+  flex: 0 0 auto;
+}
+
+.mei-host-shell__runtime > .mei-runtime-control {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mei-runtime-control {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .mei-runtime-control__zone--apps {
-  padding-top: 12px;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.mei-runtime-control__explorer {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
 }
 
 .mei-runtime-control__global-ops:not([hidden]) {
   margin: 0;
 }
 
-.mei-runtime-control__app-grid {
+.mei-runtime-control__app-grid,
+.mei-runtime-control__explorer {
+  --nav-width: 50%;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(280px, var(--nav-width)) 1px minmax(280px, 1fr);
+  gap: 0;
   align-items: stretch;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--mei-shell-color-card-bg);
+}
+
+.mei-runtime-control__explorer.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.mei-runtime-control__explorer-nav,
+.mei-runtime-control__explorer-detail {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  max-height: 100%;
+  overscroll-behavior: contain;
+}
+
+.mei-runtime-control__explorer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  background: color-mix(in srgb, var(--mei-shell-color-inset-highlight) 55%, transparent);
+}
+
+.mei-runtime-control__explorer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 12px 12px 8px;
+}
+
+.mei-runtime-control__search {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 90%, transparent);
+  color: inherit;
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__view-toggle {
+  display: inline-flex;
+  gap: 0;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+}
+
+.mei-runtime-control__view-toggle button {
+  margin: 0;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mei-runtime-control__view-toggle button[aria-pressed="true"] {
+  background: var(--mei-shell-color-accent);
+  color: var(--mei-shell-color-btn-primary-text);
+}
+
+.mei-runtime-control__sort {
+  flex: 0 0 auto;
+  max-width: 148px;
+  min-width: 112px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 90%, transparent);
+  color: inherit;
+  font-size: var(--mei-shell-font-2);
+}
+
+.mei-runtime-control__explorer-nav-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--mei-shell-color-text-muted) 55%, transparent) transparent;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  align-items: start;
+  padding: 0 12px 12px;
+}
+
+/* 强制经典滚动条（避免 macOS overlay 看起来像「没了滚动条」） */
+.mei-runtime-control__explorer-nav-scroll::-webkit-scrollbar {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+}
+
+.mei-runtime-control__explorer-nav-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--mei-shell-color-text-muted) 50%, transparent);
+}
+
+.mei-runtime-control__explorer-nav-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--mei-shell-color-text-primary) 55%, transparent);
+}
+
+.mei-runtime-control__explorer-nav-scroll::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--mei-shell-color-inset-highlight) 40%, transparent);
+  border-radius: 999px;
+}
+
+.mei-runtime-control__explorer-nav-scroll[data-view="list"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mei-runtime-control__explorer-nav-scroll[data-view="card"] {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.mei-runtime-control__nav-card[data-view="list"] {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.mei-runtime-control__nav-empty {
+  padding: 24px 12px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.mei-runtime-control__explorer-detail {
+  padding: 16px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 92%, transparent);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.mei-runtime-control__explorer-splitter {
+  width: 1px;
+  background: color-mix(in srgb, var(--mei-shell-color-border-slate) 80%, transparent);
+  cursor: col-resize;
+  position: relative;
+}
+
+.mei-runtime-control__explorer-splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.mei-runtime-control__explorer-splitter:hover,
+.mei-runtime-control__explorer-splitter.is-dragging {
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 55%, transparent);
+}
+
+.mei-runtime-control__detail-surface {
+  width: min(100%, 640px);
+  min-width: min(100%, 420px);
+  margin-inline: auto;
+  display: grid;
+  gap: 14px;
+}
+
+.mei-runtime-control__nav-card {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 88%, transparent);
+  cursor: pointer;
+}
+
+.mei-runtime-control__nav-card.is-selected {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 65%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--mei-shell-color-accent) 80%, transparent);
+}
+
+.mei-runtime-control__nav-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mei-runtime-control__nav-card-head h3 {
+  margin: 0;
+  font-size: var(--mei-shell-font-1);
+}
+
+.mei-runtime-control__nav-card-head p {
+  margin: 4px 0 0;
+  opacity: 0.75;
+}
+
+.mei-runtime-control__nav-card-meta {
+  margin: 8px 0 0;
+  font-size: var(--mei-shell-font-2);
+  opacity: 0.72;
 }
 
 @media (min-width: 1200px) {
   .mei-runtime-control__app-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(280px, var(--nav-width)) 1px minmax(280px, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .mei-runtime-control__explorer,
+  .mei-runtime-control__app-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 36%) 1px minmax(0, 1fr);
+  }
+
+  .mei-runtime-control__explorer-splitter {
+    width: 100%;
+    height: 1px;
+    cursor: row-resize;
   }
 }
 

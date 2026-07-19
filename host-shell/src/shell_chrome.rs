@@ -168,7 +168,10 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 "displayName": app.title,
                 "shortTitle": app.short_title,
                 "href": app_access_href(workspace.as_path(), app.id.as_str()),
-                "launchPath": format!("apps/{}/launch.json", app.id),
+                "launchPath": launch_doc
+                    .as_ref()
+                    .map(|doc| doc.path.clone())
+                    .unwrap_or_else(|| format!("apps/{}/app.toml", app.id)),
                 "hasLaunch": launch_doc.is_some(),
                 "launchDisplayName": launch_doc.as_ref().and_then(|d| d.config.display_name.clone()),
                 "gitDefaultMode": git_default_mode,
@@ -344,8 +347,8 @@ pub async fn api_host_shell_chrome(
 fn parse_workspace_shell_nav(raw: Option<&str>) -> Option<mei_lang_app::WorkspaceShellNav> {
     match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
         Some("home") => Some(mei_lang_app::WorkspaceShellNav::Home),
-        Some("runtime") => Some(mei_lang_app::WorkspaceShellNav::Runtime),
-        Some("mcg") => Some(mei_lang_app::WorkspaceShellNav::Mcg),
+        Some("runtime") | Some("mcg") => Some(mei_lang_app::WorkspaceShellNav::Runtime),
+        Some("share") => Some(mei_lang_app::WorkspaceShellNav::Share),
         _ => None,
     }
 }

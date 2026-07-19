@@ -1644,9 +1644,11 @@
 
   function shellNavFromLocation() {
     const path = String(global.location?.pathname || "");
-    if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
+    if (path === "/runtime" || path.startsWith("/runtime/") || path.startsWith("/mcg")) {
+      return "runtime";
+    }
     if (path === "/home" || path === "/") return "home";
-    if (path.startsWith("/mcg")) return "mcg";
+    if (path === "/share" || path.startsWith("/share/")) return "share";
     return "";
   }
 
@@ -3694,8 +3696,16 @@
     busy: false,
     cleanupPreview: null,
     cleanupAppId: null,
+    selectedAppId: "",
+    query: "",
+    viewMode: "card",
+    sort: { field: "name", dir: "asc" },
+    navWidthPct: 50,
+    shellReady: false,
     /** @type {Record<string, { kind: string, label: string, startedAt: number }>} */
     pendingByApp: {},
+    /** @type {Record<string, string>} */
+    modeSelections: {},
   };
 
   let root = null;
@@ -3814,18 +3824,143 @@
   }
 
   function modeOptionsHtml(selected, gitDefault) {
-    const current = String(selected || "").trim().toLowerCase();
-    const git = String(gitDefault || "").trim().toLowerCase();
-    const modes = ["hot", "lazy", "frozen"];
-    const followSelected = !current || current === git;
-    const follow = `<option value=""${followSelected ? " selected" : ""}>跟随 launch.json（${escapeHtml(git || "lazy")}）</option>`;
-    const rest = modes
+    const git = String(gitDefault || "lazy").trim().toLowerCase();
+    const fallback = git === "hot" || git === "lazy" || git === "frozen" ? git : "lazy";
+    const currentRaw = String(selected || "").trim().toLowerCase();
+    const current =
+      currentRaw === "hot" || currentRaw === "lazy" || currentRaw === "frozen"
+        ? currentRaw
+        : fallback;
+    return ["hot", "lazy", "frozen"]
       .map((mode) => {
-        const selectedAttr = current === mode && !followSelected ? " selected" : "";
+        const selectedAttr = current === mode ? " selected" : "";
         return `<option value="${mode}"${selectedAttr}>${escapeHtml(modeLabel(mode))}</option>`;
       })
       .join("");
-    return follow + rest;
+  }
+
+  function parseExplorerSort(raw, fallbackField = "name") {
+    const text = String(raw || "").trim();
+    const match = text.match(/^([a-zA-Z_]+):(asc|desc)$/i);
+    if (!match) return { field: fallbackField, dir: "asc" };
+    return { field: match[1].toLowerCase(), dir: match[2].toLowerCase() };
+  }
+
+  function formatExplorerSort(sort) {
+    return `${sort.field}:${sort.dir}`;
+  }
+
+  function compareText(left, right) {
+    return String(left || "").localeCompare(String(right || ""), "zh-CN", {
+      sensitivity: "base",
+      numeric: true,
+    });
+  }
+
+  function compareNumber(left, right) {
+    const a = Number(left);
+    const b = Number(right);
+    const aOk = Number.isFinite(a);
+    const bOk = Number.isFinite(b);
+    if (!aOk && !bOk) return 0;
+    if (!aOk) return 1;
+    if (!bOk) return -1;
+    return a - b;
+  }
+
+  function appSortSize(app) {
+    const generations = Array.isArray(app?.generations) ? app.generations : [];
+    return generations.reduce((sum, gen) => sum + (Number(gen?.bytes) || 0), 0);
+  }
+
+  function appSortTime(app) {
+    const generations = Array.isArray(app?.generations) ? app.generations : [];
+    let latest = 0;
+    generations.forEach((gen) => {
+      const ms = Date.parse(String(gen?.createdAt || ""));
+      if (Number.isFinite(ms) && ms > latest) latest = ms;
+    });
+    return latest || null;
+  }
+
+  function sortRuntimeApps(apps, sort) {
+    const dir = sort?.dir === "desc" ? -1 : 1;
+    const field = sort?.field || "name";
+    return [...apps].sort((left, right) => {
+      let cmp = 0;
+      if (field === "size") {
+        cmp = compareNumber(appSortSize(left), appSortSize(right));
+        if (!cmp) cmp = compareText(left?.displayName || left?.appId, right?.displayName || right?.appId);
+      } else if (field === "time") {
+        cmp = compareNumber(appSortTime(left), appSortTime(right));
+        if (!cmp) cmp = compareText(left?.displayName || left?.appId, right?.displayName || right?.appId);
+      } else {
+        cmp = compareText(left?.displayName || left?.appId, right?.displayName || right?.appId);
+      }
+      return cmp * dir;
+    });
+  }
+
+  function syncExplorerUrl() {
+    try {
+      const url = new URL(global.location.href);
+      if (state.selectedAppId) url.searchParams.set("sel", state.selectedAppId);
+      else url.searchParams.delete("sel");
+      if (state.query) url.searchParams.set("q", state.query);
+      else url.searchParams.delete("q");
+      if (state.viewMode && state.viewMode !== "card") url.searchParams.set("view", state.viewMode);
+      else url.searchParams.delete("view");
+      const sortText = formatExplorerSort(state.sort || { field: "name", dir: "asc" });
+      if (sortText && sortText !== "name:asc") url.searchParams.set("sort", sortText);
+      else url.searchParams.delete("sort");
+      global.history.replaceState(global.history.state, "", url);
+    } catch (_error) {
+      /* ignore */
+    }
+  }
+
+  function readExplorerUrlState() {
+    try {
+      const url = new URL(global.location.href);
+      return {
+        sel: String(url.searchParams.get("sel") || "").trim(),
+        q: String(url.searchParams.get("q") || ""),
+        view: String(url.searchParams.get("view") || "card").trim() || "card",
+        sort: parseExplorerSort(url.searchParams.get("sort"), "name"),
+      };
+    } catch (_error) {
+      return { sel: "", q: "", view: "card", sort: { field: "name", dir: "asc" } };
+    }
+  }
+
+  function syncSelectedAppUrl(appId) {
+    state.selectedAppId = appId || "";
+    syncExplorerUrl();
+  }
+
+  function readSelectedAppFromUrl() {
+    return readExplorerUrlState().sel;
+  }
+
+  function appMatchesQuery(app, needle) {
+    if (!needle) return true;
+    const haystack = [app.displayName, app.appId, app.launchPath, app.shortTitle];
+    return haystack.some((value) =>
+      String(value || "")
+        .toLocaleLowerCase()
+        .includes(needle),
+    );
+  }
+
+  function resolveSelectedMode(app, modeSelections) {
+    const appId = app.appId || "";
+    if (modeSelections[appId] != null && modeSelections[appId] !== "") {
+      return String(modeSelections[appId]).trim().toLowerCase();
+    }
+    const overlay = String(app.overlayDefaultMode || "").trim().toLowerCase();
+    if (overlay === "hot" || overlay === "lazy" || overlay === "frozen") return overlay;
+    const git = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
+    return git === "hot" || git === "lazy" || git === "frozen" ? git : "lazy";
   }
 
   function setAppPending(appId, kind, label) {
@@ -3835,13 +3970,15 @@
       label: label || "处理中…",
       startedAt: Date.now(),
     };
-    renderAppCards();
+    patchNavItem(appId);
+    if (appId === state.selectedAppId) paintDetail();
   }
 
   function clearAppPending(appId) {
     if (!appId || !state.pendingByApp[appId]) return;
     delete state.pendingByApp[appId];
-    renderAppCards();
+    patchNavItem(appId);
+    if (appId === state.selectedAppId) paintDetail();
   }
 
   function pendingProgressHtml(pending) {
@@ -3887,87 +4024,202 @@
     </p>`;
   }
 
-  function renderAppCards() {
-    const mount = root.querySelector("[data-runtime-app-grid]");
+  function ensureShell(mount) {
+    if (state.shellReady && mount.querySelector("[data-runtime-app-nav]") && mount.querySelector("[data-runtime-app-detail]")) {
+      return;
+    }
+    mount.className = "mei-runtime-control__explorer";
+    mount.style.setProperty("--nav-width", `${state.navWidthPct || 50}%`);
+    mount.innerHTML = `<div class="mei-runtime-control__explorer-nav">
+        <div class="mei-runtime-control__explorer-toolbar" data-runtime-toolbar></div>
+        <div class="mei-runtime-control__explorer-nav-scroll" data-runtime-app-nav role="listbox" aria-label="应用清单"></div>
+      </div>
+      <div class="mei-runtime-control__explorer-splitter" data-runtime-splitter role="separator" aria-orientation="vertical" aria-label="调整左右宽度" tabindex="0"></div>
+      <div class="mei-runtime-control__explorer-detail" data-runtime-app-detail></div>`;
+    bindRuntimeSplitter(mount);
+    state.shellReady = true;
+  }
+
+  function renderToolbar(mount) {
+    const toolbar = mount.querySelector("[data-runtime-toolbar]");
+    if (!toolbar) return;
+    const sort = state.sort || { field: "name", dir: "asc" };
+    const sortValue = formatExplorerSort(sort);
+    const options = [
+      ["name:asc", "名称升序"],
+      ["name:desc", "名称降序"],
+      ["size:asc", "大小升序"],
+      ["size:desc", "大小降序"],
+      ["time:asc", "时间升序"],
+      ["time:desc", "时间降序"],
+    ]
+      .map(
+        ([value, label]) =>
+          `<option value="${value}"${value === sortValue ? " selected" : ""}>${label}</option>`,
+      )
+      .join("");
+    toolbar.innerHTML = `<input class="mei-runtime-control__search" data-runtime-search type="search" placeholder="搜索应用名或 appId" aria-label="搜索应用" value="${escapeHtml(state.query || "")}" />
+      <div class="mei-runtime-control__view-toggle" aria-label="应用展示方式">
+        <button type="button" data-runtime-view="card" aria-pressed="${state.viewMode === "card" ? "true" : "false"}">卡片</button>
+        <button type="button" data-runtime-view="list" aria-pressed="${state.viewMode === "list" ? "true" : "false"}">列表</button>
+      </div>
+      <select class="mei-runtime-control__sort" data-runtime-sort aria-label="应用排序">${options}</select>`;
+  }
+
+  function navCardHtml(app, runningByApp) {
+    const appId = app.appId || "—";
+    const run = runningByApp[appId];
+    const phaseFromApi = run?.phase || null;
+    const isReady = phaseFromApi === "ready";
+    const isStarting = phaseFromApi === "starting";
+    const pending = state.pendingByApp[appId] || null;
+    const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
+    const effectiveMode = String(
+      app.effectiveDefaultMode || app.overlayDefaultMode || gitMode || "lazy",
+    )
+      .trim()
+      .toLowerCase();
+    const generations = Array.isArray(app.generations) ? app.generations : [];
+    const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
+    const selected = state.selectedAppId === appId;
+    let phaseLabel = "已停止";
+    let tone = "";
+    if (pending) {
+      phaseLabel = pending.label || "处理中…";
+      tone = "is-pending";
+    } else if (isReady) {
+      phaseLabel = "ready";
+      tone = "is-running";
+    } else if (isStarting) {
+      phaseLabel = "启动中";
+      tone = "is-pending";
+    }
+    const stoppedDetail = !app.hasLaunch
+      ? "无 app.toml"
+      : !hasCurrentBundle
+        ? "无编译产物"
+        : "未运行";
+    const meta = pending
+      ? pending.label || "处理中…"
+      : isReady || isStarting
+        ? `模式 ${effectiveMode}`
+        : stoppedDetail;
+    const view = state.viewMode === "list" ? "list" : "card";
+    return `<article class="mei-runtime-control__nav-card${selected ? " is-selected" : ""}${tone ? ` ${tone}` : ""}" data-runtime-select-app="${escapeHtml(appId)}" data-view="${view}" role="option" aria-selected="${selected ? "true" : "false"}" tabindex="0">
+      <div class="mei-runtime-control__nav-card-head">
+        <div>
+          <h3>${escapeHtml(app.displayName || appId)}</h3>
+          <p><code>${escapeHtml(appId)}</code></p>
+        </div>
+        <span class="mei-runtime-control__status-chip${tone ? ` ${tone}` : ""}" data-runtime-nav-chip><strong>${escapeHtml(phaseLabel)}</strong></span>
+      </div>
+      <p class="mei-runtime-control__nav-card-meta" data-runtime-nav-meta>${escapeHtml(meta)}</p>
+    </article>`;
+  }
+
+  function paintSelection() {
+    const mount = root?.querySelector("[data-runtime-app-grid]");
     if (!mount) return;
-    const openBundles = new Set(
-      Array.from(mount.querySelectorAll("details.mei-runtime-control__bundles[open]")).map(
-        (node) => node.closest("[data-app-card]")?.getAttribute("data-app-card"),
-      ).filter(Boolean),
-    );
-    const modeSelections = {};
-    mount.querySelectorAll("[data-runtime-mode-select]").forEach((select) => {
-      modeSelections[select.getAttribute("data-app")] = select.value;
+    mount.querySelectorAll("[data-runtime-select-app]").forEach((card) => {
+      const selected = card.getAttribute("data-runtime-select-app") === state.selectedAppId;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-selected", String(selected));
     });
+  }
+
+  function patchNavItem(appId) {
+    const mount = root?.querySelector("[data-runtime-app-grid]");
+    if (!mount) return;
     const apps = Array.isArray(state.appsOverview?.apps) ? state.appsOverview.apps : [];
     const running = Array.isArray(state.appsOverview?.running) ? state.appsOverview.running : [];
     const runningByApp = Object.fromEntries(running.map((row) => [row.appId, row]));
-    if (!apps.length) {
-      mount.innerHTML = `<p class="mei-host-shell__message">工作区暂无应用。可在 apps/ 下创建应用后刷新。</p>`;
+    const app = apps.find((row) => row.appId === appId);
+    if (!app) return;
+    const card = Array.from(mount.querySelectorAll("[data-runtime-select-app]")).find(
+      (node) => node.getAttribute("data-runtime-select-app") === appId,
+    );
+    if (!card) return;
+    const html = navCardHtml(app, runningByApp);
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const next = wrap.firstElementChild;
+    if (next) card.replaceWith(next);
+  }
+
+  function paintDetail() {
+    const mount = root?.querySelector("[data-runtime-app-grid]");
+    const detailMount = mount?.querySelector("[data-runtime-app-detail]");
+    if (!detailMount) return;
+    const apps = Array.isArray(state.appsOverview?.apps) ? state.appsOverview.apps : [];
+    const running = Array.isArray(state.appsOverview?.running) ? state.appsOverview.running : [];
+    const runningByApp = Object.fromEntries(running.map((row) => [row.appId, row]));
+    const selectedApp = apps.find((app) => app.appId === state.selectedAppId) || apps[0];
+    if (!selectedApp) {
+      detailMount.innerHTML = `<div class="mei-runtime-control__detail-empty">选择左侧应用以操作</div>`;
       return;
     }
+    const bundlesOpen = Boolean(detailMount.querySelector("details.mei-runtime-control__bundles[open]"));
+    const modeSelections = { ...state.modeSelections };
+    detailMount.querySelectorAll("[data-runtime-mode-select]").forEach((select) => {
+      modeSelections[select.getAttribute("data-app")] = select.value;
+    });
+    Object.assign(state.modeSelections, modeSelections);
     const now = Date.now();
-    mount.innerHTML = apps
-      .map((app) => {
-        const appId = app.appId || "—";
-        const run = runningByApp[appId];
-        const phaseFromApi = run?.phase || null;
-        const isReady = phaseFromApi === "ready";
-        const isStarting = phaseFromApi === "starting";
-        const isRunning = isReady || isStarting;
-        const hasLaunch = Boolean(app.hasLaunch);
-        const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
-        const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
-        const effectiveMode = String(
-          app.effectiveDefaultMode || overlayMode || gitMode || "lazy",
-        )
-          .trim()
-          .toLowerCase();
-        const selectedMode =
-          modeSelections[appId] != null ? modeSelections[appId] : overlayMode;
-        const generations = Array.isArray(app.generations) ? app.generations : [];
-        const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
-        const hasAnyBundle = generations.length > 0;
-        const canStartExisting = hasLaunch && hasCurrentBundle;
-        const pending = state.pendingByApp[appId] || null;
-        const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
-        const duration =
-          isReady && startedAt ? formatDuration(now - startedAt) : null;
-        const phase = pending
-          ? pending.kind
-          : phaseFromApi || "stopped";
-        const phaseLabel =
-          phase === "ready"
-            ? "ready"
-            : phase === "starting"
-              ? "启动中"
-              : phase === "stopped"
-                ? "已停止"
-                : phase;
-        let stoppedDetail = "未运行";
-        if (!hasLaunch) stoppedDetail = "无 launch.json · 启动将自动创建";
-        else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
-        const overlayHint = overlayMode
-          ? `临时 ${modeLabel(overlayMode)}`
-          : `默认 ${modeLabel(gitMode)}`;
-        const statusBlock = pending
-          ? `<div class="mei-runtime-control__status-chip is-pending">
-               <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
-               <strong>${escapeHtml(phaseLabel)}</strong>
-               <span>${escapeHtml(pending.label || "处理中…")}</span>
-             </div>
-             ${pendingProgressHtml(pending)}`
-          : isReady
-          ? `<div class="mei-runtime-control__status-chip is-running">
-               <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
-               <strong>${escapeHtml(phaseLabel)}</strong>
-               <span data-runtime-uptime data-started-at="${startedAt || ""}">${escapeHtml(duration ? `已运行 ${duration}` : "—")}</span>
-             </div>
-             <dl class="mei-runtime-control__status-meta">
-               <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
-               <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
-             </dl>`
-          : isStarting
+    const app = selectedApp;
+    const appId = app.appId || "—";
+    const run = runningByApp[appId];
+    const phaseFromApi = run?.phase || null;
+    const isReady = phaseFromApi === "ready";
+    const isStarting = phaseFromApi === "starting";
+    const isRunning = isReady || isStarting;
+    const hasLaunch = Boolean(app.hasLaunch);
+    const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
+    const overlayMode = String(app.overlayDefaultMode || "").trim().toLowerCase();
+    const effectiveMode = String(app.effectiveDefaultMode || overlayMode || gitMode || "lazy")
+      .trim()
+      .toLowerCase();
+    const selectedMode = resolveSelectedMode(app, modeSelections);
+    const generations = Array.isArray(app.generations) ? app.generations : [];
+    const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
+    const hasAnyBundle = generations.length > 0;
+    const canStartExisting = hasLaunch && hasCurrentBundle;
+    const pending = state.pendingByApp[appId] || null;
+    const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
+    const duration = isReady && startedAt ? formatDuration(now - startedAt) : null;
+    const phase = pending ? pending.kind : phaseFromApi || "stopped";
+    const phaseLabel =
+      phase === "ready"
+        ? "ready"
+        : phase === "starting"
+          ? "启动中"
+          : phase === "stopped"
+            ? "已停止"
+            : phase;
+    let stoppedDetail = "未运行";
+    if (!hasLaunch) stoppedDetail = "无 app.toml · 启动将自动创建";
+    else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
+    const overlayHint = overlayMode
+      ? `临时 ${modeLabel(overlayMode)}`
+      : `默认 ${modeLabel(gitMode)}`;
+    const statusBlock = pending
+      ? `<div class="mei-runtime-control__status-chip is-pending">
+           <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
+           <strong>${escapeHtml(phaseLabel)}</strong>
+           <span>${escapeHtml(pending.label || "处理中…")}</span>
+         </div>
+         ${pendingProgressHtml(pending)}`
+      : isReady
+        ? `<div class="mei-runtime-control__status-chip is-running">
+             <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
+             <strong>${escapeHtml(phaseLabel)}</strong>
+             <span data-runtime-uptime data-started-at="${startedAt || ""}">${escapeHtml(duration ? `已运行 ${duration}` : "—")}</span>
+           </div>
+           <dl class="mei-runtime-control__status-meta">
+             <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
+             <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
+             <div><dt>配置</dt><dd><code>${escapeHtml(app.launchPath || `apps/${appId}/app.toml`)}</code></dd></div>
+           </dl>`
+        : isStarting
           ? `<div class="mei-runtime-control__status-chip is-pending">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
                <strong>${escapeHtml(phaseLabel)}</strong>
@@ -3981,72 +4233,137 @@
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
                <strong>已停止</strong>
                <span>${escapeHtml(stoppedDetail)}</span>
-             </div>`;
-        const genRows = generations.length
-          ? generations
-              .map((gen) => {
-                const protectedReasons = Array.isArray(gen.protectedReasons)
-                  ? gen.protectedReasons
-                  : [];
-                const isProtected = gen.isCurrent || protectedReasons.length > 0;
-                const loadLocked = isRunning;
-                return `<li class="mei-runtime-control__bundle-row${gen.isCurrent ? " is-current" : ""}">
-                  <div class="mei-runtime-control__bundle-main">
-                    <code>${escapeHtml(gen.id)}</code>
-                    ${gen.isCurrent ? '<span class="mei-runtime-control__badge is-clean">current</span>' : ""}
-                    ${isProtected && !gen.isCurrent ? `<span class="mei-runtime-control__badge">${escapeHtml(protectedReasons.join(", "))}</span>` : ""}
-                  </div>
-                  <div class="mei-runtime-control__bundle-meta">
-                    <span>${escapeHtml(gen.createdAt || "—")}</span>
-                    <span>${formatBytes(gen.bytes)}</span>
-                    <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停止应用" : "切换到该 Bundle 并用 launch.json 启动"}">载入并启动</button>
-                  </div>
-                </li>`;
-              })
-              .join("")
-          : `<li class="mei-runtime-control__bundle-empty">尚无历史 Bundle</li>`;
-        const bundlesOpen = openBundles.has(appId) ? " open" : "";
-        const actions = pending
-          ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" disabled data-runtime-locked>处理中…</button>`
-          : isRunning
-          ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停止</button>
-             <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="按 launch.json 停止后立刻再启动">重载</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后按 launch.json 重启">编译并重启</button>`
-          : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物 + launch.json 启动"}">启动</button>
-             <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 launch.json 将自动创建），再启动">编译并启动</button>`;
-        return `<article class="mei-runtime-control__app-card${isReady ? " is-running" : ""}${isStarting || pending ? " is-pending" : ""}" data-app-card="${escapeHtml(appId)}" role="listitem">
-          <header class="mei-runtime-control__app-card-head">
-            <div class="mei-runtime-control__app-card-identity">
-              <h3 class="mei-runtime-control__app-card-title">${escapeHtml(app.displayName || appId)}</h3>
-              <p class="mei-runtime-control__app-card-id"><code>${escapeHtml(appId)}</code></p>
-            </div>
-            ${
-              !pending && isReady && app.href
-                ? `<a class="mei-runtime-control__enter" href="${escapeHtml(app.href)}">进入</a>`
-                : ""
-            }
-          </header>
-          <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
-          <div class="mei-runtime-control__app-card-launch">
-            <label class="mei-runtime-control__mode-field">
-              <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} 启动模式"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
-            </label>
-          </div>
-          <div class="mei-runtime-control__app-card-actions">${actions}</div>
-          <details class="mei-runtime-control__bundles"${bundlesOpen}>
-            <summary>
-              <span>历史 Bundle</span>
-              <span class="mei-runtime-control__bundles-count">${generations.length}</span>
-            </summary>
-            <ul class="mei-runtime-control__bundle-list">${genRows}</ul>
-            <div class="mei-runtime-control__bundle-footer">
-              <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-cleanup data-app="${escapeHtml(appId)}"${lockedAttr(!hasAnyBundle)} title="${hasAnyBundle ? "预览并清理未保护历史 Bundle" : "暂无历史 Bundle"}">清理历史…</button>
-            </div>
-          </details>
-        </article>`;
-      })
-      .join("");
+             </div>
+             <dl class="mei-runtime-control__status-meta">
+               <div><dt>配置</dt><dd><code>${escapeHtml(app.launchPath || `apps/${appId}/app.toml`)}</code></dd></div>
+             </dl>`;
+    const genRows = generations.length
+      ? generations
+          .map((gen) => {
+            const protectedReasons = Array.isArray(gen.protectedReasons) ? gen.protectedReasons : [];
+            const isProtected = gen.isCurrent || protectedReasons.length > 0;
+            const loadLocked = isRunning;
+            return `<li class="mei-runtime-control__bundle-row${gen.isCurrent ? " is-current" : ""}">
+              <div class="mei-runtime-control__bundle-main">
+                <code>${escapeHtml(gen.id)}</code>
+                ${gen.isCurrent ? '<span class="mei-runtime-control__badge is-clean">current</span>' : ""}
+                ${isProtected && !gen.isCurrent ? `<span class="mei-runtime-control__badge">${escapeHtml(protectedReasons.join(", "))}</span>` : ""}
+              </div>
+              <div class="mei-runtime-control__bundle-meta">
+                <span>${escapeHtml(gen.createdAt || "—")}</span>
+                <span>${formatBytes(gen.bytes)}</span>
+                <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停止应用" : "切换到该 Bundle 并用当前模式启动"}">载入并启动</button>
+              </div>
+            </li>`;
+          })
+          .join("")
+      : `<li class="mei-runtime-control__bundle-empty">尚无历史 Bundle</li>`;
+    const actions = pending
+      ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" disabled data-runtime-locked>处理中…</button>`
+      : isRunning
+        ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停止</button>
+           <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="停止后立刻再启动">重载</button>
+           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后重启">编译并重启</button>`
+        : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物启动"}">启动</button>
+           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 app.toml 将自动创建），再启动">编译并启动</button>`;
+    const enterLink =
+      !pending && isReady && app.href
+        ? `<a class="mei-runtime-control__enter" href="${escapeHtml(app.href)}">进入</a>`
+        : "";
+    detailMount.innerHTML = `<div class="mei-runtime-control__detail-surface" data-app-card="${escapeHtml(appId)}">
+      <header class="mei-runtime-control__app-card-head">
+        <div class="mei-runtime-control__app-card-identity">
+          <h3 class="mei-runtime-control__app-card-title">${escapeHtml(app.displayName || appId)}</h3>
+          <p class="mei-runtime-control__app-card-id"><code>${escapeHtml(appId)}</code></p>
+        </div>
+        ${enterLink}
+      </header>
+      <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
+      <div class="mei-runtime-control__app-card-launch">
+        <label class="mei-runtime-control__mode-field">
+          <span>启动模式</span>
+          <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} 启动模式"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
+        </label>
+      </div>
+      <div class="mei-runtime-control__app-card-actions">${actions}</div>
+      <details class="mei-runtime-control__bundles"${bundlesOpen ? " open" : ""}>
+        <summary>
+          <span>历史 Bundle</span>
+          <span class="mei-runtime-control__bundles-count">${generations.length}</span>
+        </summary>
+        <ul class="mei-runtime-control__bundle-list">${genRows}</ul>
+        <div class="mei-runtime-control__bundle-footer">
+          <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-cleanup data-app="${escapeHtml(appId)}"${lockedAttr(!hasAnyBundle)} title="${hasAnyBundle ? "预览并清理未保护历史 Bundle" : "暂无历史 Bundle"}">清理历史…</button>
+        </div>
+      </details>
+    </div>`;
     setBusy(state.busy);
+  }
+
+  function rebuildNavList() {
+    const mount = root.querySelector("[data-runtime-app-grid]");
+    if (!mount) return;
+    ensureShell(mount);
+    renderToolbar(mount);
+    const nav = mount.querySelector("[data-runtime-app-nav]");
+    if (!nav) return;
+    const scrollTop = nav.scrollTop;
+    const apps = Array.isArray(state.appsOverview?.apps) ? state.appsOverview.apps : [];
+    const running = Array.isArray(state.appsOverview?.running) ? state.appsOverview.running : [];
+    const runningByApp = Object.fromEntries(running.map((row) => [row.appId, row]));
+    if (!apps.length) {
+      state.shellReady = false;
+      mount.innerHTML = `<p class="mei-host-shell__message">工作区暂无应用。可在 apps/ 下创建应用后刷新。</p>`;
+      return;
+    }
+    const needle = String(state.query || "").trim().toLocaleLowerCase();
+    const filtered = sortRuntimeApps(
+      apps.filter((app) => appMatchesQuery(app, needle)),
+      state.sort || { field: "name", dir: "asc" },
+    );
+    if (!state.selectedAppId) state.selectedAppId = readSelectedAppFromUrl();
+    if (!filtered.some((app) => app.appId === state.selectedAppId)) {
+      state.selectedAppId = filtered[0]?.appId || apps[0].appId || "";
+    }
+    syncExplorerUrl();
+    nav.dataset.view = state.viewMode === "list" ? "list" : "card";
+    nav.innerHTML = filtered.length
+      ? filtered.map((app) => navCardHtml(app, runningByApp)).join("")
+      : `<div class="mei-runtime-control__nav-empty">${needle ? "没有匹配的应用" : "暂无应用"}</div>`;
+    nav.scrollTop = scrollTop;
+    paintDetail();
+  }
+
+  function renderAppCards() {
+    const mount = root.querySelector("[data-runtime-app-grid]");
+    if (!mount) return;
+    if (!state.query && !state.viewMode) {
+      const urlState = readExplorerUrlState();
+      state.query = urlState.q;
+      state.viewMode = urlState.view === "list" ? "list" : "card";
+      state.sort = urlState.sort || { field: "name", dir: "asc" };
+      if (!state.selectedAppId) state.selectedAppId = urlState.sel;
+    } else {
+      const urlState = readExplorerUrlState();
+      if (!state.selectedAppId) state.selectedAppId = urlState.sel;
+      if (state.query === "" && urlState.q) state.query = urlState.q;
+      if (!state._viewBootstrapped) {
+        state.viewMode = urlState.view === "list" ? "list" : state.viewMode || "card";
+        state.sort = urlState.sort || state.sort || { field: "name", dir: "asc" };
+        state._viewBootstrapped = true;
+      }
+    }
+    rebuildNavList();
+  }
+
+  function selectApp(appId) {
+    if (!appId || appId === state.selectedAppId) return;
+    const select = root.querySelector("[data-runtime-mode-select]");
+    if (select) state.modeSelections[select.getAttribute("data-app")] = select.value;
+    state.selectedAppId = appId;
+    syncExplorerUrl();
+    paintSelection();
+    paintDetail();
   }
 
   function closeCleanupModal() {
@@ -4195,12 +4512,51 @@
     if (mode === "hot" || mode === "lazy" || mode === "frozen") {
       return { mode };
     }
-    return { followGit: true };
+    const app = (state.appsOverview?.apps || []).find((row) => row.appId === appId);
+    const git = String(app?.gitDefaultMode || "lazy").trim().toLowerCase();
+    return {
+      mode: git === "hot" || git === "lazy" || git === "frozen" ? git : "lazy",
+    };
   }
 
   function modeAnnounceLabel(body) {
     if (body?.mode) return body.mode;
-    return "launch.json";
+    return "lazy";
+  }
+
+  function bindRuntimeSplitter(mount) {
+    const splitter = mount.querySelector("[data-runtime-splitter]");
+    const explorer = mount;
+    if (!splitter || !explorer) return;
+    const applyWidth = (pct) => {
+      const next = Math.min(72, Math.max(28, pct));
+      state.navWidthPct = next;
+      explorer.style.setProperty("--nav-width", `${next}%`);
+    };
+    applyWidth(state.navWidthPct || 50);
+    const onPointerMove = (event) => {
+      if (!state._resizing) return;
+      const rect = explorer.getBoundingClientRect();
+      if (!rect.width) return;
+      applyWidth(((event.clientX - rect.left) / rect.width) * 100);
+    };
+    const onPointerUp = () => {
+      if (!state._resizing) return;
+      state._resizing = false;
+      splitter.classList.remove("is-dragging");
+      explorer.classList.remove("is-resizing");
+      global.removeEventListener("pointermove", onPointerMove);
+      global.removeEventListener("pointerup", onPointerUp);
+    };
+    splitter.onpointerdown = (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      state._resizing = true;
+      splitter.classList.add("is-dragging");
+      explorer.classList.add("is-resizing");
+      global.addEventListener("pointermove", onPointerMove);
+      global.addEventListener("pointerup", onPointerUp);
+    };
   }
 
   async function startAppWithLaunch(appId, _configOverride) {
@@ -4472,6 +4828,21 @@
 
   function bindEvents() {
     root.addEventListener("click", (event) => {
+      const viewBtn = event.target.closest("[data-runtime-view]");
+      if (viewBtn && root.contains(viewBtn)) {
+        const mode = viewBtn.getAttribute("data-runtime-view") === "list" ? "list" : "card";
+        if (mode !== state.viewMode) {
+          state.viewMode = mode;
+          syncExplorerUrl();
+          rebuildNavList();
+        }
+        return;
+      }
+      const selectCard = event.target.closest("[data-runtime-select-app]");
+      if (selectCard && root.contains(selectCard) && !event.target.closest("button, a, select")) {
+        selectApp(selectCard.getAttribute("data-runtime-select-app") || "");
+        return;
+      }
       const cancelEl = event.target.closest("[data-runtime-cleanup-cancel]");
       if (cancelEl && root.contains(cancelEl)) {
         closeCleanupModal();
@@ -4488,9 +4859,7 @@
         return;
       }
       const appId = target.getAttribute("data-app");
-      if (target.matches("[data-runtime-refresh-instances]")) {
-        void loadApps().then(() => announce("已刷新应用列表", "success"));
-      } else if (target.matches("[data-runtime-app-start]")) {
+      if (target.matches("[data-runtime-app-start]")) {
         void startAppWithLaunch(appId);
       } else if (target.matches("[data-runtime-app-stop]")) {
         void stopAppRuntime(appId);
@@ -4507,8 +4876,36 @@
       }
     });
 
+    root.addEventListener("input", (event) => {
+      const target = event.target;
+      if (target.matches("[data-runtime-search]")) {
+        if (event.isComposing) return;
+        state.query = target.value;
+        syncExplorerUrl();
+        rebuildNavList();
+        queueMicrotask(() => {
+          const next = root.querySelector("[data-runtime-search]");
+          if (next instanceof HTMLInputElement) {
+            next.focus();
+            const caret = next.value.length;
+            next.setSelectionRange(caret, caret);
+          }
+        });
+      }
+    });
+
     root.addEventListener("change", (event) => {
       const target = event.target;
+      if (target.matches("[data-runtime-sort]")) {
+        state.sort = parseExplorerSort(target.value, "name");
+        syncExplorerUrl();
+        rebuildNavList();
+        return;
+      }
+      if (target.matches("[data-runtime-mode-select]")) {
+        state.modeSelections[target.getAttribute("data-app")] = target.value;
+        return;
+      }
       if (target.matches("[data-runtime-cleanup-confirm]")) {
         const execute = root.querySelector(
           `[data-runtime-cleanup-execute][data-app="${target.getAttribute("data-app") || ""}"]`,
@@ -4534,6 +4931,12 @@
   async function init() {
     root = document.querySelector("[data-host-runtime-control-center]");
     if (!root) return;
+    const urlState = readExplorerUrlState();
+    state.selectedAppId = urlState.sel;
+    state.query = urlState.q;
+    state.viewMode = urlState.view === "list" ? "list" : "card";
+    state.sort = urlState.sort || { field: "name", dir: "asc" };
+    state._viewBootstrapped = true;
     bindEvents();
     try {
       await Promise.all([loadApps(), refreshOps()]);
@@ -4556,6 +4959,10 @@
     errorMessage,
     formatBytes,
     formatDuration,
+    selectApp,
+    paintSelection,
+    paintDetail,
+    rebuildNavList,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -21885,6 +22292,34 @@
     ).trim() || "home";
   }
 
+  function readPresentationDeck() {
+    const mei = window.__mei || {};
+    const map = mei.presentation_map;
+    if (!map || typeof map !== "object") return null;
+    const deck = map.deck || map.presentation_deck;
+    if (!deck || typeof deck !== "object") return null;
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    return {
+      stageKind: String(deck.stageKind || deck.stage_kind || "").trim(),
+      slides,
+    };
+  }
+
+  function looksLikeSlidesStage(stageId) {
+    const deck = readPresentationDeck();
+    if (deck && deck.slides.length > 0) {
+      const kind = deck.stageKind.toLowerCase();
+      if (!kind || kind === "presentation" || kind === "slides") return true;
+    }
+    const slideNodes = document.querySelectorAll('[data-mei-ui-role="slide"]');
+    if (slideNodes.length >= 2) return true;
+    const id = String(stageId || "").trim();
+    if (id && document.querySelector(`[data-mei-ui-role="slide"][data-mei-panel-name="${CSS.escape(id)}"]`)) {
+      return true;
+    }
+    return false;
+  }
+
   function resolveStageMeta(stageId) {
     const id = String(stageId || parseStageIdFromPath()).trim();
     const fromReg = readRegistryStages().find(
@@ -21942,6 +22377,10 @@
         profile: "cockpit",
         surface: "viewport",
       };
+    }
+    // Client bootstrap may omit stage_registry; infer slides from presentation_map / DOM.
+    if (looksLikeSlidesStage(id)) {
+      return { stageId: id, profile: "slides", surface: "paged" };
     }
     return { stageId: id, profile: "cockpit", surface: "viewport" };
   }
@@ -22420,7 +22859,6 @@
       <div class="nav-group" role="group" aria-label="复位">
         <button type="button" data-nav="reset" title="复原视角" aria-label="复原视角">◎</button>
       </div>
-      <p class="nav-hint">左拖有限平移 · 右键旋转俯仰 · 滚轮缩放（按键职责固定；也可用上方按钮）</p>
     `;
     nav.addEventListener("click", (event) => {
       const btn = event.target?.closest?.("[data-nav]");
@@ -25198,6 +25636,17 @@
       String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
     );
     document.documentElement.setAttribute("data-mei-active-deck-page-index", String(targetIndex));
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:slide-page-change", {
+          detail: {
+            index: targetIndex,
+            count: pages.length,
+            pageId: String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
+          },
+        }),
+      );
+    } catch (_) {}
     return true;
   }
 
@@ -25365,6 +25814,329 @@
   }
 
   installFocusController();
+
+
+/* ===== spa-navigation/presentation/slide-transport.js ===== */
+/**
+ * SlideTransport — Slides Surface native pager (0409).
+ * prev / next / goto + page index + keyboard. Not owned by FAB.
+ *
+ * Important: do NOT MutationObserver-watch compose subtree. Deck materialize /
+ * map / metrics mutate constantly; observing them + refreshing caused main-thread
+ * freezes ("页面无响应") with empty console.
+ */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const ROOT_ID = "mei-slide-transport";
+  const TOC_ID = "mei-slide-transport-toc";
+
+  let refreshQueued = false;
+  let refreshing = false;
+  let startupTimer = 0;
+
+  function isEditableTarget(target) {
+    if (!(target instanceof Element)) return false;
+    const tag = String(target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (target.isContentEditable) return true;
+    return Boolean(target.closest?.("input, textarea, select, [contenteditable='true']"));
+  }
+
+  function deckPages() {
+    if (typeof boot.listDeckPages === "function") {
+      const nodes = boot.listDeckPages();
+      if (Array.isArray(nodes) && nodes.length) return nodes;
+    }
+    const presentation = window.MeiPresentation;
+    if (typeof presentation?.listDeckPages === "function") {
+      const nodes = presentation.listDeckPages();
+      if (Array.isArray(nodes) && nodes.length) return nodes;
+    }
+    return Array.from(document.querySelectorAll('[data-mei-ui-role="slide"]')).filter(
+      (node) => node instanceof HTMLElement,
+    );
+  }
+
+  function isPagedSurface() {
+    const body = document.body;
+    if (body instanceof HTMLElement) {
+      const surface = String(body.getAttribute("data-mei-stage-surface") || "");
+      const profile = String(body.getAttribute("data-mei-stage-profile") || "");
+      if (surface === "paged" || profile === "slides") return true;
+    }
+    const compose = document.getElementById("mei-compose-root");
+    if (compose instanceof HTMLElement) {
+      const surface = String(compose.getAttribute("data-mei-stage-surface") || "");
+      const profile = String(compose.getAttribute("data-mei-stage-profile") || "");
+      if (surface === "paged" || profile === "slides") return true;
+    }
+    if (typeof boot.stageSurface?.resolveStageMeta === "function") {
+      try {
+        const meta = boot.stageSurface.resolveStageMeta();
+        if (meta?.surface === "paged" || meta?.profile === "slides") return true;
+      } catch (_) {}
+    }
+    // DOM-only fallback (ignore stale presentation_map from a prior stage).
+    return deckPages().length >= 2;
+  }
+
+  function currentIndex(pages) {
+    const list = pages || deckPages();
+    const active = list.findIndex((node) => !node.hasAttribute("hidden"));
+    if (active >= 0) return active;
+    const raw = document.documentElement.getAttribute("data-mei-active-deck-page-index");
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function slideTitle(node, index) {
+    const name = String(node?.getAttribute?.("data-mei-panel-name") || "").trim();
+    const leaf = name.split("/").pop() || name;
+    return (
+      String(node?.getAttribute?.("data-mei-structure-label") || "").trim() ||
+      String(node?.getAttribute?.("aria-label") || "").trim() ||
+      leaf ||
+      `第 ${index + 1} 页`
+    );
+  }
+
+  function goPrev() {
+    if (typeof boot.prevDeckPage === "function") return Boolean(boot.prevDeckPage());
+    return Boolean(window.MeiPresentation?.prevPage?.());
+  }
+
+  function goNext() {
+    if (typeof boot.nextDeckPage === "function") return Boolean(boot.nextDeckPage());
+    return Boolean(window.MeiPresentation?.nextPage?.());
+  }
+
+  function goTo(index) {
+    if (typeof boot.showDeckPage === "function") return Boolean(boot.showDeckPage(index));
+    return Boolean(window.MeiPresentation?.showPage?.(index));
+  }
+
+  function ensureRoot() {
+    let root = document.getElementById(ROOT_ID);
+    if (root instanceof HTMLElement) return root;
+    root = document.createElement("nav");
+    root.id = ROOT_ID;
+    root.className = "mei-slide-transport";
+    root.setAttribute("aria-label", "幻灯片翻页");
+    root.hidden = true;
+    root.innerHTML = `
+      <button type="button" class="mei-slide-transport__btn" data-action="prev" aria-label="上一页">‹</button>
+      <button type="button" class="mei-slide-transport__page" data-action="toc" aria-label="页码与目录" aria-haspopup="listbox" aria-expanded="false">
+        <span data-role="label">1 / 1</span>
+      </button>
+      <button type="button" class="mei-slide-transport__btn" data-action="next" aria-label="下一页">›</button>
+      <div id="${TOC_ID}" class="mei-slide-transport__toc" role="listbox" hidden></div>
+    `;
+    root.addEventListener("click", (event) => {
+      const btn = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+      if (!(btn instanceof HTMLElement) || !root.contains(btn)) return;
+      const action = btn.getAttribute("data-action");
+      if (action === "prev") {
+        closeToc();
+        goPrev();
+        scheduleRefresh();
+        return;
+      }
+      if (action === "next") {
+        closeToc();
+        goNext();
+        scheduleRefresh();
+        return;
+      }
+      if (action === "toc") {
+        toggleToc();
+        return;
+      }
+      if (action === "goto") {
+        const index = Number(btn.getAttribute("data-index"));
+        closeToc();
+        if (Number.isFinite(index)) goTo(index);
+        scheduleRefresh();
+      }
+    });
+    const host =
+      document.querySelector(".shell.scene-shell") ||
+      document.querySelector("main") ||
+      document.body;
+    host.appendChild(root);
+    return root;
+  }
+
+  function tocEl() {
+    return document.getElementById(TOC_ID);
+  }
+
+  function closeToc() {
+    const toc = tocEl();
+    const root = document.getElementById(ROOT_ID);
+    if (toc) toc.hidden = true;
+    const pageBtn = root?.querySelector?.('[data-action="toc"]');
+    if (pageBtn instanceof HTMLElement) pageBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleToc() {
+    const toc = tocEl();
+    const root = document.getElementById(ROOT_ID);
+    if (!(toc instanceof HTMLElement) || !(root instanceof HTMLElement)) return;
+    const open = toc.hidden;
+    if (open) {
+      const pages = deckPages();
+      const active = currentIndex(pages);
+      toc.innerHTML = pages
+        .map((node, index) => {
+          const selected = index === active ? "true" : "false";
+          const title = slideTitle(node, index);
+          return `<button type="button" role="option" class="mei-slide-transport__toc-item" data-action="goto" data-index="${index}" aria-selected="${selected}">${index + 1}. ${escapeHtml(title)}</button>`;
+        })
+        .join("");
+      toc.hidden = false;
+    } else {
+      toc.hidden = true;
+    }
+    const pageBtn = root.querySelector('[data-action="toc"]');
+    if (pageBtn instanceof HTMLElement) {
+      pageBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+  }
+
+  function escapeHtml(text) {
+    return String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function syncStageSurfaceOnce() {
+    if (typeof boot.stageSurface?.syncFromLocation !== "function") return;
+    try {
+      boot.stageSurface.syncFromLocation();
+    } catch (_) {}
+  }
+
+  function refresh(opts = {}) {
+    if (refreshing) return false;
+    refreshing = true;
+    try {
+      if (opts.syncSurface) syncStageSurfaceOnce();
+      const root = ensureRoot();
+      const pages = deckPages();
+      const count = pages.length;
+      const paged = isPagedSurface();
+      if (!paged || count < 1) {
+        if (!root.hidden) root.hidden = true;
+        closeToc();
+        return false;
+      }
+      if (opts.ensureVisibility && typeof boot.ensureDeckPageVisibility === "function") {
+        boot.ensureDeckPageVisibility();
+      }
+      const index = currentIndex(pages);
+      const label = root.querySelector('[data-role="label"]');
+      const nextLabel = `${index + 1} / ${count}`;
+      if (label && label.textContent !== nextLabel) label.textContent = nextLabel;
+      const prev = root.querySelector('[data-action="prev"]');
+      const next = root.querySelector('[data-action="next"]');
+      if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
+      if (next instanceof HTMLButtonElement) next.disabled = index >= count - 1;
+      const shouldHide = count < 2;
+      if (root.hidden !== shouldHide) root.hidden = shouldHide;
+      if (root.dataset.count !== String(count)) root.dataset.count = String(count);
+      if (root.dataset.index !== String(index)) root.dataset.index = String(index);
+      return true;
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  function scheduleRefresh(opts = {}) {
+    if (refreshQueued) return;
+    refreshQueued = true;
+    window.requestAnimationFrame(() => {
+      refreshQueued = false;
+      refresh(opts);
+    });
+  }
+
+  function onKeyDown(event) {
+    if (!isPagedSurface() || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    if (isEditableTarget(event.target)) return;
+    const pages = deckPages();
+    if (pages.length < 2) return;
+    const key = event.key;
+    if (key === "ArrowLeft" || key === "PageUp" || key === "Backspace") {
+      event.preventDefault();
+      goPrev();
+      scheduleRefresh();
+      return;
+    }
+    if (key === "ArrowRight" || key === "PageDown" || key === " ") {
+      event.preventDefault();
+      goNext();
+      scheduleRefresh();
+    }
+  }
+
+  function onDocumentClick(event) {
+    const root = document.getElementById(ROOT_ID);
+    const toc = tocEl();
+    if (!(toc instanceof HTMLElement) || toc.hidden) return;
+    if (root instanceof HTMLElement && event.target instanceof Node && root.contains(event.target)) {
+      return;
+    }
+    closeToc();
+  }
+
+  function install() {
+    if (boot.slideTransportMounted) return;
+    boot.slideTransportMounted = true;
+    ensureRoot();
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("click", onDocumentClick, true);
+    document.addEventListener("mei:slide-page-change", () => scheduleRefresh());
+    window.addEventListener("popstate", () => {
+      scheduleRefresh({ syncSurface: true, ensureVisibility: true });
+    });
+    // Only watch stage surface attrs on body — never compose subtree.
+    if (document.body) {
+      const observer = new MutationObserver(() => scheduleRefresh());
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-mei-stage-surface", "data-mei-stage-profile", "data-mei-stage-id"],
+      });
+    }
+    boot.slideTransport = {
+      refresh: () => refresh({ syncSurface: true, ensureVisibility: true }),
+      scheduleRefresh,
+      prev: goPrev,
+      next: goNext,
+      goto: goTo,
+    };
+    refresh({ syncSurface: true, ensureVisibility: true });
+    // Compose may arrive after boot; limited soft retries (no tight loop).
+    let tries = 0;
+    startupTimer = window.setInterval(() => {
+      tries += 1;
+      refresh({ syncSurface: tries === 1, ensureVisibility: true });
+      if (tries >= 12 || (isPagedSurface() && deckPages().length >= 2)) {
+        window.clearInterval(startupTimer);
+        startupTimer = 0;
+      }
+    }, 500);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+  } else {
+    install();
+  }
+})();
 
 
 /* ===== spa-navigation/presentation/presentation-slide-embed-runtime.js ===== */
@@ -30966,7 +31738,7 @@
 
   /** Host-level chrome pages that load distinct light/workspace bundles. */
   function isHostShellChromePath(pathname) {
-    return /^(?:\/home|\/config|\/upload|\/runtime|\/mcg)\/?$/.test(String(pathname || ""));
+    return /^(?:\/home|\/config|\/upload|\/runtime)\/?$/.test(String(pathname || ""));
   }
 
   function shouldForceFullPageNavigation(currentUrl, nextUrl) {

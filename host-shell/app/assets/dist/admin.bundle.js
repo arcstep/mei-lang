@@ -1644,9 +1644,11 @@
 
   function shellNavFromLocation() {
     const path = String(global.location?.pathname || "");
-    if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
+    if (path === "/runtime" || path.startsWith("/runtime/") || path.startsWith("/mcg")) {
+      return "runtime";
+    }
     if (path === "/home" || path === "/") return "home";
-    if (path.startsWith("/mcg")) return "mcg";
+    if (path === "/share" || path.startsWith("/share/")) return "share";
     return "";
   }
 

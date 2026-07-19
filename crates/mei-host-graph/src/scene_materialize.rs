@@ -119,7 +119,12 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
 }
 
 fn theme_digest_for_app(workspace_root: &Path, app_id: &str) -> String {
-    layout_policy_revision(workspace_root, app_id)
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let mei_config =
+        mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    // Theme tokens must invalidate when ops.themes (fonts / metric roles) change —
+    // not when layout policy alone changes.
+    mei_lang_kernel::ops_themes_revision_digest(&mei_config)
 }
 
 fn default_tab_for_route(route_mode: &str) -> &'static str {

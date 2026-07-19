@@ -156,7 +156,6 @@
       <div class="nav-group" role="group" aria-label="复位">
         <button type="button" data-nav="reset" title="复原视角" aria-label="复原视角">◎</button>
       </div>
-      <p class="nav-hint">左拖有限平移 · 右键旋转俯仰 · 滚轮缩放（按键职责固定；也可用上方按钮）</p>
     `;
     nav.addEventListener("click", (event) => {
       const btn = event.target?.closest?.("[data-nav]");

@@ -4,6 +4,10 @@
       "tag": "mei-admin-form-card",
       "script": "runtime.js"
     },
+    "admin.grouped-form": {
+      "tag": "mei-admin-grouped-form",
+      "script": "runtime.js"
+    },
     "admin.data-grid": {
       "tag": "mei-admin-data-grid",
       "script": "runtime.js"

@@ -79,15 +79,19 @@ pub fn warm_manifest_index_for_scope(
         encoding: Some("json".to_string()),
     };
 
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let mei_config =
+        mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let theme_rev = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
     let (theme_doc, _) = crate::layer_overlay::ensure_theme_tokens_cached(
         workspace_root,
         app_id,
-        layout_rev.as_str(),
+        theme_rev.as_str(),
     )?;
-    let theme_key = crate::view_artifact::theme_tokens_cache_key(layout_rev.as_str());
+    let theme_key = crate::view_artifact::theme_tokens_cache_key(theme_rev.as_str());
     let theme_doc_value = json!({
         "artifact_id": theme_key,
-        "content_hash": format!("theme:{}", layout_rev),
+        "content_hash": format!("theme:{}", theme_rev),
         "document": theme_doc,
     });
 

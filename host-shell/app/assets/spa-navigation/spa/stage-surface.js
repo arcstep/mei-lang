@@ -36,6 +36,34 @@
     ).trim() || "home";
   }
 
+  function readPresentationDeck() {
+    const mei = window.__mei || {};
+    const map = mei.presentation_map;
+    if (!map || typeof map !== "object") return null;
+    const deck = map.deck || map.presentation_deck;
+    if (!deck || typeof deck !== "object") return null;
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    return {
+      stageKind: String(deck.stageKind || deck.stage_kind || "").trim(),
+      slides,
+    };
+  }
+
+  function looksLikeSlidesStage(stageId) {
+    const deck = readPresentationDeck();
+    if (deck && deck.slides.length > 0) {
+      const kind = deck.stageKind.toLowerCase();
+      if (!kind || kind === "presentation" || kind === "slides") return true;
+    }
+    const slideNodes = document.querySelectorAll('[data-mei-ui-role="slide"]');
+    if (slideNodes.length >= 2) return true;
+    const id = String(stageId || "").trim();
+    if (id && document.querySelector(`[data-mei-ui-role="slide"][data-mei-panel-name="${CSS.escape(id)}"]`)) {
+      return true;
+    }
+    return false;
+  }
+
   function resolveStageMeta(stageId) {
     const id = String(stageId || parseStageIdFromPath()).trim();
     const fromReg = readRegistryStages().find(
@@ -93,6 +121,10 @@
         profile: "cockpit",
         surface: "viewport",
       };
+    }
+    // Client bootstrap may omit stage_registry; infer slides from presentation_map / DOM.
+    if (looksLikeSlidesStage(id)) {
+      return { stageId: id, profile: "slides", surface: "paged" };
     }
     return { stageId: id, profile: "cockpit", surface: "viewport" };
   }

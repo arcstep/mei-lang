@@ -37,7 +37,8 @@ fn resolve_scope_app_id<'a>(
 
 fn workspace_shell_nav_for_route(route_path: &str) -> WorkspaceShellNav {
     match route_path {
-        "/runtime" => WorkspaceShellNav::Runtime,
+        "/runtime" | "/mcg" => WorkspaceShellNav::Runtime,
+        "/share" => WorkspaceShellNav::Share,
         _ => WorkspaceShellNav::Home,
     }
 }

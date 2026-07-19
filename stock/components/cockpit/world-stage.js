@@ -2,6 +2,8 @@ import { escapeHtml, parseProps, resolveWorldRef } from "./shared.js";
 import {
   ensureWorldStageInputPlane,
   layoutWorldStageInputPlane,
+  mountCockpitFloatingControl,
+  positionFocusInsetTopRight,
   resolveCockpitMapToolHost,
   setWorldStageInputPlaneActive,
 } from "./cockpit-stage-overlay.js";
@@ -1014,6 +1016,7 @@ class MeiWorldStage extends HTMLElement {
       }
       this._unbindEntityPick = this.bindEntityPicking(surface);
       surface.focus({ preventScroll: true });
+      this.syncFloatingLayerControl();
       return;
     }
     const canvas = this._renderer?.domElement;
@@ -1021,10 +1024,12 @@ class MeiWorldStage extends HTMLElement {
       this.connectControlsToDom(canvas);
       canvas.focus({ preventScroll: true });
     }
+    this.syncFloatingLayerControl();
   }
 
   deactivateInteractionSurface() {
     setWorldStageInputPlaneActive(false);
+    this.detachFloatingLayerControl();
     const canvas = this._renderer?.domElement;
     if (canvas instanceof HTMLElement && this._controls) {
       this.connectControlsToDom(canvas);
@@ -1969,6 +1974,7 @@ class MeiWorldStage extends HTMLElement {
     if (!this._viewLayers.length) {
       panel.hidden = true;
       list.innerHTML = "";
+      this.detachFloatingLayerControl();
       return;
     }
     panel.hidden = false;
@@ -1987,6 +1993,59 @@ class MeiWorldStage extends HTMLElement {
         this.applyViewLayerVisibility();
       });
     });
+    this.syncFloatingLayerControl();
+  }
+
+  detachFloatingLayerControl() {
+    const floating = this._floatingLayerControl;
+    if (floating instanceof HTMLElement) {
+      floating.remove();
+    }
+    this._floatingLayerControl = null;
+    const panel = this.shadowRoot?.querySelector('[data-role="layer-control"]');
+    if (panel instanceof HTMLElement) {
+      panel.hidden = !this._viewLayers?.length;
+    }
+  }
+
+  syncFloatingLayerControl() {
+    if (!isWorldStageActive() || !this._viewLayers?.length) {
+      this.detachFloatingLayerControl();
+      return;
+    }
+    const source = this.shadowRoot?.querySelector('[data-role="layer-control"]');
+    if (!(source instanceof HTMLElement)) return;
+    // 源面板留在 shadow 内会落在 T0 全幅右上角，被 T1 rail 挡住；浮到 map-tools 平面对齐观察窗。
+    source.hidden = true;
+    let floating = this._floatingLayerControl;
+    if (!(floating instanceof HTMLElement)) {
+      floating = document.createElement("div");
+      floating.className = "mei-cockpit-floating-layer-control mei-world-stage-layer-control";
+      floating.setAttribute("data-role", "world-stage-layer-control");
+      this._floatingLayerControl = floating;
+    }
+    floating.innerHTML = `
+      <h4>视口图层</h4>
+      <div data-role="layer-list">${source.querySelector('[data-role="layer-list"]')?.innerHTML || ""}</div>
+    `;
+    floating.querySelectorAll("input[data-layer-id]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const layerId = String(input.getAttribute("data-layer-id") || "");
+        this._viewLayerVisibility.set(layerId, input.checked);
+        this.applyViewLayerVisibility();
+      });
+    });
+    mountCockpitFloatingControl(floating, this);
+    const mapHost = resolveCockpitMapToolHost();
+    const focus = mapHost?._layout?.focusInsetPx || {
+      top: 84,
+      left: 360,
+      right: 480,
+      bottom: 16,
+    };
+    // 观察窗右上、略偏左，避免与缩放工具条重叠。
+    positionFocusInsetTopRight(floating, mapHost || this, focus, 10);
+    floating.style.right = `${Math.round((Number(focus.right) || 0) + 56)}px`;
   }
 
   applyViewLayerPreset(layerIds) {

@@ -8,7 +8,9 @@ use std::path::Path;
 
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
-use crate::ui::view_routing::{app_scene_href, cross_app_href, home_href, host_runtime_href};
+use crate::ui::view_routing::{
+    app_scene_href, cross_app_href, home_href, host_runtime_href, host_share_href,
+};
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
 use crate::ui::topbar::menus::{DEFAULT_BRAND_LOGO_HREF, DEFAULT_BRAND_TITLE};
@@ -17,7 +19,7 @@ use crate::ui::topbar::menus::{DEFAULT_BRAND_LOGO_HREF, DEFAULT_BRAND_TITLE};
 pub(crate) enum ShellNavActive {
     Home,
     Runtime,
-    Mcg,
+    Share,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +66,16 @@ fn show_app_center(auth_enabled: bool, auth_account: Option<&HostAccountView>) -
     };
     // 应用中心：admin + super（config_upload）；与 /runtime 路由鉴权对齐
     account.capabilities.config_upload
+}
+
+fn show_workspace_share(auth_enabled: bool, auth_account: Option<&HostAccountView>) -> bool {
+    if !auth_enabled {
+        return true;
+    }
+    let Some(account) = auth_account.filter(|item| item.logged_in) else {
+        return false;
+    };
+    account.capabilities.workspace_share_view
 }
 
 fn show_app_admin(
@@ -791,17 +803,39 @@ fn shell_nav_view(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
 ) -> AnyView {
-    if !show_app_center(auth_enabled, auth_account) {
+    let show_share = show_workspace_share(auth_enabled, auth_account);
+    let show_runtime = show_app_center(auth_enabled, auth_account);
+    if !show_share && !show_runtime {
         return view! { <></> }.into_any();
     }
-    let class = if active == Some(ShellNavActive::Runtime) {
+    let share_class = if active == Some(ShellNavActive::Share) {
+        "shell-nav-link is-active"
+    } else {
+        "shell-nav-link"
+    };
+    let runtime_class = if active == Some(ShellNavActive::Runtime) {
         "shell-nav-link is-active"
     } else {
         "shell-nav-link"
     };
     view! {
         <div class="shell-nav inline-flex shrink-0 items-center gap-1" aria-label="系统">
-            <a class=class href=host_runtime_href(None, None, None)>"应用中心"</a>
+            {if show_share {
+                view! {
+                    <a class=share_class href=host_share_href()>"资料交换"</a>
+                }
+                .into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
+            {if show_runtime {
+                view! {
+                    <a class=runtime_class href=host_runtime_href(None, None, None)>"应用中心"</a>
+                }
+                .into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
         </div>
     }
     .into_any()

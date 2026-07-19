@@ -15,24 +15,18 @@ use mei_lang_kernel::WorkspaceAppMeta;
 use std::path::Path;
 
 fn runtime_hub_host_tools_html() -> String {
-    let mcg_href = mei_lang_app::mcg_href(None);
-    format!(
-        r#"<nav class="mei-runtime-control__host-tools" aria-label="系统工具">
-    <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="{mcg_href}">MCG</a>
-  </nav>"#
-    )
+    String::new()
 }
 
 fn runtime_hub_control_html() -> String {
     r#"<div class="mei-runtime-control" data-host-runtime-control-center>
   <div class="mei-runtime-control__toolbar">
     <p class="mei-runtime-control__live" data-runtime-live role="status" aria-live="polite">正在载入应用…</p>
-    <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-refresh-instances>刷新</button>
   </div>
   <div class="mei-runtime-control__global-ops" data-runtime-global-ops hidden></div>
   <section class="mei-runtime-control__zone mei-runtime-control__zone--apps" aria-label="应用">
-    <div data-runtime-app-grid class="mei-runtime-control__app-grid">
-      <p class="mei-host-shell__message">正在读取应用与 launch 配置…</p>
+    <div data-runtime-app-grid class="mei-runtime-control__explorer">
+      <p class="mei-host-shell__message">正在读取应用与运行配置…</p>
     </div>
   </section>
   <div class="mei-runtime-cleanup-modal" data-runtime-cleanup-modal hidden></div>
@@ -118,8 +112,6 @@ mod tests {
             "data-runtime-global-ops",
             "data-runtime-live",
             "data-runtime-cleanup-modal",
-            "data-runtime-refresh-instances",
-            "mei-runtime-control__host-tools",
         ] {
             assert!(html.contains(mount), "missing runtime hub mount: {mount}");
         }
@@ -128,7 +120,9 @@ mod tests {
         assert!(html.contains(r#"data-mei-pagepack-digest="sha256:"#));
         assert!(!html.contains("href=\"/config\""));
         assert!(!html.contains("href=\"/upload\""));
-        assert!(html.contains("href=\"/mcg\""));
+        assert!(!html.contains("href=\"/mcg\""));
+        assert!(!html.contains("data-runtime-refresh-instances"));
+        assert!(!html.contains("mei-runtime-control__host-tools"));
         assert!(!html.contains("data-runtime-page-status"));
         assert!(!html.contains("运行控制中心"));
         assert!(!html.contains("工具链"));

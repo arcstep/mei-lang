@@ -46,10 +46,6 @@ pub async fn workspace_share_page(
     .unwrap_or_else(|_| "{}".to_string());
     let share_explorer = format!(
         r#"<section class="mei-workspace-share-page">
-  <header>
-    <h1>资料交换</h1>
-    <p>工作区成员共享的文件交换区。文件是资源，文件夹是分类；与业务应用的 <code>upload/admin</code> 数据源文件隔离。</p>
-  </header>
   <mei-workspace-share data-props="{}"></mei-workspace-share>
 </section>
 <script type="module" src="/workspace-components/admin/runtime.js" data-mei-persistent-script="/workspace-components/admin/runtime.js"></script>"#,
@@ -66,7 +62,7 @@ pub async fn workspace_share_page(
         workspace_root.as_path(),
         running_apps.as_slice(),
         &topbar_menu,
-        WorkspaceShellNav::Home,
+        WorkspaceShellNav::Share,
         "资料交换",
         body.as_str(),
         auth.auth_enforcement == AuthEnforcement::Required,

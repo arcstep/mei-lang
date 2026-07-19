@@ -624,6 +624,17 @@
       String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
     );
     document.documentElement.setAttribute("data-mei-active-deck-page-index", String(targetIndex));
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:slide-page-change", {
+          detail: {
+            index: targetIndex,
+            count: pages.length,
+            pageId: String(pages[targetIndex].getAttribute("data-mei-panel-name") || ""),
+          },
+        }),
+      );
+    } catch (_) {}
     return true;
   }
 

@@ -48,6 +48,17 @@ pub fn theme_tokens_document_from_theme(theme: &Value) -> ThemeTokensDocument {
             }
         }
     }
+    for role in ["label", "value", "unit", "desc"] {
+        push_metric_role_font_var(theme, &format!("metric_{role}"), &format!("metric-{role}"), &mut colors);
+    }
+    for role in ["label", "value", "unit"] {
+        push_metric_role_font_var(
+            theme,
+            &format!("metric_sub_{role}"),
+            &format!("metric-sub-{role}"),
+            &mut colors,
+        );
+    }
     if let Some(token_colors) = theme
         .get("tokens")
         .and_then(|v| v.get("color"))
@@ -77,6 +88,34 @@ pub fn theme_tokens_document_from_theme(theme: &Value) -> ThemeTokensDocument {
         colors: Value::Object(colors),
         fonts: Value::Object(fonts),
     }
+}
+
+fn push_metric_role_font_var(
+    theme: &Value,
+    theme_key: &str,
+    css_prefix: &str,
+    colors: &mut Map<String, Value>,
+) {
+    let Some(entry) = theme.get(theme_key) else {
+        return;
+    };
+    let Some(raw) = entry.get("font").and_then(Value::as_str).map(str::trim) else {
+        return;
+    };
+    if raw.is_empty() {
+        return;
+    }
+    let resolved = if raw.chars().all(|c| c.is_ascii_digit()) {
+        format!("var(--mei-font-{raw})")
+    } else if raw.starts_with("var(") || raw.ends_with("px") || raw.ends_with("rem") {
+        raw.to_string()
+    } else {
+        format!("var(--mei-font-{raw})")
+    };
+    colors.insert(
+        format!("{css_prefix}-font-size"),
+        Value::String(resolved),
+    );
 }
 
 pub fn layout_overlay_from_draft(draft: Option<&Value>) -> LayoutOverlayDocument {
@@ -181,11 +220,44 @@ pub fn ensure_layout_overlay_cached(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn session_overlay_key_differs_from_persisted() {
         let persisted = layout_overlay_persisted_cache_key("layout0");
         let session = layout_overlay_session_cache_key("demo", "sess-1", "digest-a");
         assert_ne!(persisted, session);
+    }
+
+    #[test]
+    fn theme_tokens_include_metric_role_font_vars() {
+        let theme = json!({
+            "font": { "3": "26px", "6": "40px", "7": "48px" },
+            "metric_value": { "font": "6" },
+            "metric_label": { "font": "7" },
+            "metric_unit": { "font": "1" },
+            "metric_sub_value": { "font": "7" },
+        });
+        let doc = theme_tokens_document_from_theme(&theme);
+        let colors = doc.colors.as_object().expect("colors object");
+        assert_eq!(
+            colors.get("metric-value-font-size").and_then(|v| v.as_str()),
+            Some("var(--mei-font-6)")
+        );
+        assert_eq!(
+            colors.get("metric-label-font-size").and_then(|v| v.as_str()),
+            Some("var(--mei-font-7)")
+        );
+        assert_eq!(
+            colors.get("metric-sub-value-font-size").and_then(|v| v.as_str()),
+            Some("var(--mei-font-7)")
+        );
+        assert_eq!(
+            doc.fonts
+                .as_object()
+                .and_then(|m| m.get("6"))
+                .and_then(|v| v.as_str()),
+            Some("40px")
+        );
     }
 }

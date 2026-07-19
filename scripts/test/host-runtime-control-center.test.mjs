@@ -52,7 +52,7 @@ assert(source.includes("appId="), "cleanup preview must scope by appId");
 assert(source.includes('phase === "ready"'), "enter link only when app runtime is ready");
 assert(
   source.includes("mei-runtime-control__enter"),
-  "running cards still expose enter when ready",
+  "running detail still exposes enter when ready",
 );
 assert(source.includes("renderCleanupModal"), "cleanup must use temporary modal");
 assert(source.includes("closeCleanupModal"), "cleanup modal must be closable without grid rerender");
@@ -77,8 +77,19 @@ assert(!source.includes("恢复默认"), "must not show 恢复默认 button labe
 assert(!source.includes("恢复 Git"), "must not show 恢复 Git button label");
 assert(!source.includes("data-runtime-launch-select"), "multi-launch select must be removed");
 assert(!source.includes("运行策略"), "must not repeat launch strategy blurb on every card");
-assert(source.includes("跟随 launch.json"), "mode select must allow follow launch.json default");
+assert(!source.includes("跟随 launch.json"), "must not offer follow launch.json option");
+assert(!source.includes("跟随 app.toml"), "must not offer follow app.toml option");
+assert(source.includes('value="${mode}"'), "mode select must list hot/lazy/frozen only");
+assert(source.includes("data-runtime-select-app"), "hub must select apps from left nav cards");
+assert(source.includes("mei-runtime-control__explorer"), "hub must use explorer master-detail layout");
+assert(source.includes("data-runtime-search"), "hub must expose search");
+assert(source.includes('data-runtime-view="card"'), "hub must expose card/list view toggle");
+assert(source.includes("function selectApp"), "selection must use selectApp without full left rebuild");
+assert(source.includes("function paintSelection"), "selection must paint left selection only");
+assert(source.includes("function paintDetail"), "selection must paint detail only");
 assert(source.includes("startBodyForApp"), "start/reload must read selected mode");
+assert(!source.includes("followGit: true"), "UI must always send explicit mode");
+assert(!source.includes("launch.json"), "product copy must not mention launch.json");
 
 const sandbox = {
   console,

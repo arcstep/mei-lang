@@ -44,6 +44,7 @@
   "spa-navigation/drilldown/storage.js",
   "spa-navigation/drilldown/projection-host.js",
   "spa-navigation/presentation/focus-controller.js",
+  "spa-navigation/presentation/slide-transport.js",
   "spa-navigation/presentation/presentation-slide-embed-runtime.js",
   "spa-navigation/presentation/presentation-step-engine.js",
   "spa-navigation/presentation/presentation-tts.js",

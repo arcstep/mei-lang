@@ -5,11 +5,13 @@ pub fn home_href() -> &'static str {
     "/home"
 }
 
-pub fn mcg_href(app_path: Option<&str>) -> String {
-    match app_path.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(app) => format!("/mcg?app={}", encode_query_value(app)),
-        None => "/mcg".to_string(),
-    }
+pub fn host_share_href() -> &'static str {
+    "/share"
+}
+
+/// Legacy helper: MCG page redirected to 应用中心.
+pub fn mcg_href(_app_path: Option<&str>) -> String {
+    "/runtime".to_string()
 }
 
 /// Access 规范路径：`/apps/{app}/{stage}`（与顶栏舞台菜单一致）。
