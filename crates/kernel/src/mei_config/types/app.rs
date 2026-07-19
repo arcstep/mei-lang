@@ -380,6 +380,9 @@ pub struct OpsConfig {
     /// opt out explicitly with `ops.fillDown = false`.
     #[serde(default = "default_fill_down", rename = "fillDown")]
     pub fill_down: bool,
+    /// App-defined Admin/config namespaces such as `ops.organization`.
+    #[serde(default, flatten)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
 impl Default for OpsConfig {
@@ -391,6 +394,7 @@ impl Default for OpsConfig {
             params: BTreeMap::new(),
             strict_fill_down: true,
             fill_down: true,
+            extensions: BTreeMap::new(),
         }
     }
 }

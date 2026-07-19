@@ -15,6 +15,7 @@ pub fn admin_shell(
     resource_id: &str,
     module_id: &str,
     resource_title: Option<&str>,
+    visible_body_html: Option<&str>,
     topbar_menu: Option<&TopbarMenuContext>,
     admin_nav_items: &[AdminNavItem],
     admin_active_id: Option<&str>,
@@ -51,6 +52,10 @@ pub fn admin_shell(
     );
     let title = resource_title.unwrap_or(resource_id);
     let crumb = format!("{app_title} / {title}");
+    let visible_body = visible_body_html
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let statusbar = statusbar_view(app_path, UiRouteMode::Admin.slug(), title, None);
 
     view! {
@@ -75,10 +80,19 @@ pub fn admin_shell(
                     <strong class="mei-text-inverse">{crumb}</strong>
                     <a class="mei-text-link ml-auto" href=app_access_href(app_path)>"返回应用"</a>
                 </div>
+                {visible_body.map(|html| {
+                    view! {
+                        <article
+                            class="mei-admin-entry-copy shrink-0 px-6 pb-4 mei-text-body"
+                            inner_html=html
+                        ></article>
+                    }
+                })}
                 <div
                     id="mei-compose-root"
                     class="preview-pane-scroll min-h-0 flex-1 overflow-hidden"
                     data-mei-compose-root="admin"
+                    data-mei-compose-placeholder="1"
                     data-route-mode="admin"
                     data-app-id=app_path.to_string()
                     data-scene-id=scene_id.to_string()

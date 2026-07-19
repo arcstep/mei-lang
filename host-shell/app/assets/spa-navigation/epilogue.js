@@ -1,10 +1,18 @@
 // @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
-  bootstrapInitialLoadProgress();
+  if (typeof bootstrapInitialLoadProgress === "function") {
+    bootstrapInitialLoadProgress();
+  } else if (typeof boot.bootstrapInitialLoadProgress === "function") {
+    boot.bootstrapInitialLoadProgress();
+  }
   if (typeof boot.installClientCommandWrappers === "function") {
     boot.installClientCommandWrappers();
   }
-  tagExistingBodyScripts();
-  installSceneProjectionHost();
+  if (typeof tagExistingBodyScripts === "function") {
+    tagExistingBodyScripts();
+  }
+  if (typeof installSceneProjectionHost === "function") {
+    installSceneProjectionHost();
+  }
   if (typeof boot.watchTopbarChromeInjection === "function") {
     boot.watchTopbarChromeInjection();
   }
@@ -20,8 +28,12 @@
         boot.reportDrilldownContextError?.(error, {}, "initial_drilldown_context_load");
       }
     }
-    applyDrilldownContextFromQuery();
-    applySceneProjectionContextFromStorage();
+    if (typeof applyDrilldownContextFromQuery === "function") {
+      applyDrilldownContextFromQuery();
+    }
+    if (typeof applySceneProjectionContextFromStorage === "function") {
+      applySceneProjectionContextFromStorage();
+    }
     if (typeof boot.hostCapabilitiesReady === "function") {
       try {
         await boot.hostCapabilitiesReady({ timeoutMs: 5000 });
@@ -142,42 +154,51 @@
     }
   })();
 
-  document.addEventListener(
-    "click",
-    async (event) => {
-      if (typeof shouldDeferBuildTreeClick === "function" && shouldDeferBuildTreeClick(event)) {
-        return;
-      }
-      if (event.defaultPrevented) return;
-      if (event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (shouldBypassSpaClick(event)) {
-        if (shouldAbortRuntimeForBypassNavigation(event)) {
-          requestRuntimeAbort("full_navigation_bypass");
+  if (typeof navigateInternal === "function" && typeof shouldHandleUrl === "function") {
+    document.addEventListener(
+      "click",
+      async (event) => {
+        if (typeof shouldDeferBuildTreeClick === "function" && shouldDeferBuildTreeClick(event)) {
+          return;
         }
-        return;
-      }
-      const target = resolveClickTarget(event);
-      if (!target) return;
-      if (target.download) return;
-      if (target.target && target.target !== "_self") return;
-      if (!shouldHandleUrl(target.url)) return;
-      if (isSameLocation(target.url)) {
+        if (event.defaultPrevented) return;
+        if (event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (typeof shouldBypassSpaClick === "function" && shouldBypassSpaClick(event)) {
+          if (
+            typeof shouldAbortRuntimeForBypassNavigation === "function" &&
+            shouldAbortRuntimeForBypassNavigation(event) &&
+            typeof requestRuntimeAbort === "function"
+          ) {
+            requestRuntimeAbort("full_navigation_bypass");
+          }
+          return;
+        }
+        const target =
+          typeof resolveClickTarget === "function" ? resolveClickTarget(event) : null;
+        if (!target) return;
+        if (target.download) return;
+        if (target.target && target.target !== "_self") return;
+        if (!shouldHandleUrl(target.url)) return;
+        if (typeof isSameLocation === "function" && isSameLocation(target.url)) {
+          event.preventDefault();
+          return;
+        }
         event.preventDefault();
-        return;
-      }
-      event.preventDefault();
-      void navigateInternal(target.url, false);
-    },
-    true,
-  );
+        void navigateInternal(target.url, false);
+      },
+      true,
+    );
 
-  window.addEventListener("popstate", () => {
-    closeDrilldownOverlay();
-    if (shouldHandleUrl(window.location.href)) {
-      void navigateInternal(window.location.href, true);
-    }
-  });
+    window.addEventListener("popstate", () => {
+      if (typeof closeDrilldownOverlay === "function") {
+        closeDrilldownOverlay();
+      }
+      if (shouldHandleUrl(window.location.href)) {
+        void navigateInternal(window.location.href, true);
+      }
+    });
+  }
 
   if (typeof globalThis.__meiBuildCopyContextInit === "function") {
     globalThis.__meiBuildCopyContextInit();

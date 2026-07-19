@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::admin_registry::{AdminApplyPolicy, AdminDangerLevel, ProviderBinding};
-use super::io::{write_mei_config, write_string_atomically};
-use super::workspace_paths::app_mei_config_path;
-use super::MeiConfig;
+use super::app_manifest::{load_app_manifest, write_app_toml};
+use super::io::write_string_atomically;
 
 pub const ADMIN_AUDIT_REL_PATH: &str = "var/admin/audit.jsonl";
 
@@ -197,7 +196,7 @@ pub fn put_config_record(
 }
 
 fn read_ops_target(app_root: &Path, target: &str) -> Result<Value, AdminRecordError> {
-    let config = MeiConfig::load_or_default(&app_mei_config_path(app_root));
+    let config = load_app_manifest(app_root).to_mei_config();
     let value = serde_json::to_value(config.ops)
         .map_err(|error| AdminRecordError::Parse(error.to_string()))?;
     let segments = ops_target_segments(target)?;
@@ -209,9 +208,8 @@ fn read_ops_target(app_root: &Path, target: &str) -> Result<Value, AdminRecordEr
 }
 
 fn write_ops_target(app_root: &Path, target: &str, payload: Value) -> Result<(), AdminRecordError> {
-    let config_path = app_mei_config_path(app_root);
-    let mut config = MeiConfig::load_or_default(&config_path);
-    let mut ops = serde_json::to_value(&config.ops)
+    let mut manifest = load_app_manifest(app_root);
+    let mut ops = serde_json::to_value(&manifest.mei.ops)
         .map_err(|error| AdminRecordError::Parse(error.to_string()))?;
     let segments = ops_target_segments(target)?;
     let mut current = &mut ops;
@@ -228,9 +226,9 @@ fn write_ops_target(app_root: &Path, target: &str, payload: Value) -> Result<(),
         AdminRecordError::Validation(format!("ops target `{target}` parent is not an object"))
     })?;
     object.insert((*leaf).to_string(), payload);
-    config.ops = serde_json::from_value(ops)
+    manifest.mei.ops = serde_json::from_value(ops)
         .map_err(|error| AdminRecordError::Validation(error.to_string()))?;
-    write_mei_config(&config_path, &config).map_err(|error| AdminRecordError::Io(error.to_string()))
+    write_app_toml(app_root, &manifest).map_err(AdminRecordError::Io)
 }
 
 fn ops_target_segments(target: &str) -> Result<Vec<&str>, AdminRecordError> {
@@ -342,7 +340,30 @@ mod tests {
             .path()
             .join("env/current/var/admin/records/config-record")
             .is_dir());
-        assert!(app_mei_config_path(root.path()).is_file());
+        assert!(root.path().join("app.toml").is_file());
         assert!(!root.path().join("var/admin").exists());
+    }
+
+    #[test]
+    fn config_record_preserves_app_defined_ops_namespace() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("env/current/var")).unwrap();
+        fs::write(
+            root.path().join("app.toml"),
+            r#"
+schema_version = "mei-app-v1"
+app_id = "demo"
+
+[ops.organization]
+name = "Mini Data"
+contact = "Operator"
+"#,
+        )
+        .unwrap();
+        let mut binding = binding();
+        binding.target = "ops.organization".to_string();
+        let record = get_config_record(root.path(), &binding).unwrap();
+        assert_eq!(record.data["name"], "Mini Data");
+        assert_eq!(record.data["contact"], "Operator");
     }
 }

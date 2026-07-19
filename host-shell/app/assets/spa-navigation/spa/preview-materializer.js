@@ -74,6 +74,25 @@
     };
   }
 
+  function isDocumentComposeSurface(root, structureDoc) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (root.classList.contains("mei-compose-document-host")) return true;
+    const surface = String(
+      root.getAttribute("data-mei-compose-root") ||
+        root.getAttribute("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (surface === "admin" || surface === "config" || surface === "upload") {
+      return true;
+    }
+    const routeMode = String(resolveSceneViewportMeta(structureDoc).route_mode || "")
+      .trim()
+      .toLowerCase();
+    return routeMode === "page" || routeMode === "report" || routeMode === "document";
+  }
+
   function applyFrameViewportMeta(el, meta, docLevel) {
     const vp = resolveSceneViewportMeta({ frame_viewport: meta || docLevel });
     if (!(el instanceof HTMLElement)) return;
@@ -2108,10 +2127,11 @@
         target = cardHost;
       }
     } else if (!isMetricCardHost) {
-      target =
-        host.querySelector("[data-mei-use-key]") ||
-        host.firstElementChild ||
-        host;
+      const hostIsComponent =
+        host.hasAttribute("data-mei-use-key") || host.tagName.toLowerCase().includes("-");
+      target = hostIsComponent
+        ? host
+        : host.querySelector("[data-mei-use-key]") || host.firstElementChild || host;
     }
     if (!(target instanceof HTMLElement)) return;
     const attributeMatches = target.getAttribute("data-props") === serialized;
@@ -2143,7 +2163,7 @@
         // expose render() without observing data-props. Keep their instance
         // state in sync when eval layers settle after the structure mount.
         target.props = props || {};
-        target.render();
+        target.render(props || {});
       } catch (_) {}
     }
   }
@@ -2669,6 +2689,20 @@
     const vpMeta = resolveSceneViewportMeta(structureDoc);
     if (!(tree instanceof HTMLElement) || !(root instanceof HTMLElement)) return false;
 
+    if (isDocumentComposeSurface(root, structureDoc)) {
+      const viewport = root.querySelector(":scope > [data-mei-compose-scene-viewport]");
+      if (tree.parentElement !== root) root.appendChild(tree);
+      if (viewport instanceof HTMLElement) viewport.remove();
+      root.classList.remove("frame-stage-enabled", "mei-compose-frame-host", "overflow-hidden");
+      root.classList.add("overflow-auto", "mei-compose-document-host");
+      tree.style.width = "100%";
+      tree.style.height = "auto";
+      tree.style.minWidth = "0";
+      tree.style.minHeight = "100%";
+      tree.style.position = "relative";
+      return true;
+    }
+
     ensureComposeFrameHost(root);
 
     let viewport = root.querySelector(":scope > [data-mei-compose-scene-viewport]");
@@ -2703,6 +2737,35 @@
 
     pinSceneRootToDesignViewport(tree, vpMeta);
     return true;
+  }
+
+  function normalizeDocumentComposeLayout(root) {
+    if (!(root instanceof HTMLElement) || !isDocumentComposeSurface(root, null)) return;
+    root.classList.remove("frame-stage-enabled", "mei-compose-frame-host", "overflow-hidden");
+    root.classList.add("overflow-auto", "mei-compose-document-host");
+    const tree = root.querySelector(":scope > .mei-structure-tree");
+    if (!(tree instanceof HTMLElement)) return;
+    tree.style.width = "100%";
+    tree.style.height = "auto";
+    tree.style.minHeight = "100%";
+    tree.style.position = "relative";
+    tree
+      .querySelectorAll(
+        '[data-mei-ui-role="scene"], [data-mei-ui-role="plane"], [data-mei-ui-role="region"], [data-mei-ui-role="section"], [data-mei-ui-role="slot"], [data-mei-ui-role="content"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        node.style.position = "relative";
+        node.style.inset = "auto";
+        node.style.width = "100%";
+        node.style.height = "auto";
+        node.style.minWidth = "0";
+        node.style.minHeight = "0";
+        node.style.pointerEvents = "auto";
+        if (node.getAttribute("data-mei-ui-role") === "plane") {
+          node.style.zIndex = "auto";
+        }
+      });
   }
 
   function scopeEndsWith(scope, suffix) {
@@ -4141,6 +4204,7 @@
         digest: composeRevisionDigest(composeAxes),
       });
     }
+    normalizeDocumentComposeLayout(root);
     root.setAttribute("data-mei-compose-materialized", "1");
     root.removeAttribute("data-mei-compose-placeholder");
     root.removeAttribute("aria-busy");
@@ -4232,6 +4296,7 @@
       });
     }
 
+    normalizeDocumentComposeLayout(root);
     root.setAttribute("data-mei-compose-materialized", "1");
     notifyPreviewComposed(root);
     return true;

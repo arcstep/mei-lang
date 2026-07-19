@@ -297,8 +297,39 @@
     return isWorkspaceSurfaceRoute(pathname);
   }
 
+  function isAdminRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return (
+      segments[0] === "admin" &&
+      segments[1] === "apps" &&
+      segments.length >= 4 &&
+      Boolean(String(segments[2] || "").trim())
+    );
+  }
+
+  function appIdFromAdminPathname(pathname = global.location?.pathname) {
+    if (!isAdminRoute(pathname)) return "";
+    return String(pathSegments(pathname)[2] || "").trim();
+  }
+
+  function adminSceneIdFromDom() {
+    const host = global.document?.getElementById?.("mei-view-host");
+    if (host instanceof HTMLElement) {
+      const fromHost = String(host.getAttribute("data-scene-id") || "").trim();
+      if (fromHost) return fromHost;
+    }
+    const compose = global.document?.getElementById?.("mei-compose-root");
+    if (compose instanceof HTMLElement) {
+      const fromCompose = String(compose.getAttribute("data-scene-id") || "").trim();
+      if (fromCompose) return fromCompose;
+    }
+    return "";
+  }
+
   function appIdFromAppsPathname(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
+    const adminAppId = appIdFromAdminPathname(pathname);
+    if (adminAppId) return adminAppId;
     if (segments[0] !== "apps" || segments.length < 2) {
       return "";
     }
@@ -333,6 +364,10 @@
   }
 
   function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isAdminRoute(pathname)) {
+      const fromDom = adminSceneIdFromDom();
+      if (fromDom) return fromDom;
+    }
     if (isTempStageRoute(pathname)) {
       const target = tempStageTargetFromPathname(pathname);
       if (target && !/^node\//i.test(target)) {
@@ -377,6 +412,7 @@
 
   function isRevisionFirstShellPage(pathname = global.location?.pathname) {
     if (globalThis.__mei?.thin_shell === true) return true;
+    if (isAdminRoute(pathname)) return true;
     if (isAccessStageRoute(pathname)) return true;
     if (isUnifiedViewRoute(pathname)) return true;
     if (isAppWorkspaceSurfaceRoute(pathname)) return true;
@@ -470,6 +506,8 @@
     isStandaloneViewRoute,
     isAccessRoute,
     isManageRoute,
+    isAdminRoute,
+    appIdFromAdminPathname,
     shouldMountDrilldownHost,
     isBoardLinkConfig,
     isPanelPopupConfig,
@@ -498,10 +536,13 @@
   global.isAccessRoute = isAccessRoute;
   global.isUnifiedViewRoute = isUnifiedViewRoute;
   global.isAccessStageRoute = isAccessStageRoute;
+  global.isAdminRoute = isAdminRoute;
+  global.appIdFromAdminPathname = appIdFromAdminPathname;
   global.isTempStageRoute = isTempStageRoute;
   global.tempStageTargetFromPathname = tempStageTargetFromPathname;
   global.canonicalTempStagePath = canonicalTempStagePath;
   global.sceneIdFromPathname = sceneIdFromPathname;
+  global.isRevisionFirstShellPage = isRevisionFirstShellPage;
   global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;

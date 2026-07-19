@@ -145,6 +145,9 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         resource_id,
         module_id,
         resource.as_ref().map(|r| r.registry_entry.title.as_str()),
+        resource
+            .as_ref()
+            .map(|r| r.page_program.visible_body.html.as_str()),
         Some(topbar_menu),
         &admin_nav,
         Some(active_id.as_str()),
@@ -159,6 +162,43 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         structure_digest,
     );
     html = fill_page_shell_placeholders(html, workspace_root);
+    if !scene_id.trim().is_empty() {
+        let compose = mei_host_graph::ComposeRequest {
+            route_mode: Some("admin".to_string()),
+            tab: Some("scene".to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: Some("live_full".to_string()),
+            data_mode: Some("eval".to_string()),
+            focus: None,
+            scope: None,
+            scope_target: None,
+        };
+        let chrome_host = crate::scene_manifest::SceneChromeHostContext {
+            apps: topbar_apps,
+            topbar_menu: Some(topbar_menu),
+            auth_enabled,
+            auth_account: account_view,
+            admin_nav_items: admin_nav.as_slice(),
+        };
+        html = crate::pages::inject_scene_manifest_refs_for_route(
+            html,
+            workspace_root,
+            app_id,
+            scene_id.as_str(),
+            mei_lang_app::UiRouteMode::Admin,
+            &compose,
+            "",
+            "",
+            Some(&chrome_host),
+        );
+        // Admin bricks are stock custom elements; materializer loads by script path.
+        let admin_bricks = r#"<script type="module" src="/workspace-components/admin/runtime.js" data-mei-persistent-script="/workspace-components/admin/runtime.js"></script>"#;
+        if let Some(pos) = html.find("</head>") {
+            html = format!("{}{}{}", &html[..pos], admin_bricks, &html[pos..]);
+        } else {
+            html = format!("{admin_bricks}{html}");
+        }
+    }
     html
 }
 

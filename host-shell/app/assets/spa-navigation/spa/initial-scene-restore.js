@@ -320,6 +320,28 @@
         ? boot.parseViewContext(window.location.href)
         : ctx;
     const resolved = outcome || { restored: false };
+    const composeRoot =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(freshCtx?.surface || freshCtx?.mode || "app")
+        : document.getElementById("mei-compose-root");
+    const hasPreview =
+      (typeof boot.hasMaterializedPreview === "function" &&
+        boot.hasMaterializedPreview(composeRoot)) ||
+      document.querySelectorAll("[data-preview-scope]").length > 0 ||
+      (composeRoot instanceof HTMLElement &&
+        composeRoot.getAttribute("data-mei-compose-materialized") === "1");
+
+    if (resolved.restored && hasPreview) {
+      if (typeof boot.hideThinShellFallback === "function") {
+        boot.hideThinShellFallback();
+      }
+      await wakeRevisionFirstShellRuntime(freshCtx || ctx, {
+        ssrPreview: resolved.source === "ssr_preview",
+        warmOnly: true,
+      });
+      return resolved;
+    }
+
     if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
       if (
         resolved?.restored &&
@@ -345,12 +367,64 @@
       if (typeof boot.showThinShellFallback === "function") {
         boot.showThinShellFallback(`场景内容无法通过五层 compose 加载。${detail}`);
       }
+      console.warn("[spa-navigation] admin/access cold start coordinator miss", {
+        appId: freshCtx?.app_id || freshCtx?.appId || "",
+        sceneId: freshCtx?.scene_id || freshCtx?.sceneId || "",
+        surface: freshCtx?.surface || freshCtx?.mode || "",
+        missing,
+      });
       return { ...resolved, restored: false, source: "coordinator_miss" };
     }
-    await wakeRevisionFirstShellRuntime(ctx);
+
+    if (!resolved.restored && typeof boot.assembleViaViewRevision === "function") {
+      try {
+        const negotiated = await boot.assembleViaViewRevision(freshCtx || ctx, {
+          forceRematerialize: true,
+          omit_digests: true,
+          coldStart: true,
+        });
+        if (negotiated?.assemble?.ok) {
+          if (typeof boot.hideThinShellFallback === "function") {
+            boot.hideThinShellFallback();
+          }
+          await wakeRevisionFirstShellRuntime(freshCtx || ctx, {
+            forceRuntimeWake: true,
+          });
+          return {
+            restored: true,
+            source: "assemble",
+            viewRevision: negotiated,
+          };
+        }
+        console.warn("[spa-navigation] cold start assembleViaViewRevision failed", {
+          appId: freshCtx?.app_id || freshCtx?.appId || "",
+          sceneId: freshCtx?.scene_id || freshCtx?.sceneId || "",
+          surface: freshCtx?.surface || freshCtx?.mode || "",
+          missing: negotiated?.assemble?.missing || [],
+          outcome: negotiated?.outcome || boot.lastViewRevisionOutcome || "",
+        });
+      } catch (error) {
+        console.warn("[spa-navigation] cold start assembleViaViewRevision threw", error);
+      }
+    }
+
+    await wakeRevisionFirstShellRuntime(freshCtx || ctx);
     const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
-    if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
+    const stillEmpty =
+      scopeCount === 0 &&
+      !(
+        typeof boot.hasMaterializedPreview === "function" &&
+        boot.hasMaterializedPreview(composeRoot)
+      );
+    if (stillEmpty && typeof boot.showThinShellFallback === "function") {
       boot.showThinShellFallback("场景内容暂时无法加载，请检查 layer 组装。");
+      console.warn("[spa-navigation] cold start left empty compose root", {
+        appId: freshCtx?.app_id || freshCtx?.appId || "",
+        sceneId: freshCtx?.scene_id || freshCtx?.sceneId || "",
+        surface: freshCtx?.surface || freshCtx?.mode || "",
+        priorSource: resolved.source || "none",
+        hasCtx: !!freshCtx,
+      });
     } else if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
     }

@@ -249,6 +249,37 @@ pub fn assemble_semantic_scene(
         }
     }
 
+    // Page-profile scenes may compose ordinary content panels directly without
+    // introducing a cockpit plane/region/section hierarchy.
+    for panel in payload
+        .get("panels")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let panel_payload = if v2_ref_name(&panel) == Some("panel_ref") {
+            let ref_key = v2_ref_arg0(&panel).context("panel_ref missing arg0")?;
+            load_content_panel_payload(ctx, ref_key.as_str())?
+        } else if panel.get("__call").and_then(Value::as_str) == Some("content_panel") {
+            panel
+                .get("__args")
+                .cloned()
+                .context("content_panel missing __args")?
+        } else {
+            panel
+        };
+        let panel_id = string_field(&panel_payload, &["id", "key"])
+            .unwrap_or("content")
+            .to_string();
+        let counter = tier_counters.entry("page".to_string()).or_insert(0);
+        let panel_ctx = ctx.with_assembly_stack_order(*counter);
+        let mut lowered = lower_panel_payload(&panel_payload, panel_id.as_str(), &panel_ctx)?;
+        *counter = counter.saturating_add(1);
+        collect_payload_index(&panel_payload, &mut panel_payloads, ctx);
+        apply_padding_profile_body_props(&mut lowered);
+        panels.push(lowered);
+    }
+
     // 0335: scene.t2_pages = catalog of openable T2 page-planes (not always-on stack).
     // When omitted/empty, auto-discover all plane_layout(tier="t2") under this scene.
     let mut t2_page_entries = scene_array(payload, "t2_pages", "plane_ref", ctx)?;

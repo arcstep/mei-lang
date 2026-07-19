@@ -4,4 +4,19 @@ scene(
     summary = "Admin v2 conformance page",
     provider = provider_ref("admin.demo.organization"),
     document_anchors = ["basic"],
+    panels = [panel_ref("admin-demo-overview")],
+)
+
+content_panel(
+    id = "admin-demo-overview",
+    blocks = [
+        component(
+            "admin.form-card",
+            area = "auto",
+            props = {
+                "title": "Organization",
+                "payload_provider": provider_ref("admin.demo.organization"),
+            },
+        ),
+    ],
 )

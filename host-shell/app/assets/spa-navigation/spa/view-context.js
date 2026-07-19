@@ -18,6 +18,9 @@
   }
 
   function resolveSurface(pathname, searchParams) {
+    if (typeof isAdminRoute === "function" && isAdminRoute(pathname)) {
+      return "admin";
+    }
     if (typeof isAccessStageRoute === "function" && isAccessStageRoute(pathname)) {
       return "app";
     }
@@ -130,7 +133,7 @@
 
   function resolveComposeRoot(surface) {
     const slug = String(surface || "").trim().toLowerCase();
-    if (slug === "app") {
+    if (slug === "app" || slug === "admin") {
       const byId = global.document?.getElementById?.("mei-compose-root");
       if (byId instanceof HTMLElement) return byId;
     }

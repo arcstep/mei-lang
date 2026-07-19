@@ -150,14 +150,33 @@
     } catch (_) {}
   }
 
+  function canonicalComposeSurface(ctx) {
+    const payload = ctx || {};
+    const raw = String(
+      payload.surface || payload.mode || payload.route_mode || "",
+    )
+      .trim()
+      .toLowerCase();
+    // Dedicated shells keep their identity; Access stage/workspace collapse to app.
+    if (raw === "admin" || raw === "config" || raw === "upload") {
+      return raw;
+    }
+    return "app";
+  }
+
   function resolveComposeKeyCtx(ctx) {
     const payload = ctx || {};
-    // Stage-only Access: surface key is always app.
-    const withSurface = { ...payload, surface: "app", mode: "app", route_mode: "app" };
+    const surface = canonicalComposeSurface(payload);
+    const withSurface = {
+      ...payload,
+      surface,
+      mode: surface,
+      route_mode: surface,
+    };
     const tab = String(withSurface.tab || "").trim();
     if (tab) return withSurface;
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
+      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) || "scene";
     return { ...withSurface, tab: defaultTab };
   }
 
@@ -265,40 +284,41 @@
 
   function composeDefaultsForSurface(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
+    const surface = String(resolved.surface || "app").trim().toLowerCase() || "app";
     const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
     if (refsDefaults && typeof refsDefaults === "object") {
       return {
-        route_mode: "app",
+        route_mode: surface,
         tab: String(resolved.tab || refsDefaults.tab || "scene").trim() || "scene",
         chrome: resolved.chrome || refsDefaults.chrome || "",
         review_projection: String(
           resolved.review_projection ||
             resolved.reviewProjection ||
             refsDefaults.review_projection ||
-            defaultReviewProjectionForSurface("app"),
+            defaultReviewProjectionForSurface(surface),
         ).trim(),
         data_mode: String(
           resolved.data_mode ||
             resolved.dataMode ||
             refsDefaults.data_mode ||
-            defaultDataModeForSurface("app"),
+            defaultDataModeForSurface(surface),
         ).trim(),
         focus: resolved.focus || refsDefaults.focus || "",
         scope: resolved.scope || refsDefaults.scope || "",
       };
     }
     const defaultTab =
-      boot.sceneManifestLoader?.defaultTabForSurface?.("app") || "scene";
+      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) || "scene";
     const reviewFromCtx = String(
       resolved.review_projection || resolved.reviewProjection || "",
     ).trim();
     const dataFromCtx = String(resolved.data_mode || resolved.dataMode || "").trim();
     return {
-      route_mode: "app",
+      route_mode: surface,
       tab: String(resolved.tab || "").trim() || defaultTab,
       chrome: resolved.chrome || "",
-      review_projection: reviewFromCtx || defaultReviewProjectionForSurface("app"),
-      data_mode: dataFromCtx || defaultDataModeForSurface("app"),
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
+      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
       focus: resolved.focus || "",
       scope: resolved.scope || "",
     };
@@ -323,13 +343,19 @@
   }
 
   function replaceSurfaceManifestSlice(manifest, ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const surface = String(resolved.surface || "app").trim().toLowerCase() || "app";
     const compose =
       typeof boot.viewRevisionClient?.buildComposeRequest === "function"
-        ? boot.viewRevisionClient.buildComposeRequest({ ...(ctx || {}), surface: "app", mode: "app" })
-        : composeDefaultsForSurface(ctx);
+        ? boot.viewRevisionClient.buildComposeRequest(resolved)
+        : composeDefaultsForSurface(resolved);
     const layers = {};
-    const shellLayer = manifest?.layers?.["shell.app"];
-    if (shellLayer) layers["shell.app"] = shellLayer;
+    const shellName = `shell.${surface}`;
+    const shellLayer =
+      manifest?.layers?.[shellName] ||
+      (surface === "app" ? manifest?.layers?.["shell.app"] : null) ||
+      null;
+    if (shellLayer) layers[shellName] = shellLayer;
     return { layers, compose_defaults: compose };
   }
 

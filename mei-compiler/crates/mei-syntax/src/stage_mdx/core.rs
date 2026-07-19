@@ -286,6 +286,13 @@ fn render_markdown(markdown: &str) -> String {
             index += 1;
             continue;
         }
+        if let Some((level, heading)) = markdown_heading(line) {
+            html.push_str(&format!("<h{level}>"));
+            html.push_str(&render_inline(heading));
+            html.push_str(&format!("</h{level}>"));
+            index += 1;
+            continue;
+        }
         if unordered_item(line).is_some() {
             html.push_str("<ul>");
             while index < lines.len() {
@@ -318,6 +325,7 @@ fn render_markdown(markdown: &str) -> String {
         while index < lines.len() {
             let candidate = lines[index].trim();
             if candidate.is_empty()
+                || markdown_heading(candidate).is_some()
                 || unordered_item(candidate).is_some()
                 || ordered_item(candidate).is_some()
             {
@@ -331,6 +339,18 @@ fn render_markdown(markdown: &str) -> String {
         html.push_str("</p>");
     }
     html
+}
+
+fn markdown_heading(line: &str) -> Option<(usize, &str)> {
+    let level = line
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    let content = line.get(level..)?.strip_prefix(' ')?.trim();
+    (!content.is_empty()).then_some((level, content))
 }
 
 fn unordered_item(line: &str) -> Option<&str> {
@@ -426,5 +446,11 @@ mod tests {
             Err(MarkdownForbidden::JsxExpr)
         );
         assert!(check_markdown_line("plain text").is_ok());
+    }
+
+    #[test]
+    fn renders_markdown_headings_as_headings() {
+        let body = markdown_from_lines(&["介绍", "", "## 基本信息", "", "正文"]);
+        assert_eq!(body.html, "<p>介绍</p><h2>基本信息</h2><p>正文</p>");
     }
 }

@@ -28,7 +28,7 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    for route in scene_routes_for_ui_tree(&compiled.scene_routes, active_scene.as_deref()) {
+    for route in scene_routes_for_ui_tree(compiled, active_scene.as_deref()) {
         if !seen_scene_ids.insert(route.scene_id.clone()) {
             continue;
         }
@@ -42,7 +42,7 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
         if panels.is_empty() {
             continue;
         }
-        let scene_label = scene_route_label(route);
+        let scene_label = scene_route_label(&route);
         let result = build_scene_ui_structure(
             route.scene_id.as_str(),
             scene_label.as_str(),
@@ -81,17 +81,33 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
     }
 }
 
-fn scene_routes_for_ui_tree<'a>(
-    routes: &'a [CompiledSceneRoute],
+fn scene_routes_for_ui_tree(
+    compiled: &CompiledApp,
     active_scene: Option<&str>,
-) -> Vec<&'a CompiledSceneRoute> {
-    routes
+) -> Vec<CompiledSceneRoute> {
+    let mut routes: Vec<_> = compiled
+        .scene_routes
         .iter()
         .filter(|route| {
             !route.target_file.ends_with(".board.mei") && !route.target_file.ends_with(".page.mei")
         })
         .filter(|route| active_scene.is_none_or(|scene| route.scene_id.as_str() == scene))
-        .collect()
+        .cloned()
+        .collect();
+    if let Some(scene_id) = active_scene {
+        if !routes.iter().any(|route| route.scene_id == scene_id) {
+            routes.push(CompiledSceneRoute {
+                scene_id: scene_id.to_string(),
+                frame_id: None,
+                target_file: compiled.active_target_file.clone(),
+                kind: "scene".to_string(),
+                title: None,
+                is_default: false,
+                access_export: true,
+            });
+        }
+    }
+    routes
 }
 
 fn scene_route_label(route: &CompiledSceneRoute) -> String {

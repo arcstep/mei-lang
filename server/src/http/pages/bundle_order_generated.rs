@@ -329,6 +329,7 @@ pub(super) const BUNDLE_ADMIN_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/script-loader.js",
     "spa-navigation/spa/initial-scene-restore.js",
     "spa-navigation/spa/thin-shell-host.js",
+    "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
 ];
 

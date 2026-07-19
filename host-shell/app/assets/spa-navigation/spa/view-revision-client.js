@@ -98,25 +98,33 @@
   function buildComposeRequest(ctx) {
     const payload = ctx || {};
     const refsDefaults = globalThis.__mei?.scene_manifest_refs?.compose_defaults;
+    const surface = String(
+      payload.surface ||
+        payload.mode ||
+        refsDefaults?.route_mode ||
+        "app",
+    )
+      .trim()
+      .toLowerCase() || "app";
     const defaultTab =
       boot.sceneManifestLoader?.defaultTabForSurface || (() => "scene");
-    const tab = String(payload.tab || "").trim() || defaultTab("app");
+    const tab = String(payload.tab || "").trim() || defaultTab(surface);
     const reviewFromCtx = String(
       payload.review_projection || payload.reviewProjection || "",
     ).trim();
     const dataFromCtx = String(payload.data_mode || payload.dataMode || "").trim();
     return {
-      route_mode: "app",
+      route_mode: surface,
       tab,
       chrome: String(payload.chrome || refsDefaults?.chrome || "").trim(),
       review_projection:
         reviewFromCtx ||
         String(refsDefaults?.review_projection || "").trim() ||
-        defaultReviewProjectionForSurface("app"),
+        defaultReviewProjectionForSurface(surface),
       data_mode:
         dataFromCtx ||
         String(refsDefaults?.data_mode || "").trim() ||
-        defaultDataModeForSurface("app"),
+        defaultDataModeForSurface(surface),
       focus: String(payload.focus || refsDefaults?.focus || "").trim(),
       scope: String(payload.scope || refsDefaults?.scope || "").trim(),
     };
@@ -137,10 +145,13 @@
     if (!isViewRevisionEnabled()) {
       return { ready: false, status: ViewRevisionOutcome.REFETCH, disabled: true };
     }
+    const surface = String(ctx.surface || ctx.mode || "app")
+      .trim()
+      .toLowerCase() || "app";
     const params = new URLSearchParams({
       app_id: ctx.app_id || ctx.appId || "",
       scene: ctx.scene_id || ctx.sceneId || "home",
-      surface: "app",
+      surface,
     });
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));

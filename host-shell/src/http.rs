@@ -2174,7 +2174,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             app_root.join("src/admin/organization/overview.mdx"),
-            "---\napi_version: mei-admin-resource-v2\ntitle: 单位信息\nrequired_capabilities: [config_upload]\n---\n\n@scene(use=\"admin.organization.overview\")\n",
+            "---\napi_version: mei-admin-resource-v2\ntitle: 单位信息\nrequired_capabilities: [config_upload]\n---\n\n维护应用级单位资料。\n\n@scene(use=\"admin.organization.overview\")\n",
         )
         .unwrap();
         std::fs::write(
@@ -2225,6 +2225,10 @@ mod tests {
         assert!(html.contains("id=\"mei-compose-root\""));
         assert!(html.contains("data-module-id=\"overview\""));
         assert!(html.contains("data-mei-admin-entry=\"v2\""));
+        assert!(html.contains("mei-admin-entry-copy"));
+        assert!(html.contains("维护应用级单位资料"));
+        assert!(html.contains("thin_shell"));
+        assert!(html.contains("scene_manifest_refs"));
         assert!(!html.contains("data-admin-resource="));
 
         for removed in ["/config?app=demo", "/upload?app=demo"] {

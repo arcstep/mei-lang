@@ -49,4 +49,33 @@ fn conformance_admin_compiles_imports_and_assembles_shared_scene() {
         outcome.compiled.scene_contract.is_some(),
         "Admin scene must use the ordinary host graph compositor"
     );
+    assert!(
+        outcome
+            .compiled
+            .scene_contract
+            .as_ref()
+            .is_some_and(|scene| !scene.panels.is_empty()),
+        "Admin page scene must lower its direct panel references"
+    );
+    assert!(
+        outcome
+            .compiled
+            .component_assets
+            .iter()
+            .any(|asset| asset.key == "admin.form-card" && asset.tag == "mei-admin-form-card"),
+        "Admin bricks must resolve through the ordinary component manifest"
+    );
+    let structure = mei_host_graph::build_structure_full_document(&outcome.compiled, "test");
+    assert!(
+        !structure.nodes.is_empty(),
+        "Admin page must publish non-empty ordinary structure.full"
+    );
+    assert_eq!(
+        structure
+            .frame_viewport
+            .as_ref()
+            .and_then(|viewport| viewport.route_mode.as_deref()),
+        Some("page"),
+        "Admin page profile must use document-flow compose instead of cockpit viewport scaling"
+    );
 }

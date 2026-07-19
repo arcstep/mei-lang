@@ -83,6 +83,18 @@ fn extract_frame_viewport_meta(compiled: &CompiledApp) -> Option<FrameViewportMe
     let scale_mode = read_viewport_str(source, &["scale_mode", "scaleMode"]);
     let overflow_mode = read_viewport_str(source, &["overflow_mode", "overflowMode", "overflow"]);
     let aspect_ratio = read_viewport_str(source, &["aspect_ratio", "aspectRatio"]);
+    let profile = contract
+        .scene
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "app".to_string());
+    let route_mode = match profile.as_str() {
+        "page" | "report" | "document" => "page",
+        _ => "app",
+    };
     Some(FrameViewportMeta {
         design_width: design_width.or(Some(1920)),
         design_height: design_height.or(Some(1080)),
@@ -91,7 +103,7 @@ fn extract_frame_viewport_meta(compiled: &CompiledApp) -> Option<FrameViewportMe
         aspect_ratio: aspect_ratio.or_else(|| Some("16:9".to_string())),
         target_file: Some(compiled.active_target_file.clone()),
         scene_id: compiled.active_scene.clone(),
-        route_mode: Some("app".to_string()),
+        route_mode: Some(route_mode.to_string()),
     })
 }
 

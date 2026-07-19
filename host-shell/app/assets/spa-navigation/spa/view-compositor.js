@@ -155,11 +155,19 @@
     return nodes.length > 0;
   }
 
-  function pickManifestShellLayer(_surface) {
+  function pickManifestShellLayer(surface) {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return null;
-    // Stage-only Access: only shell.app is materialized.
-    return layers["shell.app"] || null;
+    const slug = String(surface || "app")
+      .trim()
+      .toLowerCase() || "app";
+    return (
+      layers[`shell.${slug}`] ||
+      layers["shell.app"] ||
+      layers["shell.admin"] ||
+      layers["shell.layout"] ||
+      null
+    );
   }
 
   function isPlaceholderShellDoc(doc) {
@@ -169,18 +177,40 @@
     return top.includes('class="mei-shell-topbar"') && top.length < 240;
   }
 
+  function mergePersistentAdminNavigation(topbarHtml, topSlot) {
+    if (!topbarHtml || !(topSlot instanceof HTMLElement)) return topbarHtml;
+    const currentCluster = topSlot.querySelector(".topbar-admin-cluster");
+    if (!(currentCluster instanceof HTMLElement)) return topbarHtml;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = topbarHtml;
+    const incoming = wrap.firstElementChild;
+    if (!(incoming instanceof HTMLElement)) return topbarHtml;
+    if (incoming.querySelector("[data-mei-admin-strip]")) return topbarHtml;
+    const toolbar = incoming.querySelector(".topbar-app-toolbar");
+    if (!(toolbar instanceof HTMLElement)) return topbarHtml;
+    const launch = toolbar
+      .querySelector(".topbar-launch-btn")
+      ?.closest("sl-tooltip, .topbar-launch-wrap");
+    toolbar.insertBefore(currentCluster.cloneNode(true), launch || null);
+    return incoming.outerHTML;
+  }
+
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
     let doc = extractLayerDocument(shellLayer);
     if (isPlaceholderShellDoc(doc)) {
-      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer(surfaceSlugFromComposeAxes({
+        surface: root?.getAttribute?.("data-mei-compose-root") || root?.getAttribute?.("data-route-mode"),
+      })));
       if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
         doc = manifestDoc;
       }
     }
     if (!doc) return;
-    const topbar = String(doc.topbar_html || "").trim();
+    let topbar = String(doc.topbar_html || "").trim();
     const statusbar = String(doc.statusbar_html || "").trim();
+    const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+    topbar = mergePersistentAdminNavigation(topbar, topSlot);
     const signature = String(
       shellLayer?.content_hash ||
         shellLayer?.artifact_id ||
@@ -193,7 +223,6 @@
     if (doc.tab) root.setAttribute("data-tab", String(doc.tab));
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
-    const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
     const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
     if (topbar && topSlot instanceof HTMLElement) {
       topSlot.innerHTML = topbar;
@@ -264,10 +293,16 @@
     return "app";
   }
 
-  function pickShellLayer(layers, _composeAxes) {
+  function pickShellLayer(layers, composeAxes) {
     if (!layers || typeof layers !== "object") return null;
-    // Stage-only Access: only shell.app is materialized.
-    return layers["shell.app"] || null;
+    const slug = surfaceSlugFromComposeAxes(composeAxes);
+    return (
+      layers[`shell.${slug}`] ||
+      layers["shell.app"] ||
+      layers["shell.admin"] ||
+      layers["shell.layout"] ||
+      null
+    );
   }
 
   function recomposeFromLayerStore(appId, composeAxes) {
