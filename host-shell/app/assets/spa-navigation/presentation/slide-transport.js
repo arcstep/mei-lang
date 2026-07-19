@@ -81,6 +81,57 @@
     );
   }
 
+  function readDeckSlideMetas() {
+    const raw =
+      (typeof window !== "undefined" && window.__mei && window.__mei.presentation_map) ||
+      (globalThis.__mei && globalThis.__mei.presentation_map) ||
+      null;
+    if (!raw || typeof raw !== "object") return [];
+    const ver = String(raw.schemaVersion || raw.schema_version || "").trim();
+    if (ver && ver !== "mei-presentation-map-v1") return [];
+    const deck = raw.deck || raw.presentation_deck;
+    if (!deck || typeof deck !== "object") return [];
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    return slides
+      .map((slide, index) => ({
+        id: String(slide?.id || "").trim(),
+        title: String(slide?.title || "").trim() || null,
+        order: Number.isFinite(slide?.order) ? Number(slide.order) : index,
+      }))
+      .filter((slide) => slide.id)
+      .sort((a, b) => a.order - b.order);
+  }
+
+  function titledSlide(pages, index) {
+    const node = pages[index];
+    if (!(node instanceof HTMLElement)) return "";
+    const metas = readDeckSlideMetas();
+    const metaTitle = metas[index]?.title;
+    if (metaTitle) return metaTitle;
+    const byId = metas.find((slide) => {
+      const name = String(node.getAttribute("data-mei-panel-name") || "").trim();
+      const leaf = name.split("/").pop() || name;
+      return slide.id === name || slide.id === leaf;
+    })?.title;
+    if (byId) return byId;
+    return slideTitle(node, index);
+  }
+
+  function setHint(el, prefix, title) {
+    if (!(el instanceof HTMLElement)) return;
+    const text = String(title || "").trim();
+    if (!text) {
+      el.textContent = "";
+      el.classList.add("is-empty");
+      el.removeAttribute("title");
+      return;
+    }
+    const label = `${prefix}${text}`;
+    el.classList.remove("is-empty");
+    el.textContent = label;
+    el.setAttribute("title", label);
+  }
+
   function goPrev() {
     if (typeof boot.prevDeckPage === "function") return Boolean(boot.prevDeckPage());
     return Boolean(window.MeiPresentation?.prevPage?.());
@@ -96,22 +147,24 @@
     return Boolean(window.MeiPresentation?.showPage?.(index));
   }
 
-  function ensureRoot() {
-    let root = document.getElementById(ROOT_ID);
-    if (root instanceof HTMLElement) return root;
-    root = document.createElement("nav");
-    root.id = ROOT_ID;
-    root.className = "mei-slide-transport";
-    root.setAttribute("aria-label", "幻灯片翻页");
-    root.hidden = true;
-    root.innerHTML = `
-      <button type="button" class="mei-slide-transport__btn" data-action="prev" aria-label="上一页">‹</button>
-      <button type="button" class="mei-slide-transport__page" data-action="toc" aria-label="页码与目录" aria-haspopup="listbox" aria-expanded="false">
-        <span data-role="label">1 / 1</span>
-      </button>
-      <button type="button" class="mei-slide-transport__btn" data-action="next" aria-label="下一页">›</button>
-      <div id="${TOC_ID}" class="mei-slide-transport__toc" role="listbox" hidden></div>
+  function transportMarkup() {
+    return `
+      <p class="mei-slide-transport__hint mei-slide-transport__hint--prev is-empty" data-role="hint-prev"></p>
+      <div class="mei-slide-transport__controls">
+        <button type="button" class="mei-slide-transport__btn" data-action="prev" aria-label="上一页">‹</button>
+        <button type="button" class="mei-slide-transport__page" data-action="toc" aria-label="页码与目录" aria-haspopup="listbox" aria-expanded="false">
+          <span data-role="label">1 / 1</span>
+        </button>
+        <button type="button" class="mei-slide-transport__btn" data-action="next" aria-label="下一页">›</button>
+        <div id="${TOC_ID}" class="mei-slide-transport__toc" role="listbox" hidden></div>
+      </div>
+      <p class="mei-slide-transport__hint mei-slide-transport__hint--next is-empty" data-role="hint-next"></p>
     `;
+  }
+
+  function bindRootEvents(root) {
+    if (!(root instanceof HTMLElement) || root.dataset.bound === "1") return;
+    root.dataset.bound = "1";
     root.addEventListener("click", (event) => {
       const btn = event.target instanceof Element ? event.target.closest("[data-action]") : null;
       if (!(btn instanceof HTMLElement) || !root.contains(btn)) return;
@@ -139,11 +192,39 @@
         scheduleRefresh();
       }
     });
-    const host =
-      document.querySelector(".shell.scene-shell") ||
-      document.querySelector("main") ||
-      document.body;
-    host.appendChild(root);
+  }
+
+  function ensureRoot() {
+    let root = document.getElementById(ROOT_ID);
+    const needsMarkup =
+      !(root instanceof HTMLElement) ||
+      !root.querySelector('[data-role="hint-prev"]') ||
+      !root.querySelector('[data-role="hint-next"]') ||
+      !root.querySelector(".mei-slide-transport__controls");
+    if (!(root instanceof HTMLElement)) {
+      root = document.createElement("nav");
+      root.id = ROOT_ID;
+      root.className = "mei-slide-transport";
+      root.setAttribute("aria-label", "幻灯片翻页");
+      root.hidden = true;
+      root.innerHTML = transportMarkup();
+      bindRootEvents(root);
+      const host =
+        document.querySelector(".shell.scene-shell") ||
+        document.querySelector("main") ||
+        document.body;
+      host.appendChild(root);
+      return root;
+    }
+    if (needsMarkup) {
+      const wasHidden = root.hidden;
+      root.className = "mei-slide-transport";
+      root.setAttribute("aria-label", "幻灯片翻页");
+      root.innerHTML = transportMarkup();
+      root.hidden = wasHidden;
+      delete root.dataset.bound;
+    }
+    bindRootEvents(root);
     return root;
   }
 
@@ -224,6 +305,16 @@
       const next = root.querySelector('[data-action="next"]');
       if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
       if (next instanceof HTMLButtonElement) next.disabled = index >= count - 1;
+      setHint(
+        root.querySelector('[data-role="hint-prev"]'),
+        "上一页：",
+        index > 0 ? titledSlide(pages, index - 1) : "",
+      );
+      setHint(
+        root.querySelector('[data-role="hint-next"]'),
+        "下一页：",
+        index < count - 1 ? titledSlide(pages, index + 1) : "",
+      );
       const shouldHide = count < 2;
       if (root.hidden !== shouldHide) root.hidden = shouldHide;
       if (root.dataset.count !== String(count)) root.dataset.count = String(count);

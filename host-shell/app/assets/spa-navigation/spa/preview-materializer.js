@@ -2377,8 +2377,12 @@
   function resolveRegionGridArea(scope) {
     const normalized = String(scope || "").trim().toLowerCase();
     if (!normalized) return "";
+    const leaf = normalized.split("/").pop() || normalized;
     if (
       normalized.includes("home_header") ||
+      normalized.includes("header_region") ||
+      normalized.includes("region-header") ||
+      leaf === "header" ||
       normalized.endsWith("/header") ||
       normalized === "header"
     ) {

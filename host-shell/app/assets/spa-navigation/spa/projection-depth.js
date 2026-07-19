@@ -211,8 +211,11 @@
         const area = String(areaName || "").trim();
         if (isCssNullGridArea(area)) return;
         // Plane area "header" is often region id home_header (preview-scope t1/home_header).
+        // Also accept legacy header_region / folder-style region-header leaf names.
         const areaAliases =
-          area === "header" ? ["header", "home_header"] : [area];
+          area === "header"
+            ? ["header", "home_header", "header_region", "region-header"]
+            : [area];
         let child = null;
         for (const alias of areaAliases) {
           child =

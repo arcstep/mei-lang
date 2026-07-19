@@ -32,23 +32,32 @@ fn render_host_home_slots(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let workspace_line = workspace_label
-        .map(|label| {
-            format!(
-                r#"<p class="mei-host-shell__meta">工作区：{}</p>"#,
-                html_escape(label)
-            )
-        })
-        .unwrap_or_default();
+    let workspace_line = {
+        let title = workspace_label.unwrap_or("MeiLang 工作区");
+        let kicker = if workspace_label.is_some() {
+            "工作区"
+        } else {
+            "控制面"
+        };
+        format!(
+            r#"<header class="mei-host-shell__home-hero">
+  <p class="mei-host-shell__home-kicker">{kicker}</p>
+  <h1 class="mei-host-shell__home-title">{title}</h1>
+</header>"#,
+            kicker = html_escape(kicker),
+            title = html_escape(title),
+        )
+    };
 
     let app_section = if running_apps.is_empty() {
-        r#"<section class="mei-host-shell__message">
-  <h2>控制面已就绪</h2>
-  <p>当前没有已启动的应用。顶栏与首页只展示运行中的应用；请到运行控制中心选择 launch config 并启动。</p>
-  <p><a class="mei-host-shell__btn" href="/runtime">打开运行控制中心</a></p>
+        r#"<section class="mei-host-shell__home-empty" aria-labelledby="mei-home-empty-title">
+  <h2 id="mei-home-empty-title" class="mei-host-shell__home-empty-title">还没有运行中的应用</h2>
+  <p class="mei-host-shell__home-empty-body">顶栏与首页只展示已启动的应用。到应用中心选择 launch config 并启动后，入口会出现在这里。</p>
+  <p class="mei-host-shell__home-empty-actions"><a class="mei-host-shell__btn mei-host-shell__btn--primary" href="/runtime">打开应用中心</a></p>
 </section>"#
             .to_string()
     } else {
+        let count = running_apps.len();
         let cards = running_apps
             .iter()
             .map(|app| {
@@ -58,53 +67,68 @@ fn render_host_home_slots(
                     crate::shell_chrome::app_access_href(workspace_root, app.id.as_str());
                 let status = if access_ready { "ready" } else { "starting" };
                 let status_label = if access_ready {
-                    "已启动"
+                    "运行中"
                 } else {
                     "启动中"
                 };
                 format!(
-                    r#"<article class="mei-host-shell__app-card">
-  <header class="mei-host-shell__app-card-head">
+                    r#"<article class="mei-host-shell__app-card" data-status="{status}">
+  <div class="mei-host-shell__app-card-body">
     <h2 class="mei-host-shell__card-title">{title}</h2>
-    <span class="mei-host-shell__card-badge">运行中</span>
-  </header>
-  <p class="mei-host-shell__card-id"><code>{app_id}</code></p>
-  <p class="mei-host-shell__card-desc">{summary}</p>
-  <p class="mei-host-shell__card-status" data-status="{status}">{status_label}</p>
-  <div class="mei-host-shell__card-actions">{access_action}</div>
+    <p class="mei-host-shell__card-id">{app_id}</p>
+  </div>
+  <footer class="mei-host-shell__app-card-foot">
+    <span class="mei-host-shell__card-status" data-status="{status}">{status_label}</span>
+    {access_action}
+  </footer>
 </article>"#,
                     title = html_escape(app.title.as_str()),
                     app_id = html_escape(app.id.as_str()),
-                    summary = html_escape(app.title.as_str()),
                     status = status,
                     status_label = status_label,
                     access_action = if access_ready {
                         format!(
-                            r#"<a class="mei-host-shell__btn" href="{}">进入应用</a>"#,
+                            r#"<a class="mei-host-shell__btn mei-host-shell__btn--primary" href="{}">进入应用</a>"#,
                             html_escape(access_href.as_str())
                         )
                     } else {
-                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">查看运行状态</a>"#.to_string()
+                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">查看状态</a>"#.to_string()
                     },
                 )
             })
             .collect::<Vec<_>>()
             .join("");
         format!(
-            r#"<section class="mei-host-shell__app-grid">{cards}</section>
-<p class="mei-host-shell__meta"><a class="mei-host-shell__link" href="/runtime">管理全部应用启停 →</a></p>"#,
+            r#"<section class="mei-host-shell__home-apps" aria-labelledby="mei-home-apps-title">
+  <div class="mei-host-shell__home-section-head">
+    <h2 id="mei-home-apps-title" class="mei-host-shell__home-section-title">运行中的应用 <span class="mei-host-shell__home-count">{count}</span></h2>
+    <a class="mei-host-shell__home-section-link" href="/runtime">管理启停</a>
+  </div>
+  <div class="mei-host-shell__app-grid">{cards}</div>
+</section>"#,
+            count = count,
             cards = cards,
         )
     };
 
     let workspace_tools = if workspace_share_visible {
-        r#"<section class="mei-host-shell__message">
-  <h2>工作区工具</h2>
-  <p>在资料交换区按文件夹共享、上传和下载工作资料；它与各业务应用的 Admin 数据源文件隔离。</p>
-  <p><a class="mei-host-shell__btn" href="/share">打开资料交换</a></p>
+        r#"<section class="mei-host-shell__home-tools" aria-label="工作区工具">
+  <a class="mei-host-shell__home-tool" href="/share">
+    <span class="mei-host-shell__home-tool-label">资料交换</span>
+    <span class="mei-host-shell__home-tool-hint">上传与共享工作资料</span>
+  </a>
+  <a class="mei-host-shell__home-tool" href="/runtime">
+    <span class="mei-host-shell__home-tool-label">应用中心</span>
+    <span class="mei-host-shell__home-tool-hint">启停与 launch 配置</span>
+  </a>
 </section>"#
     } else {
-        ""
+        r#"<section class="mei-host-shell__home-tools" aria-label="工作区工具">
+  <a class="mei-host-shell__home-tool" href="/runtime">
+    <span class="mei-host-shell__home-tool-label">应用中心</span>
+    <span class="mei-host-shell__home-tool-hint">启停与 launch 配置</span>
+  </a>
+</section>"#
     };
 
     (workspace_line, format!("{app_section}{workspace_tools}"))
@@ -191,7 +215,8 @@ mod tests {
             false,
             None,
         );
-        assert!(html.contains("控制面已就绪") || html.contains("MeiLang 工作区"));
+        assert!(html.contains("还没有运行中的应用") || html.contains("MeiLang 工作区"));
+        assert!(html.contains("mei-host-shell__home-hero"));
         assert!(html.contains("/runtime"));
         assert!(html.contains("topbar-shell"));
         assert!(html.contains(r#"data-mei-pagepack="host.home""#));

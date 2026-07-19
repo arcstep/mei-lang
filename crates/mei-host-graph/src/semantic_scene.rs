@@ -1065,7 +1065,7 @@ fn grid_area_name_for_region(args: Option<&serde_json::Map<String, Value>>) -> O
         }
     }
     Some(match id {
-        "home_header" => "header".to_string(),
+        "home_header" | "header_region" | "region-header" => "header".to_string(),
         other => other.to_string(),
     })
 }

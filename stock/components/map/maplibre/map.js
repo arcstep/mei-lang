@@ -77,15 +77,16 @@ function recordMapRuntimeDiag(phase, detail = {}) {
 /**
  * Guard style mutations after await (GeoJSON / metrics). Stale tasks must
  * soft-skip instead of calling addSource/addLayer on a replaced or unloaded map.
+ *
+ * Do NOT gate on `map.isStyleLoaded()`: MapLibre flips it false immediately after
+ * addSource/addLayer, which would abort the rest of a multi-layer sync and drop
+ * fill-extrusion / hero layers mid-flight.
  */
 function canMutateMapStyle(host, epoch, mapRef) {
   if (!host?.isConnected || !host.map) return false;
   if (mapRef && host.map !== mapRef) return false;
   if ((host._mapMutationEpoch || 0) !== epoch) return false;
   if (host._mapStyleReady !== true) return false;
-  if (typeof host.map.isStyleLoaded === "function" && !host.map.isStyleLoaded()) {
-    return false;
-  }
   return true;
 }
 

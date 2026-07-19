@@ -5517,7 +5517,49 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   bottom: 28px;
   transform: translateX(-50%);
   z-index: 5400;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 16px;
+  width: min(920px, calc(100vw - 48px));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #e8f4ff;
+  font-size: 13px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.mei-slide-transport[hidden] {
+  display: none !important;
+}
+.mei-slide-transport__hint {
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 2px;
+  color: rgba(232, 244, 255, 0.72);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.mei-slide-transport__hint.is-empty {
+  visibility: hidden;
+}
+.mei-slide-transport__hint--prev {
+  text-align: left;
+  justify-self: start;
+}
+.mei-slide-transport__hint--next {
+  text-align: right;
+  justify-self: end;
+}
+.mei-slide-transport__controls {
+  position: relative;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
@@ -5526,13 +5568,8 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   border: 1px solid rgba(125, 211, 252, 0.35);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(8px);
-  color: #e8f4ff;
-  font-size: 13px;
-  line-height: 1;
   pointer-events: auto;
-}
-.mei-slide-transport[hidden] {
-  display: none !important;
+  justify-self: center;
 }
 .mei-slide-transport__btn,
 .mei-slide-transport__page {
@@ -5612,6 +5649,16 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 body:not([data-mei-stage-surface="paged"]):not([data-mei-stage-profile="slides"]) .mei-slide-transport {
   display: none !important;
+}
+@media (max-width: 720px) {
+  .mei-slide-transport {
+    width: min(100vw - 24px, 920px);
+    gap: 8px;
+    bottom: 20px;
+  }
+  .mei-slide-transport__hint {
+    font-size: 11px;
+  }
 }
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"],
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] {
