@@ -1,0 +1,23 @@
+---
+resource_id: organization
+title: 单位信息
+description: 业主单位基础信息
+template: singleton-form
+provider: config-record
+record_path: admin/data/organization.json
+required_capabilities: [config_upload]
+scope: app
+revision_policy: optimistic
+dirty_policy: block-leave
+apply_policy: hot
+audit: true
+navigation_menu: 管理
+navigation_order: 10
+navigation_keywords: [单位, 组织]
+---
+
+管理应用使用的单位基础信息。
+
+## 基本信息 {#basic}
+@field(id="name", label="单位名称", control="text", required=true)
+@field(id="contact", label="联系人", control="text")

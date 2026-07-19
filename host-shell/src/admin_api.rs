@@ -8,9 +8,10 @@ use axum::{
 };
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
-    get_asset_slot, get_command_job, get_config_record, list_asset_slots, put_config_record,
-    replace_asset_slot, resolve_app_root, run_import_job, AdminProviderKind, AdminRecordError,
-    AdminTemplate, AdminUiSurface,
+    get_asset_slot, get_command_job, get_config_path_record, get_config_record, list_asset_slots,
+    put_config_path_record, put_config_record, replace_asset_slot, resolve_app_root,
+    run_import_job, AdminApplyPolicy, AdminProviderKind, AdminRecordError, AdminTemplate,
+    AdminUiSurface,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -134,17 +135,18 @@ pub async fn api_admin_resources(
             "validation",
             "app_id query is required",
         )
-            .into_response();
+        .into_response();
     };
     let principal_ref = principal.as_ref().map(|e| &e.0);
     if let Some(p) = principal_ref {
         if !p.can_access_app(app_id) {
-            return admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response();
+            return admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed")
+                .into_response();
         }
     }
-    let resources = snap.registry.nav_items_for_capabilities(app_id, &|cap| {
-        principal_has_cap(principal_ref, cap)
-    });
+    let resources = snap
+        .registry
+        .nav_items_for_capabilities(app_id, &|cap| principal_has_cap(principal_ref, cap));
     let diagnostics = snap
         .registry
         .diagnostics()
@@ -171,8 +173,15 @@ pub async fn api_config_record_get(
     let principal_ref = principal.as_ref().map(|e| &e.0);
     match load_config_record_context(&snap, principal_ref, &query.app_id, &query.resource_id) {
         Ok((resource, app_root)) => {
-            let record_path = resource.record_path.as_deref().unwrap_or("");
-            match get_config_record(&app_root, record_path) {
+            let record = if let Some(config_path) = resource.config_path.as_deref() {
+                get_config_path_record(&app_root, config_path)
+            } else {
+                get_config_record(
+                    &app_root,
+                    resource.record_path.as_deref().unwrap_or_default(),
+                )
+            };
+            match record {
                 Ok(record) => (
                     StatusCode::OK,
                     Json(json!({
@@ -181,6 +190,9 @@ pub async fn api_config_record_get(
                         "appId": query.app_id,
                         "scope": "app",
                         "revision": record.revision,
+                        "persistedRevision": record.revision,
+                        "effectiveRevision": record.revision,
+                        "applyPolicy": resource.spec.apply_policy,
                         "payload": record.data,
                         "spec": resource.spec,
                     })),
@@ -204,7 +216,7 @@ pub async fn api_config_record_put(
             "validation",
             "idempotencyKey is required",
         )
-            .into_response();
+        .into_response();
     }
     let snap = ensure_registry(&state);
     let principal_ref = principal.as_ref().map(|e| &e.0);
@@ -219,42 +231,82 @@ pub async fn api_config_record_put(
     );
     match load_config_record_context(&snap, principal_ref, &body.app_id, &body.resource_id) {
         Ok((resource, app_root)) => {
-            let record_path = match resource.record_path.as_deref() {
-                Some(p) if !p.is_empty() => p,
-                _ => {
-                    return admin_err(
-                        StatusCode::BAD_REQUEST,
-                        "validation",
-                        "resource missing record_path",
-                    )
-                        .into_response();
-                }
-            };
-            match put_config_record(
-                &app_root,
-                record_path,
-                body.revision,
-                body.payload,
-                &actor,
-                &body.app_id,
-                &body.resource_id,
-                &correlation_id,
-            ) {
-                Ok(record) => (
-                    StatusCode::OK,
-                    Json(json!({
-                        "ok": true,
-                        "resourceId": resource.resource_id,
-                        "resourceKey": resource.resource_key,
-                        "appId": body.app_id,
-                        "scope": "app",
-                        "revision": record.revision,
-                        "payload": record.data,
-                        "correlationId": correlation_id,
-                        "actor": actor,
-                    })),
+            let update = if let Some(config_path) = resource.config_path.as_deref() {
+                put_config_path_record(
+                    &app_root,
+                    config_path,
+                    body.revision,
+                    body.payload,
+                    &actor,
+                    &body.app_id,
+                    &body.resource_id,
+                    &correlation_id,
                 )
-                    .into_response(),
+            } else if let Some(record_path) = resource
+                .record_path
+                .as_deref()
+                .filter(|path| !path.is_empty())
+            {
+                put_config_record(
+                    &app_root,
+                    record_path,
+                    body.revision,
+                    body.payload,
+                    &actor,
+                    &body.app_id,
+                    &body.resource_id,
+                    &correlation_id,
+                )
+            } else {
+                return admin_err(
+                    StatusCode::BAD_REQUEST,
+                    "validation",
+                    "resource missing record_path or config_path",
+                )
+                .into_response();
+            };
+            match update {
+                Ok(record) => {
+                    let restart_required = matches!(
+                        resource.spec.apply_policy,
+                        Some(AdminApplyPolicy::RestartRuntime)
+                    );
+                    if resource.config_path.is_some()
+                        && matches!(
+                            resource.spec.apply_policy,
+                            Some(AdminApplyPolicy::Hot | AdminApplyPolicy::ReloadView)
+                        )
+                    {
+                        crate::access_page_cache::clear_legacy_page_render_cache_for_app(
+                            snap.workspace_root.as_path(),
+                            &body.app_id,
+                        );
+                    }
+                    let effective_revision = if restart_required {
+                        body.revision
+                    } else {
+                        record.revision
+                    };
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "ok": true,
+                            "resourceId": resource.resource_id,
+                            "resourceKey": resource.resource_key,
+                            "appId": body.app_id,
+                            "scope": "app",
+                            "revision": record.revision,
+                            "persistedRevision": record.revision,
+                            "effectiveRevision": effective_revision,
+                            "applyPolicy": resource.spec.apply_policy,
+                            "runtimeRestartRequired": restart_required,
+                            "payload": record.data,
+                            "correlationId": correlation_id,
+                            "actor": actor,
+                        })),
+                    )
+                        .into_response()
+                }
                 Err(e) => map_record_error(e).into_response(),
             }
         }
@@ -271,7 +323,9 @@ fn load_config_record_context(
 {
     if let Some(p) = principal {
         if !p.can_access_app(app_id) {
-            return Err(admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response());
+            return Err(
+                admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response(),
+            );
         }
     }
     let Some(resource) = snap.registry.resource(app_id, resource_id) else {
@@ -280,7 +334,7 @@ fn load_config_record_context(
             "not-found",
             format!("resource `{resource_id}` not registered for app `{app_id}`"),
         )
-            .into_response());
+        .into_response());
     };
     for cap in &resource.required_capabilities {
         if !principal_has_cap(principal, cap) {
@@ -289,7 +343,7 @@ fn load_config_record_context(
                 "forbidden",
                 format!("missing capability `{cap}`"),
             )
-                .into_response());
+            .into_response());
         }
     }
     if resource.provider != AdminProviderKind::ConfigRecord {
@@ -301,7 +355,7 @@ fn load_config_record_context(
                 resource.provider
             ),
         )
-            .into_response());
+        .into_response());
     }
     if resource.ui_surface != mei_lang_kernel::AdminUiSurface::FormCard {
         return Err(admin_err(
@@ -309,7 +363,7 @@ fn load_config_record_context(
             "provider-unavailable",
             "Host embed resources do not use config-record API",
         )
-            .into_response());
+        .into_response());
     }
     if resource.template != AdminTemplate::SingletonForm {
         return Err(admin_err(
@@ -317,16 +371,26 @@ fn load_config_record_context(
             "provider-unavailable",
             "Phase B only supports singleton-form for config-record",
         )
-            .into_response());
+        .into_response());
     }
-    let Some(_) = resource.record_path.as_deref().filter(|p| !p.is_empty()) else {
+    if resource
+        .record_path
+        .as_deref()
+        .filter(|path| !path.is_empty())
+        .is_none()
+        && resource
+            .config_path
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .is_none()
+    {
         return Err(admin_err(
             StatusCode::BAD_REQUEST,
             "validation",
-            "config-record resource requires record_path",
+            "config-record resource requires record_path or config_path",
         )
-            .into_response());
-    };
+        .into_response());
+    }
     let app_root = resolve_app_root(snap.workspace_root.as_path(), app_id);
     if !app_root.is_dir() {
         return Err(admin_err(StatusCode::NOT_FOUND, "not-found", "app not found").into_response());
@@ -339,9 +403,7 @@ fn map_record_error(err: AdminRecordError) -> ResponseTuple {
         AdminRecordError::Conflict { current_revision } => {
             admin_conflict(current_revision, "stale revision")
         }
-        AdminRecordError::Validation(msg) => {
-            admin_err(StatusCode::BAD_REQUEST, "validation", msg)
-        }
+        AdminRecordError::Validation(msg) => admin_err(StatusCode::BAD_REQUEST, "validation", msg),
         AdminRecordError::NotFound(msg) => admin_err(StatusCode::NOT_FOUND, "not-found", msg),
         AdminRecordError::Parse(msg) | AdminRecordError::Io(msg) => {
             admin_err(StatusCode::INTERNAL_SERVER_ERROR, "internal", msg)
@@ -359,7 +421,9 @@ fn load_provider_resource(
 {
     if let Some(p) = principal {
         if !p.can_access_app(app_id) {
-            return Err(admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response());
+            return Err(
+                admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response(),
+            );
         }
     }
     let Some(resource) = snap.registry.resource(app_id, resource_id) else {
@@ -368,7 +432,7 @@ fn load_provider_resource(
             "not-found",
             format!("resource `{resource_id}` not registered for app `{app_id}`"),
         )
-            .into_response());
+        .into_response());
     };
     for cap in &resource.required_capabilities {
         if !principal_has_cap(principal, cap) {
@@ -377,7 +441,7 @@ fn load_provider_resource(
                 "forbidden",
                 format!("missing capability `{cap}`"),
             )
-                .into_response());
+            .into_response());
         }
     }
     if resource.provider != expected {
@@ -386,7 +450,7 @@ fn load_provider_resource(
             "provider-unavailable",
             format!("expected {:?}, got {:?}", expected, resource.provider),
         )
-            .into_response());
+        .into_response());
     }
     let app_root = resolve_app_root(snap.workspace_root.as_path(), app_id);
     if !app_root.is_dir() {
@@ -426,7 +490,8 @@ fn decode_replace_bytes(body: &AssetSlotReplaceBody) -> Result<Vec<u8>, Response
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        return decode_hex(hex).map_err(|msg| admin_err(StatusCode::BAD_REQUEST, "validation", msg));
+        return decode_hex(hex)
+            .map_err(|msg| admin_err(StatusCode::BAD_REQUEST, "validation", msg));
     }
     if let Some(text) = body.content.as_ref() {
         return Ok(text.as_bytes().to_vec());
@@ -483,9 +548,13 @@ pub async fn api_asset_slot_get(
                     "validation",
                     "resource is not an asset-slot-collection",
                 )
-                    .into_response();
+                .into_response();
             }
-            if let Some(slot_id) = query.slot_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            if let Some(slot_id) = query
+                .slot_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
             {
                 match get_asset_slot(&app_root, &resource.spec, slot_id) {
                     Ok(slot) => (StatusCode::OK, Json(json!({ "slot": slot }))).into_response(),
@@ -513,7 +582,7 @@ pub async fn api_asset_slot_replace(
             "validation",
             "idempotencyKey is required",
         )
-            .into_response();
+        .into_response();
     }
     let bytes = match decode_replace_bytes(&body) {
         Ok(b) => b,
@@ -589,7 +658,8 @@ pub async fn api_command_job_get(
     let principal_ref = principal.as_ref().map(|e| &e.0);
     if let Some(p) = principal_ref {
         if !p.can_access_app(&query.app_id) {
-            return admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response();
+            return admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed")
+                .into_response();
         }
     }
     let app_root = resolve_app_root(snap.workspace_root.as_path(), &query.app_id);
@@ -613,7 +683,7 @@ pub async fn api_command_job_run(
             "validation",
             "Phase D only supports action=import",
         )
-            .into_response();
+        .into_response();
     }
     if body.idempotency_key.trim().is_empty() {
         return admin_err(
@@ -621,7 +691,7 @@ pub async fn api_command_job_run(
             "validation",
             "idempotencyKey is required",
         )
-            .into_response();
+        .into_response();
     }
     let replace_body = AssetSlotReplaceBody {
         app_id: body.app_id.clone(),

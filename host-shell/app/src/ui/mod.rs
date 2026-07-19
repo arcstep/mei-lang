@@ -376,6 +376,8 @@ pub fn render_admin_page(
     shell_body_theme_style: &str,
     access_stage_routes: &[mei_lang_kernel::CompiledSceneRoute],
     access_scene: Option<&str>,
+    source_anchor: &str,
+    projection_digest: &str,
 ) -> String {
     let shell = admin_shell(
         apps,
@@ -393,6 +395,8 @@ pub fn render_admin_page(
         auth_account,
         access_stage_routes,
         access_scene,
+        source_anchor,
+        projection_digest,
     );
     render_document(
         app_title,

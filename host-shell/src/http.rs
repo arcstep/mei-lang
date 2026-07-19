@@ -2241,6 +2241,12 @@ mod tests {
         let html = String::from_utf8(page.into_body().collect().await.unwrap().to_bytes().to_vec())
             .unwrap();
         assert!(html.contains("admin-form-root"));
+        assert!(html.contains("id=\"mei-admin-compose-root\""));
+        assert!(html.contains("data-mei-stage-surface=\"document\""));
+        assert!(html.contains("data-mei-admin-compose=\"document\""));
+        assert!(html.contains("data-mei-page-surface=\"document\""));
+        assert!(html.contains("data-mei-source-anchor="));
+        assert!(html.contains("data-mei-projection-digest="));
         assert!(html.contains("admin.bundle.js") || html.contains("/app-bundles/admin.js"));
         // Phase C: Host builtins coexist on the same topbar strip.
         assert!(html.contains("/admin/apps/admin-loop-app/ops_config"));
@@ -2428,6 +2434,9 @@ mod tests {
         let html = String::from_utf8(page.into_body().collect().await.unwrap().to_bytes().to_vec())
             .unwrap();
         assert!(html.contains("admin-asset-slot-root"));
+        assert!(html.contains("id=\"mei-admin-compose-root\""));
+        assert!(html.contains("data-mei-stage-surface=\"document\""));
+        assert!(html.contains("data-mei-admin-compose=\"document\""));
         assert!(html.contains("单位信息") || html.contains("organization"));
         assert!(html.contains("数据源") || html.contains("datasources"));
 

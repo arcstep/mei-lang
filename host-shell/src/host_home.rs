@@ -5,19 +5,24 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use mei_host_auth::{account_view_for_principal, html_escape, AuthPrincipal, AuthServeState};
-use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
+use mei_lang_app::{
+    load_topbar_menu_context, HostAccountView, TopbarMenuContext, WorkspaceShellNav,
+};
 use mei_lang_kernel::WorkspaceAppMeta;
 
+use crate::host_page_pack::{
+    home_page_pack, render_home_page_body, render_native_recovery_html, HostPagePack,
+};
 use crate::landing::app_has_prebuilt_access_entry;
 use crate::shell_chrome::apps_for_topbar;
 use crate::state::SharedState;
 use crate::workspace_page::render_workspace_shell_page;
 
-pub fn render_host_home_body_html(
+fn render_host_home_slots(
     workspace_root: &Path,
     running_apps: &[WorkspaceAppMeta],
     data_plane_enabled: bool,
-) -> String {
+) -> (String, String) {
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
     let workspace_label = workspace
         .workspace
@@ -91,10 +96,33 @@ pub fn render_host_home_body_html(
         )
     };
 
-    format!(
-        r#"{workspace_line}{app_section}"#,
-        workspace_line = workspace_line,
-        app_section = app_section,
+    (workspace_line, app_section)
+}
+
+fn render_host_home_document_with_pack(
+    pack: Option<&HostPagePack>,
+    workspace_root: &Path,
+    running_apps: &[WorkspaceAppMeta],
+    data_plane_enabled: bool,
+    topbar_menu: &TopbarMenuContext,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+) -> String {
+    let (workspace_line, app_cards) =
+        render_host_home_slots(workspace_root, running_apps, data_plane_enabled);
+    let body_html = match render_home_page_body(pack, workspace_line.as_str(), app_cards.as_str()) {
+        Ok(html) => html,
+        Err(error) => return render_native_recovery_html(error),
+    };
+    render_workspace_shell_page(
+        workspace_root,
+        running_apps,
+        topbar_menu,
+        WorkspaceShellNav::Home,
+        "MeiLang 工作区",
+        body_html.as_str(),
+        auth_enabled,
+        account_view,
     )
 }
 
@@ -110,15 +138,12 @@ pub async fn host_home_page(
     let running = apps_for_topbar(&guard);
     let auth_enabled = auth.auth_enforcement == mei_host_auth::AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let body_html =
-        render_host_home_body_html(workspace_root, running.as_slice(), guard.data_plane_enabled);
-    let html = render_workspace_shell_page(
+    let html = render_host_home_document_with_pack(
+        Some(home_page_pack()),
         workspace_root,
         running.as_slice(),
+        guard.data_plane_enabled,
         &topbar_menu,
-        WorkspaceShellNav::Home,
-        "MeiLang 工作区",
-        body_html.as_str(),
         auth_enabled,
         account_view.as_ref(),
     );
@@ -140,21 +165,64 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).expect("create temp root");
         let topbar_menu = mei_lang_app::load_topbar_menu_context(root.as_path());
-        let body = render_host_home_body_html(root.as_path(), &[], false);
-        let html = render_workspace_shell_page(
+        let html = render_host_home_document_with_pack(
+            Some(home_page_pack()),
             root.as_path(),
             &[],
+            false,
             &topbar_menu,
-            WorkspaceShellNav::Home,
-            "MeiLang 工作区",
-            body.as_str(),
             false,
             None,
         );
         assert!(html.contains("控制面已就绪") || html.contains("MeiLang 工作区"));
         assert!(html.contains("/runtime"));
         assert!(html.contains("topbar-shell"));
+        assert!(html.contains(r#"data-mei-pagepack="host.home""#));
+        assert!(html.contains(r#"data-mei-pagepack-digest="sha256:"#));
+        assert!(html.contains(r#"data-mei-page-surface="document""#));
         assert!(!html.contains("app-tab") || !html.contains("data-mei-app-id"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn host_home_missing_or_invalid_pack_returns_native_recovery_document() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-host-home-recovery-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        let topbar_menu = mei_lang_app::load_topbar_menu_context(root.as_path());
+        let missing = render_host_home_document_with_pack(
+            None,
+            root.as_path(),
+            &[],
+            false,
+            &topbar_menu,
+            false,
+            None,
+        );
+        let mut invalid_pack = home_page_pack().clone();
+        invalid_pack.aot_body_template.push_str("<!-- corrupt -->");
+        let invalid = render_host_home_document_with_pack(
+            Some(&invalid_pack),
+            root.as_path(),
+            &[],
+            false,
+            &topbar_menu,
+            false,
+            None,
+        );
+
+        for html in [missing, invalid] {
+            assert!(html.contains("data-mei-native-recovery=\"host-page-pack\""));
+            assert!(html.contains("href=\"/runtime\""));
+            assert!(html.contains("href=\"/login\""));
+            assert!(!html.contains("topbar-shell"));
+            assert!(!html.contains("/app-assets/"));
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

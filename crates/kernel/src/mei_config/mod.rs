@@ -2,14 +2,14 @@
 //!
 //! `.mei` 真源只读；宿主仅通过 ops 白名单对象写回配置，不写 `.mei`。
 
+mod admin_asset_slot;
+mod admin_command_job;
 mod admin_discover;
 mod admin_manifest;
 mod admin_record;
-mod admin_asset_slot;
-mod admin_command_job;
+mod app_manifest;
 mod auth_bundle;
 mod authoring_policy;
-mod app_manifest;
 mod build_store;
 mod io;
 mod ops;
@@ -31,21 +31,23 @@ pub use admin_command_job::{
     get_command_job, run_import_job, AdminJobRecord, AdminJobStatus, ADMIN_JOBS_REL_DIR,
 };
 pub use admin_discover::{
-    discover_app_admin_resources, discover_from_admin_ref, filter_admin_resources_for_capabilities,
-    AdminDiscoverOutcome, AdminDiscoveryDiagnostic, AdminRegistryProjection,
-    AdminResourceProjection, AdminUiSurface,
+    discover_admin_mdx_paths, discover_app_admin_resources, discover_from_admin_ref,
+    filter_admin_resources_for_capabilities, AdminDiscoverOutcome, AdminDiscoveryDiagnostic,
+    AdminRegistryProjection, AdminResourceProjection, AdminUiSurface,
 };
 pub use admin_manifest::{
-    load_admin_manifest, parse_admin_manifest, parse_and_validate_admin_manifest,
-    resolve_admin_manifest_path, validate_admin_manifest, validate_relative_sandbox_path,
-    AdminAction, AdminColumn, AdminDangerLevel, AdminDirtyPolicy, AdminField, AdminFieldControl,
+    load_admin_manifest, load_admin_mdx_resource, lower_admin_mdx_document, parse_admin_manifest,
+    parse_and_validate_admin_manifest, render_admin_resource_mdx, resolve_admin_manifest_path,
+    validate_admin_manifest, validate_relative_sandbox_path, AdminAction, AdminApplyPolicy,
+    AdminColumn, AdminDangerLevel, AdminDirtyPolicy, AdminField, AdminFieldControl,
     AdminFieldOption, AdminIdempotency, AdminManifest, AdminManifestError, AdminMenuValue,
     AdminNavigation, AdminProviderKind, AdminResourceSpec, AdminRevisionPolicy, AdminSection,
     AdminTemplate, AdminUploadSpec, AppAdminRef, ADMIN_RESOURCE_API_VERSION,
 };
 pub use admin_record::{
-    append_admin_audit, get_config_record, put_config_record, resolve_config_record_path,
-    AdminAuditEntry, AdminRecordError, ConfigRecordFile, ADMIN_AUDIT_REL_PATH,
+    append_admin_audit, get_config_path_record, get_config_record, put_config_path_record,
+    put_config_record, resolve_config_record_path, AdminAuditEntry, AdminRecordError,
+    ConfigRecordFile, ADMIN_AUDIT_REL_PATH,
 };
 pub use app_manifest::{
     load_app_manifest, load_app_manifest_from_json_pair, load_app_manifest_from_toml,
@@ -109,35 +111,36 @@ pub use types::{
     FileCacheConfig, FileCacheSettings, MeiConfig, MemoryWarmupConfig, OpsBasemapEntry, OpsConfig,
     OpsSourceEntry, RuntimeConfig, RuntimeMode, RuntimePlan, RuntimePlanApp, RuntimePlanTarget,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    SmartWarmupConfig, WorkspaceAuthConfig, WorkspaceBrandConfig, WorkspaceBuildConfig, WorkspaceBuildGenerationConfig,
-    WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceDeployDevEvalConfig, WorkspaceHostState,
-    WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceStockBootstrapConfig,
-    WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
-    WorkspaceStockConfig, WorkspaceStockPreviewConfig, WorkspaceStockSourceEntry,
-    WorkspaceToolchainConfig, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL,
-    APP_CONFIG_FILENAME, APP_ENV_REL, APP_TOML_FILENAME, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH,
-    BUILD_MANIFEST_FILENAME, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID,
-    DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_CATALOG_APP_ID, DEFAULT_STOCK_COMPONENTS_REL,
-    DEFAULT_STOCK_TEMPLATES_REL, DEPLOY_LINKS_REL, LEGACY_AUTH_JOURNAL_REL_PATH,
-    LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
-    LEGACY_WORKSPACE_SNAPSHOT_DIR_REL, LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, MEI_CONFIG_FILENAME,
-    MEI_WORKSPACE_CONFIG_FILENAME, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
-    PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL, PREBUILD_LAST_BUILD_SUMMARY_REL,
-    PRE_LOCAL_AUTH_JOURNAL_REL_PATH, TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL,
-    WORKSPACE_AGENT_DB_REL, WORKSPACE_AGENT_LOCAL_DIR_REL, WORKSPACE_AUTH_DIR_REL,
-    WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION,
-    WORKSPACE_LOCAL_DIR_REL, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL,
-    WORKSPACE_SNAPSHOT_GIT_REL,
+    SmartWarmupConfig, WorkspaceAuthConfig, WorkspaceBrandConfig, WorkspaceBuildConfig,
+    WorkspaceBuildGenerationConfig, WorkspaceComplianceConfig, WorkspaceConfig,
+    WorkspaceDeployDevEvalConfig, WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig,
+    WorkspaceProfile, WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig,
+    WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig, WorkspaceStockConfig,
+    WorkspaceStockPreviewConfig, WorkspaceStockSourceEntry, WorkspaceToolchainConfig,
+    WorkspaceWarmupAppConfig, WorkspaceWarmupConfig, WorkspaceWarmupDatasetConfig,
+    WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL, APP_CONFIG_FILENAME, APP_ENV_REL,
+    APP_TOML_FILENAME, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH, BUILD_MANIFEST_FILENAME,
+    DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_AUTHORING_REL,
+    DEFAULT_STOCK_CATALOG_APP_ID, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
+    DEPLOY_LINKS_REL, LEGACY_AUTH_JOURNAL_REL_PATH, LEGACY_WORKSPACE_AGENT_DB_REL,
+    LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,
+    LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, MEI_CONFIG_FILENAME, MEI_WORKSPACE_CONFIG_FILENAME,
+    OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS, PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL,
+    PREBUILD_LAST_BUILD_SUMMARY_REL, PRE_LOCAL_AUTH_JOURNAL_REL_PATH, TOOLCHAIN_ACTIVE_REL,
+    TOOLCHAIN_STORE_REL, WORKSPACE_AGENT_DB_REL, WORKSPACE_AGENT_LOCAL_DIR_REL,
+    WORKSPACE_AUTH_DIR_REL, WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL,
+    WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_LOCAL_DIR_REL,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
-    pub use workspace_paths::{
-    app_mei_config_path, app_source_rel_path_lookup_keys, app_toml_path, canonical_app_source_rel_path,
-    default_scene_assembly_key, is_app_mei_source_rel, is_plane_structure_mei_path,
-    is_region_structure_mei_path, is_section_structure_mei_path, is_v2_app_root, resolve_app_build_root,
-    resolve_app_build_store_root, resolve_app_data_snapshot_root, resolve_app_eval_cache_root,
-    resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root,
-    resolve_app_registry_root, resolve_app_root, resolve_app_src_root, resolve_app_var_root,
-    resolve_apps_root, resolve_authoring_root, resolve_components_root, resolve_deploy_root,
+pub use workspace_paths::{
+    app_mei_config_path, app_source_rel_path_lookup_keys, app_toml_path,
+    canonical_app_source_rel_path, default_scene_assembly_key, is_app_mei_source_rel,
+    is_plane_structure_mei_path, is_region_structure_mei_path, is_section_structure_mei_path,
+    is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
+    resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_id,
+    resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_registry_root,
+    resolve_app_root, resolve_app_src_root, resolve_app_var_root, resolve_apps_root,
+    resolve_authoring_root, resolve_components_root, resolve_deploy_root,
     resolve_scene_assembly_rel, resolve_stock_root, resolve_templates_root, resolve_toolchain_root,
     resolve_workspace_cache_root, resolve_workspace_graph_root, resolve_workspace_logs_root,
     resolve_workspace_path, resolve_workspace_platform_root, resolve_workspace_runtime_root,

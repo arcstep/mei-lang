@@ -1,0 +1,62 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "MeiLang Admin MDX",
+  "scopeName": "source.mei.admin.mdx",
+  "patterns": [
+    {
+      "begin": "\\A---\\s*$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.frontmatter.mei" }
+      },
+      "end": "^---\\s*$",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.frontmatter.mei" }
+      },
+      "patterns": [
+        {
+          "match": "^([a-z_][a-z0-9_]*)(\\s*:)",
+          "captures": {
+            "1": { "name": "entity.name.tag.mei" },
+            "2": { "name": "punctuation.separator.key-value.mei" }
+          }
+        },
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.mei"
+        },
+        {
+          "match": "\"[^\"]*\"|'[^']*'",
+          "name": "string.quoted.mei"
+        }
+      ]
+    },
+    {
+      "match": "^(@(?:field|column|upload|action|readonly_content|readonly_chart|readonly_canvas))\\b",
+      "captures": {
+        "1": { "name": "keyword.control.directive.mei" }
+      }
+    },
+    {
+      "match": "\\b([a-z_][a-z0-9_]*)(=)",
+      "captures": {
+        "1": { "name": "variable.parameter.mei" },
+        "2": { "name": "keyword.operator.assignment.mei" }
+      }
+    },
+    {
+      "match": "^(#{1,6})\\s+(.+)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.heading.markdown" },
+        "2": { "name": "markup.heading.markdown" }
+      }
+    },
+    {
+      "match": "`[^`]+`",
+      "name": "markup.inline.raw.string.markdown"
+    },
+    {
+      "match": "\"[^\"]*\"|'[^']*'",
+      "name": "string.quoted.mei"
+    }
+  ]
+}

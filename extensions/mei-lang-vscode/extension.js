@@ -10,6 +10,157 @@ const {
 
 /** @type {import("vscode-languageclient/node").LanguageClient | undefined} */
 let client;
+/** @type {import("vscode").DiagnosticCollection | undefined} */
+let adminDiagnostics;
+
+const ADMIN_FRONTMATTER_FIELDS = new Set([
+  "resource_id",
+  "title",
+  "description",
+  "template",
+  "provider",
+  "record_path",
+  "config_path",
+  "required_capabilities",
+  "scope",
+  "audit",
+  "danger_level",
+  "revision_policy",
+  "dirty_policy",
+  "apply_policy",
+  "navigation_menu",
+  "navigation_parent",
+  "navigation_order",
+  "navigation_keywords",
+]);
+
+function adminDiagnostic(document, line, message, code) {
+  const range = document.lineAt(Math.max(0, line)).range;
+  const diagnostic = new vscode.Diagnostic(
+    range,
+    message,
+    vscode.DiagnosticSeverity.Error
+  );
+  diagnostic.source = "MeiLang Admin MDX";
+  diagnostic.code = code;
+  return diagnostic;
+}
+
+function validateAdminMdx(document) {
+  if (document.languageId !== "mei-admin-mdx") return;
+  const lines = document.getText().split(/\r?\n/);
+  const diagnostics = [];
+  if (lines[0]?.trim() !== "---") {
+    diagnostics.push(
+      adminDiagnostic(document, 0, "Admin MDX 必须以 --- frontmatter 开始", "admin_mdx_parse")
+    );
+    adminDiagnostics.set(document.uri, diagnostics);
+    return;
+  }
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (end < 0) {
+    diagnostics.push(
+      adminDiagnostic(document, 0, "Admin MDX 缺少 frontmatter 结束 ---", "admin_mdx_parse")
+    );
+    adminDiagnostics.set(document.uri, diagnostics);
+    return;
+  }
+  const values = new Map();
+  for (let index = 1; index < end; index += 1) {
+    const raw = lines[index].trim();
+    if (!raw) continue;
+    const separator = raw.indexOf(":");
+    if (separator < 1) {
+      diagnostics.push(
+        adminDiagnostic(document, index, "frontmatter 必须使用 key: value", "admin_mdx_parse")
+      );
+      continue;
+    }
+    const key = raw.slice(0, separator).trim();
+    const value = raw.slice(separator + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (!ADMIN_FRONTMATTER_FIELDS.has(key)) {
+      diagnostics.push(
+        adminDiagnostic(document, index, `未知 frontmatter 字段 ${key}`, "admin_mdx_parse")
+      );
+    } else if (values.has(key)) {
+      diagnostics.push(
+        adminDiagnostic(document, index, `重复 frontmatter 字段 ${key}`, "admin_mdx_parse")
+      );
+    } else {
+      values.set(key, value);
+    }
+  }
+  for (const required of [
+    "resource_id",
+    "title",
+    "template",
+    "provider",
+    "required_capabilities",
+  ]) {
+    if (!values.get(required)) {
+      diagnostics.push(
+        adminDiagnostic(document, 0, `缺少必填 frontmatter 字段 ${required}`, "admin_mdx_parse")
+      );
+    }
+  }
+  const templates = new Set([
+    "singleton-form",
+    "collection-detail",
+    "asset-slot-collection",
+    "action-job-console",
+  ]);
+  if (values.has("template") && !templates.has(values.get("template"))) {
+    diagnostics.push(
+      adminDiagnostic(document, 0, `未知 template ${values.get("template")}`, "admin_mdx_parse")
+    );
+  }
+  const providers = new Set([
+    "config-record",
+    "crud-collection",
+    "asset-slot",
+    "command-job",
+  ]);
+  if (values.has("provider") && !providers.has(values.get("provider"))) {
+    diagnostics.push(
+      adminDiagnostic(document, 0, `未知 provider ${values.get("provider")}`, "admin_mdx_parse")
+    );
+  }
+  const directives =
+    /^@(field|column|upload|action|readonly_content|readonly_chart|readonly_canvas)\(.+\)$/;
+  for (let index = end + 1; index < lines.length; index += 1) {
+    const raw = lines[index].trim();
+    if (!raw) continue;
+    if (raw.startsWith("@") && !directives.test(raw)) {
+      diagnostics.push(
+        adminDiagnostic(document, index, `未知或格式错误的 Admin 指令 ${raw}`, "admin_mdx_parse")
+      );
+      continue;
+    }
+    const sectionHeading = /^##\s+.+\s+\{#[A-Za-z_][A-Za-z0-9_-]*\}$/.test(raw);
+    if (!sectionHeading && (raw.includes("<") || raw.includes(">"))) {
+      diagnostics.push(
+        adminDiagnostic(document, index, "Admin MDX 禁止 JSX/HTML", "admin_mdx_jsx_forbidden")
+      );
+    }
+    if (!sectionHeading && (raw.includes("{") || raw.includes("}"))) {
+      diagnostics.push(
+        adminDiagnostic(document, index, "Admin MDX 禁止 JavaScript 表达式", "admin_mdx_js_forbidden")
+      );
+    }
+  }
+  adminDiagnostics.set(document.uri, diagnostics);
+}
+
+function activateAdminDiagnostics(context) {
+  adminDiagnostics = vscode.languages.createDiagnosticCollection("mei-admin-mdx");
+  context.subscriptions.push(adminDiagnostics);
+  for (const document of vscode.workspace.textDocuments) validateAdminMdx(document);
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(validateAdminMdx),
+    vscode.workspace.onDidChangeTextDocument((event) => validateAdminMdx(event.document)),
+    vscode.workspace.onDidCloseTextDocument((document) => adminDiagnostics.delete(document.uri))
+  );
+}
 
 /**
  * @param {string} startDir
@@ -115,6 +266,7 @@ function resolveMeiLspCommand() {
  * @param {import("vscode").ExtensionContext} context
  */
 async function activate(context) {
+  activateAdminDiagnostics(context);
   const command = resolveMeiLspCommand();
   if (!command) {
     vscode.window.showWarningMessage(

@@ -1,0 +1,22 @@
+schema_version = "mei-app-v1"
+title = "Admin MDX Fixture"
+default_stage = "home"
+
+[ops.themes.cockpit.tokens.font]
+family_ui = "system-ui"
+family_header = "system-ui"
+
+[ops.themes.cockpit.tokens.shell]
+bg = "#0b1220"
+stage = "#111827"
+text = "#e5e7eb"
+
+[ops.themes.cockpit.tokens.color]
+panel_title = "#f8fafc"
+
+[ops.themes.cockpit.tokens.panel]
+padding = "12px"
+radius = "8px"
+
+[ops.themes.cockpit.frame]
+padding = "16px"

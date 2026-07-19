@@ -1698,7 +1698,22 @@
 
 /* ===== admin-kit/form-card.js ===== */
 (() => {
-  const root = document.getElementById("admin-form-root");
+  function resolveFormRoot() {
+    const compose = document.getElementById("mei-admin-compose-root");
+    const legacy = document.getElementById("admin-form-root");
+    if (legacy && !compose) {
+      console.error(
+        "[admin-kit/form-card] #admin-form-root must mount under #mei-admin-compose-root"
+      );
+      return null;
+    }
+    if (!compose) return null;
+    const root = compose.querySelector("#admin-form-root");
+    if (!root) return null;
+    return root;
+  }
+
+  const root = resolveFormRoot();
   if (!root) return;
 
   const appId = root.getAttribute("data-app-id") || "";
@@ -1711,6 +1726,9 @@
   }
 
   let revision = 0;
+  let persistedRevision = 0;
+  let effectiveRevision = 0;
+  let applyPolicy = "hot";
   let baseline = {};
   let dirty = false;
   let saving = false;
@@ -1747,6 +1765,24 @@
       .replace(/"/g, "&quot;");
   }
 
+  function valueAtPath(value, path) {
+    return String(path || "")
+      .split(".")
+      .filter(Boolean)
+      .reduce((current, segment) => (current == null ? undefined : current[segment]), value);
+  }
+
+  function setValueAtPath(value, path, next) {
+    const segments = String(path || "").split(".").filter(Boolean);
+    if (!segments.length) return;
+    let current = value;
+    for (const segment of segments.slice(0, -1)) {
+      if (!current[segment] || typeof current[segment] !== "object") current[segment] = {};
+      current = current[segment];
+    }
+    current[segments[segments.length - 1]] = next;
+  }
+
   function renderError(message) {
     root.innerHTML = `<div class="admin-kit-card admin-kit-card--danger">
       <div class="admin-kit-card-head">
@@ -1775,22 +1811,36 @@
         <h2 class="admin-kit-section-title">${escapeHtml(title)}</h2>
         <div class="grid gap-3">`;
       for (const field of group) {
-        const value = payload[field.id] ?? "";
+        const value = valueAtPath(payload, field.value_path || field.id) ?? "";
         const required = field.required ? "required" : "";
+        const readonly = field.readonly ? "readonly disabled" : "";
         const control = field.control || "text";
         const label = escapeHtml(field.label || field.id);
         const name = escapeHtml(field.id);
         if (control === "textarea") {
           sectionsHtml += `<label class="admin-kit-field">
             <span class="admin-kit-field-label">${label}</span>
-            <textarea class="admin-kit-field-input" name="${name}" ${required}>${escapeHtml(
+            <textarea class="admin-kit-field-input" name="${name}" ${required} ${readonly}>${escapeHtml(
               value,
             )}</textarea>
           </label>`;
         } else if (control === "boolean") {
           sectionsHtml += `<label class="admin-kit-field admin-kit-field--check">
-            <input type="checkbox" name="${name}" ${value ? "checked" : ""}/>
+            <input type="checkbox" name="${name}" ${value ? "checked" : ""} ${readonly}/>
             <span class="admin-kit-field-label">${label}</span>
+          </label>`;
+        } else if (control === "select") {
+          const options = (field.options || [])
+            .map(
+              (option) =>
+                `<option value="${escapeHtml(option.value)}" ${
+                  String(option.value) === String(value) ? "selected" : ""
+                }>${escapeHtml(option.label || option.value)}</option>`,
+            )
+            .join("");
+          sectionsHtml += `<label class="admin-kit-field">
+            <span class="admin-kit-field-label">${label}</span>
+            <select class="admin-kit-field-input" name="${name}" ${required} ${readonly}>${options}</select>
           </label>`;
         } else {
           const type = control === "number" ? "number" : "text";
@@ -1798,7 +1848,7 @@
             <span class="admin-kit-field-label">${label}</span>
             <input class="admin-kit-field-input" type="${type}" name="${name}" value="${escapeHtml(
               value,
-            )}" ${required}/>
+            )}" ${required} ${readonly}/>
           </label>`;
         }
       }
@@ -1817,7 +1867,9 @@
           <button type="button" class="admin-kit-btn admin-kit-btn-ghost" data-admin-reset>重置</button>
           <span class="admin-kit-status" data-admin-status></span>
         </div>
-        <span class="admin-kit-savebar-meta" data-admin-revision>revision ${revision}</span>
+        <span class="admin-kit-savebar-meta" data-admin-revision>持久 ${persistedRevision} · 生效 ${effectiveRevision} · ${escapeHtml(
+          applyPolicy,
+        )}</span>
       </div>
     </form>`;
 
@@ -1837,22 +1889,27 @@
   }
 
   function readPayload(form) {
-    const data = {};
+    const data = JSON.parse(JSON.stringify(baseline || {}));
     const fields = fieldDefs();
     for (const field of fields) {
       const el = form.elements.namedItem(field.id);
       if (!el) continue;
       if (field.control === "boolean") {
-        data[field.id] = !!el.checked;
+        setValueAtPath(data, field.value_path || field.id, !!el.checked);
       } else if (field.control === "number") {
-        data[field.id] = el.value === "" ? null : Number(el.value);
+        setValueAtPath(
+          data,
+          field.value_path || field.id,
+          el.value === "" ? null : Number(el.value),
+        );
       } else {
-        data[field.id] = el.value;
+        setValueAtPath(data, field.value_path || field.id, el.value);
       }
+      const fieldValue = valueAtPath(data, field.value_path || field.id);
       if (
         field.required &&
         field.control !== "boolean" &&
-        (data[field.id] === "" || data[field.id] == null)
+        (fieldValue === "" || fieldValue == null)
       ) {
         throw new Error(`${field.label || field.id} 为必填`);
       }
@@ -1899,10 +1956,13 @@
         return;
       }
       revision = body.revision ?? revision + 1;
+      persistedRevision = body.persistedRevision ?? revision;
+      effectiveRevision = body.effectiveRevision ?? persistedRevision;
+      applyPolicy = body.applyPolicy || applyPolicy;
       baseline = body.payload || payload;
       renderForm(baseline);
       markDirty(false);
-      setStatus("已保存");
+      setStatus(body.runtimeRestartRequired ? "已保存；需要重启 Runtime 后生效" : "已保存并生效");
     } catch (err) {
       setStatus(err.message || "网络错误");
     } finally {
@@ -1930,6 +1990,9 @@
         return;
       }
       revision = body.revision || 0;
+      persistedRevision = body.persistedRevision ?? revision;
+      effectiveRevision = body.effectiveRevision ?? persistedRevision;
+      applyPolicy = body.applyPolicy || "hot";
       baseline = body.payload && typeof body.payload === "object" ? body.payload : {};
       if (body.spec) {
         resourceSpec = { ...resourceSpec, spec: body.spec };
@@ -1946,7 +2009,22 @@
 
 /* ===== admin-kit/asset-slot.js ===== */
 (() => {
-  const root = document.getElementById("admin-asset-slot-root");
+  function resolveAssetSlotRoot() {
+    const compose = document.getElementById("mei-admin-compose-root");
+    const legacy = document.getElementById("admin-asset-slot-root");
+    if (legacy && !compose) {
+      console.error(
+        "[admin-kit/asset-slot] #admin-asset-slot-root must mount under #mei-admin-compose-root"
+      );
+      return null;
+    }
+    if (!compose) return null;
+    const root = compose.querySelector("#admin-asset-slot-root");
+    if (!root) return null;
+    return root;
+  }
+
+  const root = resolveAssetSlotRoot();
   if (!root) return;
 
   const appId = root.getAttribute("data-app-id") || "";

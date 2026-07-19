@@ -9,6 +9,7 @@ mod diagnostic;
 mod layout;
 mod narration_abi;
 mod object_catalog;
+mod page_program;
 mod presentation_map_schema;
 mod profile_layout_policy;
 mod resource;
@@ -65,6 +66,7 @@ pub use object_catalog::{
     DEFAULT_OBJECT_ASSEMBLY_KIND, INTERACTION_PROTOCOL_SCHEMA_VERSION,
     OBJECT_CATALOG_SCHEMA_VERSION, OBJECT_INDEX_ENTRY_KIND, OBJECT_RECIPE_SCHEMA_VERSION,
 };
+pub use page_program::{AdminPageProgram, PageProgram};
 pub use presentation_map_schema::{
     accept_presentation_map, presentation_map_is_absent, presentation_map_schema_ok,
     presentation_map_schema_version, PRESENTATION_MAP_SCHEMA_VERSION,

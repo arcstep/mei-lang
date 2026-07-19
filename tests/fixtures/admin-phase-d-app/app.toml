@@ -6,9 +6,6 @@ generation = "current"
 [paths]
 upload = "upload"
 
-[admin]
-manifest = "admin/admin.toml"
-
 [ops.sources.supervision_items]
 kind = "csv"
 path = "upload/supervision-items.csv"

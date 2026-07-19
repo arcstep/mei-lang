@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use mei_syntax::{AdminMdxBlock, AdminMdxDocument};
 use serde::{Deserialize, Serialize};
 
 pub const ADMIN_RESOURCE_API_VERSION: &str = "mei-admin-resource-v1";
@@ -35,6 +36,9 @@ pub struct AdminResourceSpec {
     pub provider: AdminProviderKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_path: Option<String>,
+    /// Dotted path inside `app.toml` for canonical app configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
     pub required_capabilities: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -50,6 +54,8 @@ pub struct AdminResourceSpec {
     pub idempotency: Option<AdminIdempotency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dirty_policy: Option<AdminDirtyPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apply_policy: Option<AdminApplyPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navigation: Option<AdminNavigation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -119,6 +125,14 @@ pub enum AdminDirtyPolicy {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AdminApplyPolicy {
+    Hot,
+    ReloadView,
+    RestartRuntime,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdminNavigation {
@@ -152,6 +166,8 @@ pub struct AdminSection {
 #[serde(deny_unknown_fields)]
 pub struct AdminField {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_path: Option<String>,
     pub label: String,
     pub control: AdminFieldControl,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -284,12 +300,485 @@ pub fn load_admin_manifest(path: &Path) -> Result<AdminManifest, AdminManifestEr
     parse_and_validate_admin_manifest(&text)
 }
 
+/// Parse one convention-discovered `src/admin/**/*.admin.mdx` resource and
+/// lower its shallow Page/Form declarations into the existing governance IR.
+pub fn load_admin_mdx_resource(path: &Path) -> Result<AdminResourceSpec, AdminManifestError> {
+    let document = mei_syntax::parse_admin_mdx_file(path)
+        .map_err(|error| AdminManifestError::Parse(error.to_string()))?;
+    lower_admin_mdx_document(&document)
+}
+
+pub fn lower_admin_mdx_document(
+    document: &AdminMdxDocument,
+) -> Result<AdminResourceSpec, AdminManifestError> {
+    let frontmatter = &document.frontmatter;
+    let mut sections = Vec::new();
+    let mut columns = Vec::new();
+    let mut upload = None;
+    let mut actions = Vec::new();
+    for block in &document.blocks {
+        match block {
+            AdminMdxBlock::Section { id, title, fields } => {
+                sections.push(AdminSection {
+                    id: id.clone(),
+                    title: title.clone(),
+                    fields: fields
+                        .iter()
+                        .map(|field| {
+                            Ok(AdminField {
+                                id: field.id.clone(),
+                                value_path: field.path.clone(),
+                                label: field.label.clone(),
+                                control: parse_field_control(&field.control)?,
+                                required: field.required,
+                                description: field.description.clone(),
+                                readonly: field.readonly,
+                                options: field
+                                    .options
+                                    .iter()
+                                    .map(|option| AdminFieldOption {
+                                        value: option.value.clone(),
+                                        label: option.label.clone(),
+                                    })
+                                    .collect(),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, AdminManifestError>>()?,
+                });
+            }
+            AdminMdxBlock::Column(column) => columns.push(AdminColumn {
+                id: column.id.clone(),
+                label: column.label.clone(),
+                control: column
+                    .control
+                    .as_deref()
+                    .map(parse_field_control)
+                    .transpose()?,
+            }),
+            AdminMdxBlock::Upload(value) => {
+                if upload.is_some() {
+                    return Err(AdminManifestError::Validation(format!(
+                        "resource {:?} declares more than one @upload",
+                        frontmatter.resource_id
+                    )));
+                }
+                upload = Some(AdminUploadSpec {
+                    accept: value.accept.clone(),
+                    max_bytes: value.max_bytes,
+                    replace_modes: value.replace_modes.clone(),
+                    retain_versions: value.retain_versions,
+                    schema_ref: value.schema_ref.clone(),
+                    requires_review: value.requires_review,
+                });
+            }
+            AdminMdxBlock::Action(action) => actions.push(AdminAction {
+                id: action.id.clone(),
+                label: action.label.clone(),
+                provider: parse_provider(&action.provider)?,
+                method: action.method.clone(),
+                danger_level: action
+                    .danger_level
+                    .as_deref()
+                    .map(parse_danger_level)
+                    .transpose()?,
+            }),
+            AdminMdxBlock::Markdown { .. } | AdminMdxBlock::Readonly(_) => {}
+        }
+    }
+
+    let navigation = if frontmatter.navigation_menu.is_some()
+        || frontmatter.navigation_parent.is_some()
+        || frontmatter.navigation_order.is_some()
+        || !frontmatter.navigation_keywords.is_empty()
+    {
+        Some(AdminNavigation {
+            menu: frontmatter
+                .navigation_menu
+                .clone()
+                .map(AdminMenuValue::Label),
+            parent: frontmatter.navigation_parent.clone(),
+            order: frontmatter.navigation_order,
+            keywords: frontmatter.navigation_keywords.clone(),
+        })
+    } else {
+        None
+    };
+
+    let resource = AdminResourceSpec {
+        resource_id: frontmatter.resource_id.clone(),
+        title: frontmatter.title.clone(),
+        description: frontmatter.description.clone(),
+        namespace: None,
+        template: parse_template(&frontmatter.template)?,
+        provider: parse_provider(&frontmatter.provider)?,
+        record_path: frontmatter.record_path.clone(),
+        config_path: frontmatter.config_path.clone(),
+        required_capabilities: frontmatter.required_capabilities.clone(),
+        scope: frontmatter.scope.clone(),
+        audit: frontmatter.audit,
+        danger_level: frontmatter
+            .danger_level
+            .as_deref()
+            .map(parse_danger_level)
+            .transpose()?,
+        revision_policy: frontmatter
+            .revision_policy
+            .as_deref()
+            .map(parse_revision_policy)
+            .transpose()?,
+        validation: None,
+        idempotency: None,
+        dirty_policy: frontmatter
+            .dirty_policy
+            .as_deref()
+            .map(parse_dirty_policy)
+            .transpose()?,
+        apply_policy: frontmatter
+            .apply_policy
+            .as_deref()
+            .map(parse_apply_policy)
+            .transpose()?,
+        navigation,
+        sections,
+        columns,
+        allowed_views: Vec::new(),
+        upload,
+        actions,
+        query: None,
+        get: None,
+        mutation: None,
+    };
+    validate_resource(&resource)?;
+    Ok(resource)
+}
+
+/// Render the canonical shallow Admin MDX form used by migration tooling.
+pub fn render_admin_resource_mdx(resource: &AdminResourceSpec) -> String {
+    let mut lines = vec![
+        "---".to_string(),
+        format!("resource_id: {}", quote_mdx(&resource.resource_id)),
+        format!("title: {}", quote_mdx(&resource.title)),
+    ];
+    push_frontmatter(&mut lines, "description", resource.description.as_deref());
+    lines.push(format!(
+        "template: {}",
+        admin_template_name(resource.template)
+    ));
+    lines.push(format!(
+        "provider: {}",
+        admin_provider_name(resource.provider)
+    ));
+    push_frontmatter(&mut lines, "record_path", resource.record_path.as_deref());
+    push_frontmatter(&mut lines, "config_path", resource.config_path.as_deref());
+    lines.push(format!(
+        "required_capabilities: [{}]",
+        resource.required_capabilities.join(", ")
+    ));
+    push_frontmatter(&mut lines, "scope", resource.scope.as_deref());
+    if let Some(value) = resource.audit {
+        lines.push(format!("audit: {value}"));
+    }
+    if let Some(value) = resource.danger_level {
+        lines.push(format!("danger_level: {}", danger_level_name(value)));
+    }
+    if let Some(value) = resource.revision_policy {
+        lines.push(format!("revision_policy: {}", revision_policy_name(value)));
+    }
+    if let Some(value) = resource.dirty_policy {
+        lines.push(format!("dirty_policy: {}", dirty_policy_name(value)));
+    }
+    if let Some(value) = resource.apply_policy {
+        lines.push(format!("apply_policy: {}", apply_policy_name(value)));
+    }
+    if let Some(navigation) = &resource.navigation {
+        if let Some(AdminMenuValue::Label(label)) = &navigation.menu {
+            lines.push(format!("navigation_menu: {}", quote_mdx(label)));
+        }
+        push_frontmatter(
+            &mut lines,
+            "navigation_parent",
+            navigation.parent.as_deref(),
+        );
+        if let Some(order) = navigation.order {
+            lines.push(format!("navigation_order: {order}"));
+        }
+        if !navigation.keywords.is_empty() {
+            lines.push(format!(
+                "navigation_keywords: [{}]",
+                navigation
+                    .keywords
+                    .iter()
+                    .map(|value| quote_mdx(value))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+    lines.push("---".to_string());
+    if let Some(description) = resource.description.as_deref() {
+        lines.extend(["".to_string(), description.to_string()]);
+    }
+    for section in &resource.sections {
+        lines.extend([
+            "".to_string(),
+            format!("## {} {{#{}}}", section.title, section.id),
+        ]);
+        for field in &section.fields {
+            let mut args = vec![
+                format!("id={}", quote_mdx(&field.id)),
+                format!("label={}", quote_mdx(&field.label)),
+                format!("control={}", quote_mdx(field_control_name(field.control))),
+            ];
+            if let Some(path) = field.value_path.as_deref() {
+                args.push(format!("path={}", quote_mdx(path)));
+            }
+            if let Some(value) = field.required {
+                args.push(format!("required={value}"));
+            }
+            if let Some(value) = field.readonly {
+                args.push(format!("readonly={value}"));
+            }
+            if let Some(description) = field.description.as_deref() {
+                args.push(format!("description={}", quote_mdx(description)));
+            }
+            if !field.options.is_empty() {
+                let options = field
+                    .options
+                    .iter()
+                    .map(|option| format!("{}={}", option.value, option.label))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                args.push(format!("options={}", quote_mdx(&options)));
+            }
+            lines.push(format!("@field({})", args.join(", ")));
+        }
+    }
+    for column in &resource.columns {
+        let mut args = vec![
+            format!("id={}", quote_mdx(&column.id)),
+            format!("label={}", quote_mdx(&column.label)),
+        ];
+        if let Some(control) = column.control {
+            args.push(format!(
+                "control={}",
+                quote_mdx(field_control_name(control))
+            ));
+        }
+        lines.extend(["".to_string(), format!("@column({})", args.join(", "))]);
+    }
+    if let Some(upload) = &resource.upload {
+        let mut args = Vec::new();
+        if !upload.accept.is_empty() {
+            args.push(format!("accept={}", quote_mdx(&upload.accept.join("|"))));
+        }
+        if let Some(value) = upload.max_bytes {
+            args.push(format!("max_bytes={value}"));
+        }
+        if !upload.replace_modes.is_empty() {
+            args.push(format!(
+                "replace_modes={}",
+                quote_mdx(&upload.replace_modes.join("|"))
+            ));
+        }
+        if let Some(value) = upload.retain_versions {
+            args.push(format!("retain_versions={value}"));
+        }
+        if let Some(value) = upload.schema_ref.as_deref() {
+            args.push(format!("schema_ref={}", quote_mdx(value)));
+        }
+        if let Some(value) = upload.requires_review {
+            args.push(format!("requires_review={value}"));
+        }
+        lines.extend(["".to_string(), format!("@upload({})", args.join(", "))]);
+    }
+    for action in &resource.actions {
+        let mut args = vec![
+            format!("id={}", quote_mdx(&action.id)),
+            format!("label={}", quote_mdx(&action.label)),
+            format!(
+                "provider={}",
+                quote_mdx(admin_provider_name(action.provider))
+            ),
+            format!("method={}", quote_mdx(&action.method)),
+        ];
+        if let Some(value) = action.danger_level {
+            args.push(format!(
+                "danger_level={}",
+                quote_mdx(danger_level_name(value))
+            ));
+        }
+        lines.extend(["".to_string(), format!("@action({})", args.join(", "))]);
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn push_frontmatter(lines: &mut Vec<String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        lines.push(format!("{key}: {}", quote_mdx(value)));
+    }
+}
+
+fn quote_mdx(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn admin_template_name(value: AdminTemplate) -> &'static str {
+    match value {
+        AdminTemplate::SingletonForm => "singleton-form",
+        AdminTemplate::CollectionDetail => "collection-detail",
+        AdminTemplate::AssetSlotCollection => "asset-slot-collection",
+        AdminTemplate::ActionJobConsole => "action-job-console",
+    }
+}
+
+fn admin_provider_name(value: AdminProviderKind) -> &'static str {
+    match value {
+        AdminProviderKind::ConfigRecord => "config-record",
+        AdminProviderKind::CrudCollection => "crud-collection",
+        AdminProviderKind::AssetSlot => "asset-slot",
+        AdminProviderKind::CommandJob => "command-job",
+    }
+}
+
+fn field_control_name(value: AdminFieldControl) -> &'static str {
+    match value {
+        AdminFieldControl::Text => "text",
+        AdminFieldControl::Textarea => "textarea",
+        AdminFieldControl::Number => "number",
+        AdminFieldControl::Boolean => "boolean",
+        AdminFieldControl::Select => "select",
+        AdminFieldControl::Multiselect => "multiselect",
+        AdminFieldControl::Datetime => "datetime",
+        AdminFieldControl::Json => "json",
+    }
+}
+
+fn danger_level_name(value: AdminDangerLevel) -> &'static str {
+    match value {
+        AdminDangerLevel::Normal => "normal",
+        AdminDangerLevel::Elevated => "elevated",
+        AdminDangerLevel::Critical => "critical",
+    }
+}
+
+fn revision_policy_name(value: AdminRevisionPolicy) -> &'static str {
+    match value {
+        AdminRevisionPolicy::None => "none",
+        AdminRevisionPolicy::Optimistic => "optimistic",
+    }
+}
+
+fn dirty_policy_name(value: AdminDirtyPolicy) -> &'static str {
+    match value {
+        AdminDirtyPolicy::BlockLeave => "block-leave",
+        AdminDirtyPolicy::Warn => "warn",
+        AdminDirtyPolicy::None => "none",
+    }
+}
+
+fn apply_policy_name(value: AdminApplyPolicy) -> &'static str {
+    match value {
+        AdminApplyPolicy::Hot => "hot",
+        AdminApplyPolicy::ReloadView => "reload-view",
+        AdminApplyPolicy::RestartRuntime => "restart-runtime",
+    }
+}
+
+fn parse_template(value: &str) -> Result<AdminTemplate, AdminManifestError> {
+    match value {
+        "singleton-form" => Ok(AdminTemplate::SingletonForm),
+        "collection-detail" => Ok(AdminTemplate::CollectionDetail),
+        "asset-slot-collection" => Ok(AdminTemplate::AssetSlotCollection),
+        "action-job-console" => Ok(AdminTemplate::ActionJobConsole),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin template {value:?}"
+        ))),
+    }
+}
+
+fn parse_provider(value: &str) -> Result<AdminProviderKind, AdminManifestError> {
+    match value {
+        "config-record" => Ok(AdminProviderKind::ConfigRecord),
+        "crud-collection" => Ok(AdminProviderKind::CrudCollection),
+        "asset-slot" => Ok(AdminProviderKind::AssetSlot),
+        "command-job" => Ok(AdminProviderKind::CommandJob),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin provider {value:?}"
+        ))),
+    }
+}
+
+fn parse_field_control(value: &str) -> Result<AdminFieldControl, AdminManifestError> {
+    match value {
+        "text" => Ok(AdminFieldControl::Text),
+        "textarea" => Ok(AdminFieldControl::Textarea),
+        "number" => Ok(AdminFieldControl::Number),
+        "boolean" => Ok(AdminFieldControl::Boolean),
+        "select" => Ok(AdminFieldControl::Select),
+        "multiselect" => Ok(AdminFieldControl::Multiselect),
+        "datetime" => Ok(AdminFieldControl::Datetime),
+        "json" => Ok(AdminFieldControl::Json),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin field control {value:?}"
+        ))),
+    }
+}
+
+fn parse_danger_level(value: &str) -> Result<AdminDangerLevel, AdminManifestError> {
+    match value {
+        "normal" => Ok(AdminDangerLevel::Normal),
+        "elevated" => Ok(AdminDangerLevel::Elevated),
+        "critical" => Ok(AdminDangerLevel::Critical),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin danger_level {value:?}"
+        ))),
+    }
+}
+
+fn parse_revision_policy(value: &str) -> Result<AdminRevisionPolicy, AdminManifestError> {
+    match value {
+        "none" => Ok(AdminRevisionPolicy::None),
+        "optimistic" => Ok(AdminRevisionPolicy::Optimistic),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin revision_policy {value:?}"
+        ))),
+    }
+}
+
+fn parse_dirty_policy(value: &str) -> Result<AdminDirtyPolicy, AdminManifestError> {
+    match value {
+        "block-leave" => Ok(AdminDirtyPolicy::BlockLeave),
+        "warn" => Ok(AdminDirtyPolicy::Warn),
+        "none" => Ok(AdminDirtyPolicy::None),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin dirty_policy {value:?}"
+        ))),
+    }
+}
+
+fn parse_apply_policy(value: &str) -> Result<AdminApplyPolicy, AdminManifestError> {
+    match value {
+        "hot" => Ok(AdminApplyPolicy::Hot),
+        "reload-view" => Ok(AdminApplyPolicy::ReloadView),
+        "restart-runtime" => Ok(AdminApplyPolicy::RestartRuntime),
+        _ => Err(AdminManifestError::Validation(format!(
+            "unknown admin apply_policy {value:?}"
+        ))),
+    }
+}
+
 /// Resolve `[admin].manifest` relative to app root; `None` if unset.
 pub fn resolve_admin_manifest_path(
     app_root: &Path,
     admin_ref: &AppAdminRef,
 ) -> Result<Option<PathBuf>, AdminManifestError> {
-    let Some(rel) = admin_ref.manifest.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+    let Some(rel) = admin_ref
+        .manifest
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    else {
         return Ok(None);
     };
     validate_relative_sandbox_path(rel, "admin.manifest")?;
@@ -321,7 +810,12 @@ pub fn validate_admin_manifest(manifest: &AdminManifest) -> Result<(), AdminMani
 
     for resource in &manifest.resources {
         if let Some(nav) = &resource.navigation {
-            if let Some(parent) = nav.parent.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(parent) = nav
+                .parent
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 if !seen_ids.contains(parent) {
                     return Err(AdminManifestError::Validation(format!(
                         "resource {:?} navigation.parent {:?} is not in this manifest",
@@ -378,7 +872,22 @@ fn validate_resource(resource: &AdminResourceSpec) -> Result<(), AdminManifestEr
     }
 
     if let Some(path) = &resource.record_path {
-        validate_relative_sandbox_path(path, &format!("resource {}.record_path", resource.resource_id))?;
+        validate_relative_sandbox_path(
+            path,
+            &format!("resource {}.record_path", resource.resource_id),
+        )?;
+    }
+    if let Some(path) = &resource.config_path {
+        validate_config_path(
+            path,
+            &format!("resource {}.config_path", resource.resource_id),
+        )?;
+    }
+    if resource.record_path.is_some() && resource.config_path.is_some() {
+        return Err(AdminManifestError::Validation(format!(
+            "resource {:?} must declare only one of record_path or config_path",
+            resource.resource_id
+        )));
     }
     if let Some(upload) = &resource.upload {
         if let Some(schema_ref) = &upload.schema_ref {
@@ -416,6 +925,9 @@ fn validate_resource(resource: &AdminResourceSpec) -> Result<(), AdminManifestEr
         validate_snake_id(&section.id, "section.id")?;
         for field in &section.fields {
             validate_snake_id(&field.id, "field.id")?;
+            if let Some(path) = &field.value_path {
+                validate_value_path(path, "field.value_path")?;
+            }
             validate_field_control(field)?;
         }
     }
@@ -442,7 +954,8 @@ fn validate_field_control(field: &AdminField) -> Result<(), AdminManifestError> 
             if field.options.is_empty() {
                 return Err(AdminManifestError::Validation(format!(
                     "field {:?} with control {:?} requires options",
-                    field.id, format!("{:?}", field.control).to_ascii_lowercase()
+                    field.id,
+                    format!("{:?}", field.control).to_ascii_lowercase()
                 )));
             }
         }
@@ -475,10 +988,12 @@ fn validate_template_matrix(resource: &AdminResourceSpec) -> Result<(), AdminMan
                     "resource {id:?} singleton-form must not allow gallery view"
                 )));
             }
-            if resource.provider == AdminProviderKind::ConfigRecord && resource.record_path.is_none()
+            if resource.provider == AdminProviderKind::ConfigRecord
+                && resource.record_path.is_none()
+                && resource.config_path.is_none()
             {
                 return Err(AdminManifestError::Validation(format!(
-                    "resource {id:?} config-record singleton-form requires record_path"
+                    "resource {id:?} config-record singleton-form requires record_path or config_path"
                 )));
             }
         }
@@ -503,6 +1018,11 @@ fn validate_template_matrix(resource: &AdminResourceSpec) -> Result<(), AdminMan
                     "resource {id:?} collection-detail must not declare record_path"
                 )));
             }
+            if resource.config_path.is_some() {
+                return Err(AdminManifestError::Validation(format!(
+                    "resource {id:?} collection-detail must not declare config_path"
+                )));
+            }
         }
         AdminTemplate::AssetSlotCollection => {
             if resource.upload.is_none() {
@@ -518,6 +1038,11 @@ fn validate_template_matrix(resource: &AdminResourceSpec) -> Result<(), AdminMan
             if resource.record_path.is_some() {
                 return Err(AdminManifestError::Validation(format!(
                     "resource {id:?} asset-slot-collection must not declare record_path"
+                )));
+            }
+            if resource.config_path.is_some() {
+                return Err(AdminManifestError::Validation(format!(
+                    "resource {id:?} asset-slot-collection must not declare config_path"
                 )));
             }
         }
@@ -549,19 +1074,57 @@ fn validate_template_matrix(resource: &AdminResourceSpec) -> Result<(), AdminMan
 
 fn validate_snake_id(id: &str, field: &str) -> Result<(), AdminManifestError> {
     let ok = id.len() <= 64
-        && id
-            .chars()
-            .enumerate()
-            .all(|(i, c)| match (i, c) {
-                (0, c) => c.is_ascii_lowercase(),
-                (_, c) => c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_',
-            });
+        && id.chars().enumerate().all(|(i, c)| match (i, c) {
+            (0, c) => c.is_ascii_lowercase(),
+            (_, c) => c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_',
+        });
     if !ok {
         return Err(AdminManifestError::Validation(format!(
             "{field} {id:?} must match [a-z][a-z0-9_]{{0,63}}"
         )));
     }
     Ok(())
+}
+
+fn validate_config_path(path: &str, field: &str) -> Result<(), AdminManifestError> {
+    let segments = path.trim().split('.').collect::<Vec<_>>();
+    if segments.is_empty()
+        || segments
+            .iter()
+            .any(|segment| segment.is_empty() || !validate_config_segment(segment))
+    {
+        return Err(AdminManifestError::Validation(format!(
+            "{field} {path:?} must be a dotted identifier path"
+        )));
+    }
+    if segments.first().copied() != Some("ops") {
+        return Err(AdminManifestError::Validation(format!(
+            "{field} {path:?} must stay under ops.*"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_value_path(path: &str, field: &str) -> Result<(), AdminManifestError> {
+    if path.trim().split('.').any(|segment| {
+        segment.is_empty()
+            || !segment.chars().enumerate().all(|(index, ch)| match index {
+                0 => ch.is_ascii_alphanumeric() || ch == '_',
+                _ => ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'),
+            })
+    }) {
+        return Err(AdminManifestError::Validation(format!(
+            "{field} {path:?} must be a dotted field path"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_config_segment(segment: &str) -> bool {
+    segment.chars().enumerate().all(|(index, ch)| match index {
+        0 => ch.is_ascii_alphabetic() || ch == '_',
+        _ => ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'),
+    })
 }
 
 pub fn validate_relative_sandbox_path(path: &str, field: &str) -> Result<(), AdminManifestError> {
@@ -693,5 +1256,22 @@ mod tests {
             .expect("ok")
             .expect("some");
         assert_eq!(path, PathBuf::from("/tmp/app/admin/admin.toml"));
+    }
+
+    #[test]
+    fn renders_toml_resource_as_equivalent_admin_mdx() {
+        let manifest =
+            load_admin_manifest(&fixtures_root().join("valid/admin.toml")).expect("manifest");
+        for resource in &manifest.resources {
+            let mdx = render_admin_resource_mdx(resource);
+            let document = mei_syntax::parse_admin_mdx_source(&mdx).expect("rendered mdx parses");
+            let lowered = lower_admin_mdx_document(&document).expect("rendered mdx lowers");
+            assert_eq!(lowered.resource_id, resource.resource_id);
+            assert_eq!(lowered.template, resource.template);
+            assert_eq!(lowered.provider, resource.provider);
+            assert_eq!(lowered.sections.len(), resource.sections.len());
+            assert_eq!(lowered.columns.len(), resource.columns.len());
+            assert_eq!(lowered.upload.is_some(), resource.upload.is_some());
+        }
     }
 }

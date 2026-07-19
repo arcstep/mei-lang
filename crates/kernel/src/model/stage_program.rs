@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::stage_registry::{StageDescriptor, StageId, StageProfile, StageRegistry};
+use super::{AdminPageProgram, PageProgram};
 
 /// Stage Surface (viewport / paged / document; Access kept as wire-compat alias).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -226,6 +227,35 @@ impl StageProgram {
     pub fn unit_ids(&self) -> Vec<&str> {
         self.units.iter().map(|u| u.id.as_str()).collect()
     }
+
+    /// Project a page-profile StageProgram into the generic document PageProgram IR.
+    ///
+    /// The projection keeps the existing StageProgram wire shape and call sites
+    /// intact while making PageProgram the typed wrapper for page consumers.
+    pub fn page_program(&self) -> Option<PageProgram> {
+        if self.profile != StageProfile::Page {
+            return None;
+        }
+
+        let root = self
+            .units
+            .iter()
+            .find(|unit| unit.kind == StageUnitKind::SceneRef)?;
+        let scene_ref = root.scene_ref.as_deref()?;
+
+        Some(PageProgram::from_scene_ref(
+            self.stage_id.as_str(),
+            root.title.clone(),
+            self.source_anchor.clone(),
+            scene_ref,
+        ))
+    }
+
+    /// Wrap this page-profile stage for an admin resource route.
+    pub fn admin_page_program(&self, resource_id: impl Into<String>) -> Option<AdminPageProgram> {
+        self.page_program()
+            .map(|page| AdminPageProgram::new(resource_id, page))
+    }
 }
 
 /// App-level index of adapted StagePrograms (keyed by stage_id string).
@@ -324,6 +354,17 @@ mod tests {
         }
     }
 
+    fn page_desc() -> StageDescriptor {
+        StageDescriptor {
+            id: StageId::new("report"),
+            profile: StageProfile::Page,
+            title: Some("Report".to_string()),
+            source_anchor: "src/page/report.mei".to_string(),
+            is_default: true,
+            legacy_scene_id: "report".to_string(),
+        }
+    }
+
     #[test]
     fn cockpit_program_has_single_scene_ref_unit() {
         let program = StageProgram::from_cockpit(&cockpit_desc());
@@ -360,6 +401,35 @@ mod tests {
     }
 
     #[test]
+    fn page_profile_projects_to_page_program_without_changing_stage_wire_shape() {
+        let program = StageProgram::from_page(&page_desc());
+        let page = program.page_program().expect("page program wrapper");
+
+        assert_eq!(page.page_id, "report");
+        assert_eq!(page.title.as_deref(), Some("Report"));
+        assert_eq!(page.source_anchor, "src/page/report.mei");
+        assert_eq!(page.surface.as_str(), "document");
+        assert_eq!(page.root.scene_ref(), "report");
+
+        let stage_value = serde_json::to_value(&program).expect("serialize stage program");
+        assert!(
+            stage_value.get("page_program").is_none(),
+            "PageProgram projection must not alter the existing StageProgram envelope"
+        );
+
+        let decoded: StageProgram =
+            serde_json::from_value(stage_value).expect("deserialize stage program");
+        assert_eq!(
+            decoded
+                .page_program()
+                .expect("decoded page wrapper")
+                .root
+                .scene_ref(),
+            "report"
+        );
+    }
+
+    #[test]
     fn index_from_registry_covers_each_stage() {
         let registry = StageRegistry {
             stages: vec![cockpit_desc(), slides_desc()],
@@ -378,9 +448,6 @@ mod tests {
         assert!(index.contains("home"));
         assert!(index.contains("intro"));
         assert!(!index.contains("warnings_analytics_page"));
-        assert_eq!(
-            index.get("intro").map(|p| p.unit_ids()),
-            Some(vec!["s1"])
-        );
+        assert_eq!(index.get("intro").map(|p| p.unit_ids()), Some(vec!["s1"]));
     }
 }

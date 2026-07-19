@@ -9,9 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::admin_manifest::{
-    validate_relative_sandbox_path, AdminResourceSpec, AdminUploadSpec,
-};
+use super::admin_manifest::{validate_relative_sandbox_path, AdminResourceSpec, AdminUploadSpec};
 use super::admin_record::{append_admin_audit, AdminAuditEntry, AdminRecordError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +77,11 @@ pub fn resolve_slot_defs(
             "asset-slot resource requires upload spec".into(),
         ));
     };
-    let Some(schema_ref) = upload.schema_ref.as_deref().filter(|s| !s.trim().is_empty()) else {
+    let Some(schema_ref) = upload
+        .schema_ref
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    else {
         return Err(AdminRecordError::Validation(
             "asset-slot resource requires upload.schema_ref".into(),
         ));
@@ -125,10 +127,7 @@ pub fn list_asset_slots(
             let (status, size_bytes, modified_ms) = file_meta(&abs);
             AssetSlotView {
                 slot_id: slot.id.clone(),
-                title: slot
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| slot.id.clone()),
+                title: slot.title.clone().unwrap_or_else(|| slot.id.clone()),
                 path: slot.path,
                 kind: slot.kind.unwrap_or_else(|| "file".into()),
                 status,
@@ -164,12 +163,7 @@ fn validate_replace_bytes(
     bytes: &[u8],
 ) -> Result<(), AdminRecordError> {
     let ext = extension_of(filename);
-    if !upload.accept.is_empty()
-        && !upload
-            .accept
-            .iter()
-            .any(|a| a.eq_ignore_ascii_case(&ext))
-    {
+    if !upload.accept.is_empty() && !upload.accept.iter().any(|a| a.eq_ignore_ascii_case(&ext)) {
         return Err(AdminRecordError::Validation(format!(
             "file extension `{ext}` not in accept {:?}",
             upload.accept
@@ -270,9 +264,7 @@ pub fn replace_asset_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mei_config::admin_manifest::{
-        AdminProviderKind, AdminTemplate, AdminUploadSpec,
-    };
+    use crate::mei_config::admin_manifest::{AdminProviderKind, AdminTemplate, AdminUploadSpec};
     use std::path::PathBuf;
 
     fn fixture_root() -> PathBuf {
@@ -280,15 +272,10 @@ mod tests {
     }
 
     fn datasources_spec() -> AdminResourceSpec {
-        let manifest = crate::mei_config::load_admin_manifest(
-            &fixture_root().join("admin/admin.toml"),
+        crate::mei_config::load_admin_mdx_resource(
+            &fixture_root().join("src/admin/datasources.admin.mdx"),
         )
-        .unwrap();
-        manifest
-            .resources
-            .into_iter()
-            .find(|r| r.resource_id == "datasources")
-            .unwrap()
+        .expect("phase-d datasources admin.mdx")
     }
 
     #[test]
@@ -326,15 +313,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app_root = dir.path().join("app");
         copy_dir(&src, &app_root);
-        let spec = {
-            let manifest =
-                crate::mei_config::load_admin_manifest(&app_root.join("admin/admin.toml")).unwrap();
-            manifest
-                .resources
-                .into_iter()
-                .find(|r| r.resource_id == "datasources")
-                .unwrap()
-        };
+        let spec = crate::mei_config::load_admin_mdx_resource(
+            &app_root.join("src/admin/datasources.admin.mdx"),
+        )
+        .expect("copied datasources admin.mdx");
         let body = "id,name\n9,new-object\n".as_bytes();
         let view = replace_asset_slot(
             &app_root,
@@ -375,6 +357,7 @@ mod tests {
             template: AdminTemplate::AssetSlotCollection,
             provider: AdminProviderKind::AssetSlot,
             record_path: None,
+            config_path: None,
             required_capabilities: vec![],
             scope: None,
             audit: None,
@@ -383,6 +366,7 @@ mod tests {
             validation: None,
             idempotency: None,
             dirty_policy: None,
+            apply_policy: None,
             navigation: None,
             sections: vec![],
             columns: vec![],

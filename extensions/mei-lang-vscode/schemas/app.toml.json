@@ -147,7 +147,8 @@
     },
     "admin": {
       "type": "object",
-      "description": "Optional Host Admin Platform extension pointer (0545). Does not inline admin pages.",
+      "description": "Legacy Admin TOML compatibility pointer. New resources are convention-discovered from src/admin/**/*.admin.mdx.",
+      "deprecated": true,
       "additionalProperties": false,
       "properties": {
         "manifest": {

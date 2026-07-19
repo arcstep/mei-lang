@@ -1,5 +1,20 @@
 (() => {
-  const root = document.getElementById("admin-asset-slot-root");
+  function resolveAssetSlotRoot() {
+    const compose = document.getElementById("mei-admin-compose-root");
+    const legacy = document.getElementById("admin-asset-slot-root");
+    if (legacy && !compose) {
+      console.error(
+        "[admin-kit/asset-slot] #admin-asset-slot-root must mount under #mei-admin-compose-root"
+      );
+      return null;
+    }
+    if (!compose) return null;
+    const root = compose.querySelector("#admin-asset-slot-root");
+    if (!root) return null;
+    return root;
+  }
+
+  const root = resolveAssetSlotRoot();
   if (!root) return;
 
   const appId = root.getAttribute("data-app-id") || "";

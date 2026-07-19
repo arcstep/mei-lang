@@ -113,7 +113,9 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "home".to_string());
     // Same Stage Registry source as Access topbar — not stock-catalog main.mei parsing.
-    let (stage_routes, access_scene) =
+    // assemble_scope_from_registry panics without env/current (build prepare); Admin fixtures
+    // and apps that only ship admin MDX may not have an active generation yet.
+    let (stage_routes, access_scene) = if app_root.join("env/current").exists() {
         match mei_host_graph::assemble_scope_from_registry(
             workspace_root,
             app_id,
@@ -129,7 +131,10 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
                 (outcome.compiled.scene_routes, scene)
             }
             _ => (Vec::new(), default_scene),
-        };
+        }
+    } else {
+        (Vec::new(), default_scene)
+    };
     let upload_rel = upload_rel_from_config(app_root.as_path(), workspace_root);
     let upload_root_label = upload_rel.as_deref().unwrap_or("upload").to_string();
     let upload_files: Vec<UploadFileEntry> = upload_rel
@@ -146,6 +151,15 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
     } else {
         None
     };
+
+    let source_anchor = resource
+        .as_ref()
+        .map(|r| r.page_program.page.source_anchor.as_str())
+        .unwrap_or("");
+    let projection_digest = registry
+        .projection_for_app(app_id)
+        .map(|p| p.manifest_digest)
+        .unwrap_or_default();
 
     let mut html = render_admin_page(
         topbar_apps,
@@ -164,6 +178,8 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         theme_style.as_str(),
         stage_routes.as_slice(),
         Some(access_scene.as_str()),
+        source_anchor,
+        projection_digest.as_str(),
     );
     html = fill_page_shell_placeholders(html, workspace_root);
     html

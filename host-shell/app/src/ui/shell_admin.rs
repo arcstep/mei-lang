@@ -40,6 +40,8 @@ pub fn admin_shell(
     access_stage_routes: &[CompiledSceneRoute],
     // Default Access stage — standalone-open only; Admin does not mark Stage chips active.
     access_scene: Option<&str>,
+    source_anchor: &str,
+    projection_digest: &str,
 ) -> AnyView {
     let stage_routes = if access_stage_routes.is_empty() {
         None
@@ -75,21 +77,42 @@ pub fn admin_shell(
     let resource_attr = resource_json.to_string();
     let app_attr = app_path.to_string();
     let rid_attr = resource_id.to_string();
+    let source_anchor_attr = source_anchor.to_string();
+    let projection_digest_attr = projection_digest.to_string();
     let legacy_config = config_href(app_path);
     let legacy_upload = host_upload_href(Some(app_path), None);
     let admin_upload = format!("/admin/apps/{app_path}/upload_files");
 
-    let main = match surface {
-        AdminMainSurface::FormCard => view! {
-            <section
-                id="admin-form-root"
-                class="admin-form-shell admin-kit-detail admin-kit-detail--scroll"
-                data-app-id=app_attr.clone()
-                data-resource-id=rid_attr.clone()
-                data-admin-resource=resource_attr.clone()
-            ></section>
+    let kit_compose = |kit: AnyView| {
+        view! {
+            <div
+                id="mei-admin-compose-root"
+                class="mei-admin-compose-root min-h-0 flex flex-1 flex-col overflow-hidden"
+                data-mei-admin-compose="document"
+                data-mei-admin-surface="document"
+                data-mei-resource-id=rid_attr.clone()
+                data-mei-source-anchor=source_anchor_attr.clone()
+                data-mei-projection-digest=projection_digest_attr.clone()
+            >
+                {kit}
+            </div>
         }
-        .into_any(),
+        .into_any()
+    };
+
+    let main = match surface {
+        AdminMainSurface::FormCard => kit_compose(
+            view! {
+                <section
+                    id="admin-form-root"
+                    class="admin-form-shell admin-kit-detail admin-kit-detail--scroll"
+                    data-app-id=app_attr.clone()
+                    data-resource-id=rid_attr.clone()
+                    data-admin-resource=resource_attr.clone()
+                ></section>
+            }
+            .into_any(),
+        ),
         AdminMainSurface::OpsEmbed => view! {
             <div class="admin-kit-detail">
                 <div class="admin-kit-banner">
@@ -143,22 +166,32 @@ pub fn admin_shell(
             }
             .into_any()
         }
-        AdminMainSurface::AssetSlotCollection => view! {
-            <section
-                id="admin-asset-slot-root"
-                class="admin-asset-slot-shell admin-kit-detail"
-                data-app-id=app_attr.clone()
-                data-resource-id=rid_attr.clone()
-                data-admin-resource=resource_attr.clone()
-            ></section>
-        }
-        .into_any(),
+        AdminMainSurface::AssetSlotCollection => kit_compose(
+            view! {
+                <section
+                    id="admin-asset-slot-root"
+                    class="admin-asset-slot-shell admin-kit-detail"
+                    data-app-id=app_attr.clone()
+                    data-resource-id=rid_attr.clone()
+                    data-admin-resource=resource_attr.clone()
+                ></section>
+            }
+            .into_any(),
+        ),
     };
 
     view! {
         <div class="shell shell-surface admin-view-shell mei-text-primary">
             <div id="mei-host-topbar-slot" class="mei-host-chrome-slot" data-mei-host-chrome="top">{topbar}</div>
-            <main class="admin-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3">
+            <main
+                class="admin-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3"
+                data-mei-stage-surface="document"
+                data-mei-page-program=rid_attr.clone()
+                data-mei-page-surface="document"
+                data-mei-resource-id=rid_attr.clone()
+                data-mei-source-anchor=source_anchor_attr.clone()
+                data-mei-projection-digest=projection_digest_attr.clone()
+            >
                 <div class="admin-kit-banner flex flex-wrap items-center gap-3">
                     <nav class="admin-breadcrumb min-w-0 flex-1" aria-label="管理面包屑">
                         <strong class="mei-text-inverse">{crumb}</strong>

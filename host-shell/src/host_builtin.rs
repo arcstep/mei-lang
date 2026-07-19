@@ -3,8 +3,8 @@
 //! Not authored via `admin.toml`; merged into Registry for every discovered app.
 
 use mei_lang_kernel::{
-    AdminProviderKind, AdminRegistryProjection, AdminResourceProjection, AdminResourceSpec,
-    AdminTemplate, AdminUiSurface, ADMIN_RESOURCE_API_VERSION,
+    AdminPageProgram, AdminProviderKind, AdminRegistryProjection, AdminResourceProjection,
+    AdminResourceSpec, AdminTemplate, AdminUiSurface, PageProgram, ADMIN_RESOURCE_API_VERSION,
 };
 
 pub const HOST_BUILTIN_OPS_CONFIG: &str = "ops_config";
@@ -25,6 +25,7 @@ fn stub_spec(
         template,
         provider,
         record_path: None,
+        config_path: None,
         required_capabilities: vec!["config_upload".to_string()],
         scope: None,
         audit: None,
@@ -33,6 +34,7 @@ fn stub_spec(
         validation: None,
         idempotency: None,
         dirty_policy: None,
+        apply_policy: None,
         navigation: None,
         sections: Vec::new(),
         columns: Vec::new(),
@@ -65,7 +67,17 @@ fn project_builtin(
         provider,
         required_capabilities: vec!["config_upload".to_string()],
         record_path: None,
+        config_path: None,
         href: format!("/admin/apps/{app_id}/{resource_id}"),
+        page_program: AdminPageProgram::new(
+            resource_id,
+            PageProgram::from_scene_ref(
+                resource_id,
+                Some(title.to_string()),
+                format!("host://admin/{resource_id}"),
+                format!("admin/{resource_id}"),
+            ),
+        ),
         ui_surface,
         spec,
     }
