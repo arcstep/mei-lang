@@ -32,7 +32,7 @@ else
   fi
 fi
 
-ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP_IDS[0]}"
+ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP_IDS[@]}"
 
 BUILD_ID="${MEI_ENV_GENERATION:-}"
 if [[ -z "${BUILD_ID}" ]]; then
@@ -91,4 +91,5 @@ for app_id in "${APP_IDS[@]}"; do
     --build-id "${BUILD_ID}" "${DEPLOY_CLI_ARGS[@]}"
 done
 
+clean_retired_build_generations "${WORKSPACE_ROOT}" "${APP_IDS[@]}"
 emit_prebuild_pipeline_complete_banner "${BUILD_ID}" "${APP_IDS[@]}"

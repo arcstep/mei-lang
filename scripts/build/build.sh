@@ -5,7 +5,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEI_LANG_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PROFILE="debug"
-TARGET_DIR="${CARGO_TARGET_DIR:-${MEI_LANG_ROOT}/target}"
+
+# shellcheck source=build-env.sh
+source "${SCRIPT_DIR}/build-env.sh"
+TARGET_DIR="$(mei_cargo_target_dir "${MEI_LANG_ROOT}")"
+export CARGO_TARGET_DIR="${TARGET_DIR}"
+mei_export_build_identity "${MEI_LANG_ROOT}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,10 +20,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-CARGO_ARGS=(build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
+CARGO_ARGS=(build --message-format=json-render-diagnostics \
+  --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
   -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
 if [[ "${PROFILE}" == "release" ]]; then
-  CARGO_ARGS=(build --release --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
+  CARGO_ARGS=(build --release --message-format=json-render-diagnostics \
+    --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
     -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
 fi
 
@@ -38,5 +45,24 @@ if [[ "${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" != "1" ]]; then
 fi
 
 echo "==> mei-lang build (profile=${PROFILE}, root=${MEI_LANG_ROOT})"
-CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
+before_kb="$(du -sk "${TARGET_DIR}" 2>/dev/null | awk '{print $1}' || true)"
+set +e
+CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}" \
+  | python3 "${SCRIPT_DIR}/cargo-build-report.py"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+cargo_status="${pipeline_status[0]:-1}"
+report_status="${pipeline_status[1]:-1}"
+if (( cargo_status != 0 )); then
+  exit "${cargo_status}"
+fi
+if (( report_status != 0 )); then
+  exit "${report_status}"
+fi
+after_kb="$(du -sk "${TARGET_DIR}" 2>/dev/null | awk '{print $1}' || true)"
+if [[ "${before_kb}" =~ ^[0-9]+$ && "${after_kb}" =~ ^[0-9]+$ ]]; then
+  delta_kb=$((after_kb - before_kb))
+  awk -v before="${before_kb}" -v after="${after_kb}" -v delta="${delta_kb}" \
+    'BEGIN { printf "==> target size: %.2fGiB -> %.2fGiB (%+.1fMiB)\n", before / 1048576, after / 1048576, delta / 1024 }'
+fi
 echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,plug-ds,app-runtime}"

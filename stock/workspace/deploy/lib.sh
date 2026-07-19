@@ -226,7 +226,7 @@ cargo_target_dir() {
   local workspace_root="$1"
   local mei_lang_root
   mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-  printf '%s' "${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
+  printf '%s' "${MEI_CARGO_TARGET_DIR:-${mei_lang_root}/target}"
 }
 
 resolve_bin_path() {
@@ -308,6 +308,7 @@ ensure_runtime_binaries() {
   local mei_lang_root target_dir gc_script build_plan
   mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
   target_dir="$(cargo_target_dir "${workspace_root}")"
+  export CARGO_TARGET_DIR="${target_dir}"
   gc_script="${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
   if [[ -f "${gc_script}" ]]; then
     # shellcheck source=/dev/null
@@ -319,9 +320,6 @@ ensure_runtime_binaries() {
 
   unset MEI_CARGO_TARGET_HYGIENE_SUMMARY
   export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-  if cargo_runtime_bins_ready "${workspace_root}"; then
-    export MEI_CARGO_TARGET_DEFER_CLEAN=1
-  fi
   if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" ]]; then
     maybe_cargo_target_hygiene "${mei_lang_root}"
     export MEI_CARGO_TARGET_HYGIENE_RAN=1
@@ -415,12 +413,33 @@ discovered_app_ids() {
 
 ensure_build_generation_aligned() {
   local workspace_root="$1"
-  local app="${2:-zhifa}"
+  shift
+  local apps=("$@")
+  if [[ ${#apps[@]} -eq 0 ]]; then
+    apps=("zhifa")
+  fi
   echo "==> align env generation (profile=${PROFILE}, source=${SOURCE}, runtime=${RUNTIME})"
-  MEI_ENV_GENERATION="$(run_mei_host_shell "${workspace_root}" \
-    build prepare --workspace "${workspace_root}" --app "${app}")"
+  local prepare_args=(build prepare --workspace "${workspace_root}")
+  local app_id
+  for app_id in "${apps[@]}"; do
+    prepare_args+=(--app "${app_id}")
+  done
+  MEI_ENV_GENERATION="$(run_mei_host_shell "${workspace_root}" "${prepare_args[@]}")"
   export MEI_ENV_GENERATION
   echo "envGeneration=${MEI_ENV_GENERATION}"
+}
+
+clean_retired_build_generations() {
+  local workspace_root="$1"
+  shift
+  local apps=("$@")
+  local clean_args=(build clean --workspace "${workspace_root}")
+  local app_id
+  for app_id in "${apps[@]}"; do
+    clean_args+=(--app "${app_id}")
+  done
+  echo "==> clean retired env generations (retainBuildGenerations)"
+  run_mei_host_shell "${workspace_root}" "${clean_args[@]}"
 }
 
 print_runtime_banner() {

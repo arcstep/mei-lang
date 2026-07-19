@@ -404,11 +404,16 @@ fn run_version(args: VersionArgs) -> anyhow::Result<()> {
 fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    let retain_generations = mei_lang_kernel::load_workspace_config(workspace.as_path())
+        .build
+        .retain_build_generations
+        .map(|value| value as usize);
     let report = mei_lang_kernel::clean_env_generations(
         workspace.as_path(),
         &app_ids,
         &mei_lang_kernel::CleanEnvPolicy {
             dry_run: args.dry_run,
+            retain_generations,
             ..Default::default()
         },
     )?;

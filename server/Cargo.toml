@@ -32,7 +32,7 @@ mei-host-auth = { path = "../crates/mei-host-auth" }
 mei-host-core = { path = "../crates/mei-host-core" }
 mei-host-graph = { path = "../crates/mei-host-graph" }
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
+reqwest.workspace = true
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }

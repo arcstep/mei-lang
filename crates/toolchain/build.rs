@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -35,6 +36,21 @@ fn repo_root_from_manifest() -> PathBuf {
 
 fn emit_rustc_env(key: &str, value: &str) {
     println!("cargo:rustc-env={key}={value}");
+}
+
+fn emit_git_rerun_paths(repo_root: &Path) {
+    let git_dir = repo_root.join(".git");
+    let head = git_dir.join("HEAD");
+    println!("cargo:rerun-if-changed={}", head.display());
+    println!("cargo:rerun-if-changed={}", git_dir.join("packed-refs").display());
+    if let Ok(value) = fs::read_to_string(&head) {
+        if let Some(reference) = value.trim().strip_prefix("ref: ") {
+            println!(
+                "cargo:rerun-if-changed={}",
+                git_dir.join(reference).display()
+            );
+        }
+    }
 }
 
 fn env_override(key: &str) -> Option<String> {
@@ -96,14 +112,7 @@ fn main() {
         "cargo:rerun-if-changed={}",
         repo_root.join("Cargo.toml").display()
     );
-    println!(
-        "cargo:rerun-if-changed={}",
-        repo_root.join(".git/HEAD").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        repo_root.join(".git/index").display()
-    );
+    emit_git_rerun_paths(repo_root.as_path());
     println!("cargo:rerun-if-env-changed=MEI_GIT_COMMIT_SHORT");
     println!("cargo:rerun-if-env-changed=MEI_GIT_COMMIT_FULL");
     println!("cargo:rerun-if-env-changed=MEI_GIT_DIRTY");

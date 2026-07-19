@@ -40,11 +40,12 @@ clap = { version = "4", features = ["derive"] }
 csv = "1"
 leptos = { version = "0.8", features = ["ssr"] }
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "time"] }
 tower-lsp = "0.20"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
@@ -57,3 +58,8 @@ chumsky = "0.9"
 zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+
+[profile.dev]
+# Line tables retain useful source locations while avoiding macOS' very large
+# full-DWARF development artifacts.
+debug = 1

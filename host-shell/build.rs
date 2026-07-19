@@ -104,6 +104,21 @@ fn git_dirty(repo_root: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+fn emit_git_rerun_paths(repo_root: &std::path::Path) {
+    let git_dir = repo_root.join(".git");
+    let head = git_dir.join("HEAD");
+    println!("cargo:rerun-if-changed={}", head.display());
+    println!("cargo:rerun-if-changed={}", git_dir.join("packed-refs").display());
+    if let Ok(value) = fs::read_to_string(&head) {
+        if let Some(reference) = value.trim().strip_prefix("ref: ") {
+            println!(
+                "cargo:rerun-if-changed={}",
+                git_dir.join(reference).display()
+            );
+        }
+    }
+}
+
 fn canonical_page_pack_payload(spec: &PagePackSpec, template: &str) -> String {
     format!(
         "host-page-pack-v1\npack_id:{}\npage_id:{}\ntitle:{}\nsource_anchor:{}\nsurface:document\nscene_ref:{}\nadmin_resource_id:\naot_body:\n{}",
@@ -219,7 +234,10 @@ fn main() {
         if git_dirty { "true" } else { "false" }
     );
     println!("cargo:rerun-if-changed=../Cargo.toml");
-    println!("cargo:rerun-if-changed=../.git/HEAD");
+    emit_git_rerun_paths(repo_root.as_path());
+    println!("cargo:rerun-if-env-changed=MEI_GIT_COMMIT_SHORT");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_BRANCH");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_DIRTY");
     compile_page_pack(manifest_dir.as_path(), &HOME_PACK);
     compile_page_pack(manifest_dir.as_path(), &RUNTIME_PACK);
 }

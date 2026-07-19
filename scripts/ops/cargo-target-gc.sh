@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Cargo target hygiene: sweep stale artifacts, then `cargo clean` when over budget.
+# Cargo target hygiene: age-aware reclamation with no automatic full clean.
 #
 # Env:
-#   MEI_CARGO_TARGET_GC=0           disable auto clean (default: 1)
-#   MEI_CARGO_TARGET_SWEEP=0          disable stale-artifact sweep (default: 1)
-#   MEI_CARGO_TARGET_MAX_GB=10         budget in GiB (default: 10)
+#   MEI_CARGO_TARGET_SWEEP=0            disable stale-artifact sweep (default: 1)
+#   MEI_CARGO_TARGET_SOFT_GB=…          start sweep (default: 80% of max)
+#   MEI_CARGO_TARGET_LOW_GB=…           desired low watermark (default: 70% of max)
+#   MEI_CARGO_TARGET_MAX_GB=10          hard warning watermark
 #   MEI_CARGO_TARGET_MAX_BYTES=…      override budget in bytes
 #   MEI_CARGO_TARGET_GC_DRY_RUN=1     print action only, do not clean
-#   MEI_CARGO_SWEEP_KEEP_PKGS=…       runtime closure roots (default: mei-compiler,mei-plug-ds,mei-host-shell)
+#   MEI_CARGO_TARGET_MAX_AGE_DAYS=30    superseded fingerprint TTL
+#   MEI_CARGO_INCREMENTAL_MAX_AGE_DAYS=14
+#   MEI_CARGO_LINK_MAX_AGE_DAYS=7
+#   MEI_CARGO_TARGET_AGGRESSIVE=1       explicit local reclaim (tests/out-of-scope)
+#   MEI_CARGO_TARGET_EMERGENCY_CLEAN=1  explicit full cargo clean
+#   MEI_CARGO_SWEEP_KEEP_PKGS=…         roots retained by aggressive reclaim
 #   MEI_CARGO_BUILD_PROFILE=debug|release  active build profile (default: debug)
 #   MEI_CARGO_TARGET_HYGIENE=1         run hygiene before build (default: 1; set 0 to disable)
-#   MEI_CARGO_TARGET_DEFER_CLEAN=1     over budget after safe steps: warn only, skip cargo clean
 #   CARGO_TARGET_DIR                  target directory (default: <mei-lang>/target)
 
 set -euo pipefail
@@ -30,6 +35,36 @@ _cargo_target_gc_max_bytes() {
     return 1
   fi
   printf '%s' "$((max_gb * 1024 * 1024 * 1024))"
+}
+
+_cargo_target_gc_gb_bytes() {
+  local value="$1"
+  local label="$2"
+  if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+    echo "error: ${label} must be an integer, got: ${value}" >&2
+    return 1
+  fi
+  printf '%s' "$((value * 1024 * 1024 * 1024))"
+}
+
+_cargo_target_gc_soft_bytes() {
+  if [[ -n "${MEI_CARGO_TARGET_SOFT_GB:-}" ]]; then
+    _cargo_target_gc_gb_bytes "${MEI_CARGO_TARGET_SOFT_GB}" "MEI_CARGO_TARGET_SOFT_GB"
+    return 0
+  fi
+  local max_bytes
+  max_bytes="$(_cargo_target_gc_max_bytes)"
+  printf '%s' "$((max_bytes * 80 / 100))"
+}
+
+_cargo_target_gc_low_bytes() {
+  if [[ -n "${MEI_CARGO_TARGET_LOW_GB:-}" ]]; then
+    _cargo_target_gc_gb_bytes "${MEI_CARGO_TARGET_LOW_GB}" "MEI_CARGO_TARGET_LOW_GB"
+    return 0
+  fi
+  local max_bytes
+  max_bytes="$(_cargo_target_gc_max_bytes)"
+  printf '%s' "$((max_bytes * 70 / 100))"
 }
 
 _cargo_target_gc_human_bytes() {
@@ -60,6 +95,7 @@ _cargo_target_sweep_stale_bytes() {
   local mei_lang_root="$2"
   local phase="${3:-stale}"
   local scripts_dir sweep_py dry_run_args keep_pkgs active_profile
+  local max_age_days incremental_age_days link_age_days
 
   scripts_dir="$(_cargo_target_gc_script_dir)"
   sweep_py="${scripts_dir}/cargo-target-sweep-stale.py"
@@ -76,6 +112,9 @@ _cargo_target_sweep_stale_bytes() {
 
   keep_pkgs="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell}"
   active_profile="${MEI_CARGO_BUILD_PROFILE:-debug}"
+  max_age_days="${MEI_CARGO_TARGET_MAX_AGE_DAYS:-30}"
+  incremental_age_days="${MEI_CARGO_INCREMENTAL_MAX_AGE_DAYS:-14}"
+  link_age_days="${MEI_CARGO_LINK_MAX_AGE_DAYS:-7}"
   if [[ "${active_profile}" != "debug" && "${active_profile}" != "release" ]]; then
     active_profile="debug"
   fi
@@ -83,7 +122,7 @@ _cargo_target_sweep_stale_bytes() {
   if [[ "${phase}" == "incremental" ]]; then
     python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
       --incremental-only \
-      2>/dev/null | awk -F= '/^freed_bytes=/{print $2; exit}'
+      | awk -F= '/^freed_bytes=/{print $2; exit}'
     return 0
   fi
 
@@ -91,7 +130,23 @@ _cargo_target_sweep_stale_bytes() {
     python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
       --active-profile "${active_profile}" \
       --profile-drop-only \
-      2>/dev/null | awk -F= '/^freed_bytes=/{print $2; exit}'
+      | awk -F= '/^freed_bytes=/{print $2; exit}'
+    return 0
+  fi
+
+  if [[ "${phase}" == "aggressive" ]]; then
+    python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
+      --manifest-path "${mei_lang_root}/Cargo.toml" \
+      --keep-packages "${keep_pkgs}" \
+      --active-profile "${active_profile}" \
+      --max-age-days 0 \
+      --incremental-max-age-days 0 \
+      --link-max-age-days 0 \
+      --keep-fingerprint-variants 1 \
+      --keep-incremental-sessions 1 \
+      --sweep-tests \
+      --sweep-out-of-scope \
+      | awk -F= '/^freed_bytes=/{print $2; exit}'
     return 0
   fi
 
@@ -99,9 +154,10 @@ _cargo_target_sweep_stale_bytes() {
     --manifest-path "${mei_lang_root}/Cargo.toml" \
     --keep-packages "${keep_pkgs}" \
     --active-profile "${active_profile}" \
-    --drop-inactive-profile \
-    --sweep-tests \
-    2>/dev/null | awk -F= '/^freed_bytes=/{print $2; exit}'
+    --max-age-days "${max_age_days}" \
+    --incremental-max-age-days "${incremental_age_days}" \
+    --link-max-age-days "${link_age_days}" \
+    | awk -F= '/^freed_bytes=/{print $2; exit}'
 }
 
 _cargo_target_reclaimed_bytes() {
@@ -193,30 +249,32 @@ _cargo_target_record_hygiene_summary() {
   local before_bytes="$2"
   local after_bytes="$3"
   local detail="${4:-}"
-  local human_before human_after human_max human_reclaimed reclaimed max_bytes
+  local human_before human_after human_max human_soft human_reclaimed reclaimed max_bytes soft_bytes
 
   max_bytes="$(_cargo_target_gc_max_bytes)"
+  soft_bytes="$(_cargo_target_gc_soft_bytes)"
   human_before="$(_cargo_target_gc_human_bytes "${before_bytes}")"
   human_after="$(_cargo_target_gc_human_bytes "${after_bytes}")"
   human_max="$(_cargo_target_gc_human_bytes "${max_bytes}")"
+  human_soft="$(_cargo_target_gc_human_bytes "${soft_bytes}")"
   reclaimed="$(_cargo_target_reclaimed_bytes "${before_bytes}" "${after_bytes}")"
   human_reclaimed="$(_cargo_target_gc_human_bytes "${reclaimed}")"
 
   case "${outcome}" in
     under-budget)
-      export MEI_CARGO_TARGET_HYGIENE_SUMMARY="not needed (${human_before} <= budget ${human_max})"
+      export MEI_CARGO_TARGET_HYGIENE_SUMMARY="inspect only (${human_before} <= soft watermark ${human_soft})"
       ;;
     disabled)
       export MEI_CARGO_TARGET_HYGIENE_SUMMARY="disabled (${detail})"
       ;;
     deferred)
-      export MEI_CARGO_TARGET_HYGIENE_SUMMARY="reclaimed ${human_reclaimed} (${human_before} -> ${human_after}); clean deferred (still over ${human_max})"
+      export MEI_CARGO_TARGET_HYGIENE_SUMMARY="reclaimed ${human_reclaimed} (${human_before} -> ${human_after}); still over hard watermark ${human_max}; full clean is explicit-only"
       ;;
     completed)
       if (( reclaimed > 0 )); then
         export MEI_CARGO_TARGET_HYGIENE_SUMMARY="reclaimed ${human_reclaimed} (${human_before} -> ${human_after})"
       else
-        export MEI_CARGO_TARGET_HYGIENE_SUMMARY="completed (${human_after} vs budget ${human_max})"
+        export MEI_CARGO_TARGET_HYGIENE_SUMMARY="completed (${human_after} vs hard watermark ${human_max})"
       fi
       ;;
     *)
@@ -260,16 +318,17 @@ cargo_target_emit_startup_panel() {
     hygiene_line="${hygiene_note}"
   elif [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" == "0" ]]; then
     hygiene_line="disabled (MEI_CARGO_TARGET_HYGIENE=0)"
-  elif [[ "${MEI_CARGO_TARGET_SWEEP:-1}" == "0" && "${MEI_CARGO_TARGET_GC:-1}" == "0" ]]; then
-    hygiene_line="disabled (MEI_CARGO_TARGET_SWEEP=0 and MEI_CARGO_TARGET_GC=0)"
+  elif [[ "${MEI_CARGO_TARGET_SWEEP:-1}" == "0" ]]; then
+    hygiene_line="disabled (MEI_CARGO_TARGET_SWEEP=0)"
   else
-    local total_bytes max_bytes
+    local total_bytes max_bytes soft_bytes
     total_bytes="$(_cargo_target_optional_dir_size_bytes "${target_dir}")"
     max_bytes="$(_cargo_target_gc_max_bytes)"
-    if (( total_bytes > max_bytes )); then
-      hygiene_line="will run (over budget — safe sweep then cargo clean if needed)"
+    soft_bytes="$(_cargo_target_gc_soft_bytes)"
+    if (( total_bytes > soft_bytes )); then
+      hygiene_line="will run (above soft watermark — orphan + TTL reclaim; no automatic full clean)"
     else
-      hygiene_line="not needed (within budget)"
+      hygiene_line="inspect only (below soft watermark)"
     fi
   fi
 
@@ -340,22 +399,22 @@ _cargo_target_emit_hygiene_result_banner() {
     under-budget)
       _cargo_target_emit_summary_banner "编译缓存治理 · CARGO TARGET OK" \
         "${inspect_lines[@]}" \
-        "hygiene: not needed (${human_before} <= budget ${human_max})" \
+        "hygiene: inspect only (${human_before}; below soft watermark)" \
         "action: left target untouched"
       ;;
     completed)
       _cargo_target_emit_summary_banner "编译缓存治理 · CARGO TARGET HYGIENE" \
         "${inspect_lines[@]}" \
         "hygiene: reclaimed ${human_reclaimed} (${human_before} -> ${human_after})" \
-        "budget: ${human_max} (${human_after} vs ${human_max})" \
+        "hard watermark: ${human_max} (${human_after} vs ${human_max})" \
         "${detail}"
       ;;
     deferred)
       _cargo_target_emit_summary_banner "编译缓存治理 · CARGO TARGET OVER BUDGET" \
         "${inspect_lines[@]}" \
         "hygiene: reclaimed ${human_reclaimed} (${human_before} -> ${human_after})" \
-        "budget: ${human_max} (still over — live debug closure cannot shrink further without clean)" \
-        "action: cargo clean skipped (binaries present); run mei-lang/scripts/ops/cargo-target-gc.sh with MEI_CARGO_TARGET_DEFER_CLEAN=0" \
+        "hard watermark: ${human_max} (recent/live cache retained)" \
+        "action: full clean is never automatic; use --aggressive or --emergency-clean explicitly" \
         "${detail}"
       ;;
     disabled)
@@ -386,9 +445,9 @@ maybe_cargo_target_sweep_stale() {
 
   before_human="$(_cargo_target_gc_human_bytes "${before_bytes}")"
   if [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" == "1" ]]; then
-    echo "    sweep: dry-run stale cleanup (current ${before_human})" >&2
+    echo "    sweep: dry-run age-aware cleanup (current ${before_human})" >&2
   else
-    echo "    sweep: removing safe artifacts (stale hashes, link .o, inactive profile, tests; current ${before_human})" >&2
+    echo "    sweep: reclaiming orphan and TTL-expired local caches (current ${before_human})" >&2
   fi
 
   freed_bytes="$(_cargo_target_sweep_stale_bytes "${target_dir}" "${mei_lang_root}" stale)"
@@ -434,6 +493,37 @@ maybe_cargo_target_sweep_stale() {
       echo "    sweep: deleted paths summed to ${estimate_human}; lower du delta is normal (hardlinks / shared blocks)" >&2
     fi
   fi
+  printf '%s' "${after_bytes}"
+}
+
+maybe_cargo_target_sweep_aggressive() {
+  local mei_lang_root="${1:?mei_lang_root required}"
+  local target_dir="${2:?target_dir required}"
+  local before_bytes="$3"
+  local freed_bytes after_bytes before_human after_human reclaimed_bytes
+
+  before_human="$(_cargo_target_gc_human_bytes "${before_bytes}")"
+  echo "    sweep(aggressive): explicit local-cache reclaim (current ${before_human})" >&2
+  freed_bytes="$(_cargo_target_sweep_stale_bytes "${target_dir}" "${mei_lang_root}" aggressive)"
+  if [[ -z "${freed_bytes}" || ! "${freed_bytes}" =~ ^[0-9]+$ ]]; then
+    echo "    sweep(aggressive): skipped (could not measure reclaimed bytes)" >&2
+    printf '%s' "${before_bytes}"
+    return 0
+  fi
+  if [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" == "1" ]]; then
+    after_bytes=$((before_bytes - freed_bytes))
+    if (( after_bytes < 0 )); then
+      after_bytes=0
+    fi
+  elif ! after_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
+    after_bytes=$((before_bytes - freed_bytes))
+    if (( after_bytes < 0 )); then
+      after_bytes=0
+    fi
+  fi
+  reclaimed_bytes="$(_cargo_target_reclaimed_bytes "${before_bytes}" "${after_bytes}")"
+  after_human="$(_cargo_target_gc_human_bytes "${after_bytes}")"
+  echo "    sweep(aggressive): reclaimed $(_cargo_target_gc_human_bytes "${reclaimed_bytes}") (${before_human} -> ${after_human})" >&2
   printf '%s' "${after_bytes}"
 }
 
@@ -580,8 +670,12 @@ maybe_cargo_target_gc() {
   local size_bytes="${4:?size_bytes required}"
   local human_size human_max
 
+  if [[ "${MEI_CARGO_TARGET_EMERGENCY_CLEAN:-0}" != "1" ]]; then
+    echo "    clean: automatic full clean disabled; use --emergency-clean explicitly" >&2
+    return 0
+  fi
   if [[ "${MEI_CARGO_TARGET_GC:-1}" == "0" ]]; then
-    echo "    clean: disabled (MEI_CARGO_TARGET_GC=0)" >&2
+    echo "    clean: emergency clean disabled (MEI_CARGO_TARGET_GC=0)" >&2
     return 0
   fi
   if [[ ! -d "${target_dir}" ]]; then
@@ -592,12 +686,7 @@ maybe_cargo_target_gc() {
   human_size="$(_cargo_target_gc_human_bytes "${size_bytes}")"
   human_max="$(_cargo_target_gc_human_bytes "${max_bytes}")"
 
-  if (( size_bytes <= max_bytes )); then
-    echo "    clean: not needed (${human_size} <= budget ${human_max})" >&2
-    return 0
-  fi
-
-  echo "    clean: ${human_size} exceeds budget ${human_max}" >&2
+  echo "    clean: explicit emergency request (${human_size}; hard watermark ${human_max})" >&2
   if [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" == "1" ]]; then
     echo "    clean: dry-run; would run cargo clean" >&2
     return 0
@@ -612,14 +701,16 @@ maybe_cargo_target_gc() {
   fi
 }
 
-# Run before cargo build when target exceeds budget:
-#   1) safe sweep — stale hashes, link intermediates (.o), out-of-scope, tests, inactive profile
-#   2) incremental wipe — slower next edit-compile, not a cold rebuild
-#   3) cargo clean — only if still over budget and MEI_CARGO_TARGET_DEFER_CLEAN!=1
+# Run before managed Cargo builds:
+#   1) below soft watermark: inspect only
+#   2) above soft watermark: orphan + TTL-expired local-cache sweep
+#   3) optional explicit aggressive reclaim
+#   4) full cargo clean only with MEI_CARGO_TARGET_EMERGENCY_CLEAN=1
 maybe_cargo_target_hygiene() {
   local mei_lang_root="${1:?mei_lang_root required}"
   local target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
-  local max_bytes before_bytes human_before human_max sweep_on clean_on after_sweep_bytes
+  local max_bytes soft_bytes low_bytes before_bytes after_sweep_bytes
+  local human_before human_max human_soft human_low sweep_on clean_on
   local active_profile hygiene_detail outcome
 
   active_profile="${MEI_CARGO_BUILD_PROFILE:-debug}"
@@ -627,11 +718,11 @@ maybe_cargo_target_hygiene() {
     active_profile="debug"
   fi
 
-  if [[ "${MEI_CARGO_TARGET_SWEEP:-1}" == "0" && "${MEI_CARGO_TARGET_GC:-1}" == "0" ]]; then
+  if [[ "${MEI_CARGO_TARGET_SWEEP:-1}" == "0" && "${MEI_CARGO_TARGET_EMERGENCY_CLEAN:-0}" != "1" ]]; then
     if [[ -d "${target_dir}" ]] && before_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
       _cargo_target_finish_hygiene_report "${target_dir}" "${active_profile}" \
         "${before_bytes}" "${before_bytes}" "disabled" \
-        "MEI_CARGO_TARGET_SWEEP=0 and MEI_CARGO_TARGET_GC=0"
+        "MEI_CARGO_TARGET_SWEEP=0"
     fi
     return 0
   fi
@@ -641,7 +732,15 @@ maybe_cargo_target_hygiene() {
   fi
 
   max_bytes="$(_cargo_target_gc_max_bytes)"
+  soft_bytes="$(_cargo_target_gc_soft_bytes)"
+  low_bytes="$(_cargo_target_gc_low_bytes)"
+  if (( low_bytes > soft_bytes || soft_bytes > max_bytes )); then
+    echo "error: cargo target watermarks must satisfy LOW <= SOFT <= MAX" >&2
+    return 1
+  fi
   human_max="$(_cargo_target_gc_human_bytes "${max_bytes}")"
+  human_soft="$(_cargo_target_gc_human_bytes "${soft_bytes}")"
+  human_low="$(_cargo_target_gc_human_bytes "${low_bytes}")"
   if ! before_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
     echo "warn: cargo target hygiene skipped; could not measure ${target_dir}" >&2
     return 0
@@ -653,50 +752,51 @@ maybe_cargo_target_hygiene() {
   else
     sweep_on="off"
   fi
-  if [[ "${MEI_CARGO_TARGET_GC:-1}" == "1" ]]; then
-    clean_on="on"
+  if [[ "${MEI_CARGO_TARGET_EMERGENCY_CLEAN:-0}" == "1" ]]; then
+    clean_on="emergency"
   else
-    clean_on="off"
+    clean_on="explicit-only"
   fi
 
   echo "==> cargo target hygiene" >&2
   echo "    dir: ${target_dir}" >&2
-  echo "    current: ${human_before} | budget: ${human_max} | sweep: ${sweep_on} | clean: ${clean_on}" >&2
+  echo "    current: ${human_before} | low/soft/max: ${human_low}/${human_soft}/${human_max}" >&2
+  echo "    sweep: ${sweep_on} | full clean: ${clean_on}" >&2
 
-  if (( before_bytes <= max_bytes )); then
-    echo "    hygiene: under budget (${human_before} <= ${human_max}), leaving target untouched" >&2
+  if [[ "${MEI_CARGO_TARGET_EMERGENCY_CLEAN:-0}" == "1" ]]; then
+    maybe_cargo_target_gc "${mei_lang_root}" "${target_dir}" "${max_bytes}" "${before_bytes}"
+    if after_sweep_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
+      :
+    else
+      after_sweep_bytes=0
+    fi
     _cargo_target_finish_hygiene_report "${target_dir}" "${active_profile}" \
-      "${before_bytes}" "${before_bytes}" "under-budget"
+      "${before_bytes}" "${after_sweep_bytes}" "completed" "explicit emergency cargo clean"
+    return 0
+  fi
+
+  if (( before_bytes <= soft_bytes )); then
+    echo "    hygiene: below soft watermark (${human_before} <= ${human_soft}), inspect only" >&2
+    _cargo_target_finish_hygiene_report "${target_dir}" "${active_profile}" \
+      "${before_bytes}" "${before_bytes}" "under-budget" \
+      "below soft watermark; target left untouched"
     return 0
   fi
 
   outcome="completed"
-  hygiene_detail="phases: safe sweep (stale hashes, link intermediates, inactive profile, tests)"
+  hygiene_detail="phases: orphan + TTL-expired fingerprints/link objects/incremental sessions"
 
   after_sweep_bytes="$(maybe_cargo_target_sweep_stale "${mei_lang_root}" "${target_dir}" "${before_bytes}")"
-  if (( after_sweep_bytes > max_bytes )); then
-    hygiene_detail+=", incremental"
-    after_sweep_bytes="$(maybe_cargo_target_sweep_incremental "${mei_lang_root}" "${target_dir}" "${after_sweep_bytes}")"
+  if (( after_sweep_bytes > low_bytes )) && [[ "${MEI_CARGO_TARGET_AGGRESSIVE:-0}" == "1" ]]; then
+    hygiene_detail+=", explicit aggressive local-cache reclaim"
+    after_sweep_bytes="$(maybe_cargo_target_sweep_aggressive "${mei_lang_root}" "${target_dir}" "${after_sweep_bytes}")"
   fi
   if (( after_sweep_bytes > max_bytes )); then
-    if [[ "${MEI_CARGO_TARGET_DEFER_CLEAN:-0}" == "1" ]]; then
-      outcome="deferred"
-      hygiene_detail+=", clean deferred (live debug closure still over budget)"
-      echo "    clean: deferred (MEI_CARGO_TARGET_DEFER_CLEAN=1; binaries usable — run cargo-target-gc.sh or install to force clean)" >&2
-    elif [[ "${MEI_CARGO_TARGET_GC:-1}" == "0" ]]; then
-      hygiene_detail+=", clean skipped (MEI_CARGO_TARGET_GC=0)"
-      echo "    clean: disabled (MEI_CARGO_TARGET_GC=0; still over budget after safe steps)" >&2
-    else
-      hygiene_detail+=", cargo clean"
-      maybe_cargo_target_gc "${mei_lang_root}" "${target_dir}" "${max_bytes}" "${after_sweep_bytes}"
-      if after_sweep_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
-        :
-      else
-        after_sweep_bytes=0
-      fi
-    fi
-  else
-    maybe_cargo_target_gc "${mei_lang_root}" "${target_dir}" "${max_bytes}" "${after_sweep_bytes}"
+    outcome="deferred"
+    hygiene_detail+=", live/recent cache remains above hard watermark; full clean not automatic"
+    echo "    warn: target remains above hard watermark; use --aggressive or --emergency-clean explicitly" >&2
+  elif (( after_sweep_bytes > low_bytes )); then
+    hygiene_detail+=", retained recent/live cache above low watermark"
   fi
 
   _cargo_target_finish_hygiene_report "${target_dir}" "${active_profile}" \
@@ -704,8 +804,31 @@ maybe_cargo_target_hygiene() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-}" in
+    --aggressive)
+      export MEI_CARGO_TARGET_AGGRESSIVE=1
+      shift
+      ;;
+    --emergency-clean)
+      export MEI_CARGO_TARGET_EMERGENCY_CLEAN=1
+      shift
+      ;;
+    --dry-run)
+      export MEI_CARGO_TARGET_GC_DRY_RUN=1
+      shift
+      ;;
+    "")
+      ;;
+    *)
+      echo "usage: $0 [--dry-run|--aggressive|--emergency-clean]" >&2
+      exit 2
+      ;;
+  esac
   mei_lang_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
+  # shellcheck source=../build/build-env.sh
+  source "${mei_lang_root}/scripts/build/build-env.sh"
+  target_dir="$(mei_cargo_target_dir "${mei_lang_root}")"
+  export CARGO_TARGET_DIR="${target_dir}"
   active_profile="${MEI_CARGO_BUILD_PROFILE:-debug}"
   maybe_cargo_target_hygiene "${mei_lang_root}"
   cargo_target_emit_startup_panel "${target_dir}" "${active_profile}" "manual"

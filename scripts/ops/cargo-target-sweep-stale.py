@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
-"""Remove reclaimable Cargo target artifacts before `cargo clean`.
+"""Age-aware, fingerprint-safe reclamation for a Cargo target directory.
 
-Safe to delete without forcing a full dependency rebuild:
-  - Stale fingerprint dirs and deps/build files for superseded hashes
-  - Workspace crates outside the runtime dependency closure
-  - Integration-test artifacts
-  - Inactive profile directory (debug vs release)
-  - Linker intermediates (*.o, *.rcgu.o) under deps/ — rlib/rmeta kept
-
-May slow the next incremental compile (still not a cold rebuild):
-  - Entire incremental/ cache
-
-`cargo clean` remains the only way to shrink below the live dependency closure.
+The default mode keeps every newest compilation identity, including distinct
+feature sets and target kinds. It removes only orphaned hash artifacts, aged
+superseded fingerprints, aged linker objects, and aged incremental sessions.
+Destructive profile/test/package sweeps remain explicit options.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,26 +15,28 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 HASH_RE = re.compile(r"-([0-9a-f]{16})(?:\.|$)")
 FP_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 def dir_size(path: Path) -> int:
-    total = 0
     if not path.exists():
         return 0
-    if path.is_file():
-        return path.stat().st_size
-    for child in path.rglob("*"):
-        if child.is_file():
-            total += child.stat().st_size
-    return total
+    if path.is_file() or path.is_symlink():
+        return path.lstat().st_size
+    return sum(
+        child.lstat().st_size
+        for child in path.rglob("*")
+        if child.is_file() or child.is_symlink()
+    )
 
 
-def _remove_path(path: Path, dry_run: bool) -> int:
+def remove_path(path: Path, dry_run: bool) -> int:
     size = dir_size(path)
     if dry_run:
         return size
@@ -51,46 +47,79 @@ def _remove_path(path: Path, dry_run: bool) -> int:
     return size
 
 
-def _split_fingerprint_name(name: str) -> tuple[str, str] | tuple[None, None]:
-    crate_key, hash_val = name.rsplit("-", 1)
-    if not FP_HASH_RE.fullmatch(hash_val):
+def split_fingerprint_name(name: str) -> tuple[str, str] | tuple[None, None]:
+    crate_key, hash_value = name.rsplit("-", 1)
+    if not FP_HASH_RE.fullmatch(hash_value):
         return None, None
-    return crate_key, hash_val
+    return crate_key, hash_value
 
 
-def _fingerprint_kinds(fp_dir: Path) -> set[str]:
-    kinds: set[str] = set()
-    for child in fp_dir.iterdir():
-        if not child.is_file():
-            continue
-        name = child.name
-        if name.startswith("bin-"):
-            kinds.add(f"bin:{name[4:]}")
-        elif name.startswith("dep-bin-"):
-            kinds.add(f"bin:{name[8:]}")
-        elif name.startswith("dep-lib-"):
-            kinds.add("lib")
-        elif name.startswith("dep-test-"):
-            kinds.add(f"test:{name[9:]}")
-        elif "build-script" in name:
-            kinds.add("build-script")
-        elif name.startswith("run-build-script"):
-            kinds.add("run-build-script")
-        else:
-            kinds.add("other")
-    return kinds or {"other"}
-
-
-def _package_to_crate_key(package_name: str) -> str:
-    return package_name.replace("_", "-")
-
-
-def _artifact_stem(package_name: str) -> str:
+def artifact_stem(package_name: str) -> str:
     return package_name.replace("-", "_")
 
 
-def resolve_keep_crate_keys(manifest: Path, keep_packages: list[str]) -> set[str]:
-    """Transitive dependency closure crate keys (dash form) for keep roots."""
+def age_days(path: Path, now: float) -> float:
+    try:
+        return max(0.0, (now - path.stat().st_mtime) / 86_400)
+    except OSError:
+        return 0.0
+
+
+def fingerprint_mtime(path: Path) -> float:
+    timestamp = path / "invoked.timestamp"
+    try:
+        return timestamp.stat().st_mtime
+    except OSError:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+
+def stable_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def fingerprint_identity(path: Path) -> tuple[str, ...]:
+    """Return the full Cargo unit identity, not merely crate/kind.
+
+    Cargo legitimately stores multiple hashes for one crate when feature sets,
+    targets, profiles, or build-script inputs differ. Those variants must not
+    be collapsed by recency alone.
+    """
+    identities: list[str] = []
+    for candidate in sorted(path.glob("*.json")):
+        try:
+            payload = json.loads(candidate.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        identities.append(
+            stable_json(
+                {
+                    "file_kind": candidate.name.rsplit("-", 1)[0],
+                    "features": payload.get("features"),
+                    "declared_features": payload.get("declared_features"),
+                    "target": payload.get("target"),
+                    "profile": payload.get("profile"),
+                    "path": payload.get("path"),
+                }
+            )
+        )
+    if identities:
+        return tuple(identities)
+    kinds = sorted(
+        child.name.split("-", 1)[0]
+        for child in path.iterdir()
+        if child.is_file() and child.name != "invoked.timestamp"
+    )
+    return tuple(kinds or ["unknown"])
+
+
+def package_to_crate_key(package_name: str) -> str:
+    return package_name.replace("_", "-")
+
+
+def cargo_metadata(manifest: Path) -> dict[str, Any] | None:
     proc = subprocess.run(
         [
             "cargo",
@@ -105,137 +134,55 @@ def resolve_keep_crate_keys(manifest: Path, keep_packages: list[str]) -> set[str
         check=False,
     )
     if proc.returncode != 0:
-        return {_package_to_crate_key(name) for name in keep_packages}
+        print(
+            f"warn: cargo metadata failed; package-scope sweep skipped: {proc.stderr.strip()}",
+            file=sys.stderr,
+        )
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as error:
+        print(f"warn: invalid cargo metadata JSON: {error}", file=sys.stderr)
+        return None
 
-    meta = json.loads(proc.stdout)
-    id_to_name = {package["id"]: package["name"] for package in meta["packages"]}
-    root_ids = [package["id"] for package in meta["packages"] if package["name"] in keep_packages]
+
+def workspace_packages_outside_closure(
+    manifest: Path, keep_packages: list[str]
+) -> set[str]:
+    metadata = cargo_metadata(manifest)
+    if metadata is None:
+        return set()
+    id_to_package = {package["id"]: package for package in metadata["packages"]}
+    roots = [
+        package_id
+        for package_id, package in id_to_package.items()
+        if package["name"] in keep_packages
+    ]
     node_deps = {
-        node["id"]: [dep["pkg"] for dep in node.get("deps", [])] for node in meta["resolve"]["nodes"]
+        node["id"]: [dependency["pkg"] for dependency in node.get("deps", [])]
+        for node in metadata["resolve"]["nodes"]
     }
-
-    closure: set[str] = set(root_ids)
-    queue = list(root_ids)
+    closure = set(roots)
+    queue = list(roots)
     while queue:
         package_id = queue.pop()
-        for dep_id in node_deps.get(package_id, []):
-            if dep_id not in closure:
-                closure.add(dep_id)
-                queue.append(dep_id)
-
-    return {_package_to_crate_key(id_to_name[package_id]) for package_id in closure}
-
-
-def workspace_packages_outside_closure(manifest: Path, keep_crate_keys: set[str]) -> set[str]:
-    proc = subprocess.run(
-        [
-            "cargo",
-            "metadata",
-            "--format-version",
-            "1",
-            "--manifest-path",
-            str(manifest),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        return set()
-
-    meta = json.loads(proc.stdout)
-    outside: set[str] = set()
-    for package in meta["packages"]:
-        if package.get("source") is not None:
-            continue
-        crate_key = _package_to_crate_key(package["name"])
-        if crate_key not in keep_crate_keys:
-            outside.add(crate_key)
-    return outside
+        for dependency in node_deps.get(package_id, []):
+            if dependency not in closure:
+                closure.add(dependency)
+                queue.append(dependency)
+    return {
+        package_to_crate_key(package["name"])
+        for package_id, package in id_to_package.items()
+        if package.get("source") is None and package_id not in closure
+    }
 
 
-def fingerprint_groups(fp_root: Path) -> tuple[set[str], list[Path]]:
-    live_hashes: set[str] = set()
-    stale_dirs: list[Path] = []
-    groups: dict[tuple[str, str], list[tuple[str, float, Path]]] = defaultdict(list)
-
-    for entry in fp_root.iterdir():
-        if not entry.is_dir():
-            continue
-        crate_key, hash_val = _split_fingerprint_name(entry.name)
-        if not crate_key:
-            continue
-        kinds = _fingerprint_kinds(entry)
-        ts = entry / "invoked.timestamp"
-        mtime = ts.stat().st_mtime if ts.exists() else 0.0
-        for kind in kinds:
-            groups[(crate_key, kind)].append((hash_val, mtime, entry))
-
-    seen_dirs: set[Path] = set()
-    for entries in groups.values():
-        if len(entries) == 1:
-            live_hashes.add(entries[0][0])
-            continue
-        max_mtime = max(item[1] for item in entries)
-        keep = {item[0] for item in entries if item[1] == max_mtime and max_mtime > 0}
-        if not keep:
-            keep = {max(entries, key=lambda item: item[1])[0]}
-        live_hashes.update(keep)
-        for hash_val, _mtime, path in entries:
-            if hash_val not in keep and path not in seen_dirs:
-                stale_dirs.append(path)
-                seen_dirs.add(path)
-
-    return live_hashes, stale_dirs
-
-
-def sweep_duplicate_incremental_dirs(incremental: Path, dry_run: bool) -> int:
-    if not incremental.is_dir():
-        return 0
-    groups: dict[str, list[Path]] = defaultdict(list)
-    for entry in incremental.iterdir():
-        if not entry.is_dir():
-            continue
-        stem = entry.name.rsplit("-", 1)[0] if "-" in entry.name else entry.name
-        groups[stem].append(entry)
-
-    freed = 0
-    for dirs in groups.values():
-        if len(dirs) <= 1:
-            continue
-        dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-        for stale in dirs[1:]:
-            freed += _remove_path(stale, dry_run)
-    return freed
-
-
-def sweep_incremental_all(incremental: Path, dry_run: bool) -> int:
-    if not incremental.is_dir():
-        return 0
-    return _remove_path(incremental, dry_run)
-
-
-def sweep_profile_root_artifacts(profile_dir: Path, crate_keys: set[str], dry_run: bool) -> int:
-    freed = 0
-    for crate_key in crate_keys:
-        stem = _artifact_stem(crate_key)
-        for pattern in (crate_key, stem, f"lib{stem}"):
-            for path in profile_dir.glob(f"{pattern}*"):
-                if path.name in {"deps", "build", "incremental", ".fingerprint", "examples"}:
-                    continue
-                freed += _remove_path(path, dry_run)
-    return freed
-
-
-def sweep_hashes_from_fingerprints(
-    profile_dir: Path,
-    removed_hashes: set[str],
-    dry_run: bool,
+def remove_hash_artifacts(
+    profile_dir: Path, removed_hashes: set[str], dry_run: bool
 ) -> int:
-    freed = 0
     if not removed_hashes:
         return 0
-
+    freed = 0
     deps = profile_dir / "deps"
     if deps.is_dir():
         for artifact in deps.iterdir():
@@ -243,108 +190,145 @@ def sweep_hashes_from_fingerprints(
                 continue
             match = HASH_RE.search(artifact.name)
             if match and match.group(1) in removed_hashes:
-                freed += _remove_path(artifact, dry_run)
-
+                freed += remove_path(artifact, dry_run)
     build_root = profile_dir / "build"
     if build_root.is_dir():
         for entry in build_root.iterdir():
-            _crate_key, hash_val = _split_fingerprint_name(entry.name)
-            if hash_val and hash_val in removed_hashes:
-                freed += _remove_path(entry, dry_run)
-
+            _crate_key, hash_value = split_fingerprint_name(entry.name)
+            if hash_value in removed_hashes:
+                freed += remove_path(entry, dry_run)
     return freed
 
 
-def sweep_out_of_scope_workspace(
-    profile_dir: Path,
-    outside_crate_keys: set[str],
-    dry_run: bool,
+def remove_orphan_hash_artifacts(profile_dir: Path, dry_run: bool) -> int:
+    fingerprint_root = profile_dir / ".fingerprint"
+    live_hashes: set[str] = set()
+    if fingerprint_root.is_dir():
+        for entry in fingerprint_root.iterdir():
+            if entry.is_dir():
+                _crate_key, hash_value = split_fingerprint_name(entry.name)
+                if hash_value:
+                    live_hashes.add(hash_value)
+
+    orphan_hashes: set[str] = set()
+    for root_name in ("deps", "build"):
+        root = profile_dir / root_name
+        if not root.is_dir():
+            continue
+        for entry in root.iterdir():
+            match = HASH_RE.search(entry.name)
+            if match and match.group(1) not in live_hashes:
+                orphan_hashes.add(match.group(1))
+    return remove_hash_artifacts(profile_dir, orphan_hashes, dry_run)
+
+
+def sweep_aged_fingerprints(
+    profile_dir: Path, dry_run: bool, max_age_days: int, keep_per_identity: int
 ) -> int:
-    if not outside_crate_keys:
+    fingerprint_root = profile_dir / ".fingerprint"
+    if not fingerprint_root.is_dir():
         return 0
+    now = time.time()
+    groups: dict[tuple[str, tuple[str, ...]], list[Path]] = defaultdict(list)
+    for entry in fingerprint_root.iterdir():
+        if not entry.is_dir():
+            continue
+        crate_key, hash_value = split_fingerprint_name(entry.name)
+        if crate_key and hash_value:
+            groups[(crate_key, fingerprint_identity(entry))].append(entry)
 
-    freed = 0
     removed_hashes: set[str] = set()
-    fp_root = profile_dir / ".fingerprint"
-    if fp_root.is_dir():
-        for entry in list(fp_root.iterdir()):
-            if not entry.is_dir():
+    freed = 0
+    for entries in groups.values():
+        entries.sort(key=fingerprint_mtime, reverse=True)
+        for stale in entries[max(1, keep_per_identity) :]:
+            stale_age_days = max(
+                0.0, (now - fingerprint_mtime(stale)) / 86_400
+            )
+            if stale_age_days < max_age_days:
                 continue
-            crate_key, hash_val = _split_fingerprint_name(entry.name)
-            if crate_key and crate_key in outside_crate_keys and hash_val:
-                removed_hashes.add(hash_val)
-                freed += _remove_path(entry, dry_run)
-
-    freed += sweep_hashes_from_fingerprints(profile_dir, removed_hashes, dry_run)
-    freed += sweep_profile_root_artifacts(profile_dir, outside_crate_keys, dry_run)
-    freed += sweep_duplicate_incremental_dirs(profile_dir / "incremental", dry_run)
+            _crate_key, hash_value = split_fingerprint_name(stale.name)
+            if hash_value:
+                removed_hashes.add(hash_value)
+            freed += remove_path(stale, dry_run)
+    freed += remove_hash_artifacts(profile_dir, removed_hashes, dry_run)
     return freed
 
 
-def sweep_test_artifacts(profile_dir: Path, dry_run: bool) -> int:
-    freed = 0
-    removed_hashes: set[str] = set()
-    fp_root = profile_dir / ".fingerprint"
-    if fp_root.is_dir():
-        for entry in list(fp_root.iterdir()):
-            if not entry.is_dir():
-                continue
-            kinds = _fingerprint_kinds(entry)
-            if not any(kind.startswith("test:") for kind in kinds):
-                continue
-            _crate_key, hash_val = _split_fingerprint_name(entry.name)
-            if hash_val:
-                removed_hashes.add(hash_val)
-            freed += _remove_path(entry, dry_run)
-
-    freed += sweep_hashes_from_fingerprints(profile_dir, removed_hashes, dry_run)
-    return freed
-
-
-def sweep_stale_hashes(profile_dir: Path, dry_run: bool) -> int:
-    freed = 0
-    fp_root = profile_dir / ".fingerprint"
-    if not fp_root.is_dir():
+def sweep_incremental_sessions(
+    profile_dir: Path,
+    dry_run: bool,
+    max_age_days: int,
+    keep_per_crate: int,
+) -> int:
+    incremental = profile_dir / "incremental"
+    if not incremental.is_dir():
         return 0
-
-    live_hashes, stale_fp_dirs = fingerprint_groups(fp_root)
-
-    deps = profile_dir / "deps"
-    if deps.is_dir():
-        for artifact in deps.iterdir():
-            if not artifact.is_file():
-                continue
-            match = HASH_RE.search(artifact.name)
-            if not match:
-                continue
-            if match.group(1) not in live_hashes:
-                freed += _remove_path(artifact, dry_run)
-
-    build_root = profile_dir / "build"
-    if build_root.is_dir():
-        for entry in build_root.iterdir():
-            _crate_key, hash_val = _split_fingerprint_name(entry.name)
-            if hash_val and hash_val not in live_hashes:
-                freed += _remove_path(entry, dry_run)
-
-    for stale in stale_fp_dirs:
-        freed += _remove_path(stale, dry_run)
-
+    now = time.time()
+    groups: dict[str, list[Path]] = defaultdict(list)
+    for entry in incremental.iterdir():
+        if entry.is_dir():
+            crate_name = entry.name.rsplit("-", 1)[0]
+            groups[crate_name].append(entry)
+    freed = 0
+    for entries in groups.values():
+        entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+        for stale in entries[max(1, keep_per_crate) :]:
+            if age_days(stale, now) >= max_age_days:
+                freed += remove_path(stale, dry_run)
     return freed
 
 
-def sweep_linker_intermediates(profile_dir: Path, dry_run: bool) -> int:
-    """Drop LLVM object files in deps/; linked .rlib/.rmeta stay for reuse."""
-    freed = 0
+def sweep_linker_intermediates(
+    profile_dir: Path, dry_run: bool, max_age_days: int
+) -> int:
     deps = profile_dir / "deps"
     if not deps.is_dir():
         return 0
+    now = time.time()
+    freed = 0
     for artifact in deps.iterdir():
         if not artifact.is_file():
             continue
-        name = artifact.name
-        if name.endswith(".o") or ".rcgu.o" in name:
-            freed += _remove_path(artifact, dry_run)
+        if not (artifact.name.endswith(".o") or ".rcgu.o" in artifact.name):
+            continue
+        if age_days(artifact, now) >= max_age_days:
+            freed += remove_path(artifact, dry_run)
+    return freed
+
+
+def sweep_selected_fingerprints(
+    profile_dir: Path,
+    dry_run: bool,
+    *,
+    outside_crate_keys: set[str],
+    sweep_tests: bool,
+) -> int:
+    fingerprint_root = profile_dir / ".fingerprint"
+    if not fingerprint_root.is_dir():
+        return 0
+    removed_hashes: set[str] = set()
+    freed = 0
+    for entry in list(fingerprint_root.iterdir()):
+        if not entry.is_dir():
+            continue
+        crate_key, hash_value = split_fingerprint_name(entry.name)
+        is_test = any(
+            child.name.startswith(("dep-test-", "test-"))
+            for child in entry.iterdir()
+            if child.is_file()
+        )
+        if (crate_key in outside_crate_keys) or (sweep_tests and is_test):
+            if hash_value:
+                removed_hashes.add(hash_value)
+            freed += remove_path(entry, dry_run)
+    freed += remove_hash_artifacts(profile_dir, removed_hashes, dry_run)
+    for crate_key in outside_crate_keys:
+        stem = artifact_stem(crate_key)
+        for pattern in (crate_key, stem, f"lib{stem}"):
+            for path in profile_dir.glob(f"{pattern}*"):
+                if path.name not in {"deps", "build", "incremental", ".fingerprint"}:
+                    freed += remove_path(path, dry_run)
     return freed
 
 
@@ -352,94 +336,56 @@ def sweep_profile(
     profile_dir: Path,
     dry_run: bool,
     *,
+    max_age_days: int,
+    incremental_max_age_days: int,
+    link_max_age_days: int,
+    keep_fingerprint_variants: int,
+    keep_incremental_sessions: int,
     outside_crate_keys: set[str],
     sweep_tests: bool,
-    sweep_incremental: bool,
+    sweep_incremental_all: bool,
     prune_link_intermediates: bool,
 ) -> int:
-    freed = 0
-    if sweep_incremental:
-        freed += sweep_incremental_all(profile_dir / "incremental", dry_run)
+    freed = remove_orphan_hash_artifacts(profile_dir, dry_run)
+    freed += sweep_aged_fingerprints(
+        profile_dir, dry_run, max_age_days, keep_fingerprint_variants
+    )
+    freed += sweep_selected_fingerprints(
+        profile_dir,
+        dry_run,
+        outside_crate_keys=outside_crate_keys,
+        sweep_tests=sweep_tests,
+    )
+    incremental = profile_dir / "incremental"
+    if sweep_incremental_all:
+        freed += remove_path(incremental, dry_run)
     else:
-        freed += sweep_duplicate_incremental_dirs(profile_dir / "incremental", dry_run)
-
-    freed += sweep_out_of_scope_workspace(profile_dir, outside_crate_keys, dry_run)
-    if sweep_tests:
-        freed += sweep_test_artifacts(profile_dir, dry_run)
-    freed += sweep_stale_hashes(profile_dir, dry_run)
+        freed += sweep_incremental_sessions(
+            profile_dir,
+            dry_run,
+            incremental_max_age_days,
+            keep_incremental_sessions,
+        )
     if prune_link_intermediates:
-        freed += sweep_linker_intermediates(profile_dir, dry_run)
+        freed += sweep_linker_intermediates(
+            profile_dir, dry_run, link_max_age_days
+        )
     return freed
 
 
-def drop_inactive_profile(target_dir: Path, active_profile: str, dry_run: bool) -> int:
+def drop_inactive_profile(
+    target_dir: Path, active_profile: str, dry_run: bool
+) -> int:
     freed = 0
     for profile in ("debug", "release"):
-        if profile == active_profile:
-            continue
-        profile_dir = target_dir / profile
-        if profile_dir.is_dir():
-            freed += _remove_path(profile_dir, dry_run)
+        if profile != active_profile:
+            profile_dir = target_dir / profile
+            if profile_dir.is_dir():
+                freed += remove_path(profile_dir, dry_run)
     return freed
 
 
-def sweep_target(
-    target_dir: Path,
-    dry_run: bool,
-    *,
-    manifest: Path | None,
-    keep_packages: list[str],
-    active_profile: str,
-    drop_other_profile: bool,
-    sweep_tests: bool,
-    sweep_incremental: bool,
-    prune_link_intermediates: bool,
-    incremental_only: bool = False,
-    profile_drop_only: bool = False,
-) -> int:
-    if not target_dir.is_dir():
-        return 0
-
-    if profile_drop_only:
-        if active_profile in {"debug", "release"}:
-            return drop_inactive_profile(target_dir, active_profile, dry_run)
-        return 0
-
-    if incremental_only:
-        total = 0
-        for profile in ("debug", "release"):
-            profile_dir = target_dir / profile
-            if profile_dir.is_dir():
-                total += sweep_incremental_all(profile_dir / "incremental", dry_run)
-        return total
-
-    total = 0
-    if drop_other_profile and active_profile in {"debug", "release"}:
-        total += drop_inactive_profile(target_dir, active_profile, dry_run)
-
-    outside_crate_keys: set[str] = set()
-    if manifest and keep_packages:
-        keep_crate_keys = resolve_keep_crate_keys(manifest, keep_packages)
-        outside_crate_keys = workspace_packages_outside_closure(manifest, keep_crate_keys)
-
-    profiles = ("debug", "release") if not drop_other_profile else (active_profile,)
-    for profile in profiles:
-        profile_dir = target_dir / profile
-        if profile_dir.is_dir():
-            total += sweep_profile(
-                profile_dir,
-                dry_run,
-                outside_crate_keys=outside_crate_keys,
-                sweep_tests=sweep_tests,
-                sweep_incremental=sweep_incremental,
-                prune_link_intermediates=prune_link_intermediates,
-            )
-    return total
-
-
-def _parse_keep_packages(raw: str | None) -> list[str]:
-    if not raw:
-        return []
+def parse_keep_packages(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
@@ -447,72 +393,76 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target_dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--manifest-path", type=Path, default=None)
+    parser.add_argument("--manifest-path", type=Path)
+    parser.add_argument("--keep-packages", default="")
     parser.add_argument(
-        "--keep-packages",
-        default="",
-        help="comma-separated root package names (e.g. mei-compiler,mei-host-shell)",
+        "--active-profile", choices=("debug", "release", "both"), default="both"
     )
-    parser.add_argument(
-        "--active-profile",
-        choices=("debug", "release", "both"),
-        default="both",
-        help="profile being built; used with --drop-inactive-profile",
-    )
-    parser.add_argument(
-        "--drop-inactive-profile",
-        action="store_true",
-        help="remove the entire non-active profile directory",
-    )
-    parser.add_argument(
-        "--sweep-tests",
-        action="store_true",
-        help="remove integration-test fingerprints and deps",
-    )
-    parser.add_argument(
-        "--sweep-incremental",
-        action="store_true",
-        help="remove the entire incremental cache (phase-2 hygiene)",
-    )
-    parser.add_argument(
-        "--incremental-only",
-        action="store_true",
-        help="only remove incremental caches (used by phase-3 hygiene)",
-    )
-    parser.add_argument(
-        "--no-prune-link-intermediates",
-        action="store_true",
-        help="keep deps/*.o and deps/*.rcgu.o (linker intermediates)",
-    )
-    parser.add_argument(
-        "--profile-drop-only",
-        action="store_true",
-        help="only remove the inactive profile directory (used by phase-2 hygiene)",
-    )
+    parser.add_argument("--max-age-days", type=int, default=30)
+    parser.add_argument("--incremental-max-age-days", type=int, default=14)
+    parser.add_argument("--link-max-age-days", type=int, default=7)
+    parser.add_argument("--keep-fingerprint-variants", type=int, default=2)
+    parser.add_argument("--keep-incremental-sessions", type=int, default=2)
+    parser.add_argument("--drop-inactive-profile", action="store_true")
+    parser.add_argument("--profile-drop-only", action="store_true")
+    parser.add_argument("--sweep-tests", action="store_true")
+    parser.add_argument("--sweep-out-of-scope", action="store_true")
+    parser.add_argument("--sweep-incremental", action="store_true")
+    parser.add_argument("--incremental-only", action="store_true")
+    parser.add_argument("--no-prune-link-intermediates", action="store_true")
     args = parser.parse_args()
 
-    keep_packages = _parse_keep_packages(args.keep_packages)
-    manifest = args.manifest_path.resolve() if args.manifest_path else None
-    active_profile = args.active_profile
-    if active_profile == "both":
-        active_profile = "debug"
+    target_dir = args.target_dir.resolve()
+    active_profile = "debug" if args.active_profile == "both" else args.active_profile
+    if args.profile_drop_only:
+        freed = drop_inactive_profile(target_dir, active_profile, args.dry_run)
+        print(f"freed_bytes={freed}")
+        return 0
+    if args.incremental_only:
+        freed = sum(
+            remove_path(target_dir / profile / "incremental", args.dry_run)
+            for profile in ("debug", "release")
+        )
+        print(f"freed_bytes={freed}")
+        return 0
 
-    freed = sweep_target(
-        args.target_dir.resolve(),
-        args.dry_run,
-        manifest=manifest,
-        keep_packages=keep_packages,
-        active_profile=active_profile,
-        drop_other_profile=args.drop_inactive_profile,
-        sweep_tests=args.sweep_tests,
-        sweep_incremental=args.sweep_incremental,
-        prune_link_intermediates=not args.no_prune_link_intermediates,
-        incremental_only=args.incremental_only,
-        profile_drop_only=args.profile_drop_only,
+    freed = 0
+    if args.drop_inactive_profile:
+        freed += drop_inactive_profile(target_dir, active_profile, args.dry_run)
+
+    outside_crate_keys: set[str] = set()
+    keep_packages = parse_keep_packages(args.keep_packages)
+    if args.sweep_out_of_scope and args.manifest_path and keep_packages:
+        outside_crate_keys = workspace_packages_outside_closure(
+            args.manifest_path.resolve(), keep_packages
+        )
+
+    profiles = (
+        (active_profile,)
+        if args.drop_inactive_profile
+        else tuple(
+            profile
+            for profile in ("debug", "release")
+            if (target_dir / profile).is_dir()
+        )
     )
+    for profile in profiles:
+        freed += sweep_profile(
+            target_dir / profile,
+            args.dry_run,
+            max_age_days=max(0, args.max_age_days),
+            incremental_max_age_days=max(0, args.incremental_max_age_days),
+            link_max_age_days=max(0, args.link_max_age_days),
+            keep_fingerprint_variants=max(1, args.keep_fingerprint_variants),
+            keep_incremental_sessions=max(1, args.keep_incremental_sessions),
+            outside_crate_keys=outside_crate_keys,
+            sweep_tests=args.sweep_tests,
+            sweep_incremental_all=args.sweep_incremental,
+            prune_link_intermediates=not args.no_prune_link_intermediates,
+        )
     print(f"freed_bytes={freed}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -40,17 +40,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TARGET_DIR="${CARGO_TARGET_DIR:-${MEI_LANG_ROOT}/target}"
-# Cursor/agent shells may inject a sandbox CARGO_TARGET_DIR outside the repo.
-# Viewer sidecars must come from mei-lang/target unless explicitly overridden.
-if [[ -n "${MEI_CARGO_TARGET_DIR:-}" ]]; then
-  TARGET_DIR="${MEI_CARGO_TARGET_DIR}"
-elif [[ "${TARGET_DIR}" != "${MEI_LANG_ROOT}/target" ]]; then
-  echo "==> ignoring inherited CARGO_TARGET_DIR=${TARGET_DIR}"
-  echo "    using ${MEI_LANG_ROOT}/target (set MEI_CARGO_TARGET_DIR to override)"
-  unset CARGO_TARGET_DIR || true
-  TARGET_DIR="${MEI_LANG_ROOT}/target"
-fi
+# shellcheck source=../build/build-env.sh
+source "${SCRIPT_DIR}/../build/build-env.sh"
+TARGET_DIR="$(mei_cargo_target_dir "${MEI_LANG_ROOT}")"
+export CARGO_TARGET_DIR="${TARGET_DIR}"
+mei_export_build_identity "${MEI_LANG_ROOT}"
 BIN_DIR="${TARGET_DIR}/${PROFILE}"
 
 EXT=""
