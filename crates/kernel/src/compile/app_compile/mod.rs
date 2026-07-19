@@ -326,6 +326,7 @@ fn hydrate_scene_links(
             target_file: target_file.clone(),
             kind: "scene_first_board".to_string(),
             title: None,
+            short_title: None,
             is_default: false,
             access_export: true,
         };

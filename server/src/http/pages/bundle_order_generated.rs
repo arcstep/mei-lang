@@ -314,6 +314,7 @@ pub(super) const BUNDLE_ADMIN_SCRIPTS: &[&str] = &[
     "host-heartbeat.js",
     "topbar-app-group-menu.js",
     "statusbar.js",
+    "visit-history-panel.js",
     "spa-navigation/preamble.js",
     "spa-navigation/constants.js",
     "spa-navigation/events.js",

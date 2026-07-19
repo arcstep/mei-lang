@@ -13,6 +13,7 @@ fn dependency_graph_cache_hits_on_repeated_build() {
         target_file: "scenes/layouts/left.mei".to_string(),
         kind: "file_ref".to_string(),
         title: None,
+        short_title: None,
         is_default: true,
         access_export: true,
     }];

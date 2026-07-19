@@ -22,6 +22,7 @@ pub const LAUNCH_SCHEMA_V1: &str = "mei-app-launch-v1";
 #[derive(Debug, Clone, Default)]
 pub struct AppManifest {
     pub title: Option<String>,
+    pub short_title: Option<String>,
     pub default_stage: Option<String>,
     pub mei: MeiConfig,
     pub app_id: Option<String>,
@@ -61,6 +62,9 @@ impl AppManifest {
         map.insert("appId".to_string(), Value::String(app_id.to_string()));
         if let Some(title) = self.title.as_ref().filter(|s| !s.trim().is_empty()) {
             map.insert("displayName".to_string(), Value::String(title.clone()));
+        }
+        if let Some(short_title) = self.short_title.as_ref().filter(|s| !s.trim().is_empty()) {
+            map.insert("shortTitle".to_string(), Value::String(short_title.clone()));
         }
         map.insert(
             "generation".to_string(),
@@ -105,6 +109,8 @@ pub struct AppTomlDocument {
     pub schema_version: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "shortTitle")]
+    pub short_title: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -166,6 +172,7 @@ impl AppTomlDocument {
         Self {
             schema_version: Some(Value::String(APP_TOML_SCHEMA.to_string())),
             title: m.title.clone().or_else(|| m.title.clone()),
+            short_title: m.short_title.clone(),
             default_stage: m.default_stage.clone(),
             app_id: m.app_id.clone(),
             entry: mei.entry.clone(),
@@ -218,6 +225,7 @@ impl AppTomlDocument {
         };
         AppManifest {
             title,
+            short_title: self.short_title.filter(|s| !s.trim().is_empty()),
             default_stage: self.default_stage.filter(|s| !s.trim().is_empty()),
             mei,
             app_id: self.app_id,
@@ -353,6 +361,7 @@ pub fn load_app_manifest_from_json_pair(app_root: &Path) -> AppManifest {
 
     AppManifest {
         title,
+        short_title: None,
         default_stage,
         mei,
         app_id,
@@ -464,6 +473,7 @@ mod tests {
             r#"
 schema_version = "mei-app-v1"
 title = "From TOML"
+shortTitle = "TOML"
 default_stage = "home"
 generation = "current"
 
@@ -474,6 +484,7 @@ main = "src/app.mei"
         .unwrap();
         let m = load_app_manifest(root);
         assert_eq!(m.title.as_deref(), Some("From TOML"));
+        assert_eq!(m.short_title.as_deref(), Some("TOML"));
         assert_eq!(m.default_stage.as_deref(), Some("home"));
         assert_eq!(m.mei.entry.main, "src/app.mei");
     }
@@ -519,12 +530,14 @@ main = "src/app.mei"
         let root = dir.path();
         let mut m = AppManifest::default();
         m.title = Some("Demo".into());
+        m.short_title = Some("DM".into());
         m.default_stage = Some("home".into());
         m.mei.entry.main = "src/app.mei".into();
         m.generation = "current".into();
         write_app_toml(root, &m).expect("write");
         let loaded = load_app_manifest(root);
         assert_eq!(loaded.title.as_deref(), Some("Demo"));
+        assert_eq!(loaded.short_title.as_deref(), Some("DM"));
         assert_eq!(loaded.default_stage.as_deref(), Some("home"));
         assert_eq!(loaded.mei.entry.main, "src/app.mei");
     }

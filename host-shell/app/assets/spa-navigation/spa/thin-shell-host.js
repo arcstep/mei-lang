@@ -39,7 +39,7 @@
     return shell.document || shell;
   }
 
-  /** chrome=none / body.chrome-none：宿主顶栏底栏本就不渲染，不得当未就绪。 */
+  /** chrome=none / body.chrome-none：只抑制顶栏；底栏仍由 shell layer 提供。 */
   function isHostChromeSuppressed(ctx) {
     const fromCtx = String(ctx?.chrome || "").trim().toLowerCase();
     if (fromCtx === "none") return true;
@@ -56,9 +56,11 @@
   }
 
   function isSsrShellPlaceholder(ctx) {
-    if (isHostChromeSuppressed(ctx)) return false;
     const surface = ctx?.surface || ctx?.mode || "app";
     const doc = shellDocFromManifestRefs(surface);
+    if (isHostChromeSuppressed(ctx)) {
+      return !String(doc?.statusbar_html || "").trim();
+    }
     if (boot.viewCompositor?.isPlaceholderShellDoc) {
       return boot.viewCompositor.isPlaceholderShellDoc(doc);
     }
@@ -68,8 +70,8 @@
   }
 
   function hostChromeReady(ctx) {
-    if (isHostChromeSuppressed(ctx)) return true;
     const summary = hostChromeSummary();
+    if (isHostChromeSuppressed(ctx)) return summary.statusbar;
     return summary.topbar || summary.statusbar;
   }
 
@@ -102,6 +104,26 @@
       }
     }
     if (isHostChromeSuppressed(chromeCtx)) {
+      const bottom = String(shellDoc?.statusbar_html || "").trim();
+      const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+      const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+      if (topSlot instanceof HTMLElement) topSlot.innerHTML = "";
+      if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+      if (typeof boot.refreshStatusBarChips === "function") {
+        boot.refreshStatusBarChips();
+      }
+      if (typeof boot.refreshVisitHistoryPanel === "function") {
+        boot.refreshVisitHistoryPanel();
+      }
+      try {
+        global.document?.dispatchEvent?.(
+          new CustomEvent("mei:shell-layer-applied", {
+            detail: { source: "thin-shell-host", topbarSuppressed: true },
+          }),
+        );
+      } catch (_error) {
+        // ignore
+      }
       return true;
     }
     const root =

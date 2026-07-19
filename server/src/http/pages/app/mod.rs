@@ -109,6 +109,7 @@ mod tests {
         WorkspaceAppMeta {
             id: id.to_string(),
             title: id.to_string(),
+            short_title: None,
             root: id.to_string(),
         }
     }

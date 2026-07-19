@@ -134,6 +134,7 @@ fn discovered_compile_scopes_do_not_cross_bind_target_specific_scope_with_overla
         target_file: "scenes/popup.board.mei".to_string(),
         kind: "board".to_string(),
         title: None,
+        short_title: None,
         is_default: false,
         access_export: true,
     });
@@ -163,6 +164,7 @@ fn discovered_compile_scopes_keep_default_scope_explicit_only() {
         target_file: "scenes/popup.board.mei".to_string(),
         kind: "board".to_string(),
         title: None,
+        short_title: None,
         is_default: false,
         access_export: true,
     });

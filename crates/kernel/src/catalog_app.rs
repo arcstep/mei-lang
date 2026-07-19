@@ -41,6 +41,7 @@ fn parse_scene_routes_from_main_mei(content: &str) -> Vec<CompiledSceneRoute> {
             target_file: target_file.to_string(),
             kind: "file_ref".to_string(),
             title: None,
+            short_title: None,
             is_default: routes.is_empty(),
             access_export: true,
         });

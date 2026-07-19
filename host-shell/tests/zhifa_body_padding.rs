@@ -71,6 +71,7 @@ fn zhifa_home_ssr_applies_titled_shell_body_padding() {
     let apps = vec![WorkspaceAppMeta {
         id: "zhifa".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: outcome.compiled.app_root.clone(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());

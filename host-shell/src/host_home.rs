@@ -241,11 +241,13 @@ mod tests {
             WorkspaceAppMeta {
                 id: "mini-park".to_string(),
                 title: "Mini Park".to_string(),
+                short_title: None,
                 root: "apps/mini-park".to_string(),
             },
             WorkspaceAppMeta {
                 id: "zhifa".to_string(),
                 title: "Zhifa".to_string(),
+                short_title: None,
                 root: "apps/zhifa".to_string(),
             },
         ];

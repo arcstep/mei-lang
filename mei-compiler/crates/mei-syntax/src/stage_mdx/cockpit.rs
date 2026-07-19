@@ -30,6 +30,7 @@ pub struct CockpitFrontmatter {
     pub stage_id: String,
     pub profile: String,
     pub title: Option<String>,
+    pub short_title: Option<String>,
     pub theme: Option<String>,
 }
 
@@ -66,7 +67,7 @@ fn parse_cockpit_stage_at(
 ) -> Result<CockpitStageFile, StageMdxError> {
     let lines: Vec<&str> = source.lines().collect();
     let fm_end = find_frontmatter_end(path, &lines)?;
-    let allowed = ["stage_id", "profile", "title", "theme"];
+    let allowed = ["stage_id", "profile", "title", "short_title", "theme"];
     let values = parse_frontmatter_map(path, &lines[1..fm_end], 2, &allowed)?;
     let stage_id = values
         .get("stage_id")
@@ -130,6 +131,7 @@ fn parse_cockpit_stage_at(
             stage_id,
             profile: profile_norm,
             title: values.get("title").map(|(v, _)| v.clone()),
+            short_title: values.get("short_title").map(|(v, _)| v.clone()),
             theme: values.get("theme").map(|(v, _)| v.clone()),
         },
         scene_use,
@@ -292,6 +294,7 @@ mod tests {
 stage_id: home
 profile: cockpit
 title: Mini
+short_title: M
 ---
 
 @scene(use="scene/home")
@@ -302,6 +305,7 @@ title: Mini
     fn parses_minimal_cockpit_stage() {
         let doc = parse_cockpit_stage_source(MINIMAL).expect("parse");
         assert_eq!(doc.frontmatter.stage_id, "home");
+        assert_eq!(doc.frontmatter.short_title.as_deref(), Some("M"));
         assert_eq!(doc.scene_use, "scene/home");
         assert_eq!(doc.fills.len(), 1);
         assert_eq!(doc.fills[0].slot, "mini-metric");

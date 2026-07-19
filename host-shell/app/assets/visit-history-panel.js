@@ -189,8 +189,11 @@
         const hint = item.uiShown ? "" : '<span class="visit-history-muted">未提示</span>';
         const contextBits = [
           item.workspace ? `工作区 ${truncate(item.workspace, 16)}` : "",
-          item.scene ? `场景 ${truncate(item.scene, 24)}` : "",
+          item.scene ? `Stage ${truncate(item.scene, 24)}` : "",
+          item.resource ? `管理 ${truncate(item.resource, 18)}` : "",
+          item.module ? truncate(item.module, 18) : "",
           item.file ? `文件 ${truncate(item.file, 24)}` : "",
+          item.independent ? "独立打开" : "",
         ].filter(Boolean);
         const contextLine = contextBits.length
           ? `<div class="visit-history-context">${escapeHtml(contextBits.join(" · "))}</div>`
@@ -203,7 +206,7 @@
           hint +
           `<button type="button" class="status-chip visit-history-copy-one" data-visit-history-copy-id="${escapeHtml(item.id)}" data-tone="neutral">复制</button>` +
           "</div>" +
-          `<div class="visit-history-label" title="${escapeHtml(item.label || item.path || "")}">${escapeHtml(truncate(item.label || item.path || "访问", 48))}</div>` +
+          `<a class="visit-history-label" href="${escapeHtml(item.href || item.pathname || "#")}" title="${escapeHtml(item.label || item.path || "")}">${escapeHtml(truncate(item.label || item.path || "访问", 48))}</a>` +
           contextLine +
           `<div class="visit-history-perf">${escapeHtml(buildPerfLine(item))}</div>` +
           "</article>"
@@ -274,13 +277,49 @@
     updateTriggerHint();
   }
 
-  function isAccessMode() {
-    return document.body.classList.contains("access-mode") || document.body.classList.contains("app-view");
+  function recordAdminVisit(kind) {
+    const api = store();
+    if (
+      !api ||
+      typeof api.collectVisitContext !== "function" ||
+      typeof api.append !== "function"
+    ) {
+      return;
+    }
+    const ctx = api.collectVisitContext();
+    if (ctx.routeKind !== "admin" || !ctx.appId) return;
+    const key = `${ctx.pathname}|${ctx.href}`;
+    if (boot.visitHistoryAdminKey === key) return;
+    boot.visitHistoryAdminKey = key;
+    const navigation = performance.getEntriesByType?.("navigation")?.[0];
+    const totalMs = Number(navigation?.duration) || 0;
+    api.append({
+      id: `admin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: kind || "initial",
+      at: Date.now(),
+      label: ctx.routeLabel || ctx.pathname,
+      path: ctx.href,
+      pathname: ctx.pathname,
+      href: ctx.href,
+      appId: ctx.appId,
+      appTitle: ctx.appTitle,
+      resource: ctx.resource,
+      module: ctx.module,
+      routeKind: ctx.routeKind,
+      totalMs,
+      renderMs: totalMs,
+      evalMs: 0,
+      apiTotal: 0,
+      apiFailed: 0,
+      uiShown: false,
+      outcome: "ready",
+    });
   }
 
   function init() {
-    if (!isAccessMode()) return;
+    if (!document.getElementById(TRIGGER_ID)) return;
     bindTrigger();
+    recordAdminVisit("initial");
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") hidePopover();
     });
@@ -288,6 +327,10 @@
       updateTriggerHint();
       const popover = document.getElementById(POPOVER_ID);
       if (popover && popover.classList.contains("is-open")) renderList();
+    });
+    document.addEventListener("mei:spa-navigation-complete", () => {
+      recordAdminVisit("navigation");
+      bindTrigger();
     });
   }
 
@@ -298,7 +341,9 @@
   }
 
   boot.refreshVisitHistoryPanel = function refreshVisitHistoryPanel() {
+    if (!document.getElementById(TRIGGER_ID)) return;
     bindTrigger();
+    recordAdminVisit("navigation");
     updateTriggerHint();
     renderList();
   };

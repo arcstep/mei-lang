@@ -431,6 +431,7 @@ fn project_entries(
             resource_key: format!("app:{app_id}.{resource_id}.{module_id}"),
             canonical_route: format!("/admin/apps/{app_id}/{resource_id}/{module_id}"),
             title: document.frontmatter.title,
+            short_title: document.frontmatter.short_title,
             description: document.frontmatter.description,
             navigation,
             required_capabilities: document.frontmatter.required_capabilities,

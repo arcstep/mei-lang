@@ -419,6 +419,7 @@ mod tests {
                 id: StageId::new("intro"),
                 profile: StageProfile::Slides,
                 title: None,
+                short_title: None,
                 source_anchor: "src/presentation/intro/intro.deck.mdx".to_string(),
                 is_default: true,
                 legacy_scene_id: "intro".to_string(),

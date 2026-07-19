@@ -3,8 +3,8 @@ use std::{collections::HashSet, fs, path::Path};
 use anyhow::{bail, Context, Result};
 
 use crate::mei_config::{
-    is_v2_app_root, load_workspace_config, resolve_workspace_path, WorkspaceConfig,
-    DEFAULT_APPS_REL,
+    is_v2_app_root, load_app_manifest, load_workspace_config, resolve_workspace_path,
+    WorkspaceConfig, DEFAULT_APPS_REL,
 };
 use crate::model::WorkspaceAppMeta;
 
@@ -31,9 +31,17 @@ fn push_discovered_app(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("discover_apps: app root has no directory name"))?
         .to_string();
+    let manifest = load_app_manifest(app_root);
+    let title = manifest
+        .title
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| id.clone());
     apps.push(WorkspaceAppMeta {
-        id: id.clone(),
-        title: id,
+        id,
+        title,
+        short_title: manifest
+            .short_title
+            .filter(|value| !value.trim().is_empty()),
         root: app_root.to_string_lossy().to_string(),
     });
     Ok(())
@@ -135,6 +143,7 @@ fn stock_catalog_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
     Some(WorkspaceAppMeta {
         id: cfg.id,
         title: cfg.title,
+        short_title: None,
         root: app_root.to_string_lossy().to_string(),
     })
 }
@@ -147,6 +156,7 @@ fn perf_lab_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
     Some(WorkspaceAppMeta {
         id: "_perf-lab".to_string(),
         title: "Perf Lab".to_string(),
+        short_title: None,
         root: app_root.to_string_lossy().to_string(),
     })
 }

@@ -1,8 +1,9 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    is_stage_registry_candidate, resolve_default_scene_from_root, CompiledSceneRoute,
+    is_stage_registry_candidate, resolve_default_scene_from_root, CompiledSceneRoute, StageProfile,
     WorkspaceAppMeta,
 };
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::ui::manage_routing::access_scene_query;
@@ -10,7 +11,6 @@ use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{app_scene_href, cross_app_href, home_href, host_runtime_href};
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
-use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
 use crate::ui::topbar::menus::{DEFAULT_BRAND_LOGO_HREF, DEFAULT_BRAND_TITLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,17 +203,10 @@ pub(crate) fn topbar_view(
     let menu_link_mode = app_menu_link_mode(route_mode, active_app_path);
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
-    let menu_groups = build_topbar_menu_groups(apps, topbar_menu, menu_link_mode);
-    let active_app_label = menu_groups
+    let active_app_label = apps
         .iter()
-        .flat_map(|group| group.items.iter())
-        .find(|item| menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack))
-        .map(|item| item.label.clone())
-        .or_else(|| {
-            apps.iter()
-                .find(|app| app.id.as_str() == active_app_path)
-                .map(|app| app.title.clone())
-        })
+        .find(|app| app.id.as_str() == active_app_path)
+        .map(app_menu_label)
         .filter(|label| !label.trim().is_empty())
         .unwrap_or_else(|| {
             if has_app_context {
@@ -247,27 +240,34 @@ pub(crate) fn topbar_view(
         active_catalog,
         active_stock_pack,
     );
-    // 0547: Registry projection → chips; empty slice does not render separator.
-    let app_admin = if show_app_admin(has_app_context, auth_enabled, auth_account) {
-        app_admin_strip_view(admin_nav_items, admin_active_id)
+    let visible_admin_items = if show_app_admin(has_app_context, auth_enabled, auth_account) {
+        admin_nav_items
     } else {
-        view! { <></> }.into_any()
+        &[]
     };
-    let app_view_tabs = if !has_app_context {
-        view! { <></> }.into_any()
-    } else {
-        stage_strip_view(
+    let stage_items = if has_app_context {
+        build_stage_nav_items(
             active_app_path,
             access_scene_for_href,
             access_stage_routes,
             active_tab,
-            // Admin / Config / Upload：Stage 芯片可点回 Access，但不标当前 Stage 为 active。
             matches!(
                 route_mode,
                 UiRouteMode::App | UiRouteMode::Layout | UiRouteMode::Prototype | UiRouteMode::Run
             ),
         )
+    } else {
+        Vec::new()
     };
+    let app_view_tabs = stage_strip_view(stage_items.as_slice());
+    // Registry projection → chips; empty slice does not render separator.
+    let app_admin = app_admin_strip_view(
+        visible_admin_items,
+        admin_active_id,
+        !stage_items.is_empty(),
+    );
+    let app_more =
+        app_navigation_more_view(stage_items.as_slice(), visible_admin_items, admin_active_id);
     let launch_title = if access_disabled {
         "当前没有可独立打开的 Stage".to_string()
     } else {
@@ -341,12 +341,13 @@ pub(crate) fn topbar_view(
             </a>
             <div class=app_context_class>
                 <div
-                    class="topbar-app-toolbar flex min-w-0 items-center gap-1 overflow-x-auto"
+                    class="topbar-app-toolbar flex min-w-0 items-center gap-1"
                     aria-label="应用工具栏"
                 >
                     {app_switcher}
                     {app_view_tabs}
                     {app_admin}
+                    {app_more}
                     {standalone_launch}
                 </div>
             </div>
@@ -394,7 +395,8 @@ fn app_switcher_view(
             } else {
                 "app-menu-item"
             };
-            let label = app.title.clone();
+            let label = app_menu_label(app);
+            let full_title = app.title.clone();
             let app_id = app.id.clone();
             view! {
                 <a
@@ -403,6 +405,7 @@ fn app_switcher_view(
                     data-app-id=app_id.clone()
                     data-default-stage=stage
                     data-mei-app-switcher-item="1"
+                    title=full_title
                 >
                     <span class="app-menu-item-label">{label}</span>
                 </a>
@@ -435,36 +438,85 @@ fn app_switcher_view(
     .into_any()
 }
 
-/// Admin Platform strip chip (0543 / 0547). Empty slice → strip not rendered.
+fn app_menu_label(app: &WorkspaceAppMeta) -> String {
+    app.short_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let title = app.title.trim();
+            (!title.is_empty()).then_some(title)
+        })
+        .unwrap_or(app.id.as_str())
+        .to_string()
+}
+
+const INLINE_MENU_LIMIT: usize = 3;
+
+/// Admin Platform navigation projected from the declarative Registry.
 #[derive(Debug, Clone)]
 pub struct AdminNavItem {
     pub id: String,
+    /// Menu-sized label: short_title → title.
     pub label: String,
+    /// Full title retained for tooltip and accessible context.
+    pub title: String,
     pub href: String,
+    pub menu: String,
+    pub order: i64,
 }
 
-fn app_admin_strip_view(items: &[AdminNavItem], active_id: Option<&str>) -> AnyView {
+#[derive(Debug, Clone)]
+struct StageNavItem {
+    id: String,
+    label: String,
+    title: String,
+    href: String,
+    profile: &'static str,
+    group_label: &'static str,
+    kind: &'static str,
+    surface: &'static str,
+    active: bool,
+}
+
+pub(super) fn visible_menu_indices(len: usize, active_index: Option<usize>) -> Vec<usize> {
+    if len <= INLINE_MENU_LIMIT {
+        return (0..len).collect();
+    }
+    if let Some(index) = active_index.filter(|index| *index >= INLINE_MENU_LIMIT) {
+        return vec![0, 1, index];
+    }
+    (0..INLINE_MENU_LIMIT).collect()
+}
+
+fn app_admin_strip_view(
+    items: &[AdminNavItem],
+    active_id: Option<&str>,
+    show_separator: bool,
+) -> AnyView {
     if items.is_empty() {
         return view! { <></> }.into_any();
     }
     let active = active_id.map(str::trim).unwrap_or("");
-    let chips = items
+    let active_index = items
         .iter()
-        .map(|item| {
-            let class = if !active.is_empty() && item.id.as_str() == active {
+        .position(|item| !active.is_empty() && item.id == active);
+    let chips = visible_menu_indices(items.len(), active_index)
+        .into_iter()
+        .map(|index| {
+            let item = &items[index];
+            let is_active = !active.is_empty() && item.id == active;
+            let class = if is_active {
                 "topbar-chip is-active"
             } else {
                 "topbar-chip"
             };
             let href = item.href.clone();
             let label = item.label.clone();
+            let title = item.title.clone();
             let id = item.id.clone();
             view! {
-                <a
-                    class=class
-                    href=href
-                    data-mei-admin-item=id
-                >
+                <a class=class href=href data-mei-admin-item=id title=title>
                     <span class="mode-label">{label}</span>
                 </a>
             }
@@ -472,7 +524,10 @@ fn app_admin_strip_view(items: &[AdminNavItem], active_id: Option<&str>) -> AnyV
         .collect_view();
     view! {
         <div class="topbar-admin-cluster inline-flex min-w-0 shrink items-center gap-1">
-            <span class="topbar-context-sep" aria-hidden="true">"|"</span>
+            {show_separator
+                .then(|| {
+                    view! { <span class="topbar-context-sep" aria-hidden="true">"|"</span> }
+                })}
             <nav
                 class="admin-strip topbar-chip-strip inline-flex min-w-0 items-center gap-1"
                 data-mei-admin-strip="1"
@@ -485,99 +540,122 @@ fn app_admin_strip_view(items: &[AdminNavItem], active_id: Option<&str>) -> AnyV
     .into_any()
 }
 
-fn stage_route_label(route: &CompiledSceneRoute) -> String {
-    route
-        .title
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| route.scene_id.clone())
+pub(super) fn stage_route_profile(route: &CompiledSceneRoute) -> StageProfile {
+    StageProfile::from_route_meta(route.kind.as_str(), route.target_file.as_str())
 }
 
-fn is_presentation_stage_route(route: &CompiledSceneRoute) -> bool {
-    let kind = route.kind.trim().to_ascii_lowercase();
-    if kind == "presentation" {
-        return true;
-    }
-    let target = route.target_file.replace('\\', "/").to_ascii_lowercase();
-    target.contains("/presentation/") || target.starts_with("presentation/")
-}
-
-fn is_top_level_stage_route(route: &CompiledSceneRoute) -> bool {
-    // Phase 1: align Access topbar with StageRegistry candidate rules.
-    is_stage_registry_candidate(route)
-}
-
-fn stage_strip_view(
+fn build_stage_nav_items(
     active_app_path: &str,
     current_scene: Option<&str>,
     access_stage_routes: Option<&[CompiledSceneRoute]>,
     active_tab: Option<&str>,
     mark_active: bool,
-) -> AnyView {
+) -> Vec<StageNavItem> {
     let Some(routes) = access_stage_routes.filter(|entries| !entries.is_empty()) else {
-        return view! { <></> }.into_any();
+        return Vec::new();
     };
-    let stages: Vec<&CompiledSceneRoute> = routes
+    let stages = routes
         .iter()
-        .filter(|route| is_top_level_stage_route(route))
-        .collect();
+        .filter(|route| is_stage_registry_candidate(route))
+        .collect::<Vec<_>>();
     if stages.is_empty() {
-        return view! { <></> }.into_any();
+        return Vec::new();
     }
     let current = current_scene.map(str::trim).unwrap_or("");
-    let current_route = if mark_active {
+    let active_id = if mark_active {
         stages
             .iter()
             .copied()
             .find(|route| route.scene_id == current)
             .or_else(|| stages.iter().copied().find(|route| route.is_default))
-            .or(Some(stages[0]))
+            .or_else(|| stages.first().copied())
+            .map(|route| route.scene_id.as_str())
     } else {
         None
     };
-    let chips = stages
-        .iter()
+    stages
+        .into_iter()
         .map(|route| {
-            let scene_id = route.scene_id.clone();
-            let item_label = stage_route_label(route);
-            let surface = if is_presentation_stage_route(route) {
-                "paged"
-            } else {
-                "viewport"
+            let profile = stage_route_profile(route);
+            let (profile_slug, group_label, kind, surface) = match profile {
+                StageProfile::Cockpit => ("cockpit", "驾驶舱", "scene", "viewport"),
+                StageProfile::Slides => ("slides", "幻灯片", "presentation", "paged"),
+                StageProfile::Page => ("page", "页面/报告", "document", "document"),
             };
-            let profile = if is_presentation_stage_route(route) {
-                "slides"
-            } else {
-                "cockpit"
-            };
-            let href = app_scene_href(
-                active_app_path,
-                Some(scene_id.as_str()),
-                active_tab,
-                None,
-                None,
-                None,
-            );
-            let item_class = if current_route.is_some_and(|r| r.scene_id == scene_id) {
-                "topbar-chip is-active"
-            } else {
-                "topbar-chip"
-            };
-            view! {
-                <a
-                    class=item_class
-                    href=href
-                    data-mei-spa-nav="1"
-                    data-mei-stage-scene=scene_id.clone()
-                    data-mei-stage-kind=if is_presentation_stage_route(route) { "presentation" } else { "scene" }
-                    data-mei-stage-profile=profile
-                    data-mei-stage-surface=surface
-                >
-                    <span class="mode-label">{item_label}</span>
-                </a>
+            let title = route
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(route.scene_id.as_str())
+                .to_string();
+            let label = route
+                .short_title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(title.as_str())
+                .to_string();
+            StageNavItem {
+                id: route.scene_id.clone(),
+                label,
+                title,
+                href: app_scene_href(
+                    active_app_path,
+                    Some(route.scene_id.as_str()),
+                    active_tab,
+                    None,
+                    None,
+                    None,
+                ),
+                profile: profile_slug,
+                group_label,
+                kind,
+                surface,
+                active: active_id == Some(route.scene_id.as_str()),
             }
+        })
+        .collect()
+}
+
+fn stage_link_view(item: &StageNavItem, class: &'static str) -> AnyView {
+    view! {
+        <a
+            class=class
+            href=item.href.clone()
+            title=item.title.clone()
+            role=if class.contains("topbar-more-card") { "menuitem" } else { "link" }
+            data-mei-spa-nav="1"
+            data-mei-stage-scene=item.id.clone()
+            data-mei-stage-kind=item.kind
+            data-mei-stage-profile=item.profile
+            data-mei-stage-surface=item.surface
+        >
+            <span class=if class.contains("topbar-more-card") { "topbar-more-card-label" } else { "mode-label" }>
+                {item.label.clone()}
+            </span>
+        </a>
+    }
+    .into_any()
+}
+
+fn stage_strip_view(items: &[StageNavItem]) -> AnyView {
+    if items.is_empty() {
+        return view! { <></> }.into_any();
+    }
+    let active_index = items.iter().position(|item| item.active);
+    let chips = visible_menu_indices(items.len(), active_index)
+        .into_iter()
+        .map(|index| {
+            let item = &items[index];
+            stage_link_view(
+                item,
+                if item.active {
+                    "topbar-chip is-active"
+                } else {
+                    "topbar-chip"
+                },
+            )
         })
         .collect_view();
     view! {
@@ -589,6 +667,121 @@ fn stage_strip_view(
         >
             {chips}
         </nav>
+    }
+    .into_any()
+}
+
+fn app_navigation_more_view(
+    stages: &[StageNavItem],
+    admin_items: &[AdminNavItem],
+    admin_active_id: Option<&str>,
+) -> AnyView {
+    if stages.len() <= INLINE_MENU_LIMIT && admin_items.len() <= INLINE_MENU_LIMIT {
+        return view! { <></> }.into_any();
+    }
+    let stage_sections = ["cockpit", "slides", "page"]
+        .into_iter()
+        .filter_map(|profile| {
+            let group = stages
+                .iter()
+                .filter(|item| item.profile == profile)
+                .collect::<Vec<_>>();
+            let title = group.first()?.group_label;
+            let cards = group
+                .into_iter()
+                .map(|item| {
+                    stage_link_view(
+                        item,
+                        if item.active {
+                            "topbar-more-card is-active"
+                        } else {
+                            "topbar-more-card"
+                        },
+                    )
+                })
+                .collect_view();
+            Some(view! {
+                <section class="topbar-more-section" data-mei-menu-group=profile>
+                    <h2 class="topbar-more-section-title">{title}</h2>
+                    <div class="topbar-more-grid">{cards}</div>
+                </section>
+            })
+        })
+        .collect_view();
+    let mut admin_groups: BTreeMap<String, Vec<&AdminNavItem>> = BTreeMap::new();
+    for item in admin_items {
+        let menu = item.menu.trim();
+        admin_groups
+            .entry(if menu.is_empty() {
+                "应用管理".to_string()
+            } else {
+                menu.to_string()
+            })
+            .or_default()
+            .push(item);
+    }
+    let admin_active = admin_active_id.map(str::trim).unwrap_or("");
+    let admin_sections = admin_groups
+        .into_iter()
+        .map(|(menu, mut items)| {
+            items.sort_by(|left, right| {
+                left.order
+                    .cmp(&right.order)
+                    .then(left.label.cmp(&right.label))
+            });
+            let cards = items
+                .into_iter()
+                .map(|item| {
+                    let active = !admin_active.is_empty() && item.id == admin_active;
+                    view! {
+                        <a
+                            class=if active { "topbar-more-card is-active" } else { "topbar-more-card" }
+                            href=item.href.clone()
+                            title=item.title.clone()
+                            role="menuitem"
+                            data-mei-admin-item=item.id.clone()
+                        >
+                            <span class="topbar-more-card-label">{item.label.clone()}</span>
+                        </a>
+                    }
+                })
+                .collect_view();
+            view! {
+                <section class="topbar-more-section" data-mei-menu-group="admin">
+                    <h2 class="topbar-more-section-title">{menu}</h2>
+                    <div class="topbar-more-grid">{cards}</div>
+                </section>
+            }
+        })
+        .collect_view();
+    view! {
+        <div class="topbar-more">
+            <details class="app-group-dropdown topbar-more-dropdown">
+                <summary
+                    class="topbar-more-trigger"
+                    aria-label="展开全部应用菜单"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                    aria-controls="mei-topbar-more-panel"
+                    title="更多 Stage 与应用管理"
+                >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                        <circle cx="12" cy="5" r="1.75"/>
+                        <circle cx="12" cy="12" r="1.75"/>
+                        <circle cx="12" cy="19" r="1.75"/>
+                    </svg>
+                </summary>
+                <div
+                    id="mei-topbar-more-panel"
+                    class="app-group-menu topbar-more-panel"
+                    role="menu"
+                    aria-label="全部应用菜单"
+                >
+                    {stage_sections}
+                    {admin_sections}
+                </div>
+            </details>
+        </div>
     }
     .into_any()
 }
@@ -612,31 +805,6 @@ fn shell_nav_view(
         </div>
     }
     .into_any()
-}
-
-fn menu_item_is_active(
-    item: &crate::ui::topbar::menu_groups::TopbarMenuItem,
-    active_app_path: &str,
-    active_catalog: Option<&str>,
-    active_stock_pack: Option<&str>,
-) -> bool {
-    if item.app_id.as_str() != active_app_path {
-        return false;
-    }
-    let cat = active_catalog
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let pack = active_stock_pack
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    match (item.catalog.as_deref(), item.pack.as_deref()) {
-        (None, None) => cat.is_none() && pack.is_none(),
-        (Some(item_cat), None) => cat.unwrap_or("components") == item_cat && pack.is_none(),
-        (Some(item_cat), Some(item_pack)) => {
-            cat.unwrap_or("components") == item_cat && pack == Some(item_pack)
-        }
-        (None, Some(_)) => false,
-    }
 }
 
 fn default_stage_for_app(apps: &[WorkspaceAppMeta], app_id: &str) -> String {

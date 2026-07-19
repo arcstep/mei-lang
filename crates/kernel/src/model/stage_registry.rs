@@ -110,6 +110,8 @@ pub struct StageDescriptor {
     pub profile: StageProfile,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_title: Option<String>,
     /// Source file relative to app root (legacy `target_file`).
     pub source_anchor: String,
     #[serde(default)]
@@ -127,6 +129,8 @@ pub struct StageRoute {
     pub target_file: String,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_title: Option<String>,
     #[serde(default)]
     pub is_default: bool,
     /// Legacy scene_id for URL / artifact compatibility. Phase 9: not written.
@@ -141,6 +145,7 @@ impl From<&StageDescriptor> for StageRoute {
             profile: desc.profile,
             target_file: desc.source_anchor.clone(),
             title: desc.title.clone(),
+            short_title: desc.short_title.clone(),
             is_default: desc.is_default,
             legacy_scene_id: desc.legacy_scene_id.clone(),
         }
@@ -197,6 +202,7 @@ impl StageRegistry {
                 id: StageId::new(id),
                 profile,
                 title: route.title.clone(),
+                short_title: route.short_title.clone(),
                 source_anchor: route.target_file.replace('\\', "/"),
                 is_default: route.is_default,
                 legacy_scene_id: id.to_string(),
@@ -266,6 +272,7 @@ mod tests {
             target_file: target.to_string(),
             kind: kind.to_string(),
             title: None,
+            short_title: None,
             is_default,
             access_export,
         }

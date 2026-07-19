@@ -19,6 +19,23 @@ fn conformance_admin_discover_derives_identity_route_and_provider() {
     let resource = &projection.resources[0];
     assert_eq!(resource.registry_entry.resource_id, "demo");
     assert_eq!(resource.registry_entry.module_id, "overview");
+    assert_eq!(resource.registry_entry.short_title.as_deref(), Some("示例"));
+    assert_eq!(
+        resource
+            .registry_entry
+            .navigation
+            .as_ref()
+            .and_then(|navigation| navigation.menu.as_deref()),
+        Some("应用管理")
+    );
+    assert_eq!(
+        resource
+            .registry_entry
+            .navigation
+            .as_ref()
+            .and_then(|navigation| navigation.order),
+        Some(10)
+    );
     assert_eq!(
         resource.registry_entry.canonical_route,
         "/admin/apps/fx-admin-mei/demo/overview"

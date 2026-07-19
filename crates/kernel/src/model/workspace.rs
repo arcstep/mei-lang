@@ -17,6 +17,13 @@ pub struct ComponentAsset {
 pub struct WorkspaceAppMeta {
     pub id: String,
     pub title: String,
+    #[serde(
+        default,
+        rename = "shortTitle",
+        alias = "short_title",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub short_title: Option<String>,
     pub root: String,
 }
 

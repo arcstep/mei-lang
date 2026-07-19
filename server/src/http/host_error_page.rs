@@ -16,7 +16,6 @@ pub const MEI_COIN_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBo
 #[derive(Debug, Clone)]
 pub struct HostShellFooterInfo {
     pub version_label: String,
-    pub workspace_label: Option<String>,
     pub compliance: WorkspaceComplianceConfig,
 }
 
@@ -24,7 +23,6 @@ impl HostShellFooterInfo {
     pub fn version_only() -> Self {
         Self {
             version_label: crate::build_info::version_label(),
-            workspace_label: None,
             compliance: WorkspaceComplianceConfig::default(),
         }
     }
@@ -32,7 +30,6 @@ impl HostShellFooterInfo {
     pub fn from_workspace(cfg: &WorkspaceConfig) -> Self {
         Self {
             version_label: crate::build_info::version_label(),
-            workspace_label: cfg.workspace.label.clone(),
             compliance: cfg.compliance.clone(),
         }
     }
@@ -50,20 +47,6 @@ pub fn render_host_shell_footer_for_source_root(source_root: &Path) -> String {
 }
 
 pub fn render_host_shell_footer(info: &HostShellFooterInfo) -> String {
-    let mut headline_parts = Vec::new();
-    if let Some(label) = info
-        .workspace_label
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        headline_parts.push(html_escape(label));
-    }
-    headline_parts.push(html_escape(info.version_label.as_str()));
-    let mut lines = vec![format!(
-        r#"<div class="mei-host-shell__footer-line">{}</div>"#,
-        headline_parts.join(" · ")
-    )];
     let mut compliance_parts = Vec::new();
     if let Some(value) = info.compliance.icp_record_trimmed() {
         compliance_parts.push(html_escape(value));
@@ -74,15 +57,17 @@ pub fn render_host_shell_footer(info: &HostShellFooterInfo) -> String {
     if let Some(value) = info.compliance.copyright_trimmed() {
         compliance_parts.push(html_escape(value));
     }
-    if !compliance_parts.is_empty() {
-        lines.push(format!(
-            r#"<div class="mei-host-shell__footer-line">{}</div>"#,
+    let compliance = if compliance_parts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<span class="status-chip status-chip-compliance" data-tone="neutral">{}</span>"#,
             compliance_parts.join(" · ")
-        ));
-    }
+        )
+    };
     format!(
-        r#"<footer class="mei-host-shell__footer" role="contentinfo">{lines}</footer>"#,
-        lines = lines.join("")
+        r#"<footer class="mei-host-shell__footer statusbar statusbar-shell chrome-safe-x" role="contentinfo"><div class="statusbar-layout"><div class="statusbar-track statusbar-track-left"></div><div class="statusbar-track statusbar-track-center">{compliance}</div><span class="status-chip status-chip-host statusbar-right-anchor" data-tone="neutral">{version}</span></div></footer>"#,
+        version = html_escape(info.version_label.as_str()),
     )
 }
 
@@ -360,7 +345,6 @@ mod tests {
     fn footer_includes_version_and_compliance() {
         let info = HostShellFooterInfo {
             version_label: "Mei 1.0.0 · demo".to_string(),
-            workspace_label: Some("沙坪坝生产".to_string()),
             compliance: WorkspaceComplianceConfig {
                 icp_record: Some("渝ICP备12345678号".to_string()),
                 psb_record: Some("渝公网安备 12345678号".to_string()),
@@ -368,9 +352,10 @@ mod tests {
             },
         };
         let html = render_host_shell_footer(&info);
-        assert!(html.contains("沙坪坝生产"));
         assert!(html.contains("Mei 1.0.0 · demo"));
         assert!(html.contains("渝ICP备12345678号"));
         assert!(html.contains("渝公网安备 12345678号"));
+        assert!(html.contains("statusbar-track-left"));
+        assert!(html.contains("statusbar-right-anchor"));
     }
 }

@@ -388,6 +388,7 @@ mod tests {
             target_file: "scenes/home.mei".to_string(),
             kind: "scene".to_string(),
             title: None,
+            short_title: None,
             is_default: true,
             access_export: true,
         }];

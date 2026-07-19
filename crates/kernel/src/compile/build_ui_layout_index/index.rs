@@ -102,6 +102,7 @@ fn scene_routes_for_ui_tree(
                 target_file: compiled.active_target_file.clone(),
                 kind: "scene".to_string(),
                 title: None,
+                short_title: None,
                 is_default: false,
                 access_export: true,
             });

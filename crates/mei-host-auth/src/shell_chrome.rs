@@ -14,7 +14,6 @@ pub const MEI_COIN_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBo
 #[derive(Debug, Clone)]
 pub struct HostShellFooterInfo {
     pub version_label: String,
-    pub workspace_label: Option<String>,
     pub compliance: WorkspaceComplianceConfig,
 }
 
@@ -22,7 +21,6 @@ impl HostShellFooterInfo {
     pub fn from_workspace(source_root: &Path, cfg: &WorkspaceConfig) -> Self {
         Self {
             version_label: mei_lang_kernel::resolve_build_footer_label(source_root),
-            workspace_label: cfg.workspace.label.clone(),
             compliance: cfg.compliance.clone(),
         }
     }
@@ -38,20 +36,6 @@ pub fn render_host_shell_footer_for_source_root(source_root: &Path) -> String {
 }
 
 pub fn render_host_shell_footer(info: &HostShellFooterInfo) -> String {
-    let mut headline_parts = Vec::new();
-    if let Some(label) = info
-        .workspace_label
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        headline_parts.push(html_escape(label));
-    }
-    headline_parts.push(html_escape(info.version_label.as_str()));
-    let mut lines = vec![format!(
-        r#"<div class="mei-host-shell__footer-line">{}</div>"#,
-        headline_parts.join(" · ")
-    )];
     let mut compliance_parts = Vec::new();
     if let Some(value) = info.compliance.icp_record_trimmed() {
         compliance_parts.push(html_escape(value));
@@ -62,15 +46,17 @@ pub fn render_host_shell_footer(info: &HostShellFooterInfo) -> String {
     if let Some(value) = info.compliance.copyright_trimmed() {
         compliance_parts.push(html_escape(value));
     }
-    if !compliance_parts.is_empty() {
-        lines.push(format!(
-            r#"<div class="mei-host-shell__footer-line">{}</div>"#,
+    let compliance = if compliance_parts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<span class="status-chip status-chip-compliance" data-tone="neutral">{}</span>"#,
             compliance_parts.join(" · ")
-        ));
-    }
+        )
+    };
     format!(
-        r#"<footer class="mei-host-shell__footer" role="contentinfo">{lines}</footer>"#,
-        lines = lines.join("")
+        r#"<footer class="mei-host-shell__footer statusbar statusbar-shell chrome-safe-x" role="contentinfo"><div class="statusbar-layout"><div class="statusbar-track statusbar-track-left"></div><div class="statusbar-track statusbar-track-center">{compliance}</div><span class="status-chip status-chip-host statusbar-right-anchor" data-tone="neutral">{version}</span></div></footer>"#,
+        version = html_escape(info.version_label.as_str()),
     )
 }
 
@@ -257,6 +243,7 @@ pub fn render_startup_warming_page(
     let body_theme = host_shell_body_theme_style(source_root);
     let main = render_startup_warming_main_html("应用暂不可用");
     let script = startup_warming_poll_script(return_path, poll_app_id, poll_scene_id, poll_mode);
+    let footer = render_host_shell_footer_for_source_root(source_root);
     format!(
         r#"<!doctype html>
 <html lang="zh-CN">
@@ -270,11 +257,13 @@ pub fn render_startup_warming_page(
   <body class="mei-host-shell mei-host-shell--warming" style="{body_style}">
     <div class="mei-host-shell__stage">{main}</div>
     {script}
+    {footer}
   </body>
 </html>"#,
         body_style = html_escape(body_theme.as_str()),
         main = main,
         script = script,
+        footer = footer,
     )
 }
 
@@ -337,6 +326,10 @@ pub fn startup_failed_html_response(source_root: &Path, message: &str) -> Respon
 }
 
 pub fn forbidden_html_response(message: &str) -> Response {
+    let footer = render_host_shell_footer(&HostShellFooterInfo {
+        version_label: format!("MeiLang {}", env!("CARGO_PKG_VERSION")),
+        compliance: WorkspaceComplianceConfig::default(),
+    });
     let html = render_error_page_with_footer(
         StatusCode::FORBIDDEN,
         "访问被拒绝",
@@ -354,7 +347,7 @@ pub fn forbidden_html_response(message: &str) -> Response {
                 primary: false,
             },
         ],
-        "",
+        footer.as_str(),
         &mei_lang_app::default_shell_body_theme_style(),
     );
     (StatusCode::FORBIDDEN, Html(html)).into_response()
@@ -363,6 +356,19 @@ pub fn forbidden_html_response(message: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_footer_uses_the_shared_three_track_statusbar_shape() {
+        let html = render_host_shell_footer(&HostShellFooterInfo {
+            version_label: "MeiLang v2".to_string(),
+            compliance: WorkspaceComplianceConfig::default(),
+        });
+        assert!(html.contains("statusbar-track-left"));
+        assert!(html.contains("statusbar-track-center"));
+        assert!(html.contains("statusbar-right-anchor"));
+        assert!(html.contains("MeiLang v2"));
+        assert!(!html.contains("mei-visit-history-trigger"));
+    }
 
     #[test]
     fn warming_page_keeps_only_the_actionable_status_copy() {

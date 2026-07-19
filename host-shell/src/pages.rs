@@ -670,14 +670,59 @@ pub async fn app_page(
     };
     let (mut html, ssr_emit_ms, page_cache_hit) = if route_mode.is_access_like() {
         let render_started = Instant::now();
+        let app_menu_label = apps
+            .iter()
+            .find(|app| app.id == app_id)
+            .map(|app| {
+                app.short_title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| {
+                        let title = app.title.trim();
+                        (!title.is_empty()).then_some(title)
+                    })
+                    .unwrap_or(app.id.as_str())
+            })
+            .unwrap_or(app_id.as_str());
+        let stage_menu_label = shell_assemble_outcome
+            .as_ref()
+            .and_then(|outcome| outcome.compiled.stage_registry.get(scene_id.as_str()))
+            .map(|stage| {
+                stage
+                    .short_title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| {
+                        stage
+                            .title
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                    })
+                    .unwrap_or(scene_id.as_str())
+            })
+            .unwrap_or(scene_id.as_str());
+        let stage_profile = shell_assemble_outcome
+            .as_ref()
+            .and_then(|outcome| outcome.compiled.stage_registry.get(scene_id.as_str()))
+            .map(|stage| stage.profile.as_str())
+            .unwrap_or("cockpit");
         let template = render_thin_access_shell(
-            thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
+            thin_access_shell_document(
+                app_id.as_str(),
+                scene_id.as_str(),
+                app_menu_label,
+                stage_menu_label,
+                stage_profile,
+            ),
             workspace_root,
             package_root,
             app_id.as_str(),
             scene_id.as_str(),
             &shell_compose,
-            (!chrome_hidden).then_some(&chrome_host),
+            Some(&chrome_host),
             shell_assemble_outcome.as_ref(),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
@@ -1829,11 +1874,20 @@ const THIN_SHELL_ACCESS_FAB_HTML: &str = concat!(
     r#"</button></div>"#,
 );
 
-pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
+pub(crate) fn thin_access_shell_document(
+    app_id: &str,
+    scene_id: &str,
+    app_menu_label: &str,
+    stage_menu_label: &str,
+    stage_profile: &str,
+) -> String {
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="mei-app-short-title" content="{app_menu_label}"><meta name="mei-stage-short-title" content="{stage_menu_label}"><meta name="mei-stage-profile" content="{stage_profile}"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-mei-app-short-title="{app_menu_label}" data-scene-id="{scene_id}" data-mei-stage-short-title="{stage_menu_label}" data-mei-stage-profile="{stage_profile}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
         app_id = app_id,
         scene_id = scene_id,
+        app_menu_label = crate::build_info::html_escape_attr(app_menu_label),
+        stage_menu_label = crate::build_info::html_escape_attr(stage_menu_label),
+        stage_profile = crate::build_info::html_escape_attr(stage_profile),
         fab = THIN_SHELL_ACCESS_FAB_HTML,
     )
 }
@@ -1902,6 +1956,10 @@ pub(crate) fn render_thin_scene_shell(
         html,
         workspace_root,
         route_mode,
+        compose
+            .chrome
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("none")),
         assemble_outcome.map(|outcome| &outcome.compiled),
     );
     let html = inject_thin_shell_runtime_assets(html, route_mode);
@@ -2026,8 +2084,12 @@ fn inject_thin_shell_component_scripts(
     inject_html_before_head_close(html, scripts.as_str())
 }
 
-fn thin_shell_body_class(route_mode: mei_lang_app::UiRouteMode) -> &'static str {
+fn thin_shell_body_class(
+    route_mode: mei_lang_app::UiRouteMode,
+    chrome_hidden: bool,
+) -> &'static str {
     match route_mode {
+        mei_lang_app::UiRouteMode::App if chrome_hidden => "app-view chrome-none sl-theme-dark",
         mei_lang_app::UiRouteMode::App => "app-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Layout => "layout-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Prototype => "prototype-view sl-theme-dark",
@@ -2044,6 +2106,7 @@ fn inject_thin_shell_body_presentation(
     mut html: String,
     workspace_root: &std::path::Path,
     route_mode: mei_lang_app::UiRouteMode,
+    chrome_hidden: bool,
     compiled: Option<&mei_lang_kernel::CompiledApp>,
 ) -> String {
     use mei_host_auth::html_escape;
@@ -2054,7 +2117,10 @@ fn inject_thin_shell_body_presentation(
         "__MEI_PAGE_BODY_THEME_STYLE__",
         html_escape(theme_style.as_str()).as_str(),
     );
-    html = html.replace("__MEI_THIN_BODY_CLASS__", thin_shell_body_class(route_mode));
+    html = html.replace(
+        "__MEI_THIN_BODY_CLASS__",
+        thin_shell_body_class(route_mode, chrome_hidden),
+    );
     html = html.replace("__MEI_ROUTE_MODE_SLUG__", route_mode.slug());
     html
 }
@@ -2240,7 +2306,25 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
 
 #[cfg(test)]
 mod inject_scene_manifest_tests {
-    use super::inject_scene_manifest_refs_for_route;
+    use super::{
+        inject_scene_manifest_refs_for_route, thin_access_shell_document, thin_shell_body_class,
+    };
+
+    #[test]
+    fn thin_access_shell_embeds_readable_menu_metadata_and_footer_slot() {
+        let html = thin_access_shell_document("demo", "home", "演示", "首页", "page");
+        assert!(html.contains(r#"name="mei-app-short-title" content="演示""#));
+        assert!(html.contains(r#"name="mei-stage-short-title" content="首页""#));
+        assert!(html.contains(r#"name="mei-stage-profile" content="page""#));
+        assert!(html.contains("mei-host-statusbar-slot"));
+    }
+
+    #[test]
+    fn chrome_none_body_class_hides_only_the_topbar() {
+        let class = thin_shell_body_class(mei_lang_app::UiRouteMode::App, true);
+        assert!(class.contains("chrome-none"));
+        assert!(class.contains("app-view"));
+    }
 
     #[test]
     fn wants_revision_first_shell_defaults_on_app_surfaces() {

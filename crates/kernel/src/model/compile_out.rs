@@ -30,6 +30,8 @@ pub struct CompiledSceneRoute {
     pub kind: String,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_title: Option<String>,
     #[serde(default)]
     pub is_default: bool,
     #[serde(default = "default_access_export")]

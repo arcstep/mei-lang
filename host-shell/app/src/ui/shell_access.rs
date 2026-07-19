@@ -181,11 +181,7 @@ pub(crate) fn access_shell(
                         .into_any()
                 }}
             </main>
-            {if chrome_hidden {
-                view! { <></> }.into_any()
-            } else {
-                statusbar
-            }}
+            {statusbar}
         </div>
     }
     .into_any()
@@ -208,37 +204,39 @@ pub fn render_access_shell_chrome_html(
     chrome_hidden: bool,
     admin_nav_items: &[super::topbar::AdminNavItem],
 ) -> (String, String) {
-    if chrome_hidden {
-        return (String::new(), String::new());
-    }
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
         .unwrap_or(compiled.active_target_file.as_str());
     let topbar_access_scene =
         access_scene_for_topbar(route_mode, compiled, selected_scene, file_target);
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let topbar = topbar_view(
-        apps,
-        app_path,
-        topbar_menu,
-        route_mode,
-        topbar_access_scene,
-        Some(current_target),
-        active_tab,
-        None,
-        None,
-        false,
-        stage_enabled,
-        auth_enabled,
-        auth_account,
-        data_mode,
-        review_projection,
-        None,
-        Some(compiled.scene_routes.as_slice()),
-        None,
-        admin_nav_items,
-        None,
-    );
+    let topbar = (!chrome_hidden).then(|| {
+        topbar_view(
+            apps,
+            app_path,
+            topbar_menu,
+            route_mode,
+            topbar_access_scene,
+            Some(current_target),
+            active_tab,
+            None,
+            None,
+            false,
+            stage_enabled,
+            auth_enabled,
+            auth_account,
+            data_mode,
+            review_projection,
+            None,
+            Some(compiled.scene_routes.as_slice()),
+            None,
+            admin_nav_items,
+            None,
+        )
+    });
     let statusbar = statusbar_view(app_path, route_mode.slug(), current_target, None);
-    (topbar.to_html(), statusbar.to_html())
+    (
+        topbar.map(|view| view.to_html()).unwrap_or_default(),
+        statusbar.to_html(),
+    )
 }

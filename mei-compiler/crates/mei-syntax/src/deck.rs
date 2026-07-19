@@ -22,6 +22,7 @@ pub struct DeckFile {
 pub struct DeckFrontmatter {
     pub id: String,
     pub title: String,
+    pub short_title: Option<String>,
     pub theme: Option<String>,
     pub canvas: Option<String>,
     pub summary: Option<String>,
@@ -159,6 +160,7 @@ fn parse_frontmatter(
     let allowed = [
         "id",
         "title",
+        "short_title",
         "theme",
         "canvas",
         "summary",
@@ -234,6 +236,7 @@ fn parse_frontmatter(
     Ok(DeckFrontmatter {
         id,
         title,
+        short_title: values.get("short_title").map(|(value, _)| value.clone()),
         theme: values.get("theme").map(|(value, _)| value.clone()),
         canvas: values.get("canvas").map(|(value, _)| value.clone()),
         summary: values.get("summary").map(|(value, _)| value.clone()),
@@ -792,6 +795,7 @@ mod tests {
     const VALID_DECK: &str = r#"---
 id: intro
 title: "MeiLang 入门"
+short_title: 入门
 theme: presentation
 canvas: 16:9
 summary: 图原生演说
@@ -817,6 +821,7 @@ default_for_stage: true
     fn parses_full_deck_and_renders_safe_markdown() {
         let deck = parse_deck_source(VALID_DECK).expect("valid deck");
         assert_eq!(deck.frontmatter.id, "intro");
+        assert_eq!(deck.frontmatter.short_title.as_deref(), Some("入门"));
         assert!(deck.frontmatter.default_for_stage);
         assert_eq!(deck.slides.len(), 1);
         let slide = &deck.slides[0];
@@ -849,7 +854,7 @@ default_for_stage: true
     fn rejects_unknown_and_missing_slots_with_line() {
         let unknown = VALID_DECK.replace("## evidence", "## action");
         let error = parse_deck_source(&unknown).expect_err("unknown slot");
-        assert_eq!(error.line, 20);
+        assert_eq!(error.line, 21);
         assert!(error.to_string().contains("unknown slot `action`"));
 
         let missing =

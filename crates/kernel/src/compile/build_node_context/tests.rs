@@ -23,6 +23,7 @@ fn sample_compiled() -> CompiledApp {
             target_file: "scenes/home.mei".to_string(),
             kind: "file_ref".to_string(),
             title: None,
+            short_title: None,
             is_default: true,
             access_export: true,
         }],

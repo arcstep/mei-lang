@@ -9,6 +9,7 @@ use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::shell_preview_layout::{
     access_main_preview_class, access_preview_panel_class, access_shell_grid_class,
 };
+use super::statusbar::statusbar_view;
 use super::{HostAccountView, TopbarMenuContext};
 
 pub(crate) fn copilot_shell(
@@ -55,6 +56,7 @@ pub(crate) fn copilot_shell(
         None,
     );
     let floating_entry = access_ai_floating_entry(compiled, app_path, active_scene, panel_tab);
+    let statusbar = statusbar_view(app_path, UiRouteMode::Copilot.slug(), active_scene, None);
 
     view! {
         <div
@@ -69,6 +71,7 @@ pub(crate) fn copilot_shell(
                 </section>
                 {floating_entry}
             </main>
+            {statusbar}
         </div>
     }
     .into_any()

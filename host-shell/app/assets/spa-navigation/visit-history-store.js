@@ -14,6 +14,15 @@
 
   function resolveAppIdFromPathname(pathname) {
     const path = String(pathname || "");
+    const routeApi = global.MeiRoutePredicates;
+    if (routeApi && typeof routeApi.appIdFromAppsPathname === "function") {
+      const resolved = String(routeApi.appIdFromAppsPathname(path) || "").trim();
+      if (resolved) return resolved;
+    }
+    const parts = path.split("/").filter(Boolean);
+    if (parts[0] === "admin" && parts[1] === "apps" && parts[2]) {
+      return parts[2];
+    }
     const prefixes = [
       "/apps/app/",
       "/apps/access/",
@@ -35,7 +44,6 @@
       if (rest) return rest;
       break;
     }
-    const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "apps") return "";
     if (parts.length >= 3 && parts[2] === "view") {
       return parts[1] || "";
@@ -71,6 +79,106 @@
       }
     }
     return parts[1] || "";
+  }
+
+  function routeContext(urlHint) {
+    const hrefBase =
+      typeof global.location !== "undefined" ? global.location.href : "";
+    let url;
+    try {
+      url = new URL(String(urlHint || hrefBase), hrefBase || "http://localhost");
+    } catch (_) {
+      url = new URL(hrefBase || "http://localhost");
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    const routeApi = global.MeiRoutePredicates;
+    const admin =
+      parts[0] === "admin" && parts[1] === "apps" && Boolean(parts[2]);
+    const scene = admin
+      ? ""
+      : String(
+          (routeApi && typeof routeApi.sceneIdFromPathname === "function"
+            ? routeApi.sceneIdFromPathname(url.pathname, url.search)
+            : parts[0] === "apps"
+              ? parts[2]
+              : "") ||
+            url.searchParams.get("scene") ||
+            "",
+        ).trim();
+    return {
+      url,
+      appId: resolveAppIdFromPathname(url.pathname),
+      scene,
+      resource: admin ? String(parts[3] || "").trim() : "",
+      module: admin ? String(parts[4] || "").trim() : "",
+      routeKind: admin ? "admin" : scene ? "stage" : "host",
+      independent: url.searchParams.get("chrome") === "none",
+    };
+  }
+
+  function currentAppTitle() {
+    const shortMeta = readMeta("mei-app-short-title");
+    if (shortMeta) return shortMeta;
+    const shortBody = String(
+      document.body?.dataset?.meiAppShortTitle || "",
+    ).trim();
+    if (shortBody) return shortBody;
+    const trigger = document.querySelector(
+      "[data-mei-app-switcher] .app-group-trigger .mode-label",
+    );
+    const triggerLabel = trigger ? String(trigger.textContent || "").trim() : "";
+    if (triggerLabel) return triggerLabel;
+    return (
+      readMeta("mei-app-title") ||
+      String(document.body?.dataset?.meiAppTitle || "").trim()
+    );
+  }
+
+  function routeLabelFromUrl(urlHint) {
+    const ctx = routeContext(urlHint);
+    const appLabel = currentAppTitle() || ctx.appId;
+    let target = "";
+    let typeLabel = "";
+    if (ctx.routeKind === "admin") {
+      const active = document.querySelector(
+        "[data-mei-admin-item].is-active .mode-label",
+      );
+      target =
+        (active ? String(active.textContent || "").trim() : "") ||
+        ctx.module ||
+        ctx.resource;
+      typeLabel = "应用管理";
+    } else if (ctx.routeKind === "stage") {
+      const active = document.querySelector(
+        "[data-mei-stage-scene].is-active .mode-label",
+      );
+      target =
+        (active ? String(active.textContent || "").trim() : "") ||
+        readMeta("mei-stage-short-title") ||
+        String(document.body?.dataset?.meiStageShortTitle || "").trim() ||
+        ctx.scene;
+      const profile = String(
+        document.querySelector("[data-mei-stage-scene].is-active")?.dataset
+          ?.meiStageProfile ||
+          readMeta("mei-stage-profile") ||
+          document.body?.dataset?.meiStageProfile ||
+          "",
+      );
+      typeLabel =
+        profile === "slides"
+          ? "幻灯片"
+          : profile === "page"
+            ? "页面/报告"
+            : "驾驶舱";
+    }
+    return [
+      appLabel,
+      target,
+      typeLabel,
+      ctx.independent ? "独立打开" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   function currentAppId(hint) {
@@ -193,8 +301,8 @@
     } catch (_) {
       url = new URL(hrefBase || "http://localhost");
     }
-    const appPathItem = document.querySelector(".app-current-path-item");
-    const appTitle = appPathItem ? String(appPathItem.textContent || "").trim() : "";
+    const route = routeContext(url);
+    const appTitle = currentAppTitle();
     return {
       workspace: readMeta("mei-workspace-label"),
       routeMode:
@@ -202,11 +310,16 @@
         document.body?.dataset?.meiView ||
         readMeta("mei-view") ||
         "",
-      appId: resolveAppIdFromPathname(url.pathname),
+      appId: route.appId,
       appTitle,
       pathname: url.pathname,
       href: url.href,
-      scene: String(url.searchParams.get("scene") || "").trim(),
+      scene: route.scene,
+      resource: route.resource,
+      module: route.module,
+      routeKind: route.routeKind,
+      independent: route.independent,
+      routeLabel: routeLabelFromUrl(url.href),
       file: String(url.searchParams.get("file") || "").trim(),
       authUser: readMeta("mei-auth-user"),
     };
@@ -243,6 +356,17 @@
       scene,
       file: String(opts.file || base.file || ctx.file || "").trim(),
       authUser: base.authUser || ctx.authUser,
+      resource: String(opts.resource || base.resource || ctx.resource || "").trim(),
+      module: String(opts.module || base.module || ctx.module || "").trim(),
+      routeKind: String(opts.routeKind || base.routeKind || ctx.routeKind || "").trim(),
+      independent: Boolean(
+        opts.independent ?? base.independent ?? ctx.independent,
+      ),
+      label:
+        String(base.label || "").trim() &&
+        String(base.label || "").trim() !== ctx.pathname
+          ? base.label
+          : ctx.routeLabel || base.label,
       apiCalls: Array.isArray(opts.apiCalls)
         ? opts.apiCalls.slice(0, 20)
         : Array.isArray(base.apiCalls)
@@ -276,6 +400,8 @@
       `- 访问路径: ${item.pathname || "—"}`,
       `- 完整 URL: ${item.href || item.path || "—"}`,
       `- 场景: ${item.scene || "—"}`,
+      `- 管理资源: ${item.resource || "—"} / ${item.module || "—"}`,
+      `- 独立打开: ${item.independent ? "是" : "否"}`,
       `- 文件: ${item.file || "—"}`,
       `- 标签: ${item.label || "—"}`,
       `- 性能: 渲染 ${normalized.renderMs}ms · 求值 ${normalized.evalMs}ms · 总计 ${normalized.totalMs}ms`,
@@ -334,6 +460,8 @@
     append,
     kindLabel,
     collectVisitContext,
+    routeContext,
+    routeLabelFromUrl,
     enrichRecord,
     formatRecordForAgent,
     formatAllForAgent,

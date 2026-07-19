@@ -15,6 +15,8 @@ pub struct AdminRegistryEntry {
     pub canonical_route: String,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navigation: Option<AdminNavigation>,

@@ -1,4 +1,3 @@
-mod menu_groups;
 mod menus;
 mod view;
 

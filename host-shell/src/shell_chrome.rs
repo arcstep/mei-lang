@@ -166,6 +166,7 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
             json!({
                 "appId": app.id,
                 "displayName": app.title,
+                "shortTitle": app.short_title,
                 "href": app_access_href(workspace.as_path(), app.id.as_str()),
                 "launchPath": format!("apps/{}/launch.json", app.id),
                 "hasLaunch": launch_doc.is_some(),
@@ -197,6 +198,10 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 .iter()
                 .find(|app| app.id == *app_id)
                 .map(|app| app.title.as_str());
+            let short_title = enriched
+                .iter()
+                .find(|app| app.id == *app_id)
+                .and_then(|app| app.short_title.as_deref());
             let menu_title = menu_label_for_app(&topbar_menu, app_id);
             let display_name = display_name_for_running_app(
                 workspace.as_path(),
@@ -225,6 +230,7 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 "instanceId": instance_id,
                 "launchId": launch_id,
                 "displayName": display_name,
+                "shortTitle": short_title,
                 "href": app_access_href(workspace.as_path(), app_id),
                 "phase": phase,
                 "startedAtMs": started_at_ms,
@@ -268,6 +274,10 @@ pub fn running_event_payload_with_plan(
         .iter()
         .find(|app| app.id == app_id)
         .map(|app| app.title.as_str());
+    let short_title = enriched
+        .iter()
+        .find(|app| app.id == app_id)
+        .and_then(|app| app.short_title.as_deref());
     let display_name =
         display_name_for_running_app(workspace, app_id, Some(launch_id), enriched_title);
     let mut payload = json!({
@@ -275,6 +285,7 @@ pub fn running_event_payload_with_plan(
         "launchId": launch_id,
         "instanceId": instance_id,
         "displayName": display_name,
+        "shortTitle": short_title,
         "href": app_access_href(workspace, app_id),
         "phase": "ready",
     });

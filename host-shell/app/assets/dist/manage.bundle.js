@@ -2264,6 +2264,7 @@
     menu.style.right = "";
     menu.style.zIndex = "";
     menu.style.maxWidth = "";
+    menu.style.width = "";
     menu.style.display = "";
   }
 
@@ -2306,9 +2307,12 @@
     const vw = global.innerWidth || global.document.documentElement.clientWidth || 0;
     menu.style.display = "flex";
     const preferEnd = details.classList.contains("topbar-account-dropdown");
+    const isMoreMenu = details.classList.contains("topbar-more-dropdown");
+    const preferredWidth = isMoreMenu ? 880 : preferEnd ? 288 : 520;
+    const minimumWidth = isMoreMenu ? 320 : preferEnd ? 200 : 240;
     const menuWidth = Math.min(
-      preferEnd ? 288 : 520,
-      Math.max(preferEnd ? 200 : 240, menu.offsetWidth || (preferEnd ? 200 : 240)),
+      preferredWidth,
+      Math.max(minimumWidth, menu.offsetWidth || minimumWidth),
     );
     let left = preferEnd
       ? Math.round(rect.right - menuWidth)
@@ -2322,7 +2326,10 @@
     menu.style.left = `${left}px`;
     menu.style.right = "auto";
     menu.style.zIndex = menuZIndex();
-    menu.style.maxWidth = `min(${preferEnd ? 288 : 520}px, ${Math.max(160, vw - 16)}px)`;
+    menu.style.maxWidth = `min(${preferredWidth}px, ${Math.max(160, vw - 16)}px)`;
+    if (isMoreMenu) {
+      menu.style.width = `min(${preferredWidth}px, ${Math.max(minimumWidth, vw - 16)}px)`;
+    }
   }
 
   function portalOpenMenu(details) {
@@ -2347,6 +2354,10 @@
 
   function closeDetailsMenu(details) {
     if (!(details instanceof HTMLDetailsElement)) return;
+    const summary = details.querySelector(":scope > summary");
+    if (summary instanceof HTMLElement) {
+      summary.setAttribute("aria-expanded", "false");
+    }
     const id = details.dataset.meiAgmId;
     const portaled =
       (id &&
@@ -2384,9 +2395,26 @@
     if (!details.classList.contains("app-group-dropdown")) return;
     if (details.open) {
       closeOtherGroups(details);
+      const summary = details.querySelector(":scope > summary");
+      if (summary instanceof HTMLElement) {
+        summary.setAttribute("aria-expanded", "true");
+      }
       portalOpenMenu(details);
       global.requestAnimationFrame(() => {
-        if (details.open) portalOpenMenu(details);
+        if (!details.open) return;
+        portalOpenMenu(details);
+        if (!details.classList.contains("topbar-more-dropdown")) return;
+        const id = details.dataset.meiAgmId;
+        const menu =
+          (id &&
+            global.document.querySelector(
+              `.app-group-menu[${OWNER}="${id}"][${PORTALED}]`,
+            )) ||
+          details.querySelector(MENU_SEL);
+        const target =
+          menu?.querySelector?.(".topbar-more-card.is-active") ||
+          menu?.querySelector?.(".topbar-more-card");
+        if (target instanceof HTMLElement) target.focus();
       });
     } else {
       closeDetailsMenu(details);
@@ -2414,38 +2442,40 @@
     closeDetailsMenu(open);
   }
 
-  function scrollActiveChipsIntoView(root) {
-    const scope = root instanceof Element ? root : global.document;
-    if (!scope) return;
-    const strips = scope.querySelectorAll?.(
-      "[data-mei-stage-strip], [data-mei-admin-strip]",
-    );
-    if (!strips) return;
-    Array.from(strips).forEach((strip) => {
-      if (!(strip instanceof HTMLElement)) return;
-      const active = strip.querySelector(".is-active, .topbar-chip.is-active");
-      if (!(active instanceof HTMLElement)) return;
-      try {
-        active.scrollIntoView({
-          inline: "nearest",
-          block: "nearest",
-          behavior: "instant",
-        });
-      } catch (_) {
-        active.scrollIntoView(false);
-      }
-    });
-  }
-
   function onChromeRefreshed() {
-    // Topbar HTML replaced: reclaim any orphan portaled menus.
-    restoreAllPortaled();
-    scrollActiveChipsIntoView(global.document);
+    // Topbar HTML replaced: close and reclaim any orphan portaled menus.
+    closeAllOpenGroups();
   }
 
   function onSpaNavigationComplete() {
     closeAllOpenGroups();
-    scrollActiveChipsIntoView(global.document);
+  }
+
+  function onKeyDown(event) {
+    const open = global.document.querySelector(`${SELECTOR}[open]`);
+    if (!(open instanceof HTMLDetailsElement)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      open.open = false;
+      closeDetailsMenu(open);
+      const summary = open.querySelector(":scope > summary");
+      if (summary instanceof HTMLElement) summary.focus();
+      return;
+    }
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      return;
+    }
+    const id = open.dataset.meiAgmId;
+    const menu =
+      (id && global.document.querySelector(`.app-group-menu[${OWNER}="${id}"]`)) ||
+      open.querySelector(MENU_SEL);
+    if (!(menu instanceof HTMLElement)) return;
+    const cards = Array.from(menu.querySelectorAll(".topbar-more-card"));
+    const current = cards.indexOf(global.document.activeElement);
+    if (current < 0 || !cards.length) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    cards[(current + delta + cards.length) % cards.length]?.focus?.();
   }
 
   function bind() {
@@ -2454,6 +2484,7 @@
     bind.bound = true;
     doc.addEventListener("toggle", onToggle, true);
     doc.addEventListener("pointerdown", onPointerDown, true);
+    doc.addEventListener("keydown", onKeyDown, true);
     global.addEventListener("resize", repositionOpenGroups);
     global.addEventListener("scroll", repositionOpenGroups, true);
     doc.addEventListener("mei:host-chrome-refreshed", onChromeRefreshed);
@@ -2473,7 +2504,6 @@
       },
       true,
     );
-    scrollActiveChipsIntoView(doc);
   }
 
   bind.bound = false;
@@ -2487,7 +2517,6 @@
     repositionOpenGroups,
     restoreAllPortaled,
     closeAllOpenGroups,
-    scrollActiveChipsIntoView,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -11689,6 +11718,15 @@
 
   function resolveAppIdFromPathname(pathname) {
     const path = String(pathname || "");
+    const routeApi = global.MeiRoutePredicates;
+    if (routeApi && typeof routeApi.appIdFromAppsPathname === "function") {
+      const resolved = String(routeApi.appIdFromAppsPathname(path) || "").trim();
+      if (resolved) return resolved;
+    }
+    const parts = path.split("/").filter(Boolean);
+    if (parts[0] === "admin" && parts[1] === "apps" && parts[2]) {
+      return parts[2];
+    }
     const prefixes = [
       "/apps/app/",
       "/apps/access/",
@@ -11710,7 +11748,6 @@
       if (rest) return rest;
       break;
     }
-    const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "apps") return "";
     if (parts.length >= 3 && parts[2] === "view") {
       return parts[1] || "";
@@ -11746,6 +11783,106 @@
       }
     }
     return parts[1] || "";
+  }
+
+  function routeContext(urlHint) {
+    const hrefBase =
+      typeof global.location !== "undefined" ? global.location.href : "";
+    let url;
+    try {
+      url = new URL(String(urlHint || hrefBase), hrefBase || "http://localhost");
+    } catch (_) {
+      url = new URL(hrefBase || "http://localhost");
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    const routeApi = global.MeiRoutePredicates;
+    const admin =
+      parts[0] === "admin" && parts[1] === "apps" && Boolean(parts[2]);
+    const scene = admin
+      ? ""
+      : String(
+          (routeApi && typeof routeApi.sceneIdFromPathname === "function"
+            ? routeApi.sceneIdFromPathname(url.pathname, url.search)
+            : parts[0] === "apps"
+              ? parts[2]
+              : "") ||
+            url.searchParams.get("scene") ||
+            "",
+        ).trim();
+    return {
+      url,
+      appId: resolveAppIdFromPathname(url.pathname),
+      scene,
+      resource: admin ? String(parts[3] || "").trim() : "",
+      module: admin ? String(parts[4] || "").trim() : "",
+      routeKind: admin ? "admin" : scene ? "stage" : "host",
+      independent: url.searchParams.get("chrome") === "none",
+    };
+  }
+
+  function currentAppTitle() {
+    const shortMeta = readMeta("mei-app-short-title");
+    if (shortMeta) return shortMeta;
+    const shortBody = String(
+      document.body?.dataset?.meiAppShortTitle || "",
+    ).trim();
+    if (shortBody) return shortBody;
+    const trigger = document.querySelector(
+      "[data-mei-app-switcher] .app-group-trigger .mode-label",
+    );
+    const triggerLabel = trigger ? String(trigger.textContent || "").trim() : "";
+    if (triggerLabel) return triggerLabel;
+    return (
+      readMeta("mei-app-title") ||
+      String(document.body?.dataset?.meiAppTitle || "").trim()
+    );
+  }
+
+  function routeLabelFromUrl(urlHint) {
+    const ctx = routeContext(urlHint);
+    const appLabel = currentAppTitle() || ctx.appId;
+    let target = "";
+    let typeLabel = "";
+    if (ctx.routeKind === "admin") {
+      const active = document.querySelector(
+        "[data-mei-admin-item].is-active .mode-label",
+      );
+      target =
+        (active ? String(active.textContent || "").trim() : "") ||
+        ctx.module ||
+        ctx.resource;
+      typeLabel = "应用管理";
+    } else if (ctx.routeKind === "stage") {
+      const active = document.querySelector(
+        "[data-mei-stage-scene].is-active .mode-label",
+      );
+      target =
+        (active ? String(active.textContent || "").trim() : "") ||
+        readMeta("mei-stage-short-title") ||
+        String(document.body?.dataset?.meiStageShortTitle || "").trim() ||
+        ctx.scene;
+      const profile = String(
+        document.querySelector("[data-mei-stage-scene].is-active")?.dataset
+          ?.meiStageProfile ||
+          readMeta("mei-stage-profile") ||
+          document.body?.dataset?.meiStageProfile ||
+          "",
+      );
+      typeLabel =
+        profile === "slides"
+          ? "幻灯片"
+          : profile === "page"
+            ? "页面/报告"
+            : "驾驶舱";
+    }
+    return [
+      appLabel,
+      target,
+      typeLabel,
+      ctx.independent ? "独立打开" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   function currentAppId(hint) {
@@ -11868,8 +12005,8 @@
     } catch (_) {
       url = new URL(hrefBase || "http://localhost");
     }
-    const appPathItem = document.querySelector(".app-current-path-item");
-    const appTitle = appPathItem ? String(appPathItem.textContent || "").trim() : "";
+    const route = routeContext(url);
+    const appTitle = currentAppTitle();
     return {
       workspace: readMeta("mei-workspace-label"),
       routeMode:
@@ -11877,11 +12014,16 @@
         document.body?.dataset?.meiView ||
         readMeta("mei-view") ||
         "",
-      appId: resolveAppIdFromPathname(url.pathname),
+      appId: route.appId,
       appTitle,
       pathname: url.pathname,
       href: url.href,
-      scene: String(url.searchParams.get("scene") || "").trim(),
+      scene: route.scene,
+      resource: route.resource,
+      module: route.module,
+      routeKind: route.routeKind,
+      independent: route.independent,
+      routeLabel: routeLabelFromUrl(url.href),
       file: String(url.searchParams.get("file") || "").trim(),
       authUser: readMeta("mei-auth-user"),
     };
@@ -11918,6 +12060,17 @@
       scene,
       file: String(opts.file || base.file || ctx.file || "").trim(),
       authUser: base.authUser || ctx.authUser,
+      resource: String(opts.resource || base.resource || ctx.resource || "").trim(),
+      module: String(opts.module || base.module || ctx.module || "").trim(),
+      routeKind: String(opts.routeKind || base.routeKind || ctx.routeKind || "").trim(),
+      independent: Boolean(
+        opts.independent ?? base.independent ?? ctx.independent,
+      ),
+      label:
+        String(base.label || "").trim() &&
+        String(base.label || "").trim() !== ctx.pathname
+          ? base.label
+          : ctx.routeLabel || base.label,
       apiCalls: Array.isArray(opts.apiCalls)
         ? opts.apiCalls.slice(0, 20)
         : Array.isArray(base.apiCalls)
@@ -11951,6 +12104,8 @@
       `- 访问路径: ${item.pathname || "—"}`,
       `- 完整 URL: ${item.href || item.path || "—"}`,
       `- 场景: ${item.scene || "—"}`,
+      `- 管理资源: ${item.resource || "—"} / ${item.module || "—"}`,
+      `- 独立打开: ${item.independent ? "是" : "否"}`,
       `- 文件: ${item.file || "—"}`,
       `- 标签: ${item.label || "—"}`,
       `- 性能: 渲染 ${normalized.renderMs}ms · 求值 ${normalized.evalMs}ms · 总计 ${normalized.totalMs}ms`,
@@ -12009,6 +12164,8 @@
     append,
     kindLabel,
     collectVisitContext,
+    routeContext,
+    routeLabelFromUrl,
     enrichRecord,
     formatRecordForAgent,
     formatAllForAgent,
@@ -29439,9 +29596,21 @@
   function sessionLabelFromUrl(url) {
     try {
       const parsed = new URL(url, window.location.href);
+      const historyStore = window.MeiVisitHistoryStore;
+      if (historyStore && typeof historyStore.routeLabelFromUrl === "function") {
+        const label = String(historyStore.routeLabelFromUrl(parsed.href) || "").trim();
+        if (label) return label;
+      }
       const file = String(parsed.searchParams.get("file") || "").trim();
       if (file) return file;
-      const scene = String(parsed.searchParams.get("scene") || "").trim();
+      const routeApi = window.MeiRoutePredicates;
+      const scene = String(
+        (routeApi && typeof routeApi.sceneIdFromPathname === "function"
+          ? routeApi.sceneIdFromPathname(parsed.pathname, parsed.search)
+          : "") ||
+          parsed.searchParams.get("scene") ||
+          "",
+      ).trim();
       if (scene) return `scene:${scene}`;
       return parsed.pathname;
     } catch (_) {}
@@ -42700,7 +42869,7 @@
     return shell.document || shell;
   }
 
-  /** chrome=none / body.chrome-none：宿主顶栏底栏本就不渲染，不得当未就绪。 */
+  /** chrome=none / body.chrome-none：只抑制顶栏；底栏仍由 shell layer 提供。 */
   function isHostChromeSuppressed(ctx) {
     const fromCtx = String(ctx?.chrome || "").trim().toLowerCase();
     if (fromCtx === "none") return true;
@@ -42717,9 +42886,11 @@
   }
 
   function isSsrShellPlaceholder(ctx) {
-    if (isHostChromeSuppressed(ctx)) return false;
     const surface = ctx?.surface || ctx?.mode || "app";
     const doc = shellDocFromManifestRefs(surface);
+    if (isHostChromeSuppressed(ctx)) {
+      return !String(doc?.statusbar_html || "").trim();
+    }
     if (boot.viewCompositor?.isPlaceholderShellDoc) {
       return boot.viewCompositor.isPlaceholderShellDoc(doc);
     }
@@ -42729,8 +42900,8 @@
   }
 
   function hostChromeReady(ctx) {
-    if (isHostChromeSuppressed(ctx)) return true;
     const summary = hostChromeSummary();
+    if (isHostChromeSuppressed(ctx)) return summary.statusbar;
     return summary.topbar || summary.statusbar;
   }
 
@@ -42763,6 +42934,26 @@
       }
     }
     if (isHostChromeSuppressed(chromeCtx)) {
+      const bottom = String(shellDoc?.statusbar_html || "").trim();
+      const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+      const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+      if (topSlot instanceof HTMLElement) topSlot.innerHTML = "";
+      if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+      if (typeof boot.refreshStatusBarChips === "function") {
+        boot.refreshStatusBarChips();
+      }
+      if (typeof boot.refreshVisitHistoryPanel === "function") {
+        boot.refreshVisitHistoryPanel();
+      }
+      try {
+        global.document?.dispatchEvent?.(
+          new CustomEvent("mei:shell-layer-applied", {
+            detail: { source: "thin-shell-host", topbarSuppressed: true },
+          }),
+        );
+      } catch (_error) {
+        // ignore
+      }
       return true;
     }
     const root =

@@ -1131,14 +1131,21 @@ fn build_scene_routes(
         let target_file =
             assembly_target_for_key(app_root.as_path(), registry, route.assembly_key.as_str());
         let kind = route_kind_for_stage(route.scene_id.as_str(), target_file.as_str(), &programs);
-        let title =
+        let assembly_title =
             scene_title_from_assembly(app_root.as_path(), registry, route.assembly_key.as_str());
+        let program = crate::stage_program_discover::discover_program_for_stage(
+            &programs,
+            route.scene_id.as_str(),
+        );
         routes.push(CompiledSceneRoute {
             scene_id: route.scene_id.clone(),
             frame_id: None,
             target_file,
             kind,
-            title,
+            title: program
+                .and_then(|program| program.title.clone())
+                .or(assembly_title),
+            short_title: program.and_then(|program| program.short_title.clone()),
             is_default: route.scene_id == "home",
             access_export: true,
         });
@@ -1171,6 +1178,7 @@ fn build_scene_routes(
             target_file: assembly_target_for_node(app_root.as_path(), node),
             kind: "page".to_string(),
             title,
+            short_title: None,
             is_default: false,
             // T2 / board page 不是 Access 顶栏舞台入口
             access_export: false,
@@ -1189,6 +1197,7 @@ fn build_scene_routes(
                     "page".to_string()
                 },
                 title: None,
+                short_title: None,
                 is_default: node.id.key.contains("home@"),
                 access_export: true,
             });

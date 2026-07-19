@@ -16,6 +16,7 @@ pub struct DiscoveredStageProgram {
     /// Path relative to app root (forward slashes).
     pub program_rel: String,
     pub title: Option<String>,
+    pub short_title: Option<String>,
     /// Assembly key for host assemble (`stage@src/...`).
     pub assembly_key: String,
     /// Target file for routes (scene .mei or deck path).
@@ -127,6 +128,7 @@ fn parse_discovered(abs: &Path, rel: &str) -> Option<DiscoveredStageProgram> {
             profile: StageProgramProfile::Slides,
             program_rel: rel.to_string(),
             title: frontmatter_title(abs),
+            short_title: frontmatter_value(abs, "short_title"),
             assembly_key,
             target_file: rel.to_string(),
         });
@@ -143,6 +145,7 @@ fn parse_discovered(abs: &Path, rel: &str) -> Option<DiscoveredStageProgram> {
                 profile: StageProgramProfile::Cockpit,
                 program_rel: rel.to_string(),
                 title: frontmatter_title(abs),
+                short_title: frontmatter_value(abs, "short_title"),
                 assembly_key: format!("{stage_id}@{scene_rel}"),
                 target_file: scene_rel.to_string(),
             });
@@ -163,6 +166,7 @@ fn parse_discovered(abs: &Path, rel: &str) -> Option<DiscoveredStageProgram> {
         profile,
         program_rel: rel.to_string(),
         title: doc.frontmatter.title.or_else(|| frontmatter_title(abs)),
+        short_title: doc.frontmatter.short_title,
         assembly_key,
         target_file: scene_rel,
     })
@@ -207,6 +211,10 @@ pub fn scene_use_to_target(scene_use: &str) -> String {
 }
 
 fn frontmatter_title(path: &Path) -> Option<String> {
+    frontmatter_value(path, "title")
+}
+
+fn frontmatter_value(path: &Path, key: &str) -> Option<String> {
     let raw = fs::read_to_string(path).ok()?;
     let mut lines = raw.lines();
     if lines.next()?.trim() != "---" {
@@ -219,7 +227,7 @@ fn frontmatter_title(path: &Path) -> Option<String> {
         let Some((k, v)) = line.split_once(':') else {
             continue;
         };
-        if k.trim() == "title" {
+        if k.trim() == key {
             let t = v.trim().trim_matches('"').trim_matches('\'');
             if !t.is_empty() {
                 return Some(t.to_string());

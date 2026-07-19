@@ -2,7 +2,7 @@
 
 pub(crate) fn access_shell_grid_class(chrome_hidden: bool, stage_enabled: bool) -> &'static str {
     if chrome_hidden {
-        "shell shell-surface min-h-screen h-screen overflow-hidden"
+        "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:minmax(0,1fr)_auto]"
     } else if stage_enabled {
         "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:auto_minmax(0,1fr)_auto]"
     } else {
@@ -30,7 +30,7 @@ pub(crate) fn access_preview_panel_class(chrome_hidden: bool, stage_enabled: boo
     }
 }
 
-/// 演示态 preview 区与访问态 `?tab=preview` 对齐（无顶栏/底栏，但 preview 容器 class 相同）。
+/// 演示态 preview 区与访问态 `?tab=preview` 对齐（无顶栏、保留统一底栏，preview 容器 class 相同）。
 pub(crate) fn presentation_main_preview_class(stage_enabled: bool) -> String {
     concat_classes("relative", access_main_preview_class(false, stage_enabled))
 }
@@ -56,6 +56,13 @@ mod tests {
         assert_eq!(
             presentation_preview_panel_class(false),
             access_preview_panel_class(false, false)
+        );
+    }
+
+    #[test]
+    fn hidden_topbar_layout_still_reserves_the_footer_row() {
+        assert!(
+            access_shell_grid_class(true, true).contains("[grid-template-rows:minmax(0,1fr)_auto]")
         );
     }
 }

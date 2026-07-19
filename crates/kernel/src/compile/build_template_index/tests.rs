@@ -317,6 +317,7 @@ fn template_file_authoring_preview_targets_template_mei() {
             target_file: "scenes/home.mei".to_string(),
             kind: "file_ref".to_string(),
             title: Some("Home".to_string()),
+            short_title: None,
             is_default: true,
             access_export: true,
         }],

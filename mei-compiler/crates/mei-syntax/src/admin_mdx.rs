@@ -29,6 +29,7 @@ pub const ADMIN_SCENE_ROOT_DUPLICATE: &str = "admin_scene_root_duplicate";
 const FRONTMATTER_FIELDS: &[&str] = &[
     "api_version",
     "title",
+    "short_title",
     "description",
     "menu",
     "parent",
@@ -109,6 +110,7 @@ pub struct AdminMdxDocument {
 pub struct AdminMdxFrontmatter {
     pub api_version: String,
     pub title: String,
+    pub short_title: Option<String>,
     pub description: Option<String>,
     pub menu: Option<String>,
     pub parent: Option<String>,
@@ -304,6 +306,7 @@ fn lower_frontmatter(
     Ok(AdminMdxFrontmatter {
         api_version,
         title: required("title")?,
+        short_title: optional(values, "short_title"),
         description: optional(values, "description"),
         menu: optional(values, "menu"),
         parent: optional(values, "parent"),
@@ -565,6 +568,7 @@ mod tests {
     const ENTRY: &str = r#"---
 api_version: mei-admin-resource-v2
 title: 单位信息
+short_title: 单位
 menu: 应用管理
 required_capabilities:
   - config_upload
@@ -581,6 +585,7 @@ audit: true
     fn parses_v2_admin_entry() {
         let document = parse_admin_mdx_source(ENTRY).expect("admin entry");
         assert_eq!(document.frontmatter.api_version, ADMIN_API_VERSION);
+        assert_eq!(document.frontmatter.short_title.as_deref(), Some("单位"));
         assert_eq!(document.scene_use, "admin.organization.overview");
         assert_eq!(document.fills.len(), 1);
         assert!(document.visible_body.markdown.contains("维护单位信息"));

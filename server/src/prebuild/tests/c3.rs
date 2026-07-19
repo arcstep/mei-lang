@@ -14,6 +14,7 @@ fn discovered_compile_scopes_do_not_expand_target_only_scope_into_route_aliases(
         target_file: "scenes/popup.board.mei".to_string(),
         kind: "board".to_string(),
         title: None,
+        short_title: None,
         is_default: false,
         access_export: true,
     });
@@ -23,6 +24,7 @@ fn discovered_compile_scopes_do_not_expand_target_only_scope_into_route_aliases(
         target_file: "scenes/popup.board.mei".to_string(),
         kind: "board".to_string(),
         title: None,
+        short_title: None,
         is_default: false,
         access_export: true,
     });

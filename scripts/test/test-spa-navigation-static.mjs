@@ -33,6 +33,20 @@ const bundleManifestPath = path.join(root, "scripts", "build", "bundle-manifest.
 const bundleManifest = JSON.parse(await readFile(bundleManifestPath, "utf8"));
 const accessScripts = bundleManifest.accessScripts || [];
 const manageScripts = bundleManifest.manageScripts || [];
+const adminScripts = bundleManifest.adminScripts || [];
+assert.ok(
+  adminScripts.includes("visit-history-panel.js"),
+  "admin bundle must mount the shared visit-history panel",
+);
+const visitHistoryPanelSrc = await readFile(
+  path.join(assetsRoot, "visit-history-panel.js"),
+  "utf8",
+);
+assert.match(
+  visitHistoryPanelSrc,
+  /function recordAdminVisit[\s\S]*ctx\.routeKind !== "admin"[\s\S]*api\.append/,
+  "admin pages must append route-aware visit history records",
+);
 const objectSelectionModule =
   "spa-navigation/presentation/object-selection-runtime.js";
 const mapWorldBridgeModule = "spa-navigation/presentation/map-world-bridge.js";
@@ -124,12 +138,17 @@ const thinShellHostSrc = await readFile(
   "utf8",
 );
 assert.match(thinShellHostSrc, /hostChromeReady/, "hostChromeReady export required");
-assert.match(thinShellHostSrc, /isHostChromeSuppressed/, "chrome=none hostChromeReady bypass required");
+assert.match(thinShellHostSrc, /isHostChromeSuppressed/, "chrome=none topbar suppression required");
 assert.match(thinShellHostSrc, /isSsrShellPlaceholder/, "isSsrShellPlaceholder export required");
 assert.match(
   thinShellHostSrc,
-  /function hostChromeReady\(ctx\)[\s\S]*isHostChromeSuppressed\(ctx\)/,
-  "hostChromeReady must treat chrome=none as ready",
+  /function hostChromeReady\(ctx\)[\s\S]*isHostChromeSuppressed\(ctx\)[\s\S]*summary\.statusbar/,
+  "chrome=none must wait for the persistent statusbar",
+);
+assert.match(
+  thinShellHostSrc,
+  /isHostChromeSuppressed\(chromeCtx\)[\s\S]*statusbar_html[\s\S]*topSlot\.innerHTML = ""/,
+  "chrome=none must suppress only the topbar and still apply the statusbar",
 );
 
 assert.match(
@@ -164,6 +183,35 @@ assert.doesNotMatch(
   "fill-down sizing must not depend on enforcement scope heuristics",
 );
 const appShellCss = await readFile(path.join(assetsRoot, "app-shell.css"), "utf8");
+const topbarMenuSrc = await readFile(
+  path.join(assetsRoot, "topbar-app-group-menu.js"),
+  "utf8",
+);
+assert.doesNotMatch(
+  topbarMenuSrc,
+  /scrollActiveChipsIntoView/,
+  "topbar must not restore the removed horizontal chip scroller",
+);
+assert.match(
+  topbarMenuSrc,
+  /topbar-more-dropdown[\s\S]*preferredWidth = isMoreMenu \? 880/,
+  "shared more panel must use the wide card-grid portal",
+);
+assert.match(
+  topbarMenuSrc,
+  /event\.key === "Escape"[\s\S]*summary\.focus/,
+  "shared topbar menus must close on Escape and restore focus",
+);
+assert.match(
+  topbarMenuSrc,
+  /ArrowLeft[\s\S]*topbar-more-card[\s\S]*\.focus/,
+  "shared topbar menu must support keyboard movement inside the card grid",
+);
+assert.match(
+  appShellCss,
+  /\.topbar-more-grid[\s\S]*repeat\(auto-fit,[\s\S]*\.topbar-more-card/,
+  "topbar more panel must render a responsive card grid",
+);
 assert.match(
   appShellCss,
   /\[data-mei-layout-fill="true"\][\s\S]*align-self:\s*stretch;[\s\S]*justify-self:\s*stretch;/,

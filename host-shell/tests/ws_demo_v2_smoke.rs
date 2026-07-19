@@ -274,6 +274,7 @@ fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: app_root.display().to_string(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
@@ -340,6 +341,7 @@ fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: outcome.compiled.app_root.clone(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
@@ -653,6 +655,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: app_root.display().to_string(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
@@ -761,6 +764,7 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: app_root.display().to_string(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
@@ -1130,6 +1134,7 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "mini-park".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: app_root.display().to_string(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
@@ -1626,6 +1631,7 @@ fn ws_demo_v2_prototype_render_uses_static_metric_skeleton() {
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
+        short_title: None,
         root: app_root.display().to_string(),
     }];
     let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());

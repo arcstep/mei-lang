@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::layer_store::{store_layer, take_layer};
 use crate::view_artifact::shell_cache_key;
 
-pub const SHELL_LAYER_SCHEMA: &str = "shell-v1";
+pub const SHELL_LAYER_SCHEMA: &str = "shell-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShellLayerDocument {
@@ -19,9 +19,12 @@ pub struct ShellLayerDocument {
     pub statusbar_html: String,
 }
 
-/// True when topbar is the bootstrap stub (empty mei-shell-topbar header).
+/// True when required shell chrome is still the bootstrap stub.
 pub fn is_placeholder_shell_document(doc: &ShellLayerDocument) -> bool {
     let top = doc.topbar_html.trim();
+    if doc.chrome.eq_ignore_ascii_case("none") {
+        return doc.statusbar_html.trim().is_empty();
+    }
     if top.is_empty() {
         return true;
     }
@@ -146,6 +149,21 @@ mod gate_c_tests {
     use super::*;
     use crate::layer_store::store_layer;
     use crate::view_artifact::shell_cache_key;
+
+    #[test]
+    fn chrome_none_requires_statusbar_but_not_topbar() {
+        let mut doc = ShellLayerDocument {
+            schema_version: SHELL_LAYER_SCHEMA.to_string(),
+            route_mode: "app".to_string(),
+            tab: "scene".to_string(),
+            chrome: "none".to_string(),
+            topbar_html: String::new(),
+            statusbar_html: String::new(),
+        };
+        assert!(is_placeholder_shell_document(&doc));
+        doc.statusbar_html = "<footer class=\"statusbar\"></footer>".to_string();
+        assert!(!is_placeholder_shell_document(&doc));
+    }
 
     #[test]
     fn shell_cache_miss_on_wrong_schema_then_rebuilds() {

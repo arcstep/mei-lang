@@ -27,6 +27,7 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
                 target_file: "scenes/home.mei".to_string(),
                 kind: "page".to_string(),
                 title: None,
+                short_title: None,
                 is_default: true,
                 access_export: true,
             }],

@@ -101,6 +101,7 @@ fn walk_hydrate_board_nodes(
                 target_file: node.path.clone(),
                 kind: "board_capsule".to_string(),
                 title: Some(export.name.clone()),
+                short_title: None,
                 is_default: false,
                 access_export: false,
             };

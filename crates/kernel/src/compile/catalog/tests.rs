@@ -83,6 +83,7 @@ frame.add_panel(id = "child_panel", area = "auto", blocks = [])
             target_file: "scenes/layouts/left.mei".to_string(),
             kind: "file_ref".to_string(),
             title: None,
+            short_title: None,
             is_default: true,
             access_export: true,
         }],

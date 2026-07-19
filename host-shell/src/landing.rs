@@ -173,11 +173,13 @@ mod tests {
             WorkspaceAppMeta {
                 id: "data-demo".to_string(),
                 title: "data-demo".to_string(),
+                short_title: None,
                 root: apps_dir.join("data-demo").display().to_string(),
             },
             WorkspaceAppMeta {
                 id: "mini-park".to_string(),
                 title: "mini-park".to_string(),
+                short_title: None,
                 root: apps_dir.join("mini-park").display().to_string(),
             },
         ];

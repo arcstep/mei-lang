@@ -20,9 +20,21 @@
   function sessionLabelFromUrl(url) {
     try {
       const parsed = new URL(url, window.location.href);
+      const historyStore = window.MeiVisitHistoryStore;
+      if (historyStore && typeof historyStore.routeLabelFromUrl === "function") {
+        const label = String(historyStore.routeLabelFromUrl(parsed.href) || "").trim();
+        if (label) return label;
+      }
       const file = String(parsed.searchParams.get("file") || "").trim();
       if (file) return file;
-      const scene = String(parsed.searchParams.get("scene") || "").trim();
+      const routeApi = window.MeiRoutePredicates;
+      const scene = String(
+        (routeApi && typeof routeApi.sceneIdFromPathname === "function"
+          ? routeApi.sceneIdFromPathname(parsed.pathname, parsed.search)
+          : "") ||
+          parsed.searchParams.get("scene") ||
+          "",
+      ).trim();
       if (scene) return `scene:${scene}`;
       return parsed.pathname;
     } catch (_) {}

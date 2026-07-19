@@ -416,9 +416,16 @@ body {
   margin-left: 0;
 }
 .visit-history-label {
+  display: block;
   font-size: var(--mei-shell-font-2);
   color: var(--mei-shell-color-text-primary);
   line-height: 1.4;
+  text-decoration: none;
+}
+.visit-history-label:hover,
+.visit-history-label:focus-visible {
+  color: var(--mei-shell-color-accent-muted);
+  text-decoration: underline;
 }
 .visit-history-context {
   font-size: var(--mei-shell-font-1);
@@ -494,9 +501,18 @@ a { color: inherit; text-decoration: none; }
   background: var(--mei-shell-bg);
   color: var(--mei-shell-text);
 }
-/* 演示壳仅 main + 脚本：单行 1fr，避免默认 .shell 三行 grid 把 main 挤到 auto 行 */
-.shell.presentation-shell {
+/* 无顶栏模式仍保留统一底栏：内容区占满剩余空间。 */
+.shell.presentation-shell,
+.shell.copilot-shell {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+:fullscreen .shell.presentation-shell,
+:fullscreen .shell.copilot-shell {
   grid-template-rows: minmax(0, 1fr);
+}
+:fullscreen .shell.presentation-shell > .statusbar,
+:fullscreen .shell.copilot-shell > .statusbar {
+  display: none;
 }
 .topbar {
   isolation: isolate;
@@ -535,7 +551,7 @@ a { color: inherit; text-decoration: none; }
 }
 .topbar-app-toolbar {
   min-width: 0;
-  overflow-y: visible !important;
+  overflow: visible !important;
   scrollbar-width: none;
 }
 .topbar-app-toolbar::-webkit-scrollbar {
@@ -570,18 +586,8 @@ a { color: inherit; text-decoration: none; }
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
-  max-width: 18rem;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
-}
-.topbar.topbar-shell .topbar-chip-strip::-webkit-scrollbar {
-  height: 4px;
-}
-.topbar.topbar-shell .topbar-chip-strip::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 70%, transparent);
-  border-radius: 999px;
+  max-width: none;
+  overflow: visible;
 }
 .topbar.topbar-shell .topbar-chip {
   flex: 0 0 auto;
@@ -618,6 +624,99 @@ a { color: inherit; text-decoration: none; }
 }
 .topbar.topbar-shell .topbar-admin-cluster {
   min-width: 0;
+}
+.topbar-more {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.topbar-more-dropdown.app-group-dropdown > summary.topbar-more-trigger {
+  display: inline-grid;
+  width: 28px;
+  height: 24px;
+  place-items: center;
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--mei-shell-color-text-body);
+  background: transparent;
+}
+.topbar-more-dropdown.app-group-dropdown > summary.topbar-more-trigger::-webkit-details-marker {
+  display: none;
+}
+.topbar-more-dropdown.app-group-dropdown > summary.topbar-more-trigger::after {
+  display: none;
+}
+.topbar-more-dropdown.app-group-dropdown > summary.topbar-more-trigger:hover,
+.topbar-more-dropdown.app-group-dropdown > summary.topbar-more-trigger:focus-visible,
+.topbar-more-dropdown.app-group-dropdown[open] > summary.topbar-more-trigger {
+  color: var(--mei-shell-color-text-inverse);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
+  background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 72%, transparent);
+}
+.topbar-more-panel.app-group-menu {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+  min-width: min(42rem, calc(100vw - 16px));
+  max-width: min(55rem, calc(100vw - 16px));
+  max-height: min(72vh, 640px);
+  overflow: auto;
+  padding: 14px;
+}
+.topbar-more-panel[data-mei-agm-portaled] {
+  display: flex !important;
+}
+.topbar-more-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+.topbar-more-section + .topbar-more-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--mei-shell-color-chrome-divider);
+}
+.topbar-more-section-title {
+  margin: 0;
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.topbar-more-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 7px;
+}
+.topbar-more-card {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--mei-shell-color-chrome-divider);
+  border-radius: 8px;
+  color: var(--mei-shell-color-text-body);
+  background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 46%, transparent);
+  text-decoration: none;
+}
+.topbar-more-card:hover,
+.topbar-more-card:focus-visible {
+  color: var(--mei-shell-color-text-inverse);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
+  background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 78%, transparent);
+}
+.topbar-more-card.is-active {
+  color: var(--mei-shell-color-text-inverse);
+  border-color: var(--mei-shell-color-accent);
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 22%, transparent);
+}
+.topbar-more-card-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .topbar.topbar-shell .app-menu-item.is-disabled {
   opacity: 0.55;

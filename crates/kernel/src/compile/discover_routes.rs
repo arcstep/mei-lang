@@ -84,6 +84,7 @@ pub(super) fn try_push_discovered_entry_route(
         target_file,
         kind: "file_ref".to_string(),
         title: None,
+        short_title: None,
         is_default: false,
         access_export,
     });

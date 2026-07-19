@@ -92,6 +92,7 @@ pub(crate) fn render_document(
                 <meta name="mei-host-copyright" content="__MEI_HOST_COPYRIGHT__"/>
                 <meta name="mei-workspace-label" content="__MEI_WORKSPACE_LABEL__"/>
                 <meta name="mei-view" content=route_mode.slug()/>
+                <meta name="mei-app-title" content=app_title/>
                 <meta name="mei-auth-user" content=auth_user_meta/>
                 <meta name="mei-auth-role" content=auth_role_meta/>
                 <meta name="mei-auth-logged-in" content=auth_logged_in_meta/>
@@ -117,6 +118,7 @@ pub(crate) fn render_document(
                 class=body_class
                 style=body_theme_style.to_string()
                 data-mei-view=route_mode.slug()
+                data-mei-app-title=app_title
                 data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
                 data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
                 data-mei-compile-ms="__MEI_COMPILE_MS__"

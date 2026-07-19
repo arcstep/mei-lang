@@ -8,6 +8,7 @@ use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::shell_preview_layout::{
     access_shell_grid_class, presentation_main_preview_class, presentation_preview_panel_class,
 };
+use super::statusbar::statusbar_view;
 use super::view_routing::app_scene_href;
 use super::{HostAccountView, TopbarMenuContext};
 
@@ -111,15 +112,19 @@ pub(crate) fn presentation_shell(
 ) -> AnyView {
     let deck = exported_presentation_routes(compiled);
     if deck.is_empty() {
+        let statusbar = statusbar_view(app_path, "run", "", None);
         return view! {
-            <div class="shell shell-surface min-h-screen mei-surface-shell px-6 py-10 mei-text-inverse">
-                <section class="mx-auto max-w-3xl rounded-3xl border mei-border-default mei-surface-panel-muted p-6 shadow-2xl">
-                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"演说"</p>
-                    <h1 class="mt-3 text-2xl font-semibold">{compiled.title.clone()}</h1>
-                    <p class="mt-4 text-sm leading-7 mei-text-body">
-                        "当前应用没有可用于演说的导出 scene。请先为至少一个 scene 保持默认 access export。"
-                    </p>
-                </section>
+            <div class="shell shell-surface presentation-shell min-h-screen mei-surface-shell mei-text-inverse">
+                <main class="px-6 py-10">
+                    <section class="mx-auto max-w-3xl rounded-3xl border mei-border-default mei-surface-panel-muted p-6 shadow-2xl">
+                        <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"演说"</p>
+                        <h1 class="mt-3 text-2xl font-semibold">{compiled.title.clone()}</h1>
+                        <p class="mt-4 text-sm leading-7 mei-text-body">
+                            "当前应用没有可用于演说的导出 scene。请先为至少一个 scene 保持默认 access export。"
+                        </p>
+                    </section>
+                </main>
+                {statusbar}
             </div>
         }
         .into_any();
@@ -183,6 +188,7 @@ pub(crate) fn presentation_shell(
         data_mode,
         review_projection,
     );
+    let statusbar = statusbar_view(app_path, "run", current_target, None);
 
     view! {
         <div
@@ -268,6 +274,7 @@ pub(crate) fn presentation_shell(
                     </footer>
                 </div>
             </main>
+            {statusbar}
             <script>{PRESENTATION_KEYBOARD_SCRIPT}</script>
         </div>
     }

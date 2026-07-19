@@ -1,5 +1,6 @@
 schema_version = "mei-app-v1"
 title = "Conformance Dual Stage"
+short_title = "Dual"
 default_stage = "home"
 app_id = "fx-dual-stage"
 generation = "current"

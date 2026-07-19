@@ -34,6 +34,7 @@
     menu.style.right = "";
     menu.style.zIndex = "";
     menu.style.maxWidth = "";
+    menu.style.width = "";
     menu.style.display = "";
   }
 
@@ -76,9 +77,12 @@
     const vw = global.innerWidth || global.document.documentElement.clientWidth || 0;
     menu.style.display = "flex";
     const preferEnd = details.classList.contains("topbar-account-dropdown");
+    const isMoreMenu = details.classList.contains("topbar-more-dropdown");
+    const preferredWidth = isMoreMenu ? 880 : preferEnd ? 288 : 520;
+    const minimumWidth = isMoreMenu ? 320 : preferEnd ? 200 : 240;
     const menuWidth = Math.min(
-      preferEnd ? 288 : 520,
-      Math.max(preferEnd ? 200 : 240, menu.offsetWidth || (preferEnd ? 200 : 240)),
+      preferredWidth,
+      Math.max(minimumWidth, menu.offsetWidth || minimumWidth),
     );
     let left = preferEnd
       ? Math.round(rect.right - menuWidth)
@@ -92,7 +96,10 @@
     menu.style.left = `${left}px`;
     menu.style.right = "auto";
     menu.style.zIndex = menuZIndex();
-    menu.style.maxWidth = `min(${preferEnd ? 288 : 520}px, ${Math.max(160, vw - 16)}px)`;
+    menu.style.maxWidth = `min(${preferredWidth}px, ${Math.max(160, vw - 16)}px)`;
+    if (isMoreMenu) {
+      menu.style.width = `min(${preferredWidth}px, ${Math.max(minimumWidth, vw - 16)}px)`;
+    }
   }
 
   function portalOpenMenu(details) {
@@ -117,6 +124,10 @@
 
   function closeDetailsMenu(details) {
     if (!(details instanceof HTMLDetailsElement)) return;
+    const summary = details.querySelector(":scope > summary");
+    if (summary instanceof HTMLElement) {
+      summary.setAttribute("aria-expanded", "false");
+    }
     const id = details.dataset.meiAgmId;
     const portaled =
       (id &&
@@ -154,9 +165,26 @@
     if (!details.classList.contains("app-group-dropdown")) return;
     if (details.open) {
       closeOtherGroups(details);
+      const summary = details.querySelector(":scope > summary");
+      if (summary instanceof HTMLElement) {
+        summary.setAttribute("aria-expanded", "true");
+      }
       portalOpenMenu(details);
       global.requestAnimationFrame(() => {
-        if (details.open) portalOpenMenu(details);
+        if (!details.open) return;
+        portalOpenMenu(details);
+        if (!details.classList.contains("topbar-more-dropdown")) return;
+        const id = details.dataset.meiAgmId;
+        const menu =
+          (id &&
+            global.document.querySelector(
+              `.app-group-menu[${OWNER}="${id}"][${PORTALED}]`,
+            )) ||
+          details.querySelector(MENU_SEL);
+        const target =
+          menu?.querySelector?.(".topbar-more-card.is-active") ||
+          menu?.querySelector?.(".topbar-more-card");
+        if (target instanceof HTMLElement) target.focus();
       });
     } else {
       closeDetailsMenu(details);
@@ -184,38 +212,40 @@
     closeDetailsMenu(open);
   }
 
-  function scrollActiveChipsIntoView(root) {
-    const scope = root instanceof Element ? root : global.document;
-    if (!scope) return;
-    const strips = scope.querySelectorAll?.(
-      "[data-mei-stage-strip], [data-mei-admin-strip]",
-    );
-    if (!strips) return;
-    Array.from(strips).forEach((strip) => {
-      if (!(strip instanceof HTMLElement)) return;
-      const active = strip.querySelector(".is-active, .topbar-chip.is-active");
-      if (!(active instanceof HTMLElement)) return;
-      try {
-        active.scrollIntoView({
-          inline: "nearest",
-          block: "nearest",
-          behavior: "instant",
-        });
-      } catch (_) {
-        active.scrollIntoView(false);
-      }
-    });
-  }
-
   function onChromeRefreshed() {
-    // Topbar HTML replaced: reclaim any orphan portaled menus.
-    restoreAllPortaled();
-    scrollActiveChipsIntoView(global.document);
+    // Topbar HTML replaced: close and reclaim any orphan portaled menus.
+    closeAllOpenGroups();
   }
 
   function onSpaNavigationComplete() {
     closeAllOpenGroups();
-    scrollActiveChipsIntoView(global.document);
+  }
+
+  function onKeyDown(event) {
+    const open = global.document.querySelector(`${SELECTOR}[open]`);
+    if (!(open instanceof HTMLDetailsElement)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      open.open = false;
+      closeDetailsMenu(open);
+      const summary = open.querySelector(":scope > summary");
+      if (summary instanceof HTMLElement) summary.focus();
+      return;
+    }
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      return;
+    }
+    const id = open.dataset.meiAgmId;
+    const menu =
+      (id && global.document.querySelector(`.app-group-menu[${OWNER}="${id}"]`)) ||
+      open.querySelector(MENU_SEL);
+    if (!(menu instanceof HTMLElement)) return;
+    const cards = Array.from(menu.querySelectorAll(".topbar-more-card"));
+    const current = cards.indexOf(global.document.activeElement);
+    if (current < 0 || !cards.length) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    cards[(current + delta + cards.length) % cards.length]?.focus?.();
   }
 
   function bind() {
@@ -224,6 +254,7 @@
     bind.bound = true;
     doc.addEventListener("toggle", onToggle, true);
     doc.addEventListener("pointerdown", onPointerDown, true);
+    doc.addEventListener("keydown", onKeyDown, true);
     global.addEventListener("resize", repositionOpenGroups);
     global.addEventListener("scroll", repositionOpenGroups, true);
     doc.addEventListener("mei:host-chrome-refreshed", onChromeRefreshed);
@@ -243,7 +274,6 @@
       },
       true,
     );
-    scrollActiveChipsIntoView(doc);
   }
 
   bind.bound = false;
@@ -257,6 +287,5 @@
     repositionOpenGroups,
     restoreAllPortaled,
     closeAllOpenGroups,
-    scrollActiveChipsIntoView,
   };
 })(typeof window !== "undefined" ? window : globalThis);

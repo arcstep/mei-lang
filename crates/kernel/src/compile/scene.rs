@@ -158,6 +158,7 @@ fn collect_route_from_app_scene_field(
                 target_file: "main.mei".to_string(),
                 kind: "declarative".to_string(),
                 title: None,
+                short_title: None,
                 is_default: false,
                 access_export: true,
             },
@@ -198,6 +199,7 @@ fn collect_route_from_app_scene_field(
             target_file: scene_ref.path,
             kind: "file_ref".to_string(),
             title: None,
+            short_title: None,
             is_default: false,
             access_export: true,
         },
@@ -239,6 +241,7 @@ fn collect_inline_scene_routes(
                             .get("summary")
                             .and_then(Value::as_str)
                             .map(|value| value.to_string()),
+                        short_title: None,
                         is_default: false,
                         access_export: value
                             .get("access_export")
@@ -271,6 +274,7 @@ fn collect_inline_scene_routes(
                         target_file: "main.mei".to_string(),
                         kind: "inline_export".to_string(),
                         title,
+                        short_title: None,
                         is_default: false,
                         access_export,
                     },
@@ -339,6 +343,7 @@ fn route_from_scene_value(raw_scene: &Value) -> Option<(CompiledSceneRoute, bool
                 target_file: path.to_string(),
                 kind: "file_ref".to_string(),
                 title: None,
+                short_title: None,
                 is_default: false,
                 access_export: true,
             },
@@ -360,6 +365,7 @@ fn route_from_scene_value(raw_scene: &Value) -> Option<(CompiledSceneRoute, bool
             target_file: scene_ref.path,
             kind: "file_ref".to_string(),
             title: None,
+            short_title: None,
             is_default: false,
             access_export: true,
         },

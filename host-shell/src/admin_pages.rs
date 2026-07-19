@@ -82,13 +82,31 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
 
     let admin_nav: Vec<AdminNavItem> = nav_items
         .iter()
-        .map(|r| AdminNavItem {
-            id: format!(
-                "{}.{}",
-                r.registry_entry.resource_id, r.registry_entry.module_id
-            ),
-            label: r.registry_entry.title.clone(),
-            href: r.registry_entry.canonical_route.clone(),
+        .map(|r| {
+            let navigation = r.registry_entry.navigation.as_ref();
+            AdminNavItem {
+                id: format!(
+                    "{}.{}",
+                    r.registry_entry.resource_id, r.registry_entry.module_id
+                ),
+                label: r
+                    .registry_entry
+                    .short_title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(r.registry_entry.title.as_str())
+                    .to_string(),
+                title: r.registry_entry.title.clone(),
+                href: r.registry_entry.canonical_route.clone(),
+                menu: navigation
+                    .and_then(|item| item.menu.clone())
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "应用管理".to_string()),
+                order: navigation
+                    .and_then(|item| item.order)
+                    .unwrap_or(i64::MAX / 2),
+            }
         })
         .collect();
 
