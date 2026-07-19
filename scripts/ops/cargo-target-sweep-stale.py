@@ -17,11 +17,21 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 HASH_RE = re.compile(r"-([0-9a-f]{16})(?:\.|$)")
 FP_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+@dataclass(frozen=True)
+class ReclaimCandidate:
+    category: str
+    priority: int
+    mtime: float
+    paths: tuple[Path, ...]
+    bytes: int
 
 
 def dir_size(path: Path) -> int:
@@ -200,6 +210,25 @@ def remove_hash_artifacts(
     return freed
 
 
+def hash_artifact_paths(profile_dir: Path, hash_value: str) -> list[Path]:
+    paths: list[Path] = []
+    deps = profile_dir / "deps"
+    if deps.is_dir():
+        for artifact in deps.iterdir():
+            if not artifact.is_file():
+                continue
+            match = HASH_RE.search(artifact.name)
+            if match and match.group(1) == hash_value:
+                paths.append(artifact)
+    build_root = profile_dir / "build"
+    if build_root.is_dir():
+        for entry in build_root.iterdir():
+            _crate_key, entry_hash = split_fingerprint_name(entry.name)
+            if entry_hash == hash_value:
+                paths.append(entry)
+    return paths
+
+
 def remove_orphan_hash_artifacts(profile_dir: Path, dry_run: bool) -> int:
     fingerprint_root = profile_dir / ".fingerprint"
     live_hashes: set[str] = set()
@@ -294,6 +323,167 @@ def sweep_linker_intermediates(
             continue
         if age_days(artifact, now) >= max_age_days:
             freed += remove_path(artifact, dry_run)
+    return freed
+
+
+def pressure_reclaim(
+    target_dir: Path,
+    dry_run: bool,
+    reclaim_bytes: int,
+    *,
+    keep_fingerprint_variants: int,
+    keep_incremental_sessions: int,
+    include_tests: bool = False,
+) -> int:
+    """Reclaim bounded local caches when the hard watermark is exceeded.
+
+    TTL is intentionally ignored, but each full fingerprint identity and each
+    incremental crate stem retains its newest sessions. Candidates are removed
+    in increasing rebuild-cost order until the requested logical byte budget is
+    reached. The caller re-measures physical `du` and may invoke another pass.
+    """
+    candidates: list[ReclaimCandidate] = []
+    claimed_paths: set[Path] = set()
+
+    def add_candidate(
+        category: str,
+        priority: int,
+        mtime: float,
+        paths: list[Path],
+    ) -> None:
+        unique_paths: list[Path] = []
+        for path in paths:
+            if path in claimed_paths or not path.exists():
+                continue
+            claimed_paths.add(path)
+            unique_paths.append(path)
+        candidate_bytes = sum(dir_size(path) for path in unique_paths)
+        if unique_paths and candidate_bytes > 0:
+            candidates.append(
+                ReclaimCandidate(
+                    category=category,
+                    priority=priority,
+                    mtime=mtime,
+                    paths=tuple(unique_paths),
+                    bytes=candidate_bytes,
+                )
+            )
+
+    for profile in ("debug", "release"):
+        profile_dir = target_dir / profile
+        if not profile_dir.is_dir():
+            continue
+        fingerprint_root = profile_dir / ".fingerprint"
+        live_hashes: set[str] = set()
+        fingerprint_groups: dict[
+            tuple[str, tuple[str, ...]], list[Path]
+        ] = defaultdict(list)
+        if fingerprint_root.is_dir():
+            for entry in fingerprint_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                crate_key, hash_value = split_fingerprint_name(entry.name)
+                if crate_key and hash_value:
+                    live_hashes.add(hash_value)
+                    fingerprint_groups[
+                        (crate_key, fingerprint_identity(entry))
+                    ].append(entry)
+
+        orphan_paths_by_hash: dict[str, list[Path]] = defaultdict(list)
+        for root_name in ("deps", "build"):
+            root = profile_dir / root_name
+            if not root.is_dir():
+                continue
+            for entry in root.iterdir():
+                match = HASH_RE.search(entry.name)
+                if match and match.group(1) not in live_hashes:
+                    orphan_paths_by_hash[match.group(1)].append(entry)
+        for paths in orphan_paths_by_hash.values():
+            add_candidate(
+                "orphan",
+                0,
+                min((path.stat().st_mtime for path in paths), default=0.0),
+                paths,
+            )
+
+        incremental = profile_dir / "incremental"
+        incremental_groups: dict[str, list[Path]] = defaultdict(list)
+        if incremental.is_dir():
+            for entry in incremental.iterdir():
+                if entry.is_dir():
+                    incremental_groups[entry.name.rsplit("-", 1)[0]].append(entry)
+        for entries in incremental_groups.values():
+            entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            for stale in entries[max(1, keep_incremental_sessions) :]:
+                add_candidate(
+                    "incremental-session",
+                    20,
+                    stale.stat().st_mtime,
+                    [stale],
+                )
+
+        for entries in fingerprint_groups.values():
+            entries.sort(key=fingerprint_mtime, reverse=True)
+            if include_tests:
+                test_entries: set[Path] = set()
+                for test_entry in list(entries):
+                    is_test = any(
+                        child.name.startswith(("dep-test-", "test-"))
+                        for child in test_entry.iterdir()
+                        if child.is_file()
+                    )
+                    if not is_test:
+                        continue
+                    test_entries.add(test_entry)
+                    _crate_key, hash_value = split_fingerprint_name(test_entry.name)
+                    paths = [test_entry]
+                    if hash_value:
+                        paths.extend(hash_artifact_paths(profile_dir, hash_value))
+                    add_candidate(
+                        "test-artifact",
+                        5,
+                        fingerprint_mtime(test_entry),
+                        paths,
+                    )
+                entries = [entry for entry in entries if entry not in test_entries]
+            for stale in entries[max(1, keep_fingerprint_variants) :]:
+                _crate_key, hash_value = split_fingerprint_name(stale.name)
+                paths = [stale]
+                if hash_value:
+                    paths.extend(hash_artifact_paths(profile_dir, hash_value))
+                add_candidate(
+                    "superseded-fingerprint",
+                    30,
+                    fingerprint_mtime(stale),
+                    paths,
+                )
+
+    candidates.sort(
+        key=lambda candidate: (
+            candidate.priority,
+            candidate.mtime,
+            candidate.category,
+        )
+    )
+    freed = 0
+    removed_by_category: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for candidate in candidates:
+        if freed >= reclaim_bytes:
+            break
+        candidate_freed = sum(
+            remove_path(path, dry_run) for path in candidate.paths
+        )
+        freed += candidate_freed
+        removed_by_category[candidate.category][0] += 1
+        removed_by_category[candidate.category][1] += candidate_freed
+
+    for category in sorted(removed_by_category):
+        count, category_bytes = removed_by_category[category]
+        print(
+            f"pressure[{category}]: candidates={count} "
+            f"bytes={category_bytes}",
+            file=sys.stderr,
+        )
     return freed
 
 
@@ -410,6 +600,17 @@ def main() -> int:
     parser.add_argument("--sweep-incremental", action="store_true")
     parser.add_argument("--incremental-only", action="store_true")
     parser.add_argument("--no-prune-link-intermediates", action="store_true")
+    parser.add_argument(
+        "--pressure-reclaim-bytes",
+        type=int,
+        default=0,
+        help="ignore TTL and reclaim this many logical bytes without full clean",
+    )
+    parser.add_argument(
+        "--pressure-sweep-tests",
+        action="store_true",
+        help="allow hard-pressure mode to evict test artifacts",
+    )
     args = parser.parse_args()
 
     target_dir = args.target_dir.resolve()
@@ -422,6 +623,17 @@ def main() -> int:
         freed = sum(
             remove_path(target_dir / profile / "incremental", args.dry_run)
             for profile in ("debug", "release")
+        )
+        print(f"freed_bytes={freed}")
+        return 0
+    if args.pressure_reclaim_bytes > 0:
+        freed = pressure_reclaim(
+            target_dir,
+            args.dry_run,
+            args.pressure_reclaim_bytes,
+            keep_fingerprint_variants=max(1, args.keep_fingerprint_variants),
+            keep_incremental_sessions=max(1, args.keep_incremental_sessions),
+            include_tests=args.pressure_sweep_tests,
         )
         print(f"freed_bytes={freed}")
         return 0

@@ -10,7 +10,6 @@
 #   MEI_CARGO_TARGET_GC_DRY_RUN=1     print action only, do not clean
 #   MEI_CARGO_TARGET_MAX_AGE_DAYS=30    superseded fingerprint TTL
 #   MEI_CARGO_INCREMENTAL_MAX_AGE_DAYS=14
-#   MEI_CARGO_LINK_MAX_AGE_DAYS=7
 #   MEI_CARGO_TARGET_AGGRESSIVE=1       explicit local reclaim (tests/out-of-scope)
 #   MEI_CARGO_TARGET_EMERGENCY_CLEAN=1  explicit full cargo clean
 #   MEI_CARGO_SWEEP_KEEP_PKGS=…         roots retained by aggressive reclaim
@@ -94,8 +93,9 @@ _cargo_target_sweep_stale_bytes() {
   local target_dir="$1"
   local mei_lang_root="$2"
   local phase="${3:-stale}"
+  local pressure_bytes="${4:-0}"
   local scripts_dir sweep_py dry_run_args keep_pkgs active_profile
-  local max_age_days incremental_age_days link_age_days
+  local max_age_days incremental_age_days
 
   scripts_dir="$(_cargo_target_gc_script_dir)"
   sweep_py="${scripts_dir}/cargo-target-sweep-stale.py"
@@ -114,7 +114,6 @@ _cargo_target_sweep_stale_bytes() {
   active_profile="${MEI_CARGO_BUILD_PROFILE:-debug}"
   max_age_days="${MEI_CARGO_TARGET_MAX_AGE_DAYS:-30}"
   incremental_age_days="${MEI_CARGO_INCREMENTAL_MAX_AGE_DAYS:-14}"
-  link_age_days="${MEI_CARGO_LINK_MAX_AGE_DAYS:-7}"
   if [[ "${active_profile}" != "debug" && "${active_profile}" != "release" ]]; then
     active_profile="debug"
   fi
@@ -150,13 +149,34 @@ _cargo_target_sweep_stale_bytes() {
     return 0
   fi
 
+  if [[ "${phase}" == "pressure" ]]; then
+    python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
+      --active-profile "${active_profile}" \
+      --keep-fingerprint-variants 2 \
+      --keep-incremental-sessions 2 \
+      --pressure-reclaim-bytes "${pressure_bytes}" \
+      | awk -F= '/^freed_bytes=/{print $2; exit}'
+    return 0
+  fi
+
+  if [[ "${phase}" == "pressure-deep" ]]; then
+    python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
+      --active-profile "${active_profile}" \
+      --keep-fingerprint-variants 1 \
+      --keep-incremental-sessions 1 \
+      --pressure-sweep-tests \
+      --pressure-reclaim-bytes "${pressure_bytes}" \
+      | awk -F= '/^freed_bytes=/{print $2; exit}'
+    return 0
+  fi
+
   python3 "${sweep_py}" "${target_dir}" "${dry_run_args[@]}" \
     --manifest-path "${mei_lang_root}/Cargo.toml" \
     --keep-packages "${keep_pkgs}" \
     --active-profile "${active_profile}" \
     --max-age-days "${max_age_days}" \
     --incremental-max-age-days "${incremental_age_days}" \
-    --link-max-age-days "${link_age_days}" \
+    --no-prune-link-intermediates \
     | awk -F= '/^freed_bytes=/{print $2; exit}'
 }
 
@@ -325,7 +345,9 @@ cargo_target_emit_startup_panel() {
     total_bytes="$(_cargo_target_optional_dir_size_bytes "${target_dir}")"
     max_bytes="$(_cargo_target_gc_max_bytes)"
     soft_bytes="$(_cargo_target_gc_soft_bytes)"
-    if (( total_bytes > soft_bytes )); then
+    if (( total_bytes > max_bytes )); then
+      hygiene_line="will run (above hard watermark — TTL then bounded pressure reclaim; no automatic full clean)"
+    elif (( total_bytes > soft_bytes )); then
       hygiene_line="will run (above soft watermark — orphan + TTL reclaim; no automatic full clean)"
     else
       hygiene_line="inspect only (below soft watermark)"
@@ -413,7 +435,7 @@ _cargo_target_emit_hygiene_result_banner() {
       _cargo_target_emit_summary_banner "编译缓存治理 · CARGO TARGET OVER BUDGET" \
         "${inspect_lines[@]}" \
         "hygiene: reclaimed ${human_reclaimed} (${human_before} -> ${human_after})" \
-        "hard watermark: ${human_max} (recent/live cache retained)" \
+        "hard watermark: ${human_max} (protected cache retained after pressure reclaim)" \
         "action: full clean is never automatic; use --aggressive or --emergency-clean explicitly" \
         "${detail}"
       ;;
@@ -525,6 +547,88 @@ maybe_cargo_target_sweep_aggressive() {
   after_human="$(_cargo_target_gc_human_bytes "${after_bytes}")"
   echo "    sweep(aggressive): reclaimed $(_cargo_target_gc_human_bytes "${reclaimed_bytes}") (${before_human} -> ${after_human})" >&2
   printf '%s' "${after_bytes}"
+}
+
+maybe_cargo_target_sweep_pressure() {
+  local mei_lang_root="${1:?mei_lang_root required}"
+  local target_dir="${2:?target_dir required}"
+  local before_bytes="$3"
+  local low_bytes="$4"
+  local max_bytes="$5"
+  local current_bytes="${before_bytes}"
+  local reclaim_bytes freed_bytes measured_bytes attempt
+  local before_human after_human reclaimed_bytes
+
+  before_human="$(_cargo_target_gc_human_bytes "${before_bytes}")"
+  echo "    sweep(pressure): hard watermark exceeded; reclaiming bounded local caches" >&2
+  for attempt in 1 2 3 4; do
+    if (( current_bytes <= low_bytes )); then
+      break
+    fi
+    reclaim_bytes=$((current_bytes - low_bytes))
+    freed_bytes="$(_cargo_target_sweep_stale_bytes \
+      "${target_dir}" "${mei_lang_root}" pressure "${reclaim_bytes}")"
+    if [[ -z "${freed_bytes}" || ! "${freed_bytes}" =~ ^[0-9]+$ || "${freed_bytes}" == "0" ]]; then
+      echo "    sweep(pressure): no more eligible local-cache candidates" >&2
+      break
+    fi
+    if [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" == "1" ]]; then
+      current_bytes=$((current_bytes - freed_bytes))
+      if (( current_bytes < 0 )); then
+        current_bytes=0
+      fi
+      break
+    fi
+    if ! measured_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
+      current_bytes=$((current_bytes - freed_bytes))
+      if (( current_bytes < 0 )); then
+        current_bytes=0
+      fi
+      break
+    fi
+    if (( measured_bytes >= current_bytes )); then
+      echo "    sweep(pressure): physical size did not decrease; stopping" >&2
+      break
+    fi
+    current_bytes="${measured_bytes}"
+  done
+
+  if (( current_bytes > max_bytes )) && [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" != "1" ]]; then
+    echo "    sweep(pressure): still above hard watermark; evicting tests and reducing retained sessions to one" >&2
+    for attempt in 1 2 3 4; do
+      if (( current_bytes <= low_bytes )); then
+        break
+      fi
+      reclaim_bytes=$((current_bytes - low_bytes))
+      freed_bytes="$(_cargo_target_sweep_stale_bytes \
+        "${target_dir}" "${mei_lang_root}" pressure-deep "${reclaim_bytes}")"
+      if [[ -z "${freed_bytes}" || ! "${freed_bytes}" =~ ^[0-9]+$ || "${freed_bytes}" == "0" ]]; then
+        echo "    sweep(pressure): no more deep-pressure candidates" >&2
+        break
+      fi
+      if ! measured_bytes="$(_cargo_target_dir_size_bytes "${target_dir}")"; then
+        current_bytes=$((current_bytes - freed_bytes))
+        if (( current_bytes < 0 )); then
+          current_bytes=0
+        fi
+        break
+      fi
+      if (( measured_bytes >= current_bytes )); then
+        echo "    sweep(pressure): deep-pressure size did not decrease; stopping" >&2
+        break
+      fi
+      current_bytes="${measured_bytes}"
+    done
+  fi
+
+  reclaimed_bytes="$(_cargo_target_reclaimed_bytes "${before_bytes}" "${current_bytes}")"
+  after_human="$(_cargo_target_gc_human_bytes "${current_bytes}")"
+  if [[ "${MEI_CARGO_TARGET_GC_DRY_RUN:-0}" == "1" ]]; then
+    echo "    sweep(pressure): would reclaim $(_cargo_target_gc_human_bytes "${reclaimed_bytes}") (${before_human} -> ${after_human})" >&2
+  else
+    echo "    sweep(pressure): reclaimed $(_cargo_target_gc_human_bytes "${reclaimed_bytes}") (${before_human} -> ${after_human})" >&2
+  fi
+  printf '%s' "${current_bytes}"
 }
 
 maybe_cargo_target_sweep_inactive_profile() {
@@ -704,8 +808,9 @@ maybe_cargo_target_gc() {
 # Run before managed Cargo builds:
 #   1) below soft watermark: inspect only
 #   2) above soft watermark: orphan + TTL-expired local-cache sweep
-#   3) optional explicit aggressive reclaim
-#   4) full cargo clean only with MEI_CARGO_TARGET_EMERGENCY_CLEAN=1
+#   3) above hard watermark: bounded pressure reclaim to low watermark
+#   4) optional explicit aggressive reclaim
+#   5) full cargo clean only with MEI_CARGO_TARGET_EMERGENCY_CLEAN=1
 maybe_cargo_target_hygiene() {
   local mei_lang_root="${1:?mei_lang_root required}"
   local target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
@@ -784,17 +889,22 @@ maybe_cargo_target_hygiene() {
   fi
 
   outcome="completed"
-  hygiene_detail="phases: orphan + TTL-expired fingerprints/link objects/incremental sessions"
+  hygiene_detail="phases: orphan + TTL-expired fingerprints/incremental sessions"
 
   after_sweep_bytes="$(maybe_cargo_target_sweep_stale "${mei_lang_root}" "${target_dir}" "${before_bytes}")"
+  if (( after_sweep_bytes > max_bytes )); then
+    hygiene_detail+=", hard-pressure reclaim (orphan/extra incremental/superseded fingerprints)"
+    after_sweep_bytes="$(maybe_cargo_target_sweep_pressure \
+      "${mei_lang_root}" "${target_dir}" "${after_sweep_bytes}" "${low_bytes}" "${max_bytes}")"
+  fi
   if (( after_sweep_bytes > low_bytes )) && [[ "${MEI_CARGO_TARGET_AGGRESSIVE:-0}" == "1" ]]; then
     hygiene_detail+=", explicit aggressive local-cache reclaim"
     after_sweep_bytes="$(maybe_cargo_target_sweep_aggressive "${mei_lang_root}" "${target_dir}" "${after_sweep_bytes}")"
   fi
   if (( after_sweep_bytes > max_bytes )); then
     outcome="deferred"
-    hygiene_detail+=", live/recent cache remains above hard watermark; full clean not automatic"
-    echo "    warn: target remains above hard watermark; use --aggressive or --emergency-clean explicitly" >&2
+    hygiene_detail+=", protected cache remains above hard watermark; full clean not automatic"
+    echo "    warn: target remains above hard watermark after pressure reclaim; use --aggressive or --emergency-clean explicitly" >&2
   elif (( after_sweep_bytes > low_bytes )); then
     hygiene_detail+=", retained recent/live cache above low watermark"
   fi

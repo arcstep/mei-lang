@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -13,6 +14,7 @@ SCRIPT = Path(__file__).parents[1] / "cargo-target-sweep-stale.py"
 SPEC = importlib.util.spec_from_file_location("cargo_target_sweep", SCRIPT)
 assert SPEC and SPEC.loader
 SWEEP = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = SWEEP
 SPEC.loader.exec_module(SWEEP)
 
 
@@ -147,6 +149,132 @@ class CargoTargetSweepTests(unittest.TestCase):
 
         self.assertGreaterEqual(freed, 8)
         self.assertTrue(orphan.exists())
+
+    def test_pressure_preserves_live_link_objects(self) -> None:
+        older = self.debug / "deps" / "older-aaaaaaaaaaaaaaaa.rcgu.o"
+        newer = self.debug / "deps" / "newer-bbbbbbbbbbbbbbbb.rcgu.o"
+        older.write_bytes(b"x" * 8)
+        newer.write_bytes(b"x" * 8)
+        for crate, hash_value in (
+            ("older", "aaaaaaaaaaaaaaaa"),
+            ("newer", "bbbbbbbbbbbbbbbb"),
+        ):
+            fingerprint = self.debug / ".fingerprint" / f"{crate}-{hash_value}"
+            fingerprint.mkdir()
+            (fingerprint / f"lib-{crate}.json").write_text(
+                json.dumps(
+                    {
+                        "features": [],
+                        "declared_features": [],
+                        "target": crate,
+                        "profile": 1,
+                        "path": crate,
+                    }
+                )
+            )
+        now = time.time()
+        os.utime(older, (now - 100, now - 100))
+        os.utime(newer, (now, now))
+
+        freed = SWEEP.pressure_reclaim(
+            self.target,
+            False,
+            8,
+            keep_fingerprint_variants=2,
+            keep_incremental_sessions=2,
+        )
+
+        self.assertEqual(freed, 0)
+        self.assertTrue(older.exists())
+        self.assertTrue(newer.exists())
+
+    def test_pressure_preserves_two_full_fingerprint_identities(self) -> None:
+        oldest = self.fingerprint(
+            "serde", "1111111111111111", features=["derive"], age=3
+        )
+        middle = self.fingerprint(
+            "serde", "2222222222222222", features=["derive"], age=2
+        )
+        newest = self.fingerprint(
+            "serde", "3333333333333333", features=["derive"], age=1
+        )
+        stream = self.fingerprint(
+            "reqwest", "4444444444444444", features=["stream"], age=3
+        )
+        blocking = self.fingerprint(
+            "reqwest",
+            "5555555555555555",
+            features=["stream", "blocking"],
+            age=3,
+        )
+
+        freed = SWEEP.pressure_reclaim(
+            self.target,
+            False,
+            1_000_000,
+            keep_fingerprint_variants=2,
+            keep_incremental_sessions=2,
+        )
+
+        self.assertGreater(freed, 0)
+        self.assertFalse(oldest.exists())
+        self.assertTrue(middle.exists())
+        self.assertTrue(newest.exists())
+        self.assertTrue(stream.exists())
+        self.assertTrue(blocking.exists())
+
+    def test_pressure_preserves_two_incremental_sessions(self) -> None:
+        sessions = []
+        for index in range(3):
+            session = self.debug / "incremental" / f"mei_app-{index}"
+            session.mkdir()
+            (session / "data").write_bytes(b"x" * 8)
+            modified = time.time() - (3 - index) * 60
+            os.utime(session, (modified, modified))
+            sessions.append(session)
+
+        SWEEP.pressure_reclaim(
+            self.target,
+            False,
+            1_000_000,
+            keep_fingerprint_variants=2,
+            keep_incremental_sessions=2,
+        )
+
+        self.assertFalse(sessions[0].exists())
+        self.assertTrue(sessions[1].exists())
+        self.assertTrue(sessions[2].exists())
+
+    def test_deep_pressure_can_evict_single_test_artifact(self) -> None:
+        hash_value = "aaaaaaaaaaaaaaaa"
+        fingerprint = self.debug / ".fingerprint" / f"mei-host-shell-{hash_value}"
+        fingerprint.mkdir()
+        (fingerprint / "dep-test-conformance.json").write_text(
+            json.dumps(
+                {
+                    "features": [],
+                    "declared_features": [],
+                    "target": "conformance",
+                    "profile": 1,
+                    "path": 1,
+                }
+            )
+        )
+        artifact = self.debug / "deps" / f"conformance-{hash_value}"
+        artifact.write_bytes(b"x" * 32)
+
+        freed = SWEEP.pressure_reclaim(
+            self.target,
+            False,
+            1_000_000,
+            keep_fingerprint_variants=1,
+            keep_incremental_sessions=1,
+            include_tests=True,
+        )
+
+        self.assertGreater(freed, 0)
+        self.assertFalse(fingerprint.exists())
+        self.assertFalse(artifact.exists())
 
 
 if __name__ == "__main__":
