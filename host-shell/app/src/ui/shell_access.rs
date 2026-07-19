@@ -203,6 +203,7 @@ pub fn render_access_shell_chrome_html(
     review_projection: Option<&str>,
     chrome_hidden: bool,
     admin_nav_items: &[super::topbar::AdminNavItem],
+    admin_active_id: Option<&str>,
 ) -> (String, String) {
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
@@ -231,7 +232,7 @@ pub fn render_access_shell_chrome_html(
             Some(compiled.scene_routes.as_slice()),
             None,
             admin_nav_items,
-            None,
+            admin_active_id,
         )
     });
     let statusbar = statusbar_view(app_path, route_mode.slug(), current_target, None);

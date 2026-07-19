@@ -74,6 +74,7 @@ mod upload_support;
 mod view_revision;
 mod workspace_page;
 mod workspace_profile_api;
+mod workspace_share;
 
 use clap::{CommandFactory, Parser};
 

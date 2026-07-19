@@ -29,6 +29,23 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.message }))).into_response()
+        let kind = match self.status {
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => "validation",
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => "forbidden",
+            StatusCode::NOT_FOUND => "not-found",
+            StatusCode::CONFLICT => "conflict",
+            StatusCode::SERVICE_UNAVAILABLE => "provider-unavailable",
+            _ if self.status.is_server_error() => "provider-unavailable",
+            _ => "request-failed",
+        };
+        (
+            self.status,
+            Json(json!({
+                "error": self.message.clone(),
+                "message": self.message,
+                "kind": kind,
+            })),
+        )
+            .into_response()
     }
 }

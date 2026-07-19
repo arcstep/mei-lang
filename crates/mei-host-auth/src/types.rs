@@ -137,6 +137,10 @@ impl AuthPrincipal {
         mei_lang_app::HostCapabilities {
             access_view: true,
             config_upload: self.can_use_config_upload_surface(),
+            workspace_share_view: self.can_use_config_upload_surface(),
+            workspace_share_upload: self.can_use_config_upload_surface(),
+            workspace_share_organize: self.can_use_config_upload_surface(),
+            workspace_share_delete: self.can_use_config_upload_surface(),
             build_view: self.can_use_build_surface(),
             access_agent: self.can_use_access_agent_api(),
             authoring_agent: self.can_use_build_surface(),

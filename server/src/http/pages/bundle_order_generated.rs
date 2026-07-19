@@ -312,6 +312,7 @@ pub(super) const BUNDLE_ADMIN_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
+    "host-runtime-events.js",
     "topbar-app-group-menu.js",
     "statusbar.js",
     "visit-history-panel.js",

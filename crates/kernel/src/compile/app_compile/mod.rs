@@ -269,6 +269,7 @@ pub fn compile_app_from_root_with_options_and_revision(
         &asset_map,
         &mut diagnostics,
     )?;
+    enforce_required_aot_invariants(&diagnostics)?;
     if options.strict_layout_policy {
         enforce_strict_layout_policy(&diagnostics)?;
     }
@@ -277,6 +278,25 @@ pub fn compile_app_from_root_with_options_and_revision(
         compiled,
         revision_plan,
     })
+}
+
+fn enforce_required_aot_invariants(diagnostics: &[Diagnostic]) -> Result<()> {
+    let errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == "ui_scope_duplicate_node_id"
+        })
+        .collect();
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let summary = errors
+        .iter()
+        .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(anyhow::anyhow!("AOT UI invariants violated:\n{summary}"))
 }
 
 fn enforce_strict_layout_policy(diagnostics: &[Diagnostic]) -> Result<()> {
@@ -438,5 +458,22 @@ fn collect_scene_first_target_refs_from_value(value: &Value, out: &mut BTreeMap<
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod aot_invariant_tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_ui_scope_is_a_required_compile_error() {
+        let diagnostics = vec![Diagnostic {
+            severity: Severity::Error,
+            code: "ui_scope_duplicate_node_id".to_string(),
+            message: "repeated admin.asset-slot instances require unique ids".to_string(),
+            source_path: None,
+        }];
+        let error = enforce_required_aot_invariants(&diagnostics).expect_err("must fail");
+        assert!(error.to_string().contains("AOT UI invariants violated"));
     }
 }

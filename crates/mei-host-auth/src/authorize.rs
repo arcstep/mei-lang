@@ -264,6 +264,12 @@ pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> Str
 
 pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     let caps = principal.capabilities();
+    if path == "/share" || path.starts_with("/api/workspace/share") {
+        if !caps.workspace_share_view {
+            anyhow::bail!("current role cannot access workspace share");
+        }
+        return Ok(());
+    }
     if let Some(host_mode) = match path {
         "/" | "/host" | "/home" => Some("home"),
         "/host/config" | "/config" => Some("config"),

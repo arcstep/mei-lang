@@ -81,6 +81,34 @@ const RUNTIME_PACK: PagePackSpec = PagePackSpec {
     const_prefix: "RUNTIME",
 };
 
+const WORKSPACE_SHARE_PACK: PagePackSpec = PagePackSpec {
+    pack_id: "host.workspace-share",
+    page_id: "workspace-share",
+    title: "资料交换",
+    source_anchor: "host://pagepacks/share.page.mdx",
+    scene_ref: "host/workspace-share",
+    pack_source: "pagepacks/share.page.mdx",
+    source_contract: &[
+        "page_id: workspace-share",
+        "profile: page",
+        "@template(use=\"host-workspace-share\")",
+        "@slot(id=\"share_explorer\")",
+    ],
+    aot_template: r#"
+<section class="mei-host-shell__workspace-share" data-mei-pagepack="{{mei:pack_id}}" data-mei-pagepack-digest="{{mei:digest}}" data-mei-page-surface="{{mei:surface}}">
+  {{mei:share_explorer}}
+</section>
+"#,
+    required_aot_slots: &[
+        "{{mei:pack_id}}",
+        "{{mei:digest}}",
+        "{{mei:surface}}",
+        "{{mei:share_explorer}}",
+    ],
+    generated_file: "host_workspace_share_page_pack.rs",
+    const_prefix: "WORKSPACE_SHARE",
+};
+
 fn run_git(repo_root: &std::path::Path, args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .args(args)
@@ -108,7 +136,10 @@ fn emit_git_rerun_paths(repo_root: &std::path::Path) {
     let git_dir = repo_root.join(".git");
     let head = git_dir.join("HEAD");
     println!("cargo:rerun-if-changed={}", head.display());
-    println!("cargo:rerun-if-changed={}", git_dir.join("packed-refs").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        git_dir.join("packed-refs").display()
+    );
     if let Ok(value) = fs::read_to_string(&head) {
         if let Some(reference) = value.trim().strip_prefix("ref: ") {
             println!(
@@ -240,4 +271,5 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MEI_GIT_DIRTY");
     compile_page_pack(manifest_dir.as_path(), &HOME_PACK);
     compile_page_pack(manifest_dir.as_path(), &RUNTIME_PACK);
+    compile_page_pack(manifest_dir.as_path(), &WORKSPACE_SHARE_PACK);
 }

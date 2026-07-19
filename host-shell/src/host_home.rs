@@ -22,6 +22,7 @@ fn render_host_home_slots(
     workspace_root: &Path,
     running_apps: &[WorkspaceAppMeta],
     data_plane_enabled: bool,
+    workspace_share_visible: bool,
 ) -> (String, String) {
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
     let workspace_label = workspace
@@ -96,7 +97,17 @@ fn render_host_home_slots(
         )
     };
 
-    (workspace_line, app_section)
+    let workspace_tools = if workspace_share_visible {
+        r#"<section class="mei-host-shell__message">
+  <h2>工作区工具</h2>
+  <p>在资料交换区按文件夹共享、上传和下载工作资料；它与各业务应用的 Admin 数据源文件隔离。</p>
+  <p><a class="mei-host-shell__btn" href="/share">打开资料交换</a></p>
+</section>"#
+    } else {
+        ""
+    };
+
+    (workspace_line, format!("{app_section}{workspace_tools}"))
 }
 
 fn render_host_home_document_with_pack(
@@ -108,8 +119,14 @@ fn render_host_home_document_with_pack(
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
 ) -> String {
-    let (workspace_line, app_cards) =
-        render_host_home_slots(workspace_root, running_apps, data_plane_enabled);
+    let workspace_share_visible = !auth_enabled
+        || account_view.is_some_and(|account| account.capabilities.workspace_share_view);
+    let (workspace_line, app_cards) = render_host_home_slots(
+        workspace_root,
+        running_apps,
+        data_plane_enabled,
+        workspace_share_visible,
+    );
     let body_html = match render_home_page_body(pack, workspace_line.as_str(), app_cards.as_str()) {
         Ok(html) => html,
         Err(error) => return render_native_recovery_html(error),

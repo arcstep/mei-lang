@@ -2191,6 +2191,7 @@
       const props = mountPropsForEval(mount, scopeKey, sceneMount, allowMetric);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
+      const instanceId = String(mount?.block_id || "").trim();
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
     // must not be dropped — metric_role is only required inside metric cards.
     if (
@@ -2204,10 +2205,27 @@
       if (metricRole) {
         selector += `[data-metric-role="${CSS.escape(metricRole)}"]`;
       }
+      if (instanceId) {
+        selector += `[data-mei-instance-id="${CSS.escape(instanceId)}"]`;
+      }
       let target = host.querySelector(selector);
+      if (!(target instanceof HTMLElement) && instanceId) {
+        let unclaimedSelector = `[data-mei-use-key="${CSS.escape(useKey)}"]:not([data-mei-instance-id])`;
+        if (metricRole) {
+          unclaimedSelector += `[data-metric-role="${CSS.escape(metricRole)}"]`;
+        }
+        const unclaimed = host.querySelector(unclaimedSelector);
+        if (unclaimed instanceof HTMLElement) {
+          unclaimed.setAttribute("data-mei-instance-id", instanceId);
+          target = unclaimed;
+        }
+      }
       if (!(target instanceof HTMLElement) && tag) {
         target = document.createElement(tag);
         target.setAttribute("data-mei-use-key", useKey);
+        if (instanceId) {
+          target.setAttribute("data-mei-instance-id", instanceId);
+        }
         if (metricRole) {
           target.setAttribute("data-metric-role", metricRole);
         }

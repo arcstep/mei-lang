@@ -12,6 +12,13 @@ mod runtime_generated {
     include!(concat!(env!("OUT_DIR"), "/host_runtime_page_pack.rs"));
 }
 
+mod workspace_share_generated {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/host_workspace_share_page_pack.rs"
+    ));
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct HostPagePack {
     pub pack_id: String,
@@ -92,6 +99,22 @@ pub(crate) fn runtime_page_pack() -> &'static HostPagePack {
     })
 }
 
+pub(crate) fn workspace_share_page_pack() -> &'static HostPagePack {
+    static PACK: OnceLock<HostPagePack> = OnceLock::new();
+    PACK.get_or_init(|| HostPagePack {
+        pack_id: workspace_share_generated::WORKSPACE_SHARE_PAGE_PACK_ID.to_string(),
+        digest: workspace_share_generated::WORKSPACE_SHARE_PAGE_PACK_DIGEST.to_string(),
+        page_program: PageProgram::from_scene_ref(
+            workspace_share_generated::WORKSPACE_SHARE_PAGE_ID,
+            Some(workspace_share_generated::WORKSPACE_SHARE_PAGE_TITLE.to_string()),
+            workspace_share_generated::WORKSPACE_SHARE_PAGE_SOURCE_ANCHOR,
+            workspace_share_generated::WORKSPACE_SHARE_PAGE_SCENE_REF,
+        ),
+        aot_body_template: workspace_share_generated::WORKSPACE_SHARE_PAGE_PACK_TEMPLATE
+            .to_string(),
+    })
+}
+
 fn canonical_page_pack_payload(pack: &HostPagePack) -> String {
     format!(
         "host-page-pack-v1\npack_id:{}\npage_id:{}\ntitle:{}\nsource_anchor:{}\nsurface:{}\nscene_ref:{}\nadmin_resource_id:\naot_body:\n{}",
@@ -142,6 +165,12 @@ pub(crate) fn validate_runtime_page_pack(
     pack: Option<&HostPagePack>,
 ) -> Result<&HostPagePack, HostPagePackError> {
     validate_page_pack(pack, runtime_page_pack())
+}
+
+pub(crate) fn validate_workspace_share_page_pack(
+    pack: Option<&HostPagePack>,
+) -> Result<&HostPagePack, HostPagePackError> {
+    validate_page_pack(pack, workspace_share_page_pack())
 }
 
 fn fill_page_pack_slots(
@@ -203,6 +232,25 @@ pub(crate) fn render_runtime_page_body(
     )
 }
 
+pub(crate) fn render_workspace_share_page_body(
+    pack: Option<&HostPagePack>,
+    share_explorer: &str,
+) -> Result<String, HostPagePackError> {
+    let pack = validate_workspace_share_page_pack(pack)?;
+    fill_page_pack_slots(
+        pack,
+        &[
+            ("{{mei:pack_id}}", html_escape(pack.pack_id.as_str())),
+            ("{{mei:digest}}", html_escape(pack.digest.as_str())),
+            (
+                "{{mei:surface}}",
+                html_escape(pack.page_program.surface.as_str()),
+            ),
+            ("{{mei:share_explorer}}", share_explorer.to_string()),
+        ],
+    )
+}
+
 pub(crate) fn render_native_recovery_html(error: HostPagePackError) -> String {
     format!(
         r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MeiLang Recovery</title></head><body data-mei-native-recovery="host-page-pack" data-recovery-reason="{reason}"><main><h1>MeiLang Host 恢复页</h1><p>Host 页面资源暂时不可用，请从原生入口继续。</p><nav aria-label="恢复入口"><a href="/home">首页</a> <a href="/runtime">运行控制中心</a> <a href="/login">登录</a></nav></main></body></html>"#,
@@ -244,6 +292,24 @@ mod tests {
         assert!(!pack.aot_body_template.contains("<script"));
         assert_eq!(pack.digest, digest_for_page_pack(pack));
         assert!(std::ptr::eq(pack, runtime_page_pack()));
+    }
+
+    #[test]
+    fn workspace_share_page_pack_is_aot_and_stable() {
+        let pack = workspace_share_page_pack();
+        assert_eq!(pack.pack_id, "host.workspace-share");
+        assert_eq!(pack.page_program.page_id, "workspace-share");
+        assert_eq!(
+            pack.page_program.source_anchor,
+            "host://pagepacks/share.page.mdx"
+        );
+        assert_eq!(pack.page_program.root.scene_ref(), "host/workspace-share");
+        assert_eq!(pack.digest, digest_for_page_pack(pack));
+        let html =
+            render_workspace_share_page_body(Some(pack), "<mei-workspace-share />").expect("body");
+        assert!(html.contains(r#"data-mei-pagepack="host.workspace-share""#));
+        assert!(html.contains("<mei-workspace-share"));
+        assert!(!html.contains("{{mei:"));
     }
 
     #[test]

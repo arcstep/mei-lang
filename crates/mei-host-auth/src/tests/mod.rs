@@ -91,6 +91,8 @@ fn admin_can_access_app_center_but_not_legacy_apps_runtime() {
     assert!(authorize_path("/runtime", &principal).is_ok());
     assert!(authorize_path("/host/runtime", &principal).is_ok());
     assert!(authorize_path("/config", &principal).is_ok());
+    assert!(authorize_path("/share", &principal).is_ok());
+    assert!(authorize_path("/api/workspace/share", &principal).is_ok());
     assert!(principal.can_access_host_route_mode("runtime"));
     assert!(authorize_path("/apps/runtime/demo", &principal).is_err());
 }
@@ -110,5 +112,7 @@ fn guest_cannot_access_app_center() {
         session_exp: 0,
     };
     assert!(authorize_path("/runtime", &principal).is_err());
+    assert!(authorize_path("/share", &principal).is_err());
+    assert!(authorize_path("/api/workspace/share", &principal).is_err());
     assert!(!principal.can_access_host_route_mode("runtime"));
 }

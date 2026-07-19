@@ -105,7 +105,7 @@ fn lower_provider_binding(args: &CallArgs, source_anchor: &str) -> Result<Provid
     let target = required_string(args, "target")?;
     if !valid_provider_target(target.as_str()) {
         return invalid(format!(
-            "target `{target}` must be under ops.*, env/*/var/admin/*, or var/admin/*"
+            "target `{target}` must be under ops.*, upload/admin/*, env/*/var/admin/*, or var/admin/*"
         ));
     }
     let target_is_admin_area = |area: &str| {
@@ -116,7 +116,7 @@ fn lower_provider_binding(args: &CallArgs, source_anchor: &str) -> Result<Provid
     };
     let target_matches_provider = match provider_id.as_str() {
         "config-record" => target.starts_with("ops.") || target_is_admin_area("records"),
-        "asset-slot" => target_is_admin_area("uploads"),
+        "asset-slot" => is_upload_admin_target(target.as_str()) || target_is_admin_area("uploads"),
         "command-job" => target_is_admin_area("jobs"),
         _ => false,
     };
@@ -164,7 +164,10 @@ fn lower_provider_binding(args: &CallArgs, source_anchor: &str) -> Result<Provid
 }
 
 fn valid_provider_target(target: &str) -> bool {
-    if target.starts_with("ops.") || target.starts_with("var/admin/") {
+    if target.starts_with("ops.")
+        || target.starts_with("var/admin/")
+        || is_upload_admin_target(target)
+    {
         return true;
     }
     let Some(rest) = target.strip_prefix("env/") else {
@@ -178,6 +181,19 @@ fn valid_provider_target(target: &str) -> bool {
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
         && suffix.starts_with("var/admin/")
+}
+
+/// Canonical asset-slot file root: `upload/admin/{slot_id}` (+ optional trailing segments).
+fn is_upload_admin_target(target: &str) -> bool {
+    let trimmed = target.trim().trim_matches('/');
+    let Some(rest) = trimmed.strip_prefix("upload/admin/") else {
+        return false;
+    };
+    let slot = rest.split('/').next().unwrap_or("");
+    !slot.is_empty()
+        && slot
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }
 
 fn parse_payload_type(expr: &V2Expr) -> Result<ProviderPayloadType, String> {
@@ -383,5 +399,34 @@ content_panel(
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].provider_id, "config-record");
         assert_eq!(bindings[0].target, "ops.params.organization");
+    }
+
+    #[test]
+    fn accepts_upload_admin_asset_slot_target() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src/data/admin")).unwrap();
+        std::fs::write(
+            root.path().join("src/data/admin/providers.mei"),
+            r#"
+provider_binding(
+  id = "datasource_list",
+  provider_id = "asset-slot",
+  method = "LIST",
+  target = "upload/admin/supervision_items",
+  payload_type = type_ref("array"),
+  revision = "none",
+  idempotency = "none",
+  apply_policy = "reload-view",
+  danger = "normal",
+  required_capabilities = ["config_upload"],
+)
+"#,
+        )
+        .unwrap();
+        let catalog = discover_provider_binding_catalog(root.path()).unwrap();
+        assert_eq!(
+            catalog["datasource_list"].target,
+            "upload/admin/supervision_items"
+        );
     }
 }

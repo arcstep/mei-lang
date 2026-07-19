@@ -37,9 +37,18 @@
 
   function currentAppId() {
     const parsed = global.__mei?.view_revision_envelope?.app_id;
-    if (parsed) return String(parsed);
-    const match = global.location?.pathname?.match(/^\/apps\/([^/]+)/);
-    return match ? decodeURIComponent(match[1]) : "";
+    if (parsed) return String(parsed).trim();
+    const path = String(global.location?.pathname || "");
+    let match = path.match(/^\/apps\/([^/]+)/);
+    if (match) return decodeURIComponent(match[1]);
+    match = path.match(/^\/admin\/apps\/([^/]+)/);
+    if (match) return decodeURIComponent(match[1]);
+    const fromDom =
+      global.document?.body?.getAttribute?.("data-app-id") ||
+      global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-app-id") ||
+      global.document?.querySelector?.("[data-app-id]")?.getAttribute?.("data-app-id") ||
+      "";
+    return String(fromDom || "").trim();
   }
 
   function shellNavFromLocation() {
@@ -47,6 +56,42 @@
     if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
     if (path === "/home" || path === "/") return "home";
     if (path.startsWith("/mcg")) return "mcg";
+    return "";
+  }
+
+  function surfaceFromLocation() {
+    const params = new URLSearchParams(global.location?.search || "");
+    const fromQuery = String(params.get("surface") || "")
+      .trim()
+      .toLowerCase();
+    if (fromQuery) return fromQuery;
+    const path = String(global.location?.pathname || "");
+    if (path.startsWith("/admin/apps/")) return "admin";
+    const composeRoot = global.document?.getElementById?.("mei-compose-root");
+    const fromCompose = String(
+      composeRoot?.getAttribute?.("data-mei-compose-root") ||
+        composeRoot?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromCompose) return fromCompose;
+    return "app";
+  }
+
+  function adminIdFromLocation() {
+    const params = new URLSearchParams(global.location?.search || "");
+    const fromQuery = String(params.get("adminId") || params.get("admin_id") || "").trim();
+    if (fromQuery) return fromQuery;
+    const path = String(global.location?.pathname || "");
+    const match = path.match(/^\/admin\/apps\/[^/]+\/([^/]+)\/([^/]+)\/?$/);
+    if (match) {
+      return `${decodeURIComponent(match[1])}.${decodeURIComponent(match[2])}`;
+    }
+    const host = global.document?.getElementById?.("mei-view-host");
+    const resource = String(host?.getAttribute?.("data-resource-id") || "").trim();
+    const module = String(host?.getAttribute?.("data-module-id") || "").trim();
+    if (resource && module) return `${resource}.${module}`;
     return "";
   }
 
@@ -121,9 +166,11 @@
     const scene =
       params.get("scene") ||
       global.document?.body?.getAttribute?.("data-scene-id") ||
+      global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-scene-id") ||
       "home";
-    const surface = params.get("surface") || "app";
+    const surface = surfaceFromLocation();
     const chrome = params.get("chrome") || "";
+    const adminId = adminIdFromLocation();
     const shellNav = shellNavFromLocation();
     const query = new URLSearchParams();
     if (shellNav) {
@@ -133,6 +180,7 @@
       if (scene) query.set("scene", scene);
       if (surface) query.set("surface", surface);
       if (chrome) query.set("chrome", chrome);
+      if (adminId) query.set("adminId", adminId);
     }
     return query.toString();
   }
@@ -182,10 +230,26 @@
         if (typeof boot?.fixTopbarHrefFromLocation === "function") {
           boot.fixTopbarHrefFromLocation();
         }
+        if (typeof boot?.refreshStatusBarChips === "function") {
+          boot.refreshStatusBarChips();
+        }
+        if (typeof boot?.refreshVisitHistoryPanel === "function") {
+          boot.refreshVisitHistoryPanel();
+        }
+        const chromeDetail = {
+          digest,
+          runningAppIds: data?.runningAppIds || [],
+          payload,
+        };
+        try {
+          global.document?.dispatchEvent?.(
+            new CustomEvent("mei:host-chrome-refreshed", { detail: chromeDetail }),
+          );
+        } catch (_error) {
+          // ignore
+        }
         global.dispatchEvent(
-          new CustomEvent("mei:host-chrome-refreshed", {
-            detail: { digest, runningAppIds: data?.runningAppIds || [], payload },
-          }),
+          new CustomEvent("mei:host-chrome-refreshed", { detail: chromeDetail }),
         );
         global.dispatchEvent(
           new CustomEvent("mei:host-apps-changed", {

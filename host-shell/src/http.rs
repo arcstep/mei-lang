@@ -62,7 +62,11 @@ use crate::state::{HostHttpState, SharedState};
 use crate::upload_api::{
     upload_chunk_complete_post, upload_chunk_init_post, upload_chunk_put, upload_chunk_status_get,
     upload_dir_create_post, upload_entry_rename_post, upload_file_delete, upload_file_download_get,
-    upload_file_move_post, upload_file_post,
+    upload_file_move_post, upload_file_post, workspace_share_chunk_complete_post,
+    workspace_share_chunk_init_post, workspace_share_chunk_put, workspace_share_chunk_status_get,
+    workspace_share_delete, workspace_share_dir_post, workspace_share_download_get,
+    workspace_share_entry_get, workspace_share_list_get, workspace_share_move_post,
+    workspace_share_rename_post, workspace_share_upload_post,
 };
 use crate::workspace_profile_api::{
     runtime_profile_get, workspace_profile_dry_run_post, workspace_profile_get,
@@ -80,6 +84,48 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/home", get(host_home_page))
         .route("/runtime", get(host_runtime_page))
         .route("/mcg", get(host_mcg_page))
+        .route("/share", get(crate::workspace_share::workspace_share_page))
+        .route(
+            "/api/workspace/share",
+            get(workspace_share_list_get).delete(workspace_share_delete),
+        )
+        .route(
+            "/api/workspace/share/upload",
+            post(workspace_share_upload_post).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/dir",
+            post(workspace_share_dir_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/rename",
+            post(workspace_share_rename_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/move",
+            post(workspace_share_move_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/download",
+            get(workspace_share_download_get),
+        )
+        .route("/api/workspace/share/entry", get(workspace_share_entry_get))
+        .route(
+            "/api/workspace/share/chunk/init",
+            post(workspace_share_chunk_init_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/chunk/status",
+            get(workspace_share_chunk_status_get),
+        )
+        .route(
+            "/api/workspace/share/chunk",
+            put(workspace_share_chunk_put).layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
+        )
+        .route(
+            "/api/workspace/share/chunk/complete",
+            post(workspace_share_chunk_complete_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
         .route(
             "/admin/apps/:app_id/:resource_id/:module_id",
             get(crate::admin_pages::host_admin_resource_page),
@@ -100,6 +146,19 @@ pub fn router(state: HostHttpState) -> Router {
         .route(
             "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot/replace",
             axum::routing::post(crate::admin_api::api_asset_slot_replace),
+        )
+        .route(
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot/apply-current",
+            axum::routing::post(crate::admin_api::api_asset_slot_apply_current),
+        )
+        .route(
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot/delete-file",
+            axum::routing::post(crate::admin_api::api_asset_slot_delete_file),
+        )
+        .route(
+            "/api/admin/apps/:app_id/:resource_id/:module_id/providers/asset-slot/download-file",
+            get(crate::admin_api::api_asset_slot_download_file_get)
+                .post(crate::admin_api::api_asset_slot_download_file_post),
         )
         .route(
             "/api/admin/apps/:app_id/:resource_id/:module_id/providers/command-job",

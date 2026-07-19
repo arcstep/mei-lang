@@ -97,6 +97,7 @@ fn render_shell_with_host(
         Some(review_projection),
         args.chrome == "none",
         host.admin_nav_items,
+        None,
     );
     topbar_html = crate::build_info::fill_page_shell_placeholders(topbar_html, args.workspace_root);
     statusbar_html =

@@ -287,9 +287,12 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
     let ui_layout = crate::compile::build_ui_layout_index::build_ui_layout_index(&compiled);
     for node_id in &ui_layout.duplicate_node_ids {
         diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
+            severity: Severity::Error,
             code: "ui_scope_duplicate_node_id".to_string(),
-            message: format!("duplicate ui-scope node id: {node_id}"),
+            message: format!(
+                "duplicate ui-scope node id: {node_id}; repeated component instances in one panel \
+                 must declare distinct `id` values"
+            ),
             source_path: None,
         });
     }

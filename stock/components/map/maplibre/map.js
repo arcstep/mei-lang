@@ -74,6 +74,30 @@ function recordMapRuntimeDiag(phase, detail = {}) {
   });
 }
 
+/**
+ * Guard style mutations after await (GeoJSON / metrics). Stale tasks must
+ * soft-skip instead of calling addSource/addLayer on a replaced or unloaded map.
+ */
+function canMutateMapStyle(host, epoch, mapRef) {
+  if (!host?.isConnected || !host.map) return false;
+  if (mapRef && host.map !== mapRef) return false;
+  if ((host._mapMutationEpoch || 0) !== epoch) return false;
+  if (host._mapStyleReady !== true) return false;
+  if (typeof host.map.isStyleLoaded === "function" && !host.map.isStyleLoaded()) {
+    return false;
+  }
+  return true;
+}
+
+function isStaleStyleNotDoneLoading(message, host, epoch, mapRef) {
+  if (!/style is not done loading/i.test(String(message || ""))) return false;
+  if (!host?.isConnected || !host.map) return true;
+  if (mapRef && host.map !== mapRef) return true;
+  if ((host._mapMutationEpoch || 0) !== epoch) return true;
+  if (host._mapStyleReady !== true) return true;
+  return false;
+}
+
 function haversineMeters(lng1, lat1, lng2, lat2) {
   const toRad = (deg) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
@@ -344,8 +368,10 @@ if (!customElements.get(TAG)) {
       this.restoreCockpitMapToolsLayer();
       this.disposeMapHeroLayer();
       if (this.map) {
+        this._mapMutationEpoch = (this._mapMutationEpoch || 0) + 1;
         this.map.remove();
         this.map = null;
+        this._mapStyleReady = false;
       }
       this.clearPopup();
     }
@@ -373,6 +399,7 @@ if (!customElements.get(TAG)) {
       this._sharedFilters = this._sharedFilters || {};
       this._boundLayerEvents = this._boundLayerEvents || new Set();
       this._mapStyleReady = false;
+      this._mapMutationEpoch = this._mapMutationEpoch || 0;
       this._syncLayersTask = null;
       this._layerMetricsTask = null;
       this._layerControlOpen = this._layerControlOpen === true;
@@ -604,8 +631,10 @@ if (!customElements.get(TAG)) {
 
     async refreshLayerMetrics(options = {}) {
       const sync = options.sync !== false;
+      const epoch = this._mapMutationEpoch || 0;
+      const mapRef = this.map;
       const task = async () => {
-        if (!this.isConnected || !this.map || !this._mapStyleReady) {
+        if (!canMutateMapStyle(this, epoch, mapRef)) {
           return false;
         }
         const props = parseProps(this);
@@ -631,7 +660,7 @@ if (!customElements.get(TAG)) {
             filters: this._sharedFilters,
             meta: runtimeCallerMeta(this, TAG),
           });
-          if (!this.isConnected || !this.map) {
+          if (!canMutateMapStyle(this, epoch, mapRef)) {
             return false;
           }
           if (!result) {
@@ -713,6 +742,7 @@ if (!customElements.get(TAG)) {
       this._portaledLayerControl = null;
       this.bindLayerToggleEvents();
       if (this.map) {
+        this._mapMutationEpoch = (this._mapMutationEpoch || 0) + 1;
         this.disposeMapHeroLayer();
         this.map.remove();
         this.map = null;
@@ -776,6 +806,7 @@ if (!customElements.get(TAG)) {
             reason: fullRenderReason,
           });
           this._runtimeLayerProps = null;
+          this._mapMutationEpoch = (this._mapMutationEpoch || 0) + 1;
           this._syncLayersTask = null;
           this._layerMetricsTask = null;
           const layout = resolveMapLayout(domProps, basemap, this);
@@ -874,6 +905,7 @@ if (!customElements.get(TAG)) {
           return;
         }
         const maplibregl = window.maplibregl;
+        this._mapMutationEpoch = (this._mapMutationEpoch || 0) + 1;
         if (this.map) {
           this.restoreCockpitMapToolsLayer();
           this.detachLayerToggleFromMap();
@@ -904,6 +936,7 @@ if (!customElements.get(TAG)) {
           if (!this.isConnected || renderToken !== this._renderToken || this.map !== map) {
             return;
           }
+          const loadEpoch = this._mapMutationEpoch || 0;
           try {
             this._mapStyleReady = true;
             this._renderTrace?.mark("style_load", {
@@ -919,13 +952,22 @@ if (!customElements.get(TAG)) {
             try {
               if (mapLayersNeedRuntimeMetrics(metricLayers, domProps)) {
                 await this.refreshLayerMetrics({ sync: false });
+                if (!canMutateMapStyle(this, loadEpoch, map)) {
+                  return;
+                }
                 syncProps = this.effectiveProps();
               }
             } catch (_) {
               syncProps = domProps;
             }
+            if (!canMutateMapStyle(this, loadEpoch, map)) {
+              return;
+            }
             const { layers: syncLayerList } = normalizeMapSpec(syncProps, this);
             await this.syncLayers(syncLayerList, syncProps);
+            if (!canMutateMapStyle(this, loadEpoch, map)) {
+              return;
+            }
             await this.ensureMapHeroLayer(syncProps);
             this._renderTrace?.mark("sync_layers_done", {
               layer_count: syncLayerList.length,
@@ -950,6 +992,17 @@ if (!customElements.get(TAG)) {
             });
           } catch (err) {
             const message = String(err?.message || err);
+            if (
+              isStaleStyleNotDoneLoading(message, this, loadEpoch, map) ||
+              renderToken !== this._renderToken ||
+              this.map !== map
+            ) {
+              this._renderTrace?.mark("render_error_skipped", {
+                message,
+                reason: "stale_style_race",
+              });
+              return;
+            }
             this.errorEl.textContent = message;
             this._renderTrace?.mark("render_error", {
               message,
@@ -997,20 +1050,23 @@ if (!customElements.get(TAG)) {
     }
 
     async syncLayers(layers, props) {
+      const epoch = this._mapMutationEpoch || 0;
+      const mapRef = this.map;
       const task = async () => {
-        if (!this.map) return;
+        if (!canMutateMapStyle(this, epoch, mapRef)) return;
         const nextRegistry = {};
         for (const layer of layers) {
-          if (!this.map) return;
+          if (!canMutateMapStyle(this, epoch, mapRef)) return;
           const id = String(layer?.id || "").trim();
           if (!id) continue;
           if (this._layerVisibility[id] === undefined) {
             this._layerVisibility[id] = layer.visible !== false;
           }
           await this.addLayerSpec(layer, props, nextRegistry);
+          if (!canMutateMapStyle(this, epoch, mapRef)) return;
           this.setLayerVisible(id, this._layerVisibility[id] !== false, nextRegistry);
         }
-        if (!this.map) return;
+        if (!canMutateMapStyle(this, epoch, mapRef)) return;
         this._layerRegistry = nextRegistry;
         this.renderLayerControl(layers, props);
         this.applyHeroExtrusionMutex(this._mapHeroController?.getActiveEntityIds?.() || []);
@@ -1471,6 +1527,8 @@ if (!customElements.get(TAG)) {
       const layerId = String(layerSpec.id || "layer").trim();
       const joinKey = resolveLayerJoinKey(layerSpec);
       const layerProps = resolveLayerDataPayload(props, layerSpec);
+      const epoch = this._mapMutationEpoch || 0;
+      const mapRef = this.map;
       this._renderTrace?.mark("layer_source_start", {
         layer_id: layerId,
       });
@@ -1479,6 +1537,9 @@ if (!customElements.get(TAG)) {
         layer_id: layerId,
         feature_count: Array.isArray(geojson?.features) ? geojson.features.length : 0,
       });
+      if (!canMutateMapStyle(this, epoch, mapRef)) {
+        return;
+      }
       const sourceId = `src-${layerId}`;
       if (this.map.getSource(sourceId)) {
         this.map.getSource(sourceId).setData(geojson);

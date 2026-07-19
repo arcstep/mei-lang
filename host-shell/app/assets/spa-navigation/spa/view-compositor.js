@@ -195,6 +195,27 @@
     return incoming.outerHTML;
   }
 
+  function shouldPreserveHostChrome(root, doc) {
+    const fromRoot = String(
+      root?.getAttribute?.("data-mei-compose-root") ||
+        root?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromRoot === "admin" || fromRoot === "config" || fromRoot === "upload") {
+      return true;
+    }
+    const fromDoc = String(doc?.route_mode || "")
+      .trim()
+      .toLowerCase();
+    if (fromDoc === "admin" || fromDoc === "config" || fromDoc === "upload") {
+      return true;
+    }
+    const path = String(global.location?.pathname || "");
+    return path.startsWith("/admin/apps/");
+  }
+
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
     let doc = extractLayerDocument(shellLayer);
@@ -224,23 +245,26 @@
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
     const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
-    if (topbar && topSlot instanceof HTMLElement) {
-      topSlot.innerHTML = topbar;
-    } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = topbar;
-      const bar = wrap.firstElementChild;
-      const host = global.document?.getElementById?.("mei-compose-host") || root;
-      if (bar && host instanceof HTMLElement) host.prepend(bar);
-    }
-    if (statusbar && bottomSlot instanceof HTMLElement) {
-      bottomSlot.innerHTML = statusbar;
-    } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = statusbar;
-      const bar = wrap.firstElementChild;
-      const host = global.document?.getElementById?.("mei-compose-host") || root;
-      if (bar && host instanceof HTMLElement) host.append(bar);
+    const preserveHostChrome = shouldPreserveHostChrome(root, doc);
+    if (!preserveHostChrome) {
+      if (topbar && topSlot instanceof HTMLElement) {
+        topSlot.innerHTML = topbar;
+      } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = topbar;
+        const bar = wrap.firstElementChild;
+        const host = global.document?.getElementById?.("mei-compose-host") || root;
+        if (bar && host instanceof HTMLElement) host.prepend(bar);
+      }
+      if (statusbar && bottomSlot instanceof HTMLElement) {
+        bottomSlot.innerHTML = statusbar;
+      } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = statusbar;
+        const bar = wrap.firstElementChild;
+        const host = global.document?.getElementById?.("mei-compose-host") || root;
+        if (bar && host instanceof HTMLElement) host.append(bar);
+      }
     }
     if (signature) root.setAttribute("data-mei-shell-digest", signature);
     boot.renderPipelineMark?.("apply_chrome:end", {
@@ -251,7 +275,11 @@
     try {
       global.document?.dispatchEvent?.(
         new CustomEvent("mei:shell-layer-applied", {
-          detail: { signature, routeMode: doc.route_mode || null },
+          detail: {
+            signature,
+            routeMode: doc.route_mode || null,
+            preserveHostChrome,
+          },
         }),
       );
     } catch (_error) {

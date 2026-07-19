@@ -122,6 +122,19 @@ async function putConfigRecord(reference, payload, revision) {
   });
 }
 
+async function invokeProviderAction(reference, payload = {}) {
+  const resolved = await resolveProvider(reference);
+  return requestJson(providerEndpoint(resolved.route, resolved.binding.providerId), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...resolved.context,
+      idempotencyKey: idempotencyKey(),
+      payload,
+    }),
+  });
+}
+
 async function replaceAsset(reference, file) {
   const resolved = await resolveProvider(reference);
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -138,32 +151,421 @@ async function replaceAsset(reference, file) {
   });
 }
 
+async function applyAssetCurrent(reference, filename) {
+  const resolved = await resolveProvider(reference);
+  return requestJson(
+    providerEndpoint(resolved.route, resolved.binding.providerId, "/apply-current"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...resolved.context,
+        filename,
+        idempotencyKey: idempotencyKey(),
+      }),
+    },
+  );
+}
+
+async function deleteAssetFile(reference, filename) {
+  const resolved = await resolveProvider(reference);
+  return requestJson(
+    providerEndpoint(resolved.route, resolved.binding.providerId, "/delete-file"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...resolved.context,
+        filename,
+        idempotencyKey: idempotencyKey(),
+      }),
+    },
+  );
+}
+
+async function downloadAssetFile(reference, filename) {
+  const resolved = await resolveProvider(reference);
+  const response = await fetch(
+    providerEndpoint(resolved.route, resolved.binding.providerId, "/download-file"),
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...resolved.context,
+        filename,
+      }),
+    },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || `下载失败: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function statusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "ready") return "就绪";
+  if (value === "pending") return "待配置";
+  if (value === "missing") return "缺失";
+  return status || "—";
+}
+
+function truncatePath(value, max = 48) {
+  const text = String(value || "");
+  if (text.length <= max) return text;
+  const head = Math.max(12, Math.floor(max * 0.35));
+  const tail = max - head - 1;
+  return `${text.slice(0, head)}…${text.slice(-tail)}`;
+}
+
+function formatBytes(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updateExplorerUrl({ q, view, sel }) {
+  const url = new URL(window.location.href);
+  const updates = { q, view, sel };
+  Object.entries(updates).forEach(([key, value]) => {
+    const text = String(value || "").trim();
+    if (text) url.searchParams.set(key, text);
+    else url.searchParams.delete(key);
+  });
+  window.history.replaceState(window.history.state, "", url);
+}
+
+async function workspaceShareRequest(path, options = {}) {
+  const response = await fetch(path, { credentials: "same-origin", ...options });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `资料交换请求失败: ${response.status}`);
+  }
+  return payload;
+}
+
+async function uploadWorkspaceShareFile(file, dir, onProgress) {
+  const chunkSize = 4 * 1024 * 1024;
+  if (file.size <= 8 * 1024 * 1024) {
+    const form = new FormData();
+    if (dir) form.append("dir", dir);
+    form.append("idempotency_key", idempotencyKey());
+    form.append("file", file, file.name);
+    onProgress?.(0);
+    const payload = await workspaceShareRequest("/api/workspace/share/upload", {
+      method: "POST",
+      body: form,
+    });
+    onProgress?.(1);
+    return payload;
+  }
+  const init = await workspaceShareRequest("/api/workspace/share/chunk/init", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      file_name: file.name,
+      dir: dir || null,
+      size_bytes: file.size,
+      chunk_size: chunkSize,
+      last_modified_ms: file.lastModified || null,
+      idempotency_key: idempotencyKey(),
+    }),
+  });
+  const uploaded = new Set(init.uploadedChunks || []);
+  for (let index = 0; index < init.totalChunks; index += 1) {
+    if (!uploaded.has(index)) {
+      const start = index * init.chunkSize;
+      const body = file.slice(start, Math.min(start + init.chunkSize, file.size));
+      await workspaceShareRequest(
+        `/api/workspace/share/chunk?upload_id=${encodeURIComponent(
+          init.uploadId,
+        )}&index=${index}`,
+        { method: "PUT", body },
+      );
+    }
+    onProgress?.((index + 1) / init.totalChunks);
+  }
+  return workspaceShareRequest("/api/workspace/share/chunk/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ upload_id: init.uploadId }),
+  });
+}
+
+function downloadWorkspaceShareFile(path, revision) {
+  const anchor = document.createElement("a");
+  const query = new URLSearchParams({ path });
+  if (revision) query.set("expected_revision", revision);
+  anchor.href = `/api/workspace/share/download?${query.toString()}`;
+  anchor.download = path.split("/").pop() || "download";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+async function runCommandJob(reference, { assetBindingId, file }) {
+  const resolved = await resolveProvider(reference);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const contentHex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return requestJson(providerEndpoint(resolved.route, resolved.binding.providerId), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...resolved.context,
+      assetBindingId,
+      filename: file.name,
+      idempotencyKey: idempotencyKey(),
+      contentHex,
+    }),
+  });
+}
+
 function ensureAdminStyles() {
-  if (document.getElementById("mei-admin-brick-styles")) return;
-  const style = document.createElement("style");
-  style.id = "mei-admin-brick-styles";
+  const styleId = "mei-admin-brick-styles-v4";
+  document.getElementById("mei-admin-brick-styles")?.remove();
+  document.getElementById("mei-admin-brick-styles-v3")?.remove();
+  let style = document.getElementById(styleId);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = styleId;
+    document.head.appendChild(style);
+  }
   style.textContent = `
-    .mei-compose-document-host { padding: 0 24px 24px; }
-    .mei-compose-document-host .preview-card { padding: 0; border: 0; background: transparent; overflow: visible; }
-    .mei-compose-document-host .component-host { overflow: visible; }
-    .mei-admin-entry-copy { max-width: 1120px; line-height: 1.7; color: var(--mei-color-text-body, #cbd5e1); }
-    .mei-admin-entry-copy h2 { margin: 12px 0 6px; color: var(--mei-color-text-primary, #fff); font-size: 18px; }
-    .mei-admin-brick { max-width: 1120px; margin: 12px 0; padding: 20px; border: 1px solid var(--mei-color-border-default, rgba(148,163,184,.24)); border-radius: 10px; background: rgba(15, 23, 42, .72); box-sizing: border-box; }
-    .mei-admin-brick h2 { margin: 0 0 16px; color: var(--mei-color-text-primary, #fff); font-size: 20px; }
+    .mei-compose-document-host {
+      --mei-admin-chrome: 120px;
+      --mei-admin-gutter: 14px;
+      box-sizing: border-box;
+      height: calc(100dvh - var(--mei-admin-chrome));
+      max-height: calc(100dvh - var(--mei-admin-chrome));
+      min-height: 0;
+      padding: var(--mei-admin-gutter);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden !important;
+    }
+    .mei-compose-document-host .preview-card {
+      flex: 1; min-height: 0; height: 100%; padding: 0; border: 0; background: transparent;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .mei-compose-document-host .component-host {
+      flex: 1; min-height: 0; height: 100%; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .mei-compose-document-host mei-admin-collection-view {
+      flex: 1; min-height: 0; width: 100%; height: 100%; max-height: 100%;
+      display: flex; flex-direction: column;
+    }
+    .mei-admin-entry-copy { max-width: 1120px; line-height: 1.7; color: var(--mei-color-text-body, #cbd5e1); font-size: var(--mei-shell-font-1, 16px); }
+    .mei-admin-entry-copy h2 { margin: 12px 0 6px; color: var(--mei-color-text-primary, #fff); font-size: var(--mei-shell-font-3, 18px); }
+    .mei-admin-brick {
+      max-width: 1120px; margin: 12px 0; padding: 20px;
+      border: 1px solid var(--mei-color-border-default, rgba(148,163,184,.24)); border-radius: 10px;
+      background: rgba(15, 23, 42, .72); box-sizing: border-box;
+      font-family: inherit;
+      font-size: var(--mei-shell-font-1, 16px);
+      line-height: 1.45;
+      color: var(--mei-color-text-body, #cbd5e1);
+    }
+    .mei-admin-brick.mei-admin-explorer-root {
+      max-width: none; width: 100%;
+      flex: 1; min-height: 0; height: 100%; max-height: 100%;
+      margin: 0; padding: 0;
+      border: 1px solid rgba(148,163,184,.16); border-radius: 12px;
+      background: rgba(15, 23, 42, .78);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .mei-admin-brick h2 {
+      margin: 0 0 12px; color: var(--mei-color-text-primary, #fff);
+      font-size: var(--mei-shell-font-3, 18px); font-weight: 600;
+    }
+    .mei-admin-explorer-root > .mei-admin-explorer-header { display: none; }
     .mei-admin-form-card { display: grid; gap: 14px; }
     .mei-admin-field { display: grid; gap: 6px; color: var(--mei-color-text-body, #cbd5e1); }
     .mei-admin-field input, .mei-admin-field textarea { width: 100%; padding: 9px 11px; color: var(--mei-color-text-primary, #fff); border: 1px solid var(--mei-color-input-border, #334155); border-radius: 6px; background: var(--mei-color-input-bg, rgba(15,23,42,.8)); box-sizing: border-box; }
     .mei-admin-field textarea { min-height: 120px; font-family: ui-monospace, monospace; }
-    .mei-admin-brick button { justify-self: start; padding: 8px 14px; color: var(--mei-color-btn-primary-text, #041320); border: 0; border-radius: 6px; background: var(--mei-color-btn-primary-bg, #38bdf8); cursor: pointer; }
+    .mei-admin-brick button { justify-self: start; padding: 7px 12px; font-size: var(--mei-shell-font-1, 16px); color: var(--mei-color-btn-primary-text, #041320); border: 0; border-radius: 6px; background: var(--mei-color-btn-primary-bg, #38bdf8); cursor: pointer; }
     .mei-admin-brick button:disabled { opacity: .55; cursor: wait; }
-    .mei-admin-data-grid { width: 100%; border-collapse: collapse; }
-    .mei-admin-data-grid th, .mei-admin-data-grid td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--mei-color-table-row-border, rgba(148,163,184,.16)); }
-    .mei-admin-data-grid th { color: var(--mei-color-text-muted, #94a3b8); }
+    .mei-admin-brick button.mei-admin-btn-secondary { background: transparent; color: var(--mei-color-text-body, #cbd5e1); border: 1px solid var(--mei-color-border-default, rgba(148,163,184,.35)); }
+    .mei-admin-brick button.mei-admin-btn-danger { background: transparent; color: #fca5a5; border: 1px solid rgba(248,113,113,.45); }
+    /* Splitter must NOT inherit .mei-admin-brick button primary styles. */
+    .mei-admin-brick .mei-admin-explorer-splitter,
+    .mei-admin-explorer-splitter {
+      all: unset;
+      box-sizing: border-box;
+      position: relative;
+      z-index: 3;
+      display: block;
+      width: 1px;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: rgba(148, 163, 184, 0.2);
+      cursor: col-resize;
+      touch-action: none;
+      flex: 0 0 1px;
+    }
+    .mei-admin-explorer-splitter::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -4px;
+      width: 9px;
+      background: transparent;
+    }
+    .mei-admin-explorer-splitter:hover,
+    .mei-admin-explorer-splitter.is-dragging,
+    .mei-admin-explorer-splitter:focus-visible {
+      background: rgba(148, 163, 184, 0.45);
+      outline: none;
+    }
+    .mei-admin-data-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .mei-admin-data-grid th, .mei-admin-data-grid td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--mei-color-table-row-border, rgba(148,163,184,.16)); vertical-align: top; }
+    .mei-admin-data-grid th { color: var(--mei-color-text-muted, #94a3b8); font-weight: 500; font-size: var(--mei-shell-font-2, 14px); }
+    .mei-admin-data-grid td { color: var(--mei-color-text-body, #cbd5e1); font-size: var(--mei-shell-font-1, 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mei-admin-data-grid td.mei-admin-cell-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--mei-shell-font-2, 14px); white-space: nowrap; }
+    .mei-admin-data-grid col.col-slot_id { width: 16%; }
+    .mei-admin-data-grid col.col-status { width: 10%; }
+    .mei-admin-data-grid col.col-kind { width: 8%; }
+    .mei-admin-data-grid col.col-active_path { width: 36%; }
+    .mei-admin-data-grid col.col-file_count { width: 8%; }
+    .mei-admin-data-grid col.col-size_bytes { width: 10%; }
+    .mei-admin-data-grid col.col-modified_ms { width: 12%; }
     .mei-admin-action-strip { display: flex; flex-wrap: wrap; gap: 10px; }
-    .mei-admin-status { margin: 10px 0 0; color: var(--mei-color-text-muted, #94a3b8); }
+    mei-admin-navigator nav { display: grid; gap: 4px; }
+    mei-admin-navigator nav a { padding: 7px 9px; color: var(--mei-color-text-body, #cbd5e1); text-decoration: none; border-radius: 5px; }
+    mei-admin-navigator nav a[aria-current="page"] { color: #7dd3fc; background: rgba(14,116,144,.16); }
+    .mei-admin-status { margin: 10px 0 0; color: var(--mei-color-text-muted, #94a3b8); font-size: var(--mei-shell-font-2, 14px); line-height: 1.5; }
+    .mei-admin-status:empty { display: none; }
     .mei-admin-status[data-tone="error"] { color: var(--mei-color-status-error, #fca5a5); }
+    .mei-admin-status[data-tone="ok"] { color: var(--mei-color-feedback-ok, #86efac); }
+    .mei-admin-hint { margin: 0 0 12px; color: var(--mei-color-text-muted, #94a3b8); font-size: var(--mei-shell-font-2, 14px); line-height: 1.55; }
+    .mei-admin-path-bar { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: rgba(30, 41, 59, .55); border: 1px solid rgba(148,163,184,.14); color: var(--mei-color-text-body, #cbd5e1); font-size: var(--mei-shell-font-2, 14px); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mei-admin-path-bar span { color: var(--mei-color-text-muted, #94a3b8); font-family: inherit; margin-right: 8px; }
+    .mei-admin-file-list { display: grid; gap: 8px; margin-top: 4px; }
+    .mei-admin-file-section { margin-top: 4px; }
+    .mei-admin-file-section-title { margin: 0 0 8px; font-size: var(--mei-shell-font-2, 14px); letter-spacing: .04em; text-transform: uppercase; color: var(--mei-color-text-muted, #94a3b8); }
+    .mei-admin-file-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--mei-color-border-default, rgba(148,163,184,.16)); border-radius: 8px; background: rgba(15, 23, 42, .28); }
+    .mei-admin-file-row.is-current { border-color: rgba(56, 189, 248, .4); background: rgba(14, 116, 144, .12); }
+    .mei-admin-file-row.is-history { opacity: .94; }
+    .mei-admin-file-meta { min-width: 0; color: var(--mei-color-text-body, #cbd5e1); }
+    .mei-admin-file-meta strong { display: flex; align-items: center; gap: 8px; color: var(--mei-color-text-primary, #fff); overflow: hidden; }
+    .mei-admin-file-meta strong .mei-admin-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mei-admin-file-meta .mei-admin-file-sub { display: block; margin-top: 4px; font-size: var(--mei-shell-font-2, 14px); color: var(--mei-color-text-muted, #94a3b8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mei-admin-file-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .mei-admin-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: var(--mei-shell-font-2, 14px); font-weight: 500; border: 1px solid rgba(56, 189, 248, .55); color: #7dd3fc; flex-shrink: 0; }
+    .mei-admin-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: var(--mei-shell-font-2, 14px); border: 1px solid rgba(148,163,184,.3); color: var(--mei-color-text-body, #cbd5e1); }
+    .mei-admin-chip[data-tone="ready"] { border-color: rgba(134, 239, 172, .4); color: #86efac; background: rgba(22, 101, 52, .18); }
+    .mei-admin-chip[data-tone="pending"] { border-color: rgba(251, 191, 36, .4); color: #fbbf24; background: rgba(120, 53, 15, .18); }
+    .mei-admin-chip[data-tone="missing"] { border-color: rgba(248, 113, 113, .4); color: #fca5a5; background: rgba(127, 29, 29, .18); }
+    .mei-admin-upload { margin-top: 16px; padding: 14px; border: 1px dashed rgba(148,163,184,.24); border-radius: 8px; background: rgba(15, 23, 42, .22); }
+    .mei-admin-upload label { display: block; margin-bottom: 8px; font-size: var(--mei-shell-font-2, 14px); color: var(--mei-color-text-muted, #94a3b8); }
+    .mei-admin-upload input[type="file"] { width: 100%; color: var(--mei-color-text-body, #cbd5e1); font-size: var(--mei-shell-font-1, 16px); }
+    .mei-admin-explorer {
+      --nav-width: 42%;
+      flex: 1; min-height: 0; width: 100%; height: 100%;
+      display: grid; grid-template-columns: minmax(220px, var(--nav-width)) 1px minmax(260px, 1fr);
+      align-items: stretch; box-sizing: border-box;
+    }
+    .mei-admin-explorer-nav, .mei-admin-explorer-detail {
+      min-width: 0; min-height: 0; height: 100%;
+      display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;
+    }
+    .mei-admin-explorer-nav { padding: 12px; background: rgba(2, 6, 23, .18); }
+    .mei-admin-explorer-detail { padding: 14px 16px; background: rgba(15, 23, 42, .28); }
+    .mei-admin-explorer.is-resizing { cursor: col-resize; user-select: none; }
+    .mei-admin-explorer.is-resizing * { cursor: col-resize !important; user-select: none !important; }
+    .mei-admin-explorer-toolbar { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-bottom: 10px; }
+    .mei-admin-explorer-search {
+      flex: 1; min-width: 0; padding: 8px 10px; color: var(--mei-color-text-primary, #fff);
+      border: 1px solid rgba(71,85,105,.9); border-radius: 8px; background: rgba(15,23,42,.75);
+      outline: none; font-size: var(--mei-shell-font-1, 16px);
+    }
+    .mei-admin-explorer-search:focus { border-color: rgba(56,189,248,.55); box-shadow: 0 0 0 2px rgba(14,116,144,.25); }
+    .mei-admin-view-toggle {
+      display: inline-flex; gap: 0; padding: 2px; border-radius: 8px;
+      border: 1px solid rgba(71,85,105,.85); background: rgba(15,23,42,.55);
+    }
+    .mei-admin-view-toggle button {
+      margin: 0; padding: 5px 10px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--mei-color-text-muted, #94a3b8);
+    }
+    .mei-admin-view-toggle button[aria-pressed="true"] {
+      color: var(--mei-color-btn-primary-text, #041320); background: var(--mei-color-btn-primary-bg, #38bdf8);
+    }
+    .mei-admin-explorer-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+    .mei-admin-resource-collection { display: grid; gap: 8px; }
+    .mei-admin-resource-collection[data-view="card"] {
+      grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    }
+    .mei-admin-resource-collection[data-view="list"] { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .mei-admin-resource-card {
+      min-width: 0; padding: 11px 12px; border: 1px solid rgba(148,163,184,.16); border-radius: 10px;
+      background: rgba(30,41,59,.42); cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, transform .15s ease;
+    }
+    .mei-admin-resource-card:hover { border-color: rgba(148,163,184,.34); background: rgba(51,65,85,.38); }
+    .mei-admin-resource-card.is-selected {
+      border-color: rgba(56,189,248,.55); background: rgba(14,116,144,.16);
+      box-shadow: inset 0 0 0 1px rgba(56,189,248,.18);
+    }
+    .mei-admin-resource-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .mei-admin-resource-card-title { min-width: 0; }
+    .mei-admin-resource-card-title h3 { margin: 0; color: var(--mei-color-text-primary, #fff); font-size: var(--mei-shell-font-1, 16px); font-weight: 600; line-height: 1.35; }
+    .mei-admin-resource-current { margin: 8px 0 0; overflow: hidden; color: var(--mei-color-text-muted, #94a3b8); font: var(--mei-shell-font-2, 14px)/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .mei-admin-resource-meta-line { margin: 6px 0 0; color: #64748b; font-size: var(--mei-shell-font-2, 14px); }
+    .mei-admin-resource-card[data-view="list"] {
+      display: grid; grid-template-columns: minmax(96px, 140px) auto minmax(0, 1fr);
+      align-items: center; gap: 10px 12px; padding: 9px 12px;
+    }
+    .mei-admin-resource-card[data-view="list"] .mei-admin-resource-card-head { display: contents; }
+    .mei-admin-resource-card[data-view="list"] .mei-admin-resource-card-title { min-width: 0; }
+    .mei-admin-resource-card[data-view="list"] .mei-admin-resource-current { margin: 0; }
+    .mei-admin-resource-card[data-view="list"] .mei-admin-resource-meta-line { display: none; }
+    .mei-admin-resource-card[data-view="list"].is-selected { box-shadow: inset 3px 0 0 rgba(56,189,248,.75); }
+    .mei-admin-brick.is-embedded { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; height: auto; }
+    .mei-admin-brick.is-embedded > h2 { margin: 0 0 12px; font-size: var(--mei-shell-font-3, 18px); }
+    .mei-admin-explorer-empty { padding: 28px 16px; text-align: center; color: var(--mei-color-text-muted, #94a3b8); border: 1px dashed rgba(148,163,184,.2); border-radius: 10px; font-size: var(--mei-shell-font-1, 16px); }
+    .mei-admin-explorer-detail-empty { display: grid; place-items: center; min-height: 100%; color: var(--mei-color-text-muted, #94a3b8); font-size: var(--mei-shell-font-1, 16px); border: 1px dashed rgba(148,163,184,.18); border-radius: 10px; }
+    .mei-workspace-share { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+    .mei-workspace-share-nav { padding: 14px; border: 1px solid rgba(148,163,184,.2); border-radius: 9px; background: rgba(15,23,42,.45); }
+    .mei-workspace-share-nav h2 { margin: 0 0 10px; font-size: var(--mei-shell-font-1, 16px); }
+    .mei-workspace-share-nav button { display: block; width: 100%; margin: 2px 0; padding: 6px 8px; overflow: hidden; color: var(--mei-color-text-body, #cbd5e1); text-align: left; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; }
+    .mei-workspace-share-nav button[aria-current="true"] { color: #7dd3fc; background: rgba(14,116,144,.16); }
+    .mei-workspace-share-main { min-width: 0; }
+    .mei-workspace-share-breadcrumb { display: flex; gap: 6px; align-items: center; margin: 0 0 10px; color: var(--mei-color-text-muted, #94a3b8); font-size: var(--mei-shell-font-2, 14px); }
+    .mei-workspace-share-breadcrumb button { padding: 2px 4px; color: #7dd3fc; border: 0; background: transparent; }
+    .mei-workspace-share-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .mei-workspace-share-actions input[type="file"] { max-width: 320px; color: var(--mei-color-text-body, #cbd5e1); }
+    .mei-workspace-share-entry-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .mei-workspace-share-entry-actions button, .mei-workspace-share-entry-actions a { padding: 5px 8px; color: var(--mei-color-text-body, #cbd5e1); font-size: var(--mei-shell-font-2, 14px); text-decoration: none; border: 1px solid rgba(148,163,184,.3); border-radius: 5px; background: transparent; }
+    .mei-workspace-share-page { max-width: 1280px; width: 100%; margin: 0 auto; }
+    .mei-workspace-share-page > header h1 { margin: 0 0 6px; font-size: var(--mei-shell-font-3, 18px); }
+    .mei-workspace-share-page > header p { margin: 0; color: var(--mei-color-text-muted, #94a3b8); }
+    @media (max-width: 900px) {
+      .mei-admin-explorer { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(200px, 40%) 1px minmax(0, 1fr); }
+      .mei-admin-brick .mei-admin-explorer-splitter,
+      .mei-admin-explorer-splitter {
+        width: 100%; height: 1px; flex: 0 0 1px; cursor: row-resize;
+      }
+      .mei-admin-explorer-splitter::before { left: 0; right: 0; top: -4px; width: auto; height: 9px; }
+      .mei-admin-explorer-toolbar { align-items: stretch; flex-direction: column; }
+      .mei-workspace-share { grid-template-columns: minmax(0, 1fr); }
+    }
   `;
-  document.head.appendChild(style);
 }
 
 class AdminBrick extends HTMLElement {
@@ -218,6 +620,7 @@ class FormCard extends AdminBrick {
   render(props) {
     const root = this.reset(props.title || "Form");
     const form = element("form", { className: "mei-admin-form-card" });
+    const readonly = props.readonly === true || props.mode === "readonly";
     const payload = props.payload && typeof props.payload === "object" ? props.payload : {};
     const fields = Array.isArray(props.fields) && props.fields.length
       ? props.fields
@@ -241,15 +644,52 @@ class FormCard extends AdminBrick {
           : value == null
             ? ""
             : String(value);
+      input.disabled = readonly;
       label.append(input);
       form.append(label);
     });
-    const save = element("button", { text: props.submit_label || "保存", type: "submit" });
-    form.append(save);
     const status = element("p", { className: "mei-admin-status" });
+    let save = null;
+    if (!readonly) {
+      const actions = element("div", { className: "mei-admin-action-strip" });
+      save = element("button", { text: props.submit_label || "保存", type: "submit" });
+      const cancel = element("button", {
+        text: "取消更改",
+        type: "button",
+        className: "mei-admin-btn-secondary",
+      });
+      cancel.addEventListener("click", () => {
+        this._dirty = false;
+        this.render({ ...props, payload });
+        this.dispatchEvent(
+          new CustomEvent("mei:admin-dirty-change", {
+            bubbles: true,
+            composed: true,
+            detail: { dirty: false },
+          }),
+        );
+      });
+      actions.append(save, cancel);
+      form.append(actions);
+      form.querySelectorAll("[name]").forEach((input) => {
+        input.addEventListener("input", () => {
+          if (this._dirty) return;
+          this._dirty = true;
+          status.textContent = "有未保存的更改";
+          this.dispatchEvent(
+            new CustomEvent("mei:admin-dirty-change", {
+              bubbles: true,
+              composed: true,
+              detail: { dirty: true },
+            }),
+          );
+        });
+      });
+    }
     form.append(status);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (readonly || !save) return;
       const detail = {};
       try {
         form.querySelectorAll("[name]").forEach((input) => {
@@ -266,6 +706,7 @@ class FormCard extends AdminBrick {
           );
           this._revision = Number(response.revision || this._revision || 0);
         }
+        this._dirty = false;
         status.textContent = "已保存";
         status.dataset.tone = "ok";
         this.dispatchEvent(
@@ -283,6 +724,468 @@ class FormCard extends AdminBrick {
   }
 }
 
+function normalizeSlotRow(row, index) {
+  const normalized = Object.fromEntries(
+    Object.entries(row || {}).map(([key, value]) => [
+      key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+      value,
+    ]),
+  );
+  const files = Array.isArray(row?.files) ? row.files : normalized.files || [];
+  return {
+    ...normalized,
+    slot_id: normalized.slot_id || normalized.id || `row-${index}`,
+    active_path: normalized.active_path || "",
+    status: normalized.status || "",
+    kind: normalized.kind || "",
+    size_bytes: normalized.size_bytes ?? "",
+    modified_ms: normalized.modified_ms ?? "",
+    file_count: files.length,
+    files,
+  };
+}
+
+const COLUMN_LABELS = {
+  slot_id: "槽位",
+  status: "状态",
+  kind: "类型",
+  active_path: "当前 path",
+  file_count: "文件数",
+  size_bytes: "大小",
+  modified_ms: "修改时间",
+};
+
+function resourceMatchesQuery(resource, needle) {
+  if (!needle) return true;
+  const slot = resource.slot || {};
+  const files = Array.isArray(slot.files) ? slot.files : [];
+  const haystack = [
+    resource.id,
+    resource.title,
+    resource.summary,
+    slot.kind,
+    slot.status,
+    slot.activePath || slot.active_path,
+    ...files.flatMap((file) => [file?.name, file?.path]),
+  ];
+  return haystack.some((value) =>
+    String(value || "")
+      .toLocaleLowerCase()
+      .includes(needle),
+  );
+}
+
+function readStoredNavWidth() {
+  try {
+    const raw = Number(window.localStorage.getItem("mei.admin.explorer.navWidth"));
+    if (Number.isFinite(raw) && raw >= 28 && raw <= 72) return raw;
+  } catch {
+    /* ignore */
+  }
+  return 42;
+}
+
+function writeStoredNavWidth(value) {
+  try {
+    window.localStorage.setItem("mei.admin.explorer.navWidth", String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+class CollectionView extends AdminBrick {
+  async hydrate(props) {
+    const specs = Array.isArray(props.resources) ? props.resources : [];
+    const resources = await Promise.all(
+      specs.map(async (spec, index) => {
+        const id = String(spec?.id || spec?.slot_id || spec?.slotId || `resource-${index}`);
+        const listRef = spec?.list_provider || spec?.listProvider;
+        if (!providerRefId(listRef)) return { ...spec, id, slot: spec?.slot || null };
+        const payload = await readProvider(listRef);
+        const slots = Array.isArray(payload?.slots) ? payload.slots : [];
+        const slot =
+          slots.find((entry) => String(entry.slotId || entry.slot_id || "") === id) ||
+          (slots.length === 1 ? slots[0] : null);
+        return { ...spec, id, slot };
+      }),
+    );
+    this._resources = resources;
+    this.render({ ...props, resources });
+  }
+
+  initializeState(props) {
+    if (this._explorerInitialized) return;
+    const query = new URLSearchParams(window.location.search);
+    this._query = query.get("q") || "";
+    this._viewMode = query.get("view") || props.default_view || props.defaultView || "card";
+    this._selectedId = query.get("sel") || "";
+    this._navWidthPct = readStoredNavWidth();
+    this._explorerInitialized = true;
+  }
+
+  setSelection(id, props) {
+    if (this._selectedId === id) return;
+    this._selectedId = id || "";
+    updateExplorerUrl({ q: this._query, view: this._viewMode, sel: this._selectedId });
+    this.dispatchEvent(
+      new CustomEvent("mei:admin-selection-change", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          primaryId: this._selectedId || null,
+          ids: this._selectedId ? [this._selectedId] : [],
+          source: "admin.collection-view",
+        },
+      }),
+    );
+    this.render({ ...props, resources: this._resources || props.resources || [] });
+  }
+
+  applySearch(value, props, resources) {
+    this._query = value;
+    updateExplorerUrl({ q: this._query, view: this._viewMode, sel: this._selectedId });
+    this.render({ ...props, resources });
+    queueMicrotask(() => {
+      const next = this.querySelector(".mei-admin-explorer-search");
+      if (next instanceof HTMLInputElement) {
+        next.focus();
+        const caret = next.value.length;
+        next.setSelectionRange(caret, caret);
+      }
+    });
+  }
+
+  bindSplitter(splitter, explorer) {
+    const applyWidth = (pct) => {
+      const next = Math.min(72, Math.max(28, pct));
+      this._navWidthPct = next;
+      explorer.style.setProperty("--nav-width", `${next}%`);
+    };
+    applyWidth(this._navWidthPct || readStoredNavWidth());
+
+    const onPointerMove = (event) => {
+      if (!this._resizing) return;
+      const rect = explorer.getBoundingClientRect();
+      if (!rect.width) return;
+      applyWidth(((event.clientX - rect.left) / rect.width) * 100);
+    };
+    const onPointerUp = () => {
+      if (!this._resizing) return;
+      this._resizing = false;
+      splitter.classList.remove("is-dragging");
+      explorer.classList.remove("is-resizing");
+      writeStoredNavWidth(this._navWidthPct);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+    splitter.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      this._resizing = true;
+      splitter.classList.add("is-dragging");
+      explorer.classList.add("is-resizing");
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    });
+    splitter.addEventListener("keydown", (event) => {
+      const step = event.shiftKey ? 5 : 2;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        applyWidth((this._navWidthPct || 42) - step);
+        writeStoredNavWidth(this._navWidthPct);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        applyWidth((this._navWidthPct || 42) + step);
+        writeStoredNavWidth(this._navWidthPct);
+      }
+    });
+  }
+
+  fitExplorerHeight() {
+    const footerReserve = 52;
+    const gutter = 12;
+    const host =
+      this.closest("#mei-compose-root") || this.closest(".mei-compose-document-host");
+    if (!(host instanceof HTMLElement)) {
+      const top = Math.max(0, Math.round(this.getBoundingClientRect().top));
+      const height = Math.max(360, Math.floor(window.innerHeight - top - footerReserve));
+      this.style.setProperty("height", `${height}px`, "important");
+      this.style.setProperty("max-height", `${height}px`, "important");
+      return;
+    }
+
+    const top = Math.max(0, Math.round(host.getBoundingClientRect().top));
+    const hostHeight = Math.max(360, Math.floor(window.innerHeight - top - footerReserve));
+    host.style.setProperty("box-sizing", "border-box", "important");
+    host.style.setProperty("height", `${hostHeight}px`, "important");
+    host.style.setProperty("max-height", `${hostHeight}px`, "important");
+    host.style.setProperty("min-height", `${hostHeight}px`, "important");
+    host.style.setProperty("overflow", "hidden", "important");
+    host.style.setProperty("display", "flex", "important");
+    host.style.setProperty("flex-direction", "column", "important");
+    host.style.setProperty("padding", `${gutter}px`, "important");
+    host.classList.remove("overflow-auto");
+    host.classList.add("overflow-hidden");
+
+    const tree =
+      host.querySelector(":scope > .mei-structure-tree") ||
+      this.closest(".mei-structure-tree");
+    if (tree instanceof HTMLElement) {
+      tree.style.setProperty("box-sizing", "border-box", "important");
+      tree.style.setProperty("flex", "1 1 auto", "important");
+      tree.style.setProperty("min-height", "0", "important");
+      tree.style.setProperty("height", "100%", "important");
+      tree.style.setProperty("max-height", "100%", "important");
+      tree.style.setProperty("overflow", "hidden", "important");
+      tree.style.setProperty("display", "flex", "important");
+      tree.style.setProperty("flex-direction", "column", "important");
+      tree.style.setProperty("width", "100%", "important");
+    }
+
+    // Materializer leaves compose nodes at height:auto; force the full chain to stretch.
+    let node = this;
+    while (node && node !== host) {
+      if (node instanceof HTMLElement) {
+        node.style.setProperty("box-sizing", "border-box", "important");
+        node.style.setProperty("min-height", "0", "important");
+        node.style.setProperty("width", "100%", "important");
+        node.style.setProperty("max-width", "100%", "important");
+        node.style.setProperty("overflow", "hidden", "important");
+        node.style.setProperty("display", "flex", "important");
+        node.style.setProperty("flex-direction", "column", "important");
+        node.style.setProperty("flex", "1 1 auto", "important");
+        node.style.setProperty("height", "100%", "important");
+        node.style.setProperty("max-height", "100%", "important");
+        node.style.setProperty("align-self", "stretch", "important");
+      }
+      if (node === tree) break;
+      node = node.parentElement;
+    }
+
+    const inner =
+      tree instanceof HTMLElement
+        ? Math.floor(tree.getBoundingClientRect().height)
+        : Math.floor(hostHeight - gutter * 2);
+    if (inner > 120) {
+      this.style.setProperty("height", `${inner}px`, "important");
+      this.style.setProperty("max-height", `${inner}px`, "important");
+      this.style.setProperty("min-height", `${inner}px`, "important");
+    }
+
+    const root = this.querySelector(".mei-admin-explorer-root");
+    if (root instanceof HTMLElement) {
+      root.style.setProperty("flex", "1 1 auto", "important");
+      root.style.setProperty("min-height", "0", "important");
+      root.style.setProperty("height", "100%", "important");
+      root.style.setProperty("max-height", "100%", "important");
+      root.style.setProperty("overflow", "hidden", "important");
+      root.style.setProperty("display", "flex", "important");
+      root.style.setProperty("flex-direction", "column", "important");
+    }
+
+    if (!this._fitBound) {
+      this._fitBound = true;
+      this._onFitResize = () => this.fitExplorerHeight();
+      window.addEventListener("resize", this._onFitResize);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._onFitResize) {
+      window.removeEventListener("resize", this._onFitResize);
+      this._onFitResize = null;
+      this._fitBound = false;
+    }
+  }
+
+  render(props) {
+    this.initializeState(props);
+    // Page title already shown in admin breadcrumb (e.g. Mini Data · default / 数据源).
+    const root = this.reset("");
+    root.classList.add("mei-admin-explorer-root");
+    root.setAttribute("aria-label", props.title || "资源");
+    const resources = Array.isArray(props.resources)
+      ? props.resources
+      : Array.isArray(this._resources)
+        ? this._resources
+        : [];
+
+    const needle = String(this._query || "").trim().toLocaleLowerCase();
+    const filtered = resources
+      .filter((resource) => resourceMatchesQuery(resource, needle))
+      .sort((left, right) => Number(Boolean(right.recommended)) - Number(Boolean(left.recommended)));
+
+    const selectedStillVisible = filtered.some(
+      (resource) => String(resource.id || "") === this._selectedId,
+    );
+    if (!filtered.length) {
+      if (this._selectedId) {
+        this._selectedId = "";
+        updateExplorerUrl({ q: this._query, view: this._viewMode, sel: "" });
+      }
+    } else if (!this._selectedId || !selectedStillVisible) {
+      this._selectedId = String(filtered[0].id || "");
+      updateExplorerUrl({ q: this._query, view: this._viewMode, sel: this._selectedId });
+    }
+
+    const explorer = element("div", { className: "mei-admin-explorer" });
+    explorer.style.setProperty("--nav-width", `${this._navWidthPct || readStoredNavWidth()}%`);
+    const nav = element("div", { className: "mei-admin-explorer-nav" });
+    const splitter = element("div", { className: "mei-admin-explorer-splitter" });
+    splitter.setAttribute("role", "separator");
+    splitter.setAttribute("aria-orientation", "vertical");
+    splitter.setAttribute("aria-label", "调整左右宽度");
+    splitter.tabIndex = 0;
+    const detail = element("div", { className: "mei-admin-explorer-detail" });
+
+    const toolbar = element("div", { className: "mei-admin-explorer-toolbar" });
+    const search = element("input", { className: "mei-admin-explorer-search" });
+    search.type = "search";
+    search.placeholder =
+      props.search_placeholder || props.searchPlaceholder || "搜索资源或文件名";
+    search.value = this._query || "";
+    search.setAttribute("aria-label", search.placeholder);
+    search.addEventListener("input", (event) => {
+      if (event.isComposing) return;
+      this.applySearch(search.value, props, resources);
+    });
+    search.addEventListener("compositionend", () => {
+      this.applySearch(search.value, props, resources);
+    });
+    toolbar.append(search);
+
+    const viewToggle = element("div", { className: "mei-admin-view-toggle" });
+    viewToggle.setAttribute("aria-label", "资源展示方式");
+    [
+      ["card", "卡片"],
+      ["list", "列表"],
+    ].forEach(([mode, label]) => {
+      const button = element("button", {
+        text: label,
+        type: "button",
+      });
+      button.setAttribute("aria-pressed", String(this._viewMode === mode));
+      button.addEventListener("click", () => {
+        this._viewMode = mode;
+        updateExplorerUrl({ q: this._query, view: mode, sel: this._selectedId });
+        this.render({ ...props, resources });
+      });
+      viewToggle.append(button);
+    });
+    toolbar.append(viewToggle);
+    nav.append(toolbar);
+
+    const navScroll = element("div", { className: "mei-admin-explorer-scroll" });
+    const collection = element("div", { className: "mei-admin-resource-collection" });
+    collection.dataset.view = this._viewMode === "list" ? "list" : "card";
+    collection.setAttribute("role", "listbox");
+    collection.setAttribute("aria-label", props.title || "资源");
+    filtered.forEach((resource) => {
+      const slot = resource.slot || {};
+      const files = Array.isArray(slot.files) ? slot.files : [];
+      const current = files.find((file) => file.isCurrent || file.is_current) || null;
+      const activePath = slot.activePath || slot.active_path || "";
+      const id = String(resource.id || slot.slotId || slot.slot_id || "");
+      const selected = this._selectedId === id;
+      const card = element("article", {
+        className: selected
+          ? "mei-admin-resource-card is-selected"
+          : "mei-admin-resource-card",
+      });
+      card.dataset.resourceId = id;
+      card.dataset.view = collection.dataset.view;
+      card.setAttribute("role", "option");
+      card.setAttribute("aria-selected", String(selected));
+      card.tabIndex = 0;
+      card.addEventListener("click", () => this.setSelection(id, props));
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          this.setSelection(id, props);
+        }
+      });
+
+      const head = element("div", { className: "mei-admin-resource-card-head" });
+      const title = element("div", { className: "mei-admin-resource-card-title" });
+      title.append(element("h3", { text: resource.title || id }));
+      head.append(title);
+      const chip = element("span", {
+        className: "mei-admin-chip",
+        text: statusLabel(slot.status),
+      });
+      chip.dataset.tone = String(slot.status || "").toLowerCase();
+      head.append(chip);
+      card.append(head);
+
+      const currentText =
+        current?.name || activePath || (this._viewMode === "list" ? "—" : "尚未设置当前文件");
+      const currentLine = element("p", {
+        className: "mei-admin-resource-current",
+        text: currentText,
+      });
+      currentLine.title = activePath || currentText;
+      card.append(currentLine);
+      if (this._viewMode !== "list") {
+        card.append(
+          element("p", {
+            className: "mei-admin-resource-meta-line",
+            text: `${files.length} 个文件`,
+          }),
+        );
+      }
+      collection.append(card);
+    });
+    if (!filtered.length) {
+      collection.append(
+        element("div", {
+          className: "mei-admin-explorer-empty",
+          text: needle ? "没有匹配的资源" : "暂无资源",
+        }),
+      );
+    }
+    navScroll.append(collection);
+    nav.append(navScroll);
+
+    const detailScroll = element("div", { className: "mei-admin-explorer-scroll" });
+    const selectedResource =
+      filtered.find((resource) => String(resource.id || "") === this._selectedId) || null;
+    if (selectedResource) {
+      const assetSlot = document.createElement("mei-admin-asset-slot");
+      assetSlot.setAttribute(
+        "data-props",
+        JSON.stringify({
+          title: selectedResource.title || selectedResource.id,
+          slot_id: selectedResource.id,
+          accept: selectedResource.accept,
+          hint: selectedResource.hint || "",
+          list_provider: selectedResource.list_provider || selectedResource.listProvider,
+          replace_provider: selectedResource.replace_provider || selectedResource.replaceProvider,
+          slot: selectedResource.slot,
+          embedded: true,
+        }),
+      );
+      detailScroll.append(assetSlot);
+    } else {
+      detailScroll.append(
+        element("div", {
+          className: "mei-admin-explorer-detail-empty",
+          text: "选择左侧资源以编辑",
+        }),
+      );
+    }
+    detail.append(detailScroll);
+
+    this.bindSplitter(splitter, explorer);
+    explorer.append(nav, splitter, detail);
+    root.append(explorer);
+    const scheduleFit = () => this.fitExplorerHeight();
+    queueMicrotask(scheduleFit);
+    requestAnimationFrame(scheduleFit);
+    setTimeout(scheduleFit, 50);
+    setTimeout(scheduleFit, 250);
+  }
+}
+
 class DataGrid extends AdminBrick {
   async hydrate(props) {
     const refs = [props.rows_provider, ...(props.slot_providers || [])].filter(providerRefId);
@@ -292,13 +1195,8 @@ class DataGrid extends AdminBrick {
     payloads
       .flatMap((payload) => payload.slots || payload.rows || [])
       .forEach((row, index) => {
-        const normalized = Object.fromEntries(
-          Object.entries(row || {}).map(([key, value]) => [
-            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-            value,
-          ]),
-        );
-        rowsById.set(normalized.slot_id || normalized.id || `row-${index}`, normalized);
+        const normalized = normalizeSlotRow(row, index);
+        rowsById.set(normalized.slot_id, normalized);
       });
     const rows = [...rowsById.values()];
     this.render({ ...props, rows });
@@ -309,17 +1207,59 @@ class DataGrid extends AdminBrick {
     const rows = Array.isArray(props.rows) ? props.rows : [];
     const columns = Array.isArray(props.columns)
       ? props.columns
-      : [...new Set(rows.flatMap((row) => Object.keys(row || {})))];
+      : ["slot_id", "status", "kind", "active_path", "file_count", "size_bytes", "modified_ms"];
     const table = element("table", { className: "mei-admin-data-grid" });
+    const colgroup = document.createElement("colgroup");
+    columns.forEach((column) => {
+      const col = document.createElement("col");
+      col.className = `col-${column}`;
+      colgroup.append(col);
+    });
+    table.append(colgroup);
     const head = element("thead");
     const headRow = element("tr");
-    columns.forEach((column) => headRow.append(element("th", { text: column })));
+    columns.forEach((column) =>
+      headRow.append(element("th", { text: COLUMN_LABELS[column] || column })),
+    );
     head.append(headRow);
     table.append(head);
     const body = element("tbody");
     rows.forEach((row) => {
       const tr = element("tr");
-      columns.forEach((column) => tr.append(element("td", { text: row?.[column] ?? "" })));
+      columns.forEach((column) => {
+        const raw = row?.[column] ?? "";
+        if (column === "status") {
+          const td = document.createElement("td");
+          const chip = element("span", {
+            className: "mei-admin-chip",
+            text: statusLabel(raw),
+          });
+          chip.dataset.tone = String(raw || "").toLowerCase();
+          td.append(chip);
+          tr.append(td);
+          return;
+        }
+        if (column === "active_path") {
+          const td = element("td", {
+            className: "mei-admin-cell-path",
+            text: truncatePath(raw, 56),
+          });
+          td.title = String(raw || "");
+          tr.append(td);
+          return;
+        }
+        if (column === "size_bytes") {
+          tr.append(element("td", { text: formatBytes(raw) }));
+          return;
+        }
+        if (column === "modified_ms") {
+          const ms = Number(raw);
+          const text = Number.isFinite(ms) && ms > 0 ? new Date(ms).toLocaleString() : "—";
+          tr.append(element("td", { text }));
+          return;
+        }
+        tr.append(element("td", { text: raw === "" || raw == null ? "—" : raw }));
+      });
       body.append(tr);
     });
     table.append(body);
@@ -329,42 +1269,202 @@ class DataGrid extends AdminBrick {
 }
 
 class AssetSlot extends AdminBrick {
+  async hydrate(props) {
+    const listRef = props.list_provider || props.listProvider || props.replace_provider || props.replaceProvider;
+    if (!providerRefId(listRef)) {
+      this.render(props);
+      return;
+    }
+    const response = await readProvider(listRef);
+    const slots = response.slots || [];
+    const slotId = String(props.slot_id || props.slotId || "").trim();
+    let slot = null;
+    if (slotId) {
+      slot = slots.find((entry) => entry.slotId === slotId || entry.slot_id === slotId) || null;
+    } else if (slots.length === 1) {
+      slot = slots[0];
+    }
+    this.render({ ...props, slot, _slotMiss: Boolean(slotId) && !slot });
+  }
+
   render(props) {
-    const root = this.reset(props.title || props.slot_id || "Asset");
-    const status = element("p", {
-      className: "mei-admin-status",
-      text: props.status || "等待选择文件",
-    });
+    const root = this.reset(props.title || props.slot_id || props.slotId || "Asset");
+    if (props.embedded) root.classList.add("is-embedded");
+    const slot = props.slot || {};
+    const files = Array.isArray(slot.files) ? slot.files : [];
+    const activePath = slot.activePath || slot.active_path || "";
+    const accept = String(props.accept || ".xlsx,.xls,.csv").trim() || ".xlsx,.xls,.csv";
+    const hint = String(props.hint || "").trim();
+    if (hint) {
+      root.append(element("p", { className: "mei-admin-hint", text: hint }));
+    }
+
+    if (props._slotMiss) {
+      const miss = element("p", {
+        className: "mei-admin-status",
+        text: `未找到槽位 ${props.slot_id || props.slotId}，请检查 list_provider 与 slot_id 是否一致`,
+      });
+      miss.dataset.tone = "error";
+      root.append(miss);
+    }
+
+    const pathBar = element("div", { className: "mei-admin-path-bar" });
+    pathBar.append(element("span", { text: "当前" }));
+    pathBar.append(document.createTextNode(activePath || "（尚未设置）"));
+    pathBar.title = activePath || "";
+    root.append(pathBar);
+
+    const status = element("p", { className: "mei-admin-status" });
     root.append(status);
-    const input = element("input");
-    input.type = "file";
-    input.addEventListener("change", async () => {
-      const file = input.files?.[0];
-      if (file) {
-        try {
-          input.disabled = true;
-          status.textContent = `正在上传 ${file.name}…`;
-          const response = providerRefId(props.replace_provider)
-            ? await replaceAsset(props.replace_provider, file)
-            : null;
-          status.textContent = `${file.name} 已就绪`;
-          this.dispatchEvent(
-            new CustomEvent("mei:admin-asset-selected", {
-              bubbles: true,
-              composed: true,
-              detail: { slotId: props.slot_id, file, response },
-            }),
-          );
-        } catch (error) {
-          status.textContent = error.message || String(error);
-          status.dataset.tone = "error";
-          console.error("[admin.asset-slot] upload failed", error);
-        } finally {
-          input.disabled = false;
+
+    const writeRef =
+      props.replace_provider || props.replaceProvider || props.list_provider || props.listProvider;
+    const canWrite = providerRefId(writeRef);
+
+    const renderFileRow = (file, { current }) => {
+      const name = file.name || "";
+      const path = file.path || name;
+      const row = element("div", {
+        className: current ? "mei-admin-file-row is-current" : "mei-admin-file-row is-history",
+      });
+      const meta = element("div", { className: "mei-admin-file-meta" });
+      const title = element("strong");
+      title.append(element("span", { className: "mei-admin-file-name", text: name }));
+      if (current) {
+        title.append(element("span", { className: "mei-admin-badge", text: "当前" }));
+      }
+      meta.append(title);
+      const subBits = [path];
+      if (file.sizeBytes != null || file.size_bytes != null) {
+        subBits.push(formatBytes(file.sizeBytes ?? file.size_bytes));
+      }
+      meta.append(element("span", { className: "mei-admin-file-sub", text: subBits.join(" · ") }));
+      row.append(meta);
+
+      const actions = element("div", { className: "mei-admin-file-actions" });
+      if (canWrite) {
+        if (!current) {
+          const applyBtn = element("button", { text: "应用为当前", type: "button" });
+          applyBtn.addEventListener("click", async () => {
+            try {
+              applyBtn.disabled = true;
+              status.textContent = `正在应用 ${name}…`;
+              const response = await applyAssetCurrent(writeRef, name);
+              status.textContent = `已设为当前：${response.slot?.activePath || name}`;
+              status.dataset.tone = "ok";
+              await this.hydrate(props);
+            } catch (error) {
+              status.textContent = error.message || String(error);
+              status.dataset.tone = "error";
+            } finally {
+              applyBtn.disabled = false;
+            }
+          });
+          actions.append(applyBtn);
+        }
+        const downloadBtn = element("button", {
+          text: "下载",
+          type: "button",
+          className: "mei-admin-btn-secondary",
+        });
+        downloadBtn.addEventListener("click", async () => {
+          try {
+            downloadBtn.disabled = true;
+            status.textContent = `正在下载 ${name}…`;
+            await downloadAssetFile(writeRef, name);
+            status.textContent = `已下载 ${name}`;
+            status.dataset.tone = "ok";
+          } catch (error) {
+            status.textContent = error.message || String(error);
+            status.dataset.tone = "error";
+          } finally {
+            downloadBtn.disabled = false;
+          }
+        });
+        actions.append(downloadBtn);
+        if (!current) {
+          const deleteBtn = element("button", {
+            text: "删除",
+            type: "button",
+            className: "mei-admin-btn-danger",
+          });
+          deleteBtn.addEventListener("click", async () => {
+            try {
+              deleteBtn.disabled = true;
+              status.textContent = `正在删除 ${name}…`;
+              await deleteAssetFile(writeRef, name);
+              status.textContent = `已删除 ${name}`;
+              status.dataset.tone = "ok";
+              await this.hydrate(props);
+            } catch (error) {
+              status.textContent = error.message || String(error);
+              status.dataset.tone = "error";
+            } finally {
+              deleteBtn.disabled = false;
+            }
+          });
+          actions.append(deleteBtn);
         }
       }
+      row.append(actions);
+      return row;
+    };
+
+    const currentFiles = files.filter((file) => file.isCurrent || file.is_current);
+    const historyFiles = files.filter((file) => !(file.isCurrent || file.is_current));
+    const list = element("div", { className: "mei-admin-file-list" });
+    if (currentFiles.length) {
+      const section = element("div", { className: "mei-admin-file-section" });
+      section.append(element("p", { className: "mei-admin-file-section-title", text: "当前文件" }));
+      currentFiles.forEach((file) => section.append(renderFileRow(file, { current: true })));
+      list.append(section);
+    }
+    if (historyFiles.length) {
+      const section = element("div", { className: "mei-admin-file-section" });
+      section.append(element("p", { className: "mei-admin-file-section-title", text: "历史文件" }));
+      historyFiles.forEach((file) => section.append(renderFileRow(file, { current: false })));
+      list.append(section);
+    }
+    if (!files.length) {
+      list.append(element("p", { className: "mei-admin-status", text: "暂无文件" }));
+    }
+    root.append(list);
+
+    const upload = element("div", { className: "mei-admin-upload" });
+    upload.append(element("label", { text: `上传新文件（${accept}）` }));
+    const input = element("input");
+    input.type = "file";
+    input.accept = accept;
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        input.disabled = true;
+        status.textContent = `正在上传 ${file.name}…`;
+        const response = canWrite ? await replaceAsset(writeRef, file) : null;
+        const uploaded =
+          response?.slot?.files?.find((entry) => entry.name === file.name)?.name || file.name;
+        status.textContent = `${uploaded} 已上传`;
+        status.dataset.tone = "ok";
+        this.dispatchEvent(
+          new CustomEvent("mei:admin-asset-selected", {
+            bubbles: true,
+            composed: true,
+            detail: { slotId: props.slot_id, file, response },
+          }),
+        );
+        await this.hydrate(props);
+      } catch (error) {
+        status.textContent = error.message || String(error);
+        status.dataset.tone = "error";
+        console.error("[admin.asset-slot] upload failed", error);
+      } finally {
+        input.disabled = false;
+        input.value = "";
+      }
     });
-    root.append(input);
+    upload.append(input);
+    root.append(upload);
   }
 }
 
@@ -372,10 +1472,17 @@ class ActionStrip extends AdminBrick {
   render(props) {
     const root = this.reset();
     root.classList.add("mei-admin-action-strip");
+    const status = element("p", { className: "mei-admin-status" });
     (Array.isArray(props.actions) ? props.actions : []).forEach((action) => {
       const button = element("button", { text: action.label || action.id, type: "button" });
       button.dataset.action = String(action.id || "");
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
+        if (
+          (action.danger === true || action.danger === "danger") &&
+          !window.confirm(action.confirm || `确定执行“${action.label || action.id}”？`)
+        ) {
+          return;
+        }
         this.dispatchEvent(
           new CustomEvent("mei:admin-action", {
             bubbles: true,
@@ -383,13 +1490,53 @@ class ActionStrip extends AdminBrick {
             detail: { action: action.id },
           }),
         );
+        if (!providerRefId(action.provider)) return;
+        try {
+          button.disabled = true;
+          status.textContent = "正在执行…";
+          const response = await invokeProviderAction(action.provider, action.payload || {});
+          status.textContent = response.message || "动作已完成";
+          status.dataset.tone = "ok";
+          this.dispatchEvent(
+            new CustomEvent("mei:admin-action-complete", {
+              bubbles: true,
+              composed: true,
+              detail: { action: action.id, response },
+            }),
+          );
+        } catch (error) {
+          status.textContent = error.message || String(error);
+          status.dataset.tone = "error";
+        } finally {
+          button.disabled = false;
+        }
       });
       root.append(button);
     });
+    root.append(status);
   }
 }
 
 class JobStatus extends AdminBrick {
+  async hydrate(props) {
+    if (!providerRefId(props.status_provider) || !this._jobId) {
+      this.render(props);
+      return;
+    }
+    const response = await readProvider(props.status_provider, { jobId: this._jobId });
+    const job = response.job || {};
+    this.render({
+      ...props,
+      status: job.status || "idle",
+      message: job.message || "",
+    });
+    if (job.status === "running" || job.status === "Running") {
+      window.setTimeout(() => {
+        void this.hydrate(props);
+      }, 1200);
+    }
+  }
+
   render(props) {
     const root = this.reset(props.title || "Job");
     const status = props.status || "idle";
@@ -399,27 +1546,346 @@ class JobStatus extends AdminBrick {
   }
 }
 
-class Navigator extends AdminBrick {
+class WorkspaceShare extends AdminBrick {
+  async hydrate(props) {
+    if (this._sharePath == null) {
+      const query = new URLSearchParams(window.location.search);
+      this._sharePath = query.get("path") || "";
+      this._shareQuery = query.get("q") || "";
+      this._shareView = query.get("view") || "card";
+    }
+    const query = new URLSearchParams();
+    if (this._sharePath) query.set("path", this._sharePath);
+    const payload = await workspaceShareRequest(`/api/workspace/share?${query.toString()}`);
+    this._shareEntries = payload.entries || [];
+    this._shareDirectories = payload.directories || [];
+    this.render(props);
+  }
+
+  syncShareUrl() {
+    const url = new URL(window.location.href);
+    [
+      ["path", this._sharePath],
+      ["q", this._shareQuery],
+      ["view", this._shareView],
+    ].forEach(([key, value]) => {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    });
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  navigate(path, props) {
+    this._sharePath = String(path || "");
+    this.syncShareUrl();
+    void this.hydrate(props).catch((error) => this.showError(error));
+  }
+
+  async mutate(path, options, props, success) {
+    this._shareStatus = "正在处理…";
+    this._shareStatusError = false;
+    this.render(props);
+    try {
+      await workspaceShareRequest(path, options);
+      this._shareStatus = success;
+      this._shareStatusError = false;
+      await this.hydrate(props);
+    } catch (error) {
+      this._shareStatus = error.message || String(error);
+      this._shareStatusError = true;
+      this.render(props);
+    }
+  }
+
   render(props) {
     const root = this.reset();
-    const nav = element("nav");
-    (Array.isArray(props.items) ? props.items : []).forEach((item) => {
-      const link = element("a", { text: item.label || item.id });
-      link.href = String(item.href || "#");
-      if (item.active) link.setAttribute("aria-current", "page");
-      nav.append(link);
+    root.classList.add("is-embedded");
+    const caps = props.capabilities || {};
+    const layout = element("div", { className: "mei-workspace-share" });
+
+    const nav = element("nav", { className: "mei-workspace-share-nav" });
+    nav.setAttribute("aria-label", "资料文件夹");
+    nav.append(element("h2", { text: "文件夹" }));
+    const rootButton = element("button", { text: "全部资料", type: "button" });
+    rootButton.setAttribute("aria-current", String(!this._sharePath));
+    rootButton.addEventListener("click", () => this.navigate("", props));
+    nav.append(rootButton);
+    (this._shareDirectories || []).forEach((path) => {
+      const button = element("button", { text: path, type: "button" });
+      button.style.paddingLeft = `${8 + Math.max(0, path.split("/").length - 1) * 12}px`;
+      button.title = path;
+      button.setAttribute("aria-current", String(this._sharePath === path));
+      button.addEventListener("click", () => this.navigate(path, props));
+      nav.append(button);
     });
+    layout.append(nav);
+
+    const main = element("div", { className: "mei-workspace-share-main" });
+    const breadcrumb = element("div", { className: "mei-workspace-share-breadcrumb" });
+    const rootCrumb = element("button", { text: "资料交换", type: "button" });
+    rootCrumb.addEventListener("click", () => this.navigate("", props));
+    breadcrumb.append(rootCrumb);
+    let accumulated = "";
+    String(this._sharePath || "")
+      .split("/")
+      .filter(Boolean)
+      .forEach((part) => {
+        breadcrumb.append(document.createTextNode("/"));
+        accumulated = accumulated ? `${accumulated}/${part}` : part;
+        const path = accumulated;
+        const crumb = element("button", { text: part, type: "button" });
+        crumb.addEventListener("click", () => this.navigate(path, props));
+        breadcrumb.append(crumb);
+      });
+    main.append(breadcrumb);
+
+    const actions = element("div", { className: "mei-workspace-share-actions" });
+    if (caps.upload !== false) {
+      const input = element("input");
+      input.type = "file";
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        input.disabled = true;
+        try {
+          await uploadWorkspaceShareFile(file, this._sharePath, (progress) => {
+            this._shareStatus = `正在上传 ${file.name}：${Math.round(progress * 100)}%`;
+            const status = this.querySelector("[data-share-status]");
+            if (status) status.textContent = this._shareStatus;
+          });
+          this._shareStatus = `已上传 ${file.name}`;
+          this._shareStatusError = false;
+          await this.hydrate(props);
+        } catch (error) {
+          this._shareStatus = error.message || String(error);
+          this._shareStatusError = true;
+          this.render(props);
+        } finally {
+          input.disabled = false;
+          input.value = "";
+        }
+      });
+      actions.append(input);
+      const mkdir = element("button", {
+        text: "新建文件夹",
+        type: "button",
+        className: "mei-admin-btn-secondary",
+      });
+      mkdir.addEventListener("click", () => {
+        const name = window.prompt("文件夹名称");
+        if (!name?.trim()) return;
+        const path = this._sharePath ? `${this._sharePath}/${name.trim()}` : name.trim();
+        void this.mutate(
+          "/api/workspace/share/dir",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path, idempotency_key: idempotencyKey() }),
+          },
+          props,
+          `已创建 ${path}`,
+        );
+      });
+      actions.append(mkdir);
+    }
+    main.append(actions);
+
+    const toolbar = element("div", { className: "mei-admin-explorer-toolbar" });
+    const search = element("input", { className: "mei-admin-explorer-search" });
+    search.type = "search";
+    search.placeholder = "搜索当前文件夹";
+    search.value = this._shareQuery || "";
+    search.addEventListener("input", () => {
+      this._shareQuery = search.value;
+      this.syncShareUrl();
+      this.render(props);
+      queueMicrotask(() => this.querySelector(".mei-admin-explorer-search")?.focus());
+    });
+    toolbar.append(search);
+    const toggle = element("div", { className: "mei-admin-view-toggle" });
+    [
+      ["card", "卡片"],
+      ["list", "列表"],
+    ].forEach(([mode, label]) => {
+      const button = element("button", {
+        text: label,
+        type: "button",
+        className: "mei-admin-btn-secondary",
+      });
+      button.setAttribute("aria-pressed", String(this._shareView === mode));
+      button.addEventListener("click", () => {
+        this._shareView = mode;
+        this.syncShareUrl();
+        this.render(props);
+      });
+      toggle.append(button);
+    });
+    toolbar.append(toggle);
+    main.append(toolbar);
+
+    const status = element("p", {
+      className: "mei-admin-status",
+      text: this._shareStatus || `当前目录：${this._sharePath || "/"}`,
+    });
+    status.dataset.shareStatus = "true";
+    if (this._shareStatusError) status.dataset.tone = "error";
+    main.append(status);
+
+    const needle = String(this._shareQuery || "").trim().toLocaleLowerCase();
+    const entries = (this._shareEntries || []).filter((entry) =>
+      String(entry.name || "").toLocaleLowerCase().includes(needle),
+    );
+    const collection = element("div", { className: "mei-admin-resource-collection" });
+    collection.dataset.view = this._shareView === "list" ? "list" : "card";
+    entries.forEach((entry) => {
+      const card = element("article", { className: "mei-admin-resource-card" });
+      const head = element("div", { className: "mei-admin-resource-card-head" });
+      const title = element("div", { className: "mei-admin-resource-card-title" });
+      title.append(element("h3", { text: entry.name }));
+      title.append(
+        element("p", {
+          text: entry.isDir
+            ? "文件夹"
+            : `${formatBytes(entry.sizeBytes)} · ${
+                entry.modifiedMs ? new Date(entry.modifiedMs).toLocaleString() : "—"
+              }`,
+        }),
+      );
+      head.append(title);
+      head.append(element("span", { className: "mei-admin-chip", text: entry.isDir ? "目录" : "文件" }));
+      card.append(head);
+      const entryActions = element("div", { className: "mei-workspace-share-entry-actions" });
+      if (entry.isDir) {
+        const open = element("button", { text: "打开", type: "button" });
+        open.addEventListener("click", () => this.navigate(entry.path, props));
+        entryActions.append(open);
+      } else {
+        const download = element("button", { text: "下载", type: "button" });
+        download.addEventListener("click", () =>
+          downloadWorkspaceShareFile(entry.path, entry.revision),
+        );
+        entryActions.append(download);
+      }
+      if (caps.organize !== false) {
+        const rename = element("button", { text: "重命名", type: "button" });
+        rename.addEventListener("click", () => {
+          const nextName = window.prompt("新名称", entry.name);
+          if (!nextName?.trim() || nextName.trim() === entry.name) return;
+          const parent = entry.path.includes("/")
+            ? entry.path.slice(0, entry.path.lastIndexOf("/"))
+            : "";
+          const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
+          void this.mutate(
+            "/api/workspace/share/rename",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                from_path: entry.path,
+                to_path: toPath,
+                expected_revision: entry.revision,
+                idempotency_key: idempotencyKey(),
+              }),
+            },
+            props,
+            `已重命名为 ${toPath}`,
+          );
+        });
+        entryActions.append(rename);
+        const move = element("button", { text: "移动", type: "button" });
+        move.addEventListener("click", () => {
+          const toDir = window.prompt("目标文件夹（留空为根目录）", this._sharePath || "");
+          if (toDir == null) return;
+          void this.mutate(
+            "/api/workspace/share/move",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                from_path: entry.path,
+                to_dir: toDir.trim() || null,
+                expected_revision: entry.revision,
+                idempotency_key: idempotencyKey(),
+              }),
+            },
+            props,
+            `已移动 ${entry.name}`,
+          );
+        });
+        entryActions.append(move);
+      }
+      if (caps.delete !== false) {
+        const remove = element("button", { text: "删除", type: "button" });
+        remove.addEventListener("click", () => {
+          if (!window.confirm(`确定删除 ${entry.name}？`)) return;
+          void this.mutate(
+            `/api/workspace/share?path=${encodeURIComponent(
+              entry.path,
+            )}&expected_revision=${encodeURIComponent(
+              entry.revision,
+            )}&idempotency_key=${encodeURIComponent(idempotencyKey())}`,
+            { method: "DELETE" },
+            props,
+            `已删除 ${entry.name}`,
+          );
+        });
+        entryActions.append(remove);
+      }
+      card.append(entryActions);
+      collection.append(card);
+    });
+    if (!entries.length) {
+      collection.append(
+        element("div", {
+          className: "mei-admin-explorer-empty",
+          text: needle ? "没有匹配的文件或文件夹" : "当前文件夹为空",
+        }),
+      );
+    }
+    main.append(collection);
+    layout.append(main);
+    root.append(layout);
+  }
+}
+
+class Navigator extends AdminBrick {
+  render(props) {
+    const items = Array.isArray(props.items) ? props.items : [];
+    if (!items.length || props.hidden === true) {
+      this.hidden = true;
+      this.replaceChildren();
+      return;
+    }
+    this.hidden = false;
+    const root = this.reset();
+    const nav = element("nav");
+    nav.setAttribute("aria-label", props.label || "资源分类");
+    const appendItems = (parent, entries, depth = 0) => {
+      entries.forEach((item) => {
+        const link = element("a", { text: item.label || item.id });
+        link.href = String(item.href || "#");
+        link.style.paddingLeft = `${depth * 14}px`;
+        if (item.active) link.setAttribute("aria-current", "page");
+        parent.append(link);
+        if (Array.isArray(item.children) && item.children.length) {
+          appendItems(parent, item.children, depth + 1);
+        }
+      });
+    };
+    appendItems(nav, items);
     root.append(nav);
   }
 }
 
 [
   ["mei-admin-form-card", FormCard],
+  ["mei-admin-collection-view", CollectionView],
   ["mei-admin-data-grid", DataGrid],
   ["mei-admin-asset-slot", AssetSlot],
   ["mei-admin-action-strip", ActionStrip],
   ["mei-admin-job-status", JobStatus],
   ["mei-admin-navigator", Navigator],
+  ["mei-workspace-share", WorkspaceShare],
 ].forEach(([tag, constructor]) => {
   if (!customElements.get(tag)) customElements.define(tag, constructor);
 });

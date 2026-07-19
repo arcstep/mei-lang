@@ -18,6 +18,16 @@ pub(super) fn resolve_upload_root_for_app(
     resolve_upload_root(state, app_id)
 }
 
+pub(super) fn resolve_workspace_share_root(state: &SharedState) -> PathBuf {
+    state
+        .read()
+        .expect("state lock")
+        .ctx
+        .workspace_root
+        .join("upload")
+        .join("share")
+}
+
 pub(super) fn sanitize_upload_rel(raw: &str) -> Result<String, ApiError> {
     let trimmed = raw.trim().replace('\\', "/");
     if trimmed.is_empty() {

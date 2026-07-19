@@ -8,6 +8,10 @@
       "tag": "mei-admin-data-grid",
       "script": "runtime.js"
     },
+    "admin.collection-view": {
+      "tag": "mei-admin-collection-view",
+      "script": "runtime.js"
+    },
     "admin.asset-slot": {
       "tag": "mei-admin-asset-slot",
       "script": "runtime.js"
@@ -22,6 +26,10 @@
     },
     "admin.navigator": {
       "tag": "mei-admin-navigator",
+      "script": "runtime.js"
+    },
+    "workspace.share": {
+      "tag": "mei-workspace-share",
       "script": "runtime.js"
     }
   }

@@ -1804,6 +1804,46 @@ fn compiled_with_panels(panels: Vec<UiNodeDecl>) -> CompiledApp {
 }
 
 #[test]
+fn ui_layout_index_rejects_repeated_component_use_key_without_instance_ids() {
+    let asset_slot = || {
+        UiTreeNode::Block(BlockDecl {
+            kind: "component".to_string(),
+            use_key: "component".to_string(),
+            id: None,
+            title: None,
+            area: Some("auto".to_string()),
+            props: json!({"slot_id": "slot"}),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: Some(json!("admin.asset-slot")),
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })
+    };
+    let panel = UiNodeDecl {
+        kind: "panel".to_string(),
+        id: "admin_resources".to_string(),
+        title: Some("资源".to_string()),
+        head: None,
+        area: Some("body".to_string()),
+        layout: None,
+        blocks: vec![asset_slot(), asset_slot()],
+        slot: None,
+        props: json!({"__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let result = build_ui_layout_index(&compiled_with_panels(vec![panel]));
+    assert_eq!(result.duplicate_node_ids.len(), 1);
+}
+
+#[test]
 fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
     let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![section_panel(
         "issue",

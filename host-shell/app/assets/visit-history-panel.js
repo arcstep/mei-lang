@@ -266,14 +266,22 @@
   }
 
   function bindTrigger() {
-    const trigger = document.getElementById(TRIGGER_ID);
-    if (!trigger || trigger.dataset.meiVisitHistoryBound === "1") return;
-    trigger.dataset.meiVisitHistoryBound = "1";
-    trigger.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      togglePopover();
-    });
+    // Prefer delegated click (chrome slots replace the button frequently).
+    updateTriggerHint();
+  }
+
+  function onDelegatedClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const trigger = target.closest?.(`#${TRIGGER_ID}`);
+    if (!(trigger instanceof HTMLElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    togglePopover();
+  }
+
+  function onChromeRefreshed() {
+    bindTrigger();
     updateTriggerHint();
   }
 
@@ -317,9 +325,9 @@
   }
 
   function init() {
-    if (!document.getElementById(TRIGGER_ID)) return;
-    bindTrigger();
-    recordAdminVisit("initial");
+    if (boot.visitHistoryPanelListenersBound) return;
+    boot.visitHistoryPanelListenersBound = true;
+    document.addEventListener("click", onDelegatedClick, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") hidePopover();
     });
@@ -330,8 +338,15 @@
     });
     document.addEventListener("mei:spa-navigation-complete", () => {
       recordAdminVisit("navigation");
-      bindTrigger();
+      onChromeRefreshed();
     });
+    document.addEventListener("mei:shell-layer-applied", onChromeRefreshed);
+    document.addEventListener("mei:host-chrome-refreshed", onChromeRefreshed);
+    window.addEventListener("mei:host-chrome-refreshed", onChromeRefreshed);
+    bindTrigger();
+    if (document.getElementById(TRIGGER_ID)) {
+      recordAdminVisit("initial");
+    }
   }
 
   if (document.readyState === "loading") {
@@ -341,10 +356,11 @@
   }
 
   boot.refreshVisitHistoryPanel = function refreshVisitHistoryPanel() {
-    if (!document.getElementById(TRIGGER_ID)) return;
     bindTrigger();
+    if (!document.getElementById(TRIGGER_ID)) return;
     recordAdminVisit("navigation");
     updateTriggerHint();
-    renderList();
+    const popover = document.getElementById(POPOVER_ID);
+    if (popover && popover.classList.contains("is-open")) renderList();
   };
 })();

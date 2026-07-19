@@ -1,18 +1,23 @@
 //! Typed Admin Provider HTTP API.
 
 use axum::{
+    body::Body,
     extract::{Extension, Path as AxumPath, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
-    get_command_job, get_config_record, list_asset_slots, put_config_record, replace_asset_slot,
-    resolve_app_root, run_import_job, AdminEntryProjection, AdminRecordError, ProviderBinding,
+    apply_asset_slot_current, delete_asset_slot_file, get_asset_slot, get_command_job,
+    get_config_record, put_config_record, replace_asset_slot, resolve_app_root,
+    resolve_asset_slot_download_path, run_import_job, AdminEntryProjection, AdminRecordError,
+    ProviderBinding,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fs;
+use std::path::Path;
 
 use crate::admin_registry::AdminRegistry;
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
@@ -63,6 +68,40 @@ pub struct AssetSlotReplaceBody {
     pub content: Option<String>,
     #[serde(default)]
     pub content_hex: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetSlotApplyBody {
+    #[serde(flatten)]
+    pub context: ProviderContext,
+    pub filename: String,
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetSlotDeleteBody {
+    #[serde(flatten)]
+    pub context: ProviderContext,
+    pub filename: String,
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetSlotDownloadBody {
+    #[serde(flatten)]
+    pub context: ProviderContext,
+    pub filename: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetSlotDownloadQuery {
+    #[serde(flatten)]
+    pub context: ProviderContext,
+    pub filename: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -384,27 +423,19 @@ pub async fn api_asset_slot_get(
     let snap = ensure_registry(&state);
     let principal = principal.as_ref().map(|value| &value.0);
     match load_provider_context(&snap, principal, &query.context) {
-        Ok((resource, binding, app_root))
+        Ok((_resource, binding, app_root))
             if binding.provider_id == "asset-slot"
                 && matches!(binding.method.as_str(), "GET" | "LIST") =>
         {
-            let bindings = resource
-                .page_program
-                .provider_bindings
-                .iter()
-                .filter(|candidate| {
-                    candidate.provider_id == "asset-slot"
-                        && candidate
-                            .required_capabilities
-                            .iter()
-                            .all(|capability| principal_has_cap(principal, capability))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            match list_asset_slots(&app_root, bindings.as_slice()) {
-                Ok(slots) => (
+            // Prefer the binding's own slot so each AssetSlot card stays isolated.
+            // DataGrid may still call several list bindings and merge `slots`.
+            match get_asset_slot(&app_root, &binding) {
+                Ok(slot) => (
                     StatusCode::OK,
-                    Json(json!({"context": query.context, "slots": slots})),
+                    Json(json!({
+                        "context": query.context,
+                        "slots": [slot],
+                    })),
                 )
                     .into_response(),
                 Err(error) => map_record_error(error).into_response(),
@@ -488,6 +519,239 @@ pub async fn api_asset_slot_replace(
         .into_response(),
         Err(response) => response,
     }
+}
+
+pub async fn api_asset_slot_apply_current(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    AxumPath(route): AxumPath<ProviderRoute>,
+    Json(body): Json<AssetSlotApplyBody>,
+) -> impl IntoResponse {
+    if !route_matches_context(&route, &body.context) {
+        return admin_err(
+            StatusCode::BAD_REQUEST,
+            "context-mismatch",
+            "route and API context differ",
+        )
+        .into_response();
+    }
+    let snap = ensure_registry(&state);
+    let principal = principal.as_ref().map(|value| &value.0);
+    let actor = actor_from_principal(principal);
+    let correlation_id = correlation_id(body.idempotency_key.as_deref());
+    match load_provider_context(&snap, principal, &body.context) {
+        Ok((resource, binding, app_root)) if binding.provider_id == "asset-slot" => {
+            match apply_asset_slot_current(
+                &app_root,
+                &binding,
+                body.filename.as_str(),
+                actor.as_str(),
+                body.context.app_id.as_str(),
+                resource.registry_entry.resource_id.as_str(),
+                resource.registry_entry.module_id.as_str(),
+                correlation_id.as_str(),
+            ) {
+                Ok(slot) => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "ok": true,
+                        "context": body.context,
+                        "slot": slot,
+                        "applyPolicy": "restart-runtime",
+                        "danger": binding.danger,
+                    })),
+                )
+                    .into_response(),
+                Err(error) => map_record_error(error).into_response(),
+            }
+        }
+        Ok(_) => admin_err(
+            StatusCode::BAD_REQUEST,
+            "binding-mismatch",
+            "provider must be asset-slot",
+        )
+        .into_response(),
+        Err(response) => response,
+    }
+}
+
+pub async fn api_asset_slot_delete_file(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    AxumPath(route): AxumPath<ProviderRoute>,
+    Json(body): Json<AssetSlotDeleteBody>,
+) -> impl IntoResponse {
+    if !route_matches_context(&route, &body.context) {
+        return admin_err(
+            StatusCode::BAD_REQUEST,
+            "context-mismatch",
+            "route and API context differ",
+        )
+        .into_response();
+    }
+    let snap = ensure_registry(&state);
+    let principal = principal.as_ref().map(|value| &value.0);
+    let actor = actor_from_principal(principal);
+    let correlation_id = correlation_id(body.idempotency_key.as_deref());
+    match load_provider_context(&snap, principal, &body.context) {
+        Ok((resource, binding, app_root)) if binding.provider_id == "asset-slot" => {
+            match delete_asset_slot_file(
+                &app_root,
+                &binding,
+                body.filename.as_str(),
+                actor.as_str(),
+                body.context.app_id.as_str(),
+                resource.registry_entry.resource_id.as_str(),
+                resource.registry_entry.module_id.as_str(),
+                correlation_id.as_str(),
+            ) {
+                Ok(slot) => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "ok": true,
+                        "context": body.context,
+                        "slot": slot,
+                        "applyPolicy": binding.apply_policy,
+                        "danger": binding.danger,
+                    })),
+                )
+                    .into_response(),
+                Err(error) => map_record_error(error).into_response(),
+            }
+        }
+        Ok(_) => admin_err(
+            StatusCode::BAD_REQUEST,
+            "binding-mismatch",
+            "provider must be asset-slot",
+        )
+        .into_response(),
+        Err(response) => response,
+    }
+}
+
+fn asset_slot_download_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("csv") => "text/csv; charset=utf-8",
+        Some("json") | Some("geojson") => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+fn asset_slot_attachment_disposition(file_name: &str) -> Result<HeaderValue, Response> {
+    let safe = file_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    HeaderValue::from_str(&format!("attachment; filename=\"{safe}\"")).map_err(|_| {
+        admin_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "header",
+            "invalid Content-Disposition",
+        )
+        .into_response()
+    })
+}
+
+fn respond_asset_slot_download(
+    snap: &AdminRegistrySnapshot,
+    principal: Option<&AuthPrincipal>,
+    route: &ProviderRoute,
+    context: &ProviderContext,
+    filename: &str,
+) -> Response {
+    if !route_matches_context(route, context) {
+        return admin_err(
+            StatusCode::BAD_REQUEST,
+            "context-mismatch",
+            "route and API context differ",
+        )
+        .into_response();
+    }
+    match load_provider_context(snap, principal, context) {
+        Ok((_resource, binding, app_root)) if binding.provider_id == "asset-slot" => {
+            match resolve_asset_slot_download_path(&app_root, &binding, filename) {
+                Ok((name, path)) => match fs::read(&path) {
+                    Ok(bytes) => {
+                        let disposition = match asset_slot_attachment_disposition(name.as_str()) {
+                            Ok(value) => value,
+                            Err(response) => return response,
+                        };
+                        let mut response = Response::new(Body::from(bytes));
+                        *response.status_mut() = StatusCode::OK;
+                        response.headers_mut().insert(
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static(asset_slot_download_content_type(&path)),
+                        );
+                        response
+                            .headers_mut()
+                            .insert(header::CONTENT_DISPOSITION, disposition);
+                        response
+                    }
+                    Err(error) => admin_err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "io",
+                        format!("failed to read asset slot file: {error}"),
+                    )
+                    .into_response(),
+                },
+                Err(error) => map_record_error(error).into_response(),
+            }
+        }
+        Ok(_) => admin_err(
+            StatusCode::BAD_REQUEST,
+            "binding-mismatch",
+            "provider must be asset-slot",
+        )
+        .into_response(),
+        Err(response) => response,
+    }
+}
+
+pub async fn api_asset_slot_download_file_post(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    AxumPath(route): AxumPath<ProviderRoute>,
+    Json(body): Json<AssetSlotDownloadBody>,
+) -> impl IntoResponse {
+    let snap = ensure_registry(&state);
+    let principal = principal.as_ref().map(|value| &value.0);
+    respond_asset_slot_download(
+        &snap,
+        principal,
+        &route,
+        &body.context,
+        body.filename.as_str(),
+    )
+}
+
+pub async fn api_asset_slot_download_file_get(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    AxumPath(route): AxumPath<ProviderRoute>,
+    Query(query): Query<AssetSlotDownloadQuery>,
+) -> impl IntoResponse {
+    let snap = ensure_registry(&state);
+    let principal = principal.as_ref().map(|value| &value.0);
+    respond_asset_slot_download(
+        &snap,
+        principal,
+        &route,
+        &query.context,
+        query.filename.as_str(),
+    )
 }
 
 pub async fn api_command_job_get(

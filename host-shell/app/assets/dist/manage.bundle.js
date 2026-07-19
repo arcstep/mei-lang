@@ -1628,9 +1628,18 @@
 
   function currentAppId() {
     const parsed = global.__mei?.view_revision_envelope?.app_id;
-    if (parsed) return String(parsed);
-    const match = global.location?.pathname?.match(/^\/apps\/([^/]+)/);
-    return match ? decodeURIComponent(match[1]) : "";
+    if (parsed) return String(parsed).trim();
+    const path = String(global.location?.pathname || "");
+    let match = path.match(/^\/apps\/([^/]+)/);
+    if (match) return decodeURIComponent(match[1]);
+    match = path.match(/^\/admin\/apps\/([^/]+)/);
+    if (match) return decodeURIComponent(match[1]);
+    const fromDom =
+      global.document?.body?.getAttribute?.("data-app-id") ||
+      global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-app-id") ||
+      global.document?.querySelector?.("[data-app-id]")?.getAttribute?.("data-app-id") ||
+      "";
+    return String(fromDom || "").trim();
   }
 
   function shellNavFromLocation() {
@@ -1638,6 +1647,42 @@
     if (path === "/runtime" || path.startsWith("/runtime/")) return "runtime";
     if (path === "/home" || path === "/") return "home";
     if (path.startsWith("/mcg")) return "mcg";
+    return "";
+  }
+
+  function surfaceFromLocation() {
+    const params = new URLSearchParams(global.location?.search || "");
+    const fromQuery = String(params.get("surface") || "")
+      .trim()
+      .toLowerCase();
+    if (fromQuery) return fromQuery;
+    const path = String(global.location?.pathname || "");
+    if (path.startsWith("/admin/apps/")) return "admin";
+    const composeRoot = global.document?.getElementById?.("mei-compose-root");
+    const fromCompose = String(
+      composeRoot?.getAttribute?.("data-mei-compose-root") ||
+        composeRoot?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromCompose) return fromCompose;
+    return "app";
+  }
+
+  function adminIdFromLocation() {
+    const params = new URLSearchParams(global.location?.search || "");
+    const fromQuery = String(params.get("adminId") || params.get("admin_id") || "").trim();
+    if (fromQuery) return fromQuery;
+    const path = String(global.location?.pathname || "");
+    const match = path.match(/^\/admin\/apps\/[^/]+\/([^/]+)\/([^/]+)\/?$/);
+    if (match) {
+      return `${decodeURIComponent(match[1])}.${decodeURIComponent(match[2])}`;
+    }
+    const host = global.document?.getElementById?.("mei-view-host");
+    const resource = String(host?.getAttribute?.("data-resource-id") || "").trim();
+    const module = String(host?.getAttribute?.("data-module-id") || "").trim();
+    if (resource && module) return `${resource}.${module}`;
     return "";
   }
 
@@ -1712,9 +1757,11 @@
     const scene =
       params.get("scene") ||
       global.document?.body?.getAttribute?.("data-scene-id") ||
+      global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-scene-id") ||
       "home";
-    const surface = params.get("surface") || "app";
+    const surface = surfaceFromLocation();
     const chrome = params.get("chrome") || "";
+    const adminId = adminIdFromLocation();
     const shellNav = shellNavFromLocation();
     const query = new URLSearchParams();
     if (shellNav) {
@@ -1724,6 +1771,7 @@
       if (scene) query.set("scene", scene);
       if (surface) query.set("surface", surface);
       if (chrome) query.set("chrome", chrome);
+      if (adminId) query.set("adminId", adminId);
     }
     return query.toString();
   }
@@ -1773,10 +1821,26 @@
         if (typeof boot?.fixTopbarHrefFromLocation === "function") {
           boot.fixTopbarHrefFromLocation();
         }
+        if (typeof boot?.refreshStatusBarChips === "function") {
+          boot.refreshStatusBarChips();
+        }
+        if (typeof boot?.refreshVisitHistoryPanel === "function") {
+          boot.refreshVisitHistoryPanel();
+        }
+        const chromeDetail = {
+          digest,
+          runningAppIds: data?.runningAppIds || [],
+          payload,
+        };
+        try {
+          global.document?.dispatchEvent?.(
+            new CustomEvent("mei:host-chrome-refreshed", { detail: chromeDetail }),
+          );
+        } catch (_error) {
+          // ignore
+        }
         global.dispatchEvent(
-          new CustomEvent("mei:host-chrome-refreshed", {
-            detail: { digest, runningAppIds: data?.runningAppIds || [], payload },
-          }),
+          new CustomEvent("mei:host-chrome-refreshed", { detail: chromeDetail }),
         );
         global.dispatchEvent(
           new CustomEvent("mei:host-apps-changed", {
@@ -35848,6 +35912,27 @@
     return incoming.outerHTML;
   }
 
+  function shouldPreserveHostChrome(root, doc) {
+    const fromRoot = String(
+      root?.getAttribute?.("data-mei-compose-root") ||
+        root?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromRoot === "admin" || fromRoot === "config" || fromRoot === "upload") {
+      return true;
+    }
+    const fromDoc = String(doc?.route_mode || "")
+      .trim()
+      .toLowerCase();
+    if (fromDoc === "admin" || fromDoc === "config" || fromDoc === "upload") {
+      return true;
+    }
+    const path = String(global.location?.pathname || "");
+    return path.startsWith("/admin/apps/");
+  }
+
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
     let doc = extractLayerDocument(shellLayer);
@@ -35877,23 +35962,26 @@
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
     const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
-    if (topbar && topSlot instanceof HTMLElement) {
-      topSlot.innerHTML = topbar;
-    } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = topbar;
-      const bar = wrap.firstElementChild;
-      const host = global.document?.getElementById?.("mei-compose-host") || root;
-      if (bar && host instanceof HTMLElement) host.prepend(bar);
-    }
-    if (statusbar && bottomSlot instanceof HTMLElement) {
-      bottomSlot.innerHTML = statusbar;
-    } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = statusbar;
-      const bar = wrap.firstElementChild;
-      const host = global.document?.getElementById?.("mei-compose-host") || root;
-      if (bar && host instanceof HTMLElement) host.append(bar);
+    const preserveHostChrome = shouldPreserveHostChrome(root, doc);
+    if (!preserveHostChrome) {
+      if (topbar && topSlot instanceof HTMLElement) {
+        topSlot.innerHTML = topbar;
+      } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = topbar;
+        const bar = wrap.firstElementChild;
+        const host = global.document?.getElementById?.("mei-compose-host") || root;
+        if (bar && host instanceof HTMLElement) host.prepend(bar);
+      }
+      if (statusbar && bottomSlot instanceof HTMLElement) {
+        bottomSlot.innerHTML = statusbar;
+      } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = statusbar;
+        const bar = wrap.firstElementChild;
+        const host = global.document?.getElementById?.("mei-compose-host") || root;
+        if (bar && host instanceof HTMLElement) host.append(bar);
+      }
     }
     if (signature) root.setAttribute("data-mei-shell-digest", signature);
     boot.renderPipelineMark?.("apply_chrome:end", {
@@ -35904,7 +35992,11 @@
     try {
       global.document?.dispatchEvent?.(
         new CustomEvent("mei:shell-layer-applied", {
-          detail: { signature, routeMode: doc.route_mode || null },
+          detail: {
+            signature,
+            routeMode: doc.route_mode || null,
+            preserveHostChrome,
+          },
         }),
       );
     } catch (_error) {
@@ -38379,6 +38471,7 @@
       const props = mountPropsForEval(mount, scopeKey, sceneMount, allowMetric);
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
+      const instanceId = String(mount?.block_id || "").trim();
     // Authored plain-text leaves (`…/area/mei.text`) carry string content and
     // must not be dropped — metric_role is only required inside metric cards.
     if (
@@ -38392,10 +38485,27 @@
       if (metricRole) {
         selector += `[data-metric-role="${CSS.escape(metricRole)}"]`;
       }
+      if (instanceId) {
+        selector += `[data-mei-instance-id="${CSS.escape(instanceId)}"]`;
+      }
       let target = host.querySelector(selector);
+      if (!(target instanceof HTMLElement) && instanceId) {
+        let unclaimedSelector = `[data-mei-use-key="${CSS.escape(useKey)}"]:not([data-mei-instance-id])`;
+        if (metricRole) {
+          unclaimedSelector += `[data-metric-role="${CSS.escape(metricRole)}"]`;
+        }
+        const unclaimed = host.querySelector(unclaimedSelector);
+        if (unclaimed instanceof HTMLElement) {
+          unclaimed.setAttribute("data-mei-instance-id", instanceId);
+          target = unclaimed;
+        }
+      }
       if (!(target instanceof HTMLElement) && tag) {
         target = document.createElement(tag);
         target.setAttribute("data-mei-use-key", useKey);
+        if (instanceId) {
+          target.setAttribute("data-mei-instance-id", instanceId);
+        }
         if (metricRole) {
           target.setAttribute("data-metric-role", metricRole);
         }
@@ -42885,6 +42995,31 @@
     return body instanceof HTMLElement && body.classList.contains("chrome-none");
   }
 
+  /** Admin/Config/Upload：Host SSR chrome 为真源，禁止被 app-runtime shell stub 覆盖。 */
+  function shouldPreserveHostChromeSlots(ctx) {
+    const surface = String(ctx?.surface || ctx?.mode || "")
+      .trim()
+      .toLowerCase();
+    if (surface === "admin" || surface === "config" || surface === "upload") {
+      return true;
+    }
+    const path = String(global.location?.pathname || "");
+    if (path.startsWith("/admin/apps/")) return true;
+    const composeRoot = global.document?.getElementById?.("mei-compose-root");
+    const composeSurface = String(
+      composeRoot?.getAttribute?.("data-mei-compose-root") ||
+        composeRoot?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    return (
+      composeSurface === "admin" ||
+      composeSurface === "config" ||
+      composeSurface === "upload"
+    );
+  }
+
   function isSsrShellPlaceholder(ctx) {
     const surface = ctx?.surface || ctx?.mode || "app";
     const doc = shellDocFromManifestRefs(surface);
@@ -42968,12 +43103,15 @@
       const bottom = String(doc?.statusbar_html || "").trim();
       const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
       const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
-      if (top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
-      if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+      const preserveHostChrome = shouldPreserveHostChromeSlots(chromeCtx);
+      if (!preserveHostChrome && top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
+      if (!preserveHostChrome && bottom && bottomSlot instanceof HTMLElement) {
+        bottomSlot.innerHTML = bottom;
+      }
       try {
         global.document?.dispatchEvent?.(
           new CustomEvent("mei:shell-layer-applied", {
-            detail: { source: "thin-shell-host" },
+            detail: { source: "thin-shell-host", preserveHostChrome },
           }),
         );
       } catch (_error) {
@@ -42982,6 +43120,9 @@
     }
     if (typeof boot.refreshStatusBarChips === "function") {
       boot.refreshStatusBarChips();
+    }
+    if (typeof boot.refreshVisitHistoryPanel === "function") {
+      boot.refreshVisitHistoryPanel();
     }
     return hostChromeReady(chromeCtx);
   }

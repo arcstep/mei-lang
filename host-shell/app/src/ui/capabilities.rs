@@ -7,6 +7,14 @@ pub struct HostCapabilities {
     pub access_view: bool,
     /// 配置/上传视图及 `/api/ops/*`、`/api/upload/*`
     pub config_upload: bool,
+    /// 工作区资料交换：查看与下载。
+    pub workspace_share_view: bool,
+    /// 工作区资料交换：上传文件与新建目录。
+    pub workspace_share_upload: bool,
+    /// 工作区资料交换：重命名与移动。
+    pub workspace_share_organize: bool,
+    /// 工作区资料交换：删除文件与目录。
+    pub workspace_share_delete: bool,
     /// 应用访问面 `/apps/{id}/app`
     pub build_view: bool,
     /// 访问侧 Agent（session、message、probe、context/preview 等）
@@ -30,6 +38,10 @@ impl HostCapabilities {
         Self {
             access_view: true,
             config_upload: true,
+            workspace_share_view: true,
+            workspace_share_upload: true,
+            workspace_share_organize: true,
+            workspace_share_delete: true,
             build_view: true,
             access_agent: true,
             authoring_agent: true,
@@ -43,6 +55,10 @@ impl HostCapabilities {
             "super" => Self {
                 access_view: true,
                 config_upload: true,
+                workspace_share_view: true,
+                workspace_share_upload: true,
+                workspace_share_organize: true,
+                workspace_share_delete: true,
                 build_view: true,
                 access_agent: true,
                 authoring_agent: true,
@@ -52,6 +68,10 @@ impl HostCapabilities {
             "admin" => Self {
                 access_view: true,
                 config_upload: true,
+                workspace_share_view: true,
+                workspace_share_upload: true,
+                workspace_share_organize: true,
+                workspace_share_delete: true,
                 build_view: false,
                 access_agent: true,
                 authoring_agent: false,
@@ -61,6 +81,10 @@ impl HostCapabilities {
             _ => Self {
                 access_view: true,
                 config_upload: false,
+                workspace_share_view: false,
+                workspace_share_upload: false,
+                workspace_share_organize: false,
+                workspace_share_delete: false,
                 build_view: false,
                 access_agent: true,
                 authoring_agent: false,
@@ -82,7 +106,14 @@ mod tests {
         assert!(!guest.config_upload && !guest.build_view && !guest.authoring_agent);
 
         let admin = HostCapabilities::from_role_slug("admin");
-        assert!(admin.config_upload && !admin.build_view);
+        assert!(
+            admin.config_upload
+                && admin.workspace_share_view
+                && admin.workspace_share_upload
+                && admin.workspace_share_organize
+                && admin.workspace_share_delete
+                && !admin.build_view
+        );
 
         let super_user = HostCapabilities::from_role_slug("super");
         assert!(super_user.build_view && super_user.agent_control);

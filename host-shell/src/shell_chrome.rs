@@ -318,6 +318,8 @@ pub struct ShellChromeQuery {
     pub scene: Option<String>,
     pub surface: Option<String>,
     pub chrome: Option<String>,
+    /// Active Admin resource id (`{resource}.{module}`), e.g. `datasources.import`.
+    pub admin_id: Option<String>,
     /// Workspace shell nav highlight: `home` | `config` | `upload` | `runtime` | `mcg`.
     pub shell_nav: Option<String>,
 }
@@ -397,6 +399,16 @@ pub fn render_shell_chrome_payload(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or("app");
+            let route_mode = UiRouteMode::from_slug(surface);
+            let admin_active_id = query
+                .admin_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let active_tab = match route_mode {
+                UiRouteMode::Admin | UiRouteMode::Config | UiRouteMode::Upload => None,
+                _ => Some(surface),
+            };
             let chrome_hidden = matches!(
                 query
                     .chrome
@@ -459,16 +471,17 @@ pub fn render_shell_chrome_payload(
                 &compiled,
                 app_id.as_str(),
                 Some(&topbar_menu),
-                UiRouteMode::App,
+                route_mode,
                 Some(scene),
                 None,
-                Some(surface),
+                active_tab,
                 auth_enabled,
                 auth_account,
                 None,
                 None,
                 chrome_hidden,
                 admin_nav.as_slice(),
+                admin_active_id,
             )
         };
     topbar_html = crate::build_info::fill_page_shell_placeholders(topbar_html, workspace.as_path());

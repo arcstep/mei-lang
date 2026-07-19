@@ -24,7 +24,11 @@ mod workspace_paths;
 #[cfg(test)]
 mod tests;
 
-pub use admin_asset_slot::{get_asset_slot, list_asset_slots, replace_asset_slot, AssetSlotView};
+pub use admin_asset_slot::{
+    apply_asset_slot_current, delete_asset_slot_file, get_asset_slot, list_asset_slots,
+    replace_asset_slot, resolve_asset_slot_download_path, slot_id_from_binding,
+    upload_asset_slot_file, AssetSlotFileView, AssetSlotView, ADMIN_UPLOAD_PREFIX,
+};
 pub use admin_command_job::{
     get_command_job, run_import_job, AdminJobRecord, AdminJobStatus, ADMIN_JOBS_REL_DIR,
 };

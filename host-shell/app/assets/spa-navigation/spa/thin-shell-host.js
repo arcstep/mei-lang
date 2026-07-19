@@ -55,6 +55,31 @@
     return body instanceof HTMLElement && body.classList.contains("chrome-none");
   }
 
+  /** Admin/Config/Upload：Host SSR chrome 为真源，禁止被 app-runtime shell stub 覆盖。 */
+  function shouldPreserveHostChromeSlots(ctx) {
+    const surface = String(ctx?.surface || ctx?.mode || "")
+      .trim()
+      .toLowerCase();
+    if (surface === "admin" || surface === "config" || surface === "upload") {
+      return true;
+    }
+    const path = String(global.location?.pathname || "");
+    if (path.startsWith("/admin/apps/")) return true;
+    const composeRoot = global.document?.getElementById?.("mei-compose-root");
+    const composeSurface = String(
+      composeRoot?.getAttribute?.("data-mei-compose-root") ||
+        composeRoot?.getAttribute?.("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    return (
+      composeSurface === "admin" ||
+      composeSurface === "config" ||
+      composeSurface === "upload"
+    );
+  }
+
   function isSsrShellPlaceholder(ctx) {
     const surface = ctx?.surface || ctx?.mode || "app";
     const doc = shellDocFromManifestRefs(surface);
@@ -138,12 +163,15 @@
       const bottom = String(doc?.statusbar_html || "").trim();
       const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
       const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
-      if (top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
-      if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+      const preserveHostChrome = shouldPreserveHostChromeSlots(chromeCtx);
+      if (!preserveHostChrome && top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
+      if (!preserveHostChrome && bottom && bottomSlot instanceof HTMLElement) {
+        bottomSlot.innerHTML = bottom;
+      }
       try {
         global.document?.dispatchEvent?.(
           new CustomEvent("mei:shell-layer-applied", {
-            detail: { source: "thin-shell-host" },
+            detail: { source: "thin-shell-host", preserveHostChrome },
           }),
         );
       } catch (_error) {
@@ -152,6 +180,9 @@
     }
     if (typeof boot.refreshStatusBarChips === "function") {
       boot.refreshStatusBarChips();
+    }
+    if (typeof boot.refreshVisitHistoryPanel === "function") {
+      boot.refreshVisitHistoryPanel();
     }
     return hostChromeReady(chromeCtx);
   }
