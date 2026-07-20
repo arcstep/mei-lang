@@ -29,7 +29,7 @@ exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "2.6.22"
+version = "2.6.23"
 license = "MIT"
 
 [workspace.dependencies]
@@ -58,6 +58,7 @@ chumsky = "0.9"
 zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+duckdb = { version = "1.10504.0", features = ["bundled"] }
 
 [profile.dev]
 # Line tables retain useful source locations while avoiding macOS' very large
