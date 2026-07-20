@@ -187,17 +187,111 @@ pub fn query_metric_dataframe(
     }
 
     let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
+    let metric_defs_for_sql = if owner_dataset.runtime_metric_defs.is_empty() {
+        &defs_for_hydrate
+    } else {
+        &owner_dataset.runtime_metric_defs
+    };
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root,
         compiled,
         owner_resource.id.as_str(),
-        if owner_dataset.runtime_metric_defs.is_empty() {
-            &defs_for_hydrate
-        } else {
-            &owner_dataset.runtime_metric_defs
-        },
+        metric_defs_for_sql,
     );
     let eval_started = Instant::now();
+
+    // 0549: compile dataframe/series pipeline to DuckDB SQL before whole-table hydrate.
+    if synthetic_parent.is_none() {
+        let sql_datasets = build_compiled_datasets_map(
+            compiled,
+            &primary_resource.id,
+            primary_dataset.clone(),
+            &referenced_dataset_ids,
+        );
+        let sql_ids = vec![workset_metric_id.clone()];
+        if let Ok(Some(metrics_map)) = crate::duckdb_engine::try_eval_dataframe_metrics_via_sql(
+            app_root,
+            &sql_datasets,
+            metric_defs_for_sql,
+            &sql_ids,
+        ) {
+            if let Some(metric) = metrics_map.get(workset_metric_id.as_str()) {
+                let (mut columns, rows) = if metric.shape == MetricShape::Scalar {
+                    scalar_metric_to_rowset(metric)
+                } else {
+                    let columns = metric
+                        .schema
+                        .iter()
+                        .map(|column| column.name.clone())
+                        .collect::<Vec<_>>();
+                    (columns, extract_dataframe_rows(&metric.value))
+                };
+                if columns.is_empty() && !rows.is_empty() {
+                    columns = infer_columns(&rows);
+                }
+                let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &sql_datasets);
+                if !row_schema.is_empty()
+                    && columns.iter().any(|name| {
+                        row_schema.iter().any(|col| {
+                            col.source
+                                .as_deref()
+                                .map(str::trim)
+                                .is_some_and(|source| source == name.as_str())
+                        })
+                    })
+                {
+                    columns = row_schema.iter().map(|col| col.name.clone()).collect();
+                }
+                let metric_eval_ms = elapsed_ms(eval_started);
+                let materialized = MaterializedMetricDataframe {
+                    expires_at: Instant::now() + metric_dataframe_materialized_cache_ttl(),
+                    columns,
+                    rows,
+                    row_schema,
+                    normalize: meta.normalize.clone(),
+                    base_perf: BTreeMap::from([
+                        ("base_query_ms".to_string(), 0),
+                        ("base_rowset_materialize_ms".to_string(), 0),
+                        ("metric_eval_ms".to_string(), metric_eval_ms),
+                        ("duckdb_pipeline_sql".to_string(), 1),
+                        (
+                            "workset_artifact_load_ms".to_string(),
+                            workset_artifact_load_ms,
+                        ),
+                        (
+                            "workset_artifact_hit".to_string(),
+                            u64::from(workset_artifact_hit),
+                        ),
+                    ]),
+                };
+                if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
+                    store_cached_metric_dataframe_materialized(
+                        materialized_cache_key,
+                        materialized.clone(),
+                    );
+                }
+                let result = paginate_materialized_metric_dataframe(
+                    &materialized,
+                    &meta,
+                    &metric_output_pagination_options(&options),
+                    &response_cache_key,
+                    response_cache_lookup_ms,
+                    false,
+                    Some(elapsed_ms(eval_started)),
+                );
+                store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
+                if result_artifact_candidate {
+                    store_metric_dataframe_result_artifact(
+                        app_root,
+                        &response_cache_key,
+                        &result,
+                    )?;
+                }
+                return Ok(result);
+            }
+        }
+    }
+
     let primary_filters =
         resolve_dataset_query_bindings_from_state(&effective_query_state, primary_dataset)
             .mapped_filters;

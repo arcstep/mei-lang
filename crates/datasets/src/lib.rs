@@ -2,6 +2,7 @@ mod agg_result_cache;
 mod cache_partition;
 mod csv_dataset;
 mod dataset_rows_cache;
+mod duckdb_engine;
 mod db_dataset;
 mod eval_artifact;
 mod eval_cache_invalidation;
@@ -93,9 +94,9 @@ pub use result_artifact::{
     load_metric_response_lite_artifact, load_metric_response_result_artifact,
     metric_dataframe_result_artifact_exists, metric_response_result_artifact_exists,
     snapshot_lite_artifact_io_stats, store_metric_dataframe_result_artifact,
-    store_metric_response_result_artifact, take_lite_artifact_io_stats,
-    take_metric_response_index_stats, LiteArtifactIoStats, LoadedMetricResponseArtifact,
-    MetricResponseIndexStats,
+    store_metric_response_lite_only, store_metric_response_result_artifact,
+    take_lite_artifact_io_stats, take_metric_response_index_stats, LiteArtifactIoStats,
+    LoadedMetricResponseArtifact, MetricResponseIndexStats,
 };
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
@@ -137,6 +138,19 @@ pub fn clear_agg_result_cache() -> usize {
 pub fn clear_table_handle_cache() -> usize {
     table_handle::clear_table_handle_cache()
 }
+
+pub fn clear_duckdb_connections() -> usize {
+    duckdb_engine::clear_duckdb_connections()
+}
+
+pub fn ensure_duckdb_connection(app_root: &Path) -> Result<()> {
+    duckdb_engine::ensure_duckdb_connection(app_root)
+}
+
+pub use duckdb_engine::{
+    resolve_parquet_file_for_source, snapshot_duckdb_io_stats, snapshot_pipeline_sql_stats,
+    take_duckdb_io_stats, take_pipeline_sql_stats,
+};
 
 pub fn clear_eval_artifact_store(app_root: &Path) -> usize {
     eval_artifact::clear_eval_artifact_store(app_root)

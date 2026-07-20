@@ -1,0 +1,876 @@
+//! Lower analysis_expr → SqlPlan (CTE chain).
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use anyhow::{bail, Result};
+use mei_lang_kernel::DatasetView;
+use serde_json::Value;
+
+use super::super::register::{ensure_parquet_view, resolve_parquet_file_for_source};
+use super::super::sql::{quote_ident, quote_string};
+use super::date_sql::sql_parse_date_expr;
+use super::MAX_PIPELINE_SQL_ROWS;
+
+#[derive(Debug, Clone)]
+pub struct SqlPlan {
+    pub setup_ddls: Vec<String>,
+    pub final_sql: String,
+    pub result_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct Rel {
+    /// SQL subquery or view reference producing rows.
+    sql: String,
+    /// Known output column names (best-effort).
+    columns: Vec<String>,
+}
+
+pub fn try_lower_expr(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    expr: &Value,
+) -> Result<Option<SqlPlan>> {
+    let mut setup = Vec::new();
+    let Some(rel) = lower_rel(app_root, datasets, expr, &mut setup, 0)? else {
+        return Ok(None);
+    };
+    Ok(Some(SqlPlan {
+        setup_ddls: setup,
+        final_sql: rel.sql,
+        result_columns: rel.columns,
+    }))
+}
+
+fn lower_rel(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    expr: &Value,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    if depth > 32 {
+        return Ok(None);
+    }
+    let Some(object) = expr.as_object() else {
+        return Ok(None);
+    };
+    // Runtime metric defs often keep dataset bindings as `__ref: data`
+    // instead of fully lowered `analysis_expr/rows`.
+    if object.get("__ref").and_then(Value::as_str) == Some("data") {
+        return lower_data_ref(app_root, datasets, object, setup);
+    }
+    if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return Ok(None);
+    }
+    let analysis_type = object.get("type").and_then(Value::as_str).unwrap_or("");
+    match analysis_type {
+        "rows" => lower_rows(app_root, datasets, object, setup),
+        "where" => lower_where(app_root, datasets, object, setup, depth),
+        "sort_by" => lower_sort_by(app_root, datasets, object, setup, depth),
+        "limit" => lower_limit(app_root, datasets, object, setup, depth),
+        "select" => lower_select(app_root, datasets, object, setup, depth),
+        "rename" => lower_rename(app_root, datasets, object, setup, depth),
+        "trend_year_compare" => lower_trend_year_compare(app_root, datasets, object, setup, depth),
+        "party_year_aggregate" => {
+            lower_party_year_aggregate(app_root, datasets, object, setup, depth)
+        }
+        "unpivot_columns" => lower_unpivot_columns(app_root, datasets, object, setup, depth),
+        "lookup_value" => lower_lookup_value(app_root, datasets, object, setup, depth),
+        "sql" => lower_raw_sql(object),
+        _ => Ok(None),
+    }
+}
+
+fn lower_data_ref(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+) -> Result<Option<Rel>> {
+    let dataset_id = object
+        .get("from_dataset")
+        .or_else(|| object.get("id"))
+        .or_else(|| object.get("dataset"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.strip_prefix("dataset.").unwrap_or(s).to_string());
+    let Some(dataset_id) = dataset_id else {
+        return Ok(None);
+    };
+    let mut rows_obj = serde_json::Map::new();
+    rows_obj.insert("dataset".to_string(), Value::String(dataset_id));
+    lower_rows(app_root, datasets, &rows_obj, setup)
+}
+
+fn lower_rows(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+) -> Result<Option<Rel>> {
+    let dataset_id = object
+        .get("dataset")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.strip_prefix("dataset.").unwrap_or(s).to_string());
+    let Some(dataset_id) = dataset_id else {
+        return Ok(None);
+    };
+    let Some(view) = lookup_dataset(datasets, &dataset_id) else {
+        return Ok(None);
+    };
+    let Some((view_name, columns)) = ensure_dataset_view(app_root, view, setup)? else {
+        return Ok(None);
+    };
+    let view_ident = quote_ident(&view_name)?;
+    Ok(Some(Rel {
+        sql: format!("SELECT * FROM {view_ident}"),
+        columns,
+    }))
+}
+
+fn ensure_dataset_view(
+    app_root: &Path,
+    view: &DatasetView,
+    _setup: &mut Vec<String>,
+) -> Result<Option<(String, Vec<String>)>> {
+    // GeoJSON / geometry sources: keep ds row path; do not attempt DuckDB views.
+    let kind = view.source.kind.trim().to_ascii_lowercase();
+    if kind == "geojson" || view.source.path.ends_with(".geojson") {
+        return Ok(None);
+    }
+    let header = view.source.header_row.unwrap_or(1).max(1) as usize;
+    let Some(parquet) = resolve_parquet_file_for_source(
+        app_root,
+        view.source.path.as_str(),
+        view.source.sheet.as_deref(),
+        header,
+    ) else {
+        return Ok(None);
+    };
+    let (name, columns) = ensure_parquet_view(app_root, parquet.as_path(), &view.schema, None)?;
+    let columns = if columns.is_empty() {
+        view.columns.clone()
+    } else {
+        columns
+    };
+    Ok(Some((name, columns)))
+}
+
+fn lower_where(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let Some(predicate) = object.get("predicate") else {
+        return Ok(None);
+    };
+    let Some(pred_sql) = predicate_to_sql(predicate)? else {
+        return Ok(None);
+    };
+    Ok(Some(Rel {
+        sql: format!("SELECT * FROM ({}) AS _w WHERE {pred_sql}", inner.sql),
+        columns: inner.columns,
+    }))
+}
+
+fn predicate_to_sql(predicate: &Value) -> Result<Option<String>> {
+    let Some(object) = predicate.as_object() else {
+        return Ok(None);
+    };
+    if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return Ok(None);
+    }
+    match object.get("type").and_then(Value::as_str).unwrap_or("") {
+        "eq" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            if field.is_empty() {
+                return Ok(None);
+            }
+            let col = quote_ident(field)?;
+            let value = literal_sql(object.get("value"))?;
+            Ok(Some(format!("CAST({col} AS VARCHAR) = {value}")))
+        }
+        "ne" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let col = quote_ident(field)?;
+            let value = literal_sql(object.get("value"))?;
+            Ok(Some(format!("CAST({col} AS VARCHAR) <> {value}")))
+        }
+        "gt" | "gte" | "lt" | "lte" => {
+            let op = match object.get("type").and_then(Value::as_str).unwrap_or("") {
+                "gt" => ">",
+                "gte" => ">=",
+                "lt" => "<",
+                _ => "<=",
+            };
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let col = quote_ident(field)?;
+            let value = object
+                .get("value")
+                .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|n| n as f64)))
+                .unwrap_or(0.0);
+            Ok(Some(format!("TRY_CAST({col} AS DOUBLE) {op} {value}")))
+        }
+        "field_gt" | "field_gte" | "field_lt" | "field_lte" => {
+            let op = match object.get("type").and_then(Value::as_str).unwrap_or("") {
+                "field_gt" => ">",
+                "field_gte" => ">=",
+                "field_lt" => "<",
+                _ => "<=",
+            };
+            let left = object.get("left_field").and_then(Value::as_str).unwrap_or("");
+            let right = object
+                .get("right_field")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let l = quote_ident(left)?;
+            let r = quote_ident(right)?;
+            Ok(Some(format!(
+                "TRY_CAST({l} AS DOUBLE) {op} TRY_CAST({r} AS DOUBLE)"
+            )))
+        }
+        "not_empty" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let col = quote_ident(field)?;
+            Ok(Some(format!(
+                "({col} IS NOT NULL AND TRIM(CAST({col} AS VARCHAR)) <> '')"
+            )))
+        }
+        "between" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            if field.is_empty() {
+                return Ok(None);
+            }
+            let lower = object.get("lower").and_then(Value::as_str).unwrap_or("");
+            let upper = object.get("upper").and_then(Value::as_str).unwrap_or("");
+            if lower.is_empty() || upper.is_empty() {
+                return Ok(None);
+            }
+            let date_expr = sql_parse_date_expr(field)?;
+            Ok(Some(format!(
+                "{date_expr} BETWEEN CAST({} AS DATE) AND CAST({} AS DATE)",
+                quote_string(lower),
+                quote_string(upper)
+            )))
+        }
+        "and" => {
+            let Some(items) = object.get("predicates").and_then(Value::as_array) else {
+                return Ok(None);
+            };
+            let mut parts = Vec::new();
+            for item in items {
+                let Some(p) = predicate_to_sql(item)? else {
+                    return Ok(None);
+                };
+                parts.push(format!("({p})"));
+            }
+            if parts.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(parts.join(" AND ")))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn literal_sql(value: Option<&Value>) -> Result<String> {
+    Ok(match value {
+        Some(Value::String(s)) => quote_string(s),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::Bool(b)) => {
+            if *b {
+                "TRUE".into()
+            } else {
+                "FALSE".into()
+            }
+        }
+        Some(Value::Null) | None => "NULL".into(),
+        _ => bail!("unsupported predicate literal"),
+    })
+}
+
+fn lower_sort_by(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let field = object
+        .get("field")
+        .or_else(|| object.get("by"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if field.is_empty() {
+        return Ok(None);
+    }
+    let col = quote_ident(field)?;
+    let order = object.get("order").and_then(Value::as_str).unwrap_or("asc");
+    let dir = if order.eq_ignore_ascii_case("desc") {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    Ok(Some(Rel {
+        sql: format!(
+            "SELECT * FROM ({}) AS _s ORDER BY TRY_CAST({col} AS DOUBLE) {dir}, CAST({col} AS VARCHAR) {dir}",
+            inner.sql
+        ),
+        columns: inner.columns,
+    }))
+}
+
+fn lower_limit(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let n = object
+        .get("n")
+        .or_else(|| object.get("limit"))
+        .and_then(Value::as_u64)
+        .unwrap_or(10)
+        .min(MAX_PIPELINE_SQL_ROWS as u64);
+    Ok(Some(Rel {
+        sql: format!("SELECT * FROM ({}) AS _l LIMIT {n}", inner.sql),
+        columns: inner.columns,
+    }))
+}
+
+fn lower_select(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let Some(fields) = object.get("fields").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let mut cols = Vec::new();
+    let mut select_parts = Vec::new();
+    for field in fields {
+        let Some(name) = field.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(None);
+        };
+        let q = quote_ident(name)?;
+        select_parts.push(q);
+        cols.push(name.to_string());
+    }
+    if select_parts.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Rel {
+        sql: format!(
+            "SELECT {} FROM ({}) AS _sel",
+            select_parts.join(", "),
+            inner.sql
+        ),
+        columns: cols,
+    }))
+}
+
+fn lower_rename(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let Some(mapping) = object.get("mapping").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    if mapping.is_empty() {
+        return Ok(None);
+    }
+    // Prefer explicit mapping order; fall back to projecting only renamed fields
+    // when inner columns are unknown (common after aggregates).
+    let mut select_parts = Vec::new();
+    let mut cols = Vec::new();
+    if inner.columns.is_empty() {
+        for (from, to_val) in mapping {
+            let Some(to) = to_val.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                return Ok(None);
+            };
+            let from_q = quote_ident(from)?;
+            let to_q = quote_ident(to)?;
+            select_parts.push(format!("{from_q} AS {to_q}"));
+            cols.push(to.to_string());
+        }
+    } else {
+        for col in &inner.columns {
+            if let Some(to_val) = mapping.get(col) {
+                let Some(to) = to_val.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                    return Ok(None);
+                };
+                let from_q = quote_ident(col)?;
+                let to_q = quote_ident(to)?;
+                select_parts.push(format!("{from_q} AS {to_q}"));
+                cols.push(to.to_string());
+            } else {
+                let q = quote_ident(col)?;
+                select_parts.push(q);
+                cols.push(col.clone());
+            }
+        }
+        // Include mapping keys that were not in known columns (e.g. after select).
+        for (from, to_val) in mapping {
+            if inner.columns.iter().any(|c| c == from) {
+                continue;
+            }
+            let Some(to) = to_val.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                return Ok(None);
+            };
+            let from_q = quote_ident(from)?;
+            let to_q = quote_ident(to)?;
+            select_parts.push(format!("{from_q} AS {to_q}"));
+            cols.push(to.to_string());
+        }
+    }
+    Ok(Some(Rel {
+        sql: format!(
+            "SELECT {} FROM ({}) AS _ren",
+            select_parts.join(", "),
+            inner.sql
+        ),
+        columns: cols,
+    }))
+}
+
+fn lower_trend_year_compare(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let date_field = object.get("date_field").and_then(Value::as_str).unwrap_or("");
+    if date_field.is_empty() {
+        return Ok(None);
+    }
+    let value_field = object.get("value").and_then(Value::as_str);
+    let agg = object.get("agg").and_then(Value::as_str).unwrap_or("count");
+    let months = object
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(6)
+        .clamp(1, 12);
+    let month_label = object
+        .get("month_label_field")
+        .and_then(Value::as_str)
+        .unwrap_or("month");
+    let year_label = object
+        .get("year_label_field")
+        .and_then(Value::as_str)
+        .unwrap_or("year");
+    let window_mode = object
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("rolling");
+    let years = parse_years(object.get("years"));
+    if years.is_empty() {
+        return Ok(None);
+    }
+    let date_expr = sql_parse_date_expr(date_field)?;
+    let agg_expr = match (agg, value_field) {
+        ("sum", Some(field)) => {
+            let c = quote_ident(field)?;
+            format!("COALESCE(SUM(TRY_CAST({c} AS DOUBLE)), 0)")
+        }
+        ("avg", Some(field)) => {
+            let c = quote_ident(field)?;
+            format!("COALESCE(AVG(TRY_CAST({c} AS DOUBLE)), 0)")
+        }
+        _ => "COUNT(*)::DOUBLE".to_string(),
+    };
+    let years_list = years
+        .iter()
+        .map(|y| y.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let month_label_sql = quote_ident(month_label)?;
+    let year_label_sql = quote_ident(year_label)?;
+
+    // Rolling months must match kernel `latest_month_window`: emit month numbers
+    // for the last N months ending at max(date), even when some months have no rows.
+    let month_source = if window_mode.eq_ignore_ascii_case("calendar") {
+        "(SELECT UNNEST(range(1, 13)) AS m)".to_string()
+    } else {
+        format!(
+            "(\
+               SELECT month(\
+                 date_trunc('month', (\
+                   SELECT max({date_expr}) FROM ({inner}) AS _a WHERE {date_expr} IS NOT NULL\
+                 )) - (INTERVAL 1 MONTH * i)\
+               ) AS m \
+               FROM range(0, {months}) AS t(i)\
+             )",
+            inner = inner.sql,
+            months = months
+        )
+    };
+
+    let sql = format!(
+        "WITH parsed AS (\
+           SELECT {date_expr} AS d, t.* FROM ({inner}) AS t\
+         ), \
+         months AS {month_source}, \
+         years AS (SELECT UNNEST([{years_list}]) AS y), \
+         grid AS (\
+           SELECT m.m AS month_num, y.y AS year_num \
+           FROM months m CROSS JOIN years y\
+         ), \
+         agg AS (\
+           SELECT year(d) AS year_num, month(d) AS month_num, {agg_expr} AS value \
+           FROM parsed \
+           WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+           GROUP BY 1, 2\
+         ) \
+         SELECT \
+           lpad(CAST(g.month_num AS VARCHAR), 2, '0') AS {month_label_sql}, \
+           CAST(g.year_num AS VARCHAR) AS {year_label_sql}, \
+           COALESCE(a.value, 0) AS value \
+         FROM grid g \
+         LEFT JOIN agg a ON a.month_num = g.month_num AND a.year_num = g.year_num \
+         ORDER BY g.month_num, g.year_num",
+        inner = inner.sql,
+    );
+
+    Ok(Some(Rel {
+        sql,
+        columns: vec![
+            month_label.to_string(),
+            year_label.to_string(),
+            "value".to_string(),
+        ],
+    }))
+}
+
+fn lower_party_year_aggregate(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let party_field = object
+        .get("party_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let date_field = object.get("date_field").and_then(Value::as_str).unwrap_or("");
+    let value_field = object
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if party_field.is_empty() || date_field.is_empty() || value_field.is_empty() {
+        return Ok(None);
+    }
+    let years = parse_years(object.get("years"));
+    if years.is_empty() {
+        return Ok(None);
+    }
+    let party = quote_ident(party_field)?;
+    let value = quote_ident(value_field)?;
+    let date_expr = sql_parse_date_expr(date_field)?;
+    let years_list = years
+        .iter()
+        .map(|y| y.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut select_cols = vec![party_field.to_string()];
+    let mut select_sql_parts = vec![format!("{party} AS {party}")];
+    for year in &years {
+        let sum_alias = format!("罚没金额_{year}");
+        let count_alias = format!("处罚次数_{year}");
+        let sum_q = quote_ident(&sum_alias)?;
+        let count_q = quote_ident(&count_alias)?;
+        select_sql_parts.push(format!(
+            "COALESCE(SUM(TRY_CAST({value} AS DOUBLE)) FILTER (WHERE year(d) = {year}), 0) AS {sum_q}"
+        ));
+        select_sql_parts.push(format!(
+            "COALESCE(COUNT(*) FILTER (WHERE year(d) = {year}), 0)::DOUBLE AS {count_q}"
+        ));
+        select_cols.push(sum_alias);
+        select_cols.push(count_alias);
+    }
+    if years.len() >= 2 {
+        let prev = years[years.len() - 2];
+        let curr = years[years.len() - 1];
+        let alias = format!("同比降低额_{curr}");
+        let alias_q = quote_ident(&alias)?;
+        let prev_q = quote_ident(&format!("罚没金额_{prev}"))?;
+        let curr_q = quote_ident(&format!("罚没金额_{curr}"))?;
+        // Computed in outer select after aggregation.
+        let sql = format!(
+            "SELECT inner_agg.*, \
+               GREATEST(inner_agg.{prev_q} - inner_agg.{curr_q}, 0) AS {alias_q} \
+             FROM (\
+               SELECT {} \
+               FROM (SELECT {date_expr} AS d, t.* FROM ({}) AS t) AS src \
+               WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+                 AND {party} IS NOT NULL AND TRIM(CAST({party} AS VARCHAR)) <> '' \
+               GROUP BY {party}\
+             ) AS inner_agg",
+            select_sql_parts.join(", "),
+            inner.sql,
+        );
+        select_cols.push(alias);
+        return Ok(Some(Rel {
+            sql,
+            columns: select_cols,
+        }));
+    }
+
+    let sql = format!(
+        "SELECT {} \
+         FROM (SELECT {date_expr} AS d, t.* FROM ({}) AS t) AS src \
+         WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+           AND {party} IS NOT NULL AND TRIM(CAST({party} AS VARCHAR)) <> '' \
+         GROUP BY {party}",
+        select_sql_parts.join(", "),
+        inner.sql,
+    );
+    Ok(Some(Rel {
+        sql,
+        columns: select_cols,
+    }))
+}
+
+fn lower_unpivot_columns(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let id_field = object.get("id_field").and_then(Value::as_str).unwrap_or("");
+    if id_field.is_empty() {
+        return Ok(None);
+    }
+    let year_field = object
+        .get("year_field")
+        .and_then(Value::as_str)
+        .unwrap_or("year");
+    let value_field = object
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("value");
+    let Some(columns) = object.get("columns").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let mut unions = Vec::new();
+    let id_q = quote_ident(id_field)?;
+    let year_q = quote_ident(year_field)?;
+    let value_q = quote_ident(value_field)?;
+    for item in columns {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let Some(year) = obj.get("year").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(field) = obj.get("field").and_then(Value::as_str) else {
+            continue;
+        };
+        let field_q = quote_ident(field)?;
+        let year_lit = quote_string(year);
+        unions.push(format!(
+            "SELECT {id_q} AS {id_q}, {year_lit} AS {year_q}, COALESCE(TRY_CAST({field_q} AS DOUBLE), 0) AS {value_q} \
+             FROM ({}) AS _u",
+            inner.sql
+        ));
+    }
+    if unions.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Rel {
+        sql: unions.join(" UNION ALL "),
+        columns: vec![
+            id_field.to_string(),
+            year_field.to_string(),
+            value_field.to_string(),
+        ],
+    }))
+}
+
+fn lower_lookup_value(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let left_field = object.get("field").and_then(Value::as_str).unwrap_or("");
+    let right_key = object
+        .get("lookup_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let right_value = object
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let as_field = object
+        .get("as_field")
+        .and_then(Value::as_str)
+        .unwrap_or(right_value);
+    let Some(lookup_rowset) = object.get("lookup_rowset") else {
+        return Ok(None);
+    };
+    if left_field.is_empty() || right_key.is_empty() || right_value.is_empty() || as_field.is_empty()
+    {
+        return Ok(None);
+    }
+    let Some(lookup) = lower_rel(app_root, datasets, lookup_rowset, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let l = quote_ident(left_field)?;
+    let rk = quote_ident(right_key)?;
+    let rv = quote_ident(right_value)?;
+    let alias = quote_ident(as_field)?;
+    let mut columns = inner.columns.clone();
+    if !columns.iter().any(|c| c == as_field) {
+        columns.push(as_field.to_string());
+    }
+    Ok(Some(Rel {
+        sql: format!(
+            "SELECT a.*, b.{rv} AS {alias} \
+             FROM ({}) AS a \
+             LEFT JOIN ({}) AS b ON CAST(a.{l} AS VARCHAR) = CAST(b.{rk} AS VARCHAR)",
+            inner.sql, lookup.sql
+        ),
+        columns,
+    }))
+}
+
+fn lower_raw_sql(object: &serde_json::Map<String, Value>) -> Result<Option<Rel>> {
+    let query = object
+        .get("query")
+        .or_else(|| object.get("sql"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let Some(query) = query else {
+        return Ok(None);
+    };
+    if !is_safe_readonly_sql(query) {
+        return Ok(None);
+    }
+    let limit = object
+        .get("row_limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(MAX_PIPELINE_SQL_ROWS as u64)
+        .min(MAX_PIPELINE_SQL_ROWS as u64);
+    Ok(Some(Rel {
+        sql: format!("SELECT * FROM ({query}) AS _raw LIMIT {limit}"),
+        columns: Vec::new(),
+    }))
+}
+
+fn is_safe_readonly_sql(query: &str) -> bool {
+    let upper = query.to_ascii_uppercase();
+    let forbidden = [
+        "INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER ", "CREATE ", "ATTACH ",
+        "COPY ", "EXPORT ", "PRAGMA ", "INSTALL ", "LOAD ", "CALL ", "EXECUTE ",
+        "READ_CSV", "READ_PARQUET", "READ_JSON",
+    ];
+    if forbidden.iter().any(|kw| upper.contains(kw)) {
+        return false;
+    }
+    let trimmed = upper.trim_start();
+    trimmed.starts_with("SELECT") || trimmed.starts_with("WITH")
+}
+
+fn parse_years(value: Option<&Value>) -> Vec<i32> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.as_i64()
+                        .map(|v| v as i32)
+                        .or_else(|| item.as_str().and_then(|t| t.parse().ok()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn lookup_dataset<'a>(
+    datasets: &'a BTreeMap<String, DatasetView>,
+    dataset_id: &str,
+) -> Option<&'a DatasetView> {
+    datasets.get(dataset_id).or_else(|| {
+        let local = dataset_id.rsplit("::").next().unwrap_or(dataset_id);
+        datasets.get(local).or_else(|| {
+            datasets
+                .values()
+                .find(|view| view.id == dataset_id || view.id.ends_with(dataset_id))
+        })
+    })
+}

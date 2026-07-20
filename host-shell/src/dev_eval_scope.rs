@@ -588,4 +588,29 @@ mod tests {
             .eval_scopes
             .contains(&"warning_analytics".to_string()));
     }
+
+    #[test]
+    fn lazy_default_mode_still_allows_disk_rewarm() {
+        let plan: RuntimePlan = serde_json::from_value(json!({
+            "defaultMode": "lazy",
+            "apps": {}
+        }))
+        .expect("runtime plan");
+        let config = dev_eval_from_runtime_plan(&plan, "zhifa");
+        assert!(
+            config.allows_rewarm(),
+            "lazy must not skip Pack-First disk rewarm"
+        );
+    }
+
+    #[test]
+    fn frozen_default_mode_skips_disk_rewarm() {
+        let plan: RuntimePlan = serde_json::from_value(json!({
+            "defaultMode": "frozen",
+            "apps": {}
+        }))
+        .expect("runtime plan");
+        let config = dev_eval_from_runtime_plan(&plan, "zhifa");
+        assert!(!config.allows_rewarm());
+    }
 }

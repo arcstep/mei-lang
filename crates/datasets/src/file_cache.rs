@@ -18,10 +18,12 @@ pub(crate) struct ExternalFileCacheSettings {
 
 impl Default for ExternalFileCacheSettings {
     fn default() -> Self {
+        // Prefer DuckDB+parquet for hot paths; keep a small legacy JSON-row
+        // fallback cache only for sources without snapshots (0528).
         Self {
-            max_file_bytes: 10 * 1024 * 1024,
-            max_entries: 100,
-            max_total_bytes: 256 * 1024 * 1024,
+            max_file_bytes: 2 * 1024 * 1024,
+            max_entries: 16,
+            max_total_bytes: 32 * 1024 * 1024,
         }
     }
 }

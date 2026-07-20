@@ -364,6 +364,10 @@ pub fn metric_response_result_artifact_exists(app_root: &Path, response_cache_ke
         })
 }
 
+/// Persist lite (and optionally full) metric-response packs.
+///
+/// Full packs with rowsets are **off by default** (Pack-First). Enable with
+/// `MEI_DUAL_WRITE_FULL_METRIC_RESPONSE=1` for compatibility / bulk tooling.
 pub fn store_metric_response_result_artifact(
     app_root: &Path,
     response_cache_key: &str,
@@ -372,6 +376,78 @@ pub fn store_metric_response_result_artifact(
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
 ) -> Result<()> {
+    store_metric_response_result_artifact_with_options(
+        app_root,
+        response_cache_key,
+        total_rows,
+        metrics_map,
+        covered_metric_ids,
+        complete,
+        dual_write_full_metric_response_enabled(metrics_map),
+    )
+}
+
+fn dual_write_full_metric_response_enabled(
+    metrics_map: &BTreeMap<String, MetricContract>,
+) -> bool {
+    if std::env::var_os("MEI_DUAL_WRITE_FULL_METRIC_RESPONSE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // Explicit bulk request maps that still carry rowsets may write full.
+    metrics_map
+        .keys()
+        .any(|metric_id| crate::metric_id_is_scalar_rowset(metric_id))
+}
+
+/// Lite-only Disk write for non-bulk KPI / warmup paths.
+pub fn store_metric_response_lite_only(
+    app_root: &Path,
+    response_cache_key: &str,
+    total_rows: usize,
+    metrics_map: &BTreeMap<String, MetricContract>,
+    covered_metric_ids: &BTreeSet<String>,
+    complete: bool,
+) -> Result<()> {
+    store_metric_response_result_artifact_with_options(
+        app_root,
+        response_cache_key,
+        total_rows,
+        metrics_map,
+        covered_metric_ids,
+        complete,
+        false,
+    )
+}
+
+fn store_metric_response_result_artifact_with_options(
+    app_root: &Path,
+    response_cache_key: &str,
+    total_rows: usize,
+    metrics_map: &BTreeMap<String, MetricContract>,
+    covered_metric_ids: &BTreeSet<String>,
+    complete: bool,
+    write_full: bool,
+) -> Result<()> {
+    let policy = L1PinPolicy::default();
+    let (projected, covered, _stats) =
+        project_metrics_map_for_l1(metrics_map, covered_metric_ids, &policy);
+
+    if !write_full {
+        store_metric_response_lite_artifact(
+            app_root,
+            response_cache_key,
+            total_rows,
+            &projected,
+            &covered,
+            complete,
+        )?;
+        record_response_store_atomic();
+        return Ok(());
+    }
+
     let path = metric_response_result_artifact_path(app_root, response_cache_key);
     if let Some(existing) = read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(
         &path,
@@ -430,10 +506,6 @@ pub fn store_metric_response_result_artifact(
     };
     write_json_artifact(&path, &persisted)?;
     record_response_store_atomic();
-    // Dual-write lite sibling for Memory / bootstrap consumers.
-    let policy = L1PinPolicy::default();
-    let (projected, covered, _stats) =
-        project_metrics_map_for_l1(metrics_map, covered_metric_ids, &policy);
     store_metric_response_lite_artifact(
         app_root,
         response_cache_key,

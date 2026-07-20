@@ -1,16 +1,21 @@
-//! Columnar table handle backed by parquet import artifacts (LRU + TTL).
+//! Lazy table handle: DuckDB view over parquet (no whole-table Vec JSON resident).
 
 use std::collections::{BTreeMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
     resolve_data_snapshot_import_entry, resolve_versioned_source_identifier,
-    source_file_content_signature, try_load_xlsx_parquet_snapshot,
+    source_file_content_signature, ColumnSchema,
 };
 use serde_json::Value;
+
+use crate::duckdb_engine::{
+    ensure_parquet_view, query_parquet_page, resolve_parquet_file_for_source, DuckdbPageQuery,
+};
+use crate::types::DatasetQueryOptions;
 
 const TABLE_HANDLE_CACHE_TTL_MS: u64 = 300_000;
 const TABLE_HANDLE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
@@ -19,7 +24,10 @@ const MAX_TABLE_HANDLE_CACHE_ENTRIES: usize = 64;
 #[derive(Clone)]
 pub struct TableHandle {
     pub columns: Vec<String>,
-    rows: Vec<Value>,
+    /// Registered DuckDB view name (keyed by parquet path hash).
+    pub view_name: String,
+    pub parquet_path: PathBuf,
+    app_root: PathBuf,
 }
 
 #[derive(Clone)]
@@ -80,40 +88,61 @@ pub fn load_table_handle(
     if let Some(handle) = take_cached_table_handle(&table_key) {
         return Ok((handle, true));
     }
-    let snapshot = try_load_xlsx_parquet_snapshot(app_root, source_path, sheet, header_row)
+    let parquet = resolve_parquet_file_for_source(app_root, source_path, sheet, header_row)
         .with_context(|| {
             format!(
-                "load parquet table handle for `{source_path}` (sheet={:?}, header_row={header_row})",
+                "parquet snapshot missing for `{source_path}` (sheet={:?}, header_row={header_row}); run prebuild/import",
                 sheet
             )
         })?;
+    let physical_columns = resolve_data_snapshot_import_entry(app_root, source_path, sheet, header_row)
+        .map(|e| e.columns)
+        .filter(|c| !c.is_empty());
+    let (view_name, columns) = ensure_parquet_view(
+        app_root,
+        parquet.as_path(),
+        &[],
+        physical_columns.as_deref(),
+    )?;
     let handle = Arc::new(TableHandle {
-        columns: snapshot.columns,
-        rows: snapshot.rows,
+        columns,
+        view_name,
+        parquet_path: parquet,
+        app_root: app_root.to_path_buf(),
     });
     store_cached_table_handle(table_key, handle.clone());
     Ok((handle, false))
 }
 
+/// Materialize rows via DuckDB (prefer paginated options). Avoids keeping a full Vec on the handle.
 pub fn materialize_rows_from_handle(
     handle: &TableHandle,
-    schema: &[mei_lang_kernel::ColumnSchema],
-) -> (Vec<String>, Vec<Value>) {
-    let columns = if handle.columns.is_empty() {
-        schema.iter().map(|col| col.name.clone()).collect()
-    } else {
-        handle.columns.clone()
+    schema: &[ColumnSchema],
+) -> Result<(Vec<String>, Vec<Value>)> {
+    let options = DatasetQueryOptions {
+        collect_all: true,
+        page: 1,
+        page_size: 0,
+        ..DatasetQueryOptions::default()
     };
-    let rows = if schema.is_empty() {
-        handle.rows.clone()
-    } else {
-        handle
-            .rows
-            .iter()
-            .map(|row| mei_lang_kernel::coerce_row_to_schema(row, schema))
-            .collect()
-    };
-    (columns, rows)
+    let page = query_parquet_page(
+        handle.app_root.as_path(),
+        DuckdbPageQuery {
+            parquet_path: handle.parquet_path.as_path(),
+            schema,
+            physical_columns: Some(handle.columns.as_slice()),
+            normalize: &BTreeMap::new(),
+            options: &options,
+        },
+    )
+    .with_context(|| {
+        format!(
+            "materialize rows from duckdb view `{}` ({})",
+            handle.view_name,
+            handle.parquet_path.display()
+        )
+    })?;
+    Ok((page.columns, page.rows))
 }
 
 fn take_cached_table_handle(key: &str) -> Option<Arc<TableHandle>> {

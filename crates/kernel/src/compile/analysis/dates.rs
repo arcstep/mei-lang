@@ -57,10 +57,13 @@ fn parse_excel_serial_date(serial: f64) -> Option<(i32, u32, u32)> {
     if !serial.is_finite() || serial <= 0.0 {
         return None;
     }
+    // Reject absurd serials (would overflow civil-day math / i32). ~year 9999.
+    if serial >= 2_958_465.0 {
+        return None;
+    }
     let days = serial.floor() as i32;
-    Some(civil_ymd_from_days(
-        civil_days_from_ymd(1899, 12, 30) + days,
-    ))
+    let absolute = civil_days_from_ymd(1899, 12, 30).checked_add(days)?;
+    civil_ymd_from_days(absolute)
 }
 
 /// Proleptic Gregorian civil days (Howard Hinnant).
@@ -75,18 +78,21 @@ fn civil_days_from_ymd(year: i32, month: u32, day: u32) -> i32 {
     era * 146097 + doe - 719468
 }
 
-fn civil_ymd_from_days(days: i32) -> (i32, u32, u32) {
-    let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
+fn civil_ymd_from_days(days: i32) -> Option<(i32, u32, u32)> {
+    let z = days.checked_add(719468)?;
+    let era = if z >= 0 { z } else { z.checked_sub(146096)? } / 146097;
+    let doe = z.checked_sub(era.checked_mul(146097)?)?;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
+    let y = yoe.checked_add(era.checked_mul(400)?)?;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = mp + if mp < 10 { 3 } else { -9 };
     let year = y + if m <= 2 { 1 } else { 0 };
-    (year, m as u32, d as u32)
+    if !(1..=12).contains(&(m as u32)) || !(1..=31).contains(&(d as u32)) {
+        return None;
+    }
+    Some((year, m as u32, d as u32))
 }
 
 pub(super) fn format_month_label(year: i32, month: u32) -> String {
@@ -375,6 +381,14 @@ mod tests {
         assert_eq!(parse_date_value(&json!(45960)), Some((2025, 10, 30)));
         assert_eq!(parse_date_value(&json!(46020)), Some((2025, 12, 29)));
         assert_eq!(parse_date_value(&json!("45960")), Some((2025, 10, 30)));
+    }
+
+    #[test]
+    fn parse_excel_serial_rejects_overflowing_values() {
+        // Previously panicked in debug: days + 719468 overflowed i32.
+        assert_eq!(parse_date_value(&json!(i32::MAX as f64)), None);
+        assert_eq!(parse_date_value(&json!(1e20)), None);
+        assert_eq!(parse_date_value(&json!(f64::INFINITY)), None);
     }
 
     #[test]

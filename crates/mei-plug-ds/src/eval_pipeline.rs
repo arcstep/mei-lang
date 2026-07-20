@@ -10,8 +10,9 @@ use mei_lang_datasets::{
     metric_response_cache_scope_key, populate_l1_from_loaded_metric_artifact,
     project_metrics_map_for_l1, project_requested_metrics, request_needs_bulk_l1_metrics,
     store_cached_metric_response, store_cached_metric_response_aliases,
-    store_demand_metric_response, store_metric_response_result_artifact,
-    take_cached_metric_response, take_demand_metric_response, L1PinPolicy,
+    store_demand_metric_response, store_metric_response_lite_only,
+    store_metric_response_result_artifact, take_cached_metric_response,
+    take_demand_metric_response, L1PinPolicy,
     LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
@@ -314,21 +315,23 @@ pub fn eval_metrics_with_slots(
             return Err(error);
         }
     };
-    // Persist Disk full packs only when the eval map still carries rowsets (live
-    // compute) or no artifact exists yet. Agg-cache hits return L1-projected maps
-    // and must not clobber an existing full pack.
+    // Pack-First: non-bulk KPI paths write lite only. Full packs (with optional
+    // rowsets) require bulk request or MEI_DUAL_WRITE_FULL_METRIC_RESPONSE=1.
     let map_has_rowsets = eval
         .metrics_map
         .keys()
         .any(|metric_id| metric_id_is_scalar_rowset(metric_id));
-    if map_has_rowsets
-        || needs_bulk
-        || !mei_lang_datasets::metric_response_result_artifact_exists(
+    if needs_bulk || map_has_rowsets {
+        store_metric_response_result_artifact(
             app_root.as_path(),
             cache_key.as_str(),
-        )
-    {
-        store_metric_response_result_artifact(
+            eval.total_rows,
+            &eval.metrics_map,
+            &requested,
+            requested.len() == request.metric_ids.len(),
+        )?;
+    } else {
+        store_metric_response_lite_only(
             app_root.as_path(),
             cache_key.as_str(),
             eval.total_rows,

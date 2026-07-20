@@ -1,4 +1,4 @@
-use std::{path::Path, time::Instant};
+use std::{collections::BTreeMap, path::Path, time::Instant};
 
 use anyhow::Result;
 use mei_lang_kernel::{
@@ -9,6 +9,7 @@ use mei_lang_kernel::{
 use super::dataset_rows_cache::{
     dataset_rows_scope_cache_key, paginate_rows_eager_materialize, store_materialized_dataset_rows,
 };
+use super::duckdb_engine::{query_parquet_page, resolve_parquet_file_for_source, DuckdbPageQuery};
 use super::file_cache::ExternalFileCacheSettings;
 use super::table_handle::{load_table_handle, materialize_rows_from_handle};
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
@@ -25,13 +26,78 @@ pub(crate) fn query_xlsx_rows(
     let source = &dataset.source;
     let sheet = meta.sheet.as_deref();
     let header_row = meta.header_row.unwrap_or(1).max(1) as usize;
+
+    // Prefer DuckDB over parquet snapshot (no whole-table JSON materialization).
+    if let Some(parquet) =
+        resolve_parquet_file_for_source(app_root, source.path.as_str(), sheet, header_row)
+    {
+        let physical = resolve_data_snapshot_import_entry(
+            app_root,
+            source.path.as_str(),
+            sheet,
+            header_row,
+        )
+        .map(|e| e.columns)
+        .filter(|c| !c.is_empty());
+        let started = Instant::now();
+        let page = query_parquet_page(
+            app_root,
+            DuckdbPageQuery {
+                parquet_path: parquet.as_path(),
+                schema,
+                physical_columns: physical.as_deref(),
+                normalize: &meta.normalize,
+                options,
+            },
+        )?;
+        let result = DatasetQueryResult {
+            page: page.page,
+            page_size: page.page_size,
+            total: page.total,
+            has_more: page.has_more,
+            columns: page.columns,
+            rows: page.rows,
+            lazy: true,
+            perf: BTreeMap::from([
+                ("duckdb_query_ms".to_string(), page.duckdb_query_ms),
+                (
+                    "rows_materialized".to_string(),
+                    page.rows_materialized as u64,
+                ),
+                ("dataset_import_artifact_hit".to_string(), 1),
+                ("table_handle_hit".to_string(), 0),
+                (
+                    "file_cache_load_ms".to_string(),
+                    elapsed_ms(started),
+                ),
+            ]),
+            column_meta: Vec::new(),
+            summary: None,
+            query_state_echo: None,
+        };
+        // Only cache small pages — never whole-table collect_all into rows cache.
+        if !options.collect_all {
+            if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options)
+            {
+                store_materialized_dataset_rows(
+                    scope_key,
+                    result.columns.clone(),
+                    result.rows.clone(),
+                    true,
+                );
+            }
+        }
+        return Ok(result);
+    }
+
+    // Fallback: no parquet yet — legacy L3 / calamine path (prebuild should create snapshots).
     let import_entry =
         resolve_data_snapshot_import_entry(app_root, source.path.as_str(), sheet, header_row);
     let snapshot_started = Instant::now();
     let (columns, coerced_source_rows, cache_hit, table_handle_hit) = if import_entry.is_some() {
         let (handle, handle_cache_hit) =
             load_table_handle(app_root, source.path.as_str(), sheet, header_row)?;
-        let (columns, rows) = materialize_rows_from_handle(handle.as_ref(), schema);
+        let (columns, rows) = materialize_rows_from_handle(handle.as_ref(), schema)?;
         (columns, rows, handle_cache_hit, true)
     } else {
         let (snapshot, cache_hit) =
@@ -69,15 +135,9 @@ pub(crate) fn query_xlsx_rows(
         result
             .perf
             .insert("table_handle_hit".to_string(), u64::from(table_handle_hit));
-        if cache_hit {
-            result
-                .perf
-                .insert("file_cache_lookup_ms".to_string(), snapshot_ms);
-        } else {
-            result
-                .perf
-                .insert("file_cache_load_ms".to_string(), snapshot_ms);
-        }
+        result
+            .perf
+            .insert("file_cache_load_ms".to_string(), snapshot_ms);
         result.perf.insert("file_cache_paginate_ms".to_string(), 0);
         result
             .perf
@@ -86,19 +146,6 @@ pub(crate) fn query_xlsx_rows(
             "dataset_import_artifact_hit".to_string(),
             u64::from(import_entry.is_some()),
         );
-        if import_entry.is_some() && !cache_hit {
-            result
-                .perf
-                .insert("dataset_import_load_ms".to_string(), snapshot_ms);
-        }
-        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options) {
-            store_materialized_dataset_rows(
-                scope_key,
-                result.columns.clone(),
-                result.rows.clone(),
-                true,
-            );
-        }
         return Ok(result);
     }
     let paginate_started = Instant::now();
@@ -110,8 +157,11 @@ pub(crate) fn query_xlsx_rows(
         true,
     );
     if let Some((columns, rows)) = materialized {
-        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options) {
-            store_materialized_dataset_rows(scope_key, columns, rows, true);
+        if !options.collect_all {
+            if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options)
+            {
+                store_materialized_dataset_rows(scope_key, columns, rows, true);
+            }
         }
     }
     result
@@ -120,15 +170,9 @@ pub(crate) fn query_xlsx_rows(
     result
         .perf
         .insert("table_handle_hit".to_string(), u64::from(table_handle_hit));
-    if cache_hit {
-        result
-            .perf
-            .insert("file_cache_lookup_ms".to_string(), snapshot_ms);
-    } else {
-        result
-            .perf
-            .insert("file_cache_load_ms".to_string(), snapshot_ms);
-    }
+    result
+        .perf
+        .insert("file_cache_load_ms".to_string(), snapshot_ms);
     result.perf.insert(
         "file_cache_paginate_ms".to_string(),
         elapsed_ms(paginate_started),
@@ -137,11 +181,6 @@ pub(crate) fn query_xlsx_rows(
         "dataset_import_artifact_hit".to_string(),
         u64::from(import_entry.is_some()),
     );
-    if import_entry.is_some() && !cache_hit {
-        result
-            .perf
-            .insert("dataset_import_load_ms".to_string(), snapshot_ms);
-    }
     Ok(result)
 }
 

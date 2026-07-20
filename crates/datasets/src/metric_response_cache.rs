@@ -646,6 +646,7 @@ pub fn clear_all_metric_caches() -> (usize, usize) {
     let demand = clear_demand_metric_response_cache();
     let _ = super::clear_agg_result_cache();
     let _ = super::clear_table_handle_cache();
+    let _ = super::clear_duckdb_connections();
     (
         clear_metric_response_cache() + demand,
         super::clear_metric_dataframe_result_cache() + super::clear_dataset_rows_cache(),

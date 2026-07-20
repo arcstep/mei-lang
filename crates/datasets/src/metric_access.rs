@@ -13,6 +13,10 @@ use mei_lang_kernel::{
 use super::agg_result_cache::{
     agg_result_cache_key, lookup_agg_result_cache, store_agg_result_cache,
 };
+use super::duckdb_engine::{
+    count_primary_dataset_rows, snapshot_duckdb_io_stats, snapshot_pipeline_sql_stats,
+    try_eval_metrics_via_sql_partial,
+};
 use super::eval_artifact::{
     eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
@@ -23,8 +27,9 @@ use super::result_artifact::default_result_artifact_scope;
 use super::types::DatasetQueryOptions;
 use super::util::elapsed_ms;
 use super::{
-    hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint_for_compiled,
-    project_requested_metrics, query_dataset_rows, runtime_metric_eval_scope,
+    hydrate_file_backed_datasets_for_metric_defs, metric_id_is_scalar_rowset,
+    metric_request_revision_fingerprint_for_compiled, project_requested_metrics,
+    query_dataset_rows, request_needs_bulk_l1_metrics, runtime_metric_eval_scope,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +300,9 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         &defs_for_hydrate,
     );
 
+    let request_ids_set: BTreeSet<String> = eval_plan.request_metric_ids.iter().cloned().collect();
+    let needs_bulk = request_needs_bulk_l1_metrics(&request_ids_set, request_all_metrics);
+
     if matches!(mode, RuntimeMetricEvalMode::WithDag) {
         let agg_key = agg_result_cache_key(
             compiled.app_id.as_str(),
@@ -307,11 +315,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         if let Some((cached_metrics_map, cached_total_rows)) = lookup_agg_result_cache(&agg_key) {
             // Agg cache is L1-shaped (no rowsets). Skip when the request needs
             // bulk rowsets or when request_all would expect a full map.
-            let agg_covers_request = !request_all_metrics
-                && !eval_plan
-                    .request_metric_ids
-                    .iter()
-                    .any(|metric_id| super::metric_id_is_scalar_rowset(metric_id));
+            let agg_covers_request = !needs_bulk;
             if agg_covers_request {
                 let metrics = project_requested_metrics(
                     &eval_plan.owner.id,
@@ -360,6 +364,149 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                     eval_report: None,
                 });
             }
+        }
+    }
+
+    // Non-bulk KPI path: DuckDB SQL — no whole-table JSON / __scalar_rowset__.
+    let mut sql_partial_for_merge: BTreeMap<String, MetricContract> = BTreeMap::new();
+    if !needs_bulk && matches!(mode, RuntimeMetricEvalMode::WithDag) {
+        let sql_datasets = build_compiled_datasets_map(
+            compiled,
+            &eval_plan.primary.id,
+            primary_dataset.clone(),
+            &referenced_dataset_ids,
+        );
+        let primary_filters =
+            resolve_dataset_query_bindings_from_state(query_state, primary_dataset).mapped_filters;
+        // Only lower the request KPIs — workset may also list compositions/rowsets
+        // that are fetched on demand via dataframe/query.
+        let sql_ids: Vec<String> = eval_plan
+            .request_metric_ids
+            .iter()
+            .filter(|id| !metric_id_is_scalar_rowset(id))
+            .cloned()
+            .collect();
+        if !sql_ids.is_empty() {
+            // World-metrics owners are not file-backed; do not broadcast their
+            // filters/search onto every counted dataset.
+            let empty_filters = BTreeMap::new();
+            let file_backed_primary = !primary_dataset.source.path.trim().is_empty()
+                && primary_dataset.source.kind != "derived";
+            let sql_filters = if file_backed_primary {
+                &primary_filters
+            } else {
+                &empty_filters
+            };
+            let sql_search = if file_backed_primary {
+                query_state.search.as_deref()
+            } else {
+                None
+            };
+            let duck_before = snapshot_duckdb_io_stats();
+            let pipe_before = snapshot_pipeline_sql_stats();
+            let sql_started = Instant::now();
+            let sql_partial = try_eval_metrics_via_sql_partial(
+                app_root,
+                &sql_datasets,
+                &owner_dataset.runtime_metric_defs,
+                &sql_ids,
+                sql_filters,
+                sql_search,
+            )?;
+            // Full coverage → skip hydrate/row eval entirely.
+            if sql_partial.len() == sql_ids.len()
+                && sql_ids.iter().all(|id| sql_partial.contains_key(id))
+            {
+                let metrics_map = sql_partial;
+                let metric_eval_ms = elapsed_ms(sql_started);
+                let total_rows = if file_backed_primary {
+                    count_primary_dataset_rows(
+                        app_root,
+                        primary_dataset,
+                        sql_filters,
+                        sql_search,
+                    )
+                    .unwrap_or(0)
+                } else {
+                    0
+                };
+                let duck_after = snapshot_duckdb_io_stats();
+                let pipe_after = snapshot_pipeline_sql_stats();
+                let mut query_perf = BTreeMap::new();
+                query_perf.insert("duckdb_metric_sql".to_string(), 1);
+                query_perf.insert(
+                    "duckdb_query_ms".to_string(),
+                    duck_after.0.saturating_sub(duck_before.0),
+                );
+                query_perf.insert(
+                    "rows_materialized".to_string(),
+                    duck_after.1.saturating_sub(duck_before.1),
+                );
+                query_perf.insert(
+                    "pipeline_sql_hit".to_string(),
+                    pipe_after.0.saturating_sub(pipe_before.0),
+                );
+                query_perf.insert(
+                    "pipeline_sql_fallback".to_string(),
+                    pipe_after.1.saturating_sub(pipe_before.1),
+                );
+                let agg_key = agg_result_cache_key(
+                    compiled.app_id.as_str(),
+                    &eval_plan.owner.id,
+                    &covered_eval_metric_ids,
+                    query_state,
+                    filter_intents,
+                    &dependency_revision_key,
+                );
+                store_agg_result_cache(agg_key, metrics_map.clone(), total_rows);
+                let metrics = project_requested_metrics(
+                    &eval_plan.owner.id,
+                    &eval_plan.request_metric_ids,
+                    &owner_dataset.runtime_metric_defs,
+                    &metrics_map,
+                );
+                let eval_scope = runtime_metric_eval_scope(
+                    Some(primary_dataset),
+                    &eval_plan.primary.id,
+                    scene_id,
+                    scene_path,
+                    query_state.search.as_deref(),
+                    &query_state.filters,
+                    Some(query_state),
+                    filter_intents,
+                    &dependency_revision_key,
+                    &[],
+                )?;
+                return Ok(RuntimeMetricEvalOutcome {
+                    primary_resource_id: eval_plan.primary.id.clone(),
+                    owner_resource_id: eval_plan.owner.id.clone(),
+                    request_metric_ids: eval_plan.request_metric_ids.clone(),
+                    closure_metric_ids,
+                    covered_eval_metric_ids,
+                    dependency_revision_key,
+                    workset_artifact_hit,
+                    eval_artifact_hit: false,
+                    total_rows,
+                    metrics_map,
+                    metrics,
+                    query_perf,
+                    hydrate_perf: BTreeMap::new(),
+                    base_rowset_materialize_ms: 0,
+                    query_ms: metric_eval_ms,
+                    hydrate_ms: 0,
+                    eval_scope_ms: 0,
+                    workset_artifact_load_ms,
+                    eval_artifact_load_ms: 0,
+                    eval_node_artifact_load_ms: 0,
+                    eval_node_artifact_hits: 0,
+                    eval_node_artifact_stores: 0,
+                    metric_eval_ms,
+                    eval_scope,
+                    eval_report: None,
+                });
+            }
+            // Partial hits merged after row-eval.
+            sql_partial_for_merge = sql_partial;
         }
     }
 
@@ -461,6 +608,25 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     };
     let metric_eval_ms = elapsed_ms(metric_eval_started);
 
+    // Non-bulk return maps must not carry __scalar_rowset__ (Pack-First / RSS).
+    let mut metrics_map = if needs_bulk {
+        metrics_map
+    } else {
+        metrics_map
+            .into_iter()
+            .filter(|(id, _)| !metric_id_is_scalar_rowset(id))
+            .collect()
+    };
+    // Overlay SQL-capable metrics (mixed worksets where some ops still need row-eval).
+    if !sql_partial_for_merge.is_empty() {
+        query_perf.insert("duckdb_metric_sql_partial".to_string(), 1);
+        query_perf.insert(
+            "pipeline_sql_partial_hits".to_string(),
+            sql_partial_for_merge.len() as u64,
+        );
+        metrics_map.extend(sql_partial_for_merge);
+    }
+
     if matches!(mode, RuntimeMetricEvalMode::WithDag) {
         let agg_key = agg_result_cache_key(
             compiled.app_id.as_str(),
@@ -473,6 +639,10 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         store_agg_result_cache(agg_key, metrics_map.clone(), total_rows);
         query_perf.insert("agg_cache_hit".to_string(), 0);
     }
+
+    // Drop whole-table working sets after metric eval (DuckDB views remain).
+    let _ = super::clear_dataset_rows_cache();
+    let _ = super::clear_table_handle_cache();
 
     let metrics = if request_all_metrics {
         metrics_map.values().cloned().collect()
