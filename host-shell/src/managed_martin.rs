@@ -20,11 +20,15 @@ const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(200);
 pub struct ManagedMartin {
     pub endpoint: String,
     child: Child,
+    child_pid: Option<u32>,
 }
 
 impl ManagedMartin {
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         if self.child.try_wait()?.is_some() {
+            if let Some(pid) = self.child_pid {
+                crate::process_group::kill_process_group_if_alive(pid);
+            }
             return Ok(());
         }
         if let Err(error) = self.child.start_kill() {
@@ -33,6 +37,9 @@ impl ManagedMartin {
             }
         }
         let _ = timeout(Duration::from_secs(3), self.child.wait()).await;
+        if let Some(pid) = self.child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         Ok(())
     }
 }
@@ -105,20 +112,26 @@ pub async fn spawn_managed_martin(workspace_root: &Path) -> anyhow::Result<Optio
     let port = reserve_loopback_port()?;
     let listen = format!("{MANAGED_MARTIN_HOST}:{port}");
     let endpoint = format!("http://{listen}");
-    let mut child = Command::new(&binary)
-        .arg("--listen-addresses")
+    let mut cmd = Command::new(&binary);
+    cmd.arg("--listen-addresses")
         .arg(&listen)
         .arg(tiles_dir.as_os_str())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    crate::process_group::configure_managed_child_process_group(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|error| anyhow::anyhow!("spawn {}: {error}", binary.display()))?;
+    let child_pid = child.id();
 
     if let Err(error) = wait_for_catalog(endpoint.as_str(), &mut child).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
+        if let Some(pid) = child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         return Err(error);
     }
 
@@ -128,7 +141,11 @@ pub async fn spawn_managed_martin(workspace_root: &Path) -> anyhow::Result<Optio
         binary = %binary.display(),
         "managed Martin started for workspace stock/gis/tiles"
     );
-    Ok(Some(ManagedMartin { endpoint, child }))
+    Ok(Some(ManagedMartin {
+        endpoint,
+        child,
+        child_pid,
+    }))
 }
 
 /// Best-effort attach into the HostHttpState slot (never fails serve).

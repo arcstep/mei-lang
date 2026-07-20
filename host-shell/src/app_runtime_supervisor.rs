@@ -35,11 +35,23 @@ pub struct ManagedRuntime {
     pub spec: InstanceSpec,
     /// Wall-clock ms when the child became healthy / entered the pool.
     pub started_at_ms: u64,
+    /// Child pid / process-group id (Unix `process_group(0)`).
+    pub child_pid: Option<u32>,
+    /// Workspace used for `runtime.pid` cleanup on stop.
+    pub workspace_root: PathBuf,
 }
 
 impl ManagedRuntime {
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+        crate::stale_runtime_sweep::clear_runtime_pid_file(
+            self.workspace_root.as_path(),
+            self.spec.app_id.as_str(),
+            self.spec.instance_id.as_str(),
+        );
         if self.child.try_wait()?.is_some() {
+            if let Some(pid) = self.child_pid {
+                crate::process_group::kill_process_group_if_alive(pid);
+            }
             return Ok(());
         }
         if let Err(error) = self.child.start_kill() {
@@ -48,6 +60,9 @@ impl ManagedRuntime {
             }
         }
         let _ = timeout(Duration::from_secs(3), self.child.wait()).await;
+        if let Some(pid) = self.child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         Ok(())
     }
 }
@@ -270,6 +285,18 @@ impl AppRuntimeSupervisor {
             if let Err(error) = self.stop_instance(id.as_str()).await {
                 tracing::warn!(instance_id = %id, detail = %error, "app-runtime shutdown failed");
             }
+        }
+        // Catch children that escaped the in-memory map (e.g. race / prior orphans).
+        let swept = crate::stale_runtime_sweep::sweep_stale_app_runtimes(
+            self.workspace_root.as_path(),
+            &std::collections::BTreeSet::new(),
+        );
+        if swept > 0 {
+            tracing::info!(
+                swept,
+                workspace = %self.workspace_root.display(),
+                "shutdown_all swept leftover mei-app-runtime processes"
+            );
         }
         Ok(())
     }
@@ -594,6 +621,7 @@ async fn spawn_managed_runtime(
     ) {
         cmd.env(key, value);
     }
+    crate::process_group::configure_managed_child_process_group(&mut cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -601,6 +629,22 @@ async fn spawn_managed_runtime(
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| anyhow::anyhow!("spawn {}: {error}", binary.display()))?;
+    let child_pid = child.id();
+    if let Some(pid) = child_pid {
+        if let Err(error) = crate::stale_runtime_sweep::write_runtime_pid_file(
+            workspace_root,
+            spec.app_id.as_str(),
+            spec.instance_id.as_str(),
+            pid,
+        ) {
+            tracing::warn!(
+                %error,
+                app = %spec.app_id,
+                instance = %spec.instance_id,
+                "failed to write runtime.pid"
+            );
+        }
+    }
 
     if let Some(stderr) = child.stderr.take() {
         let app_id = spec.app_id.clone();
@@ -648,8 +692,16 @@ async fn spawn_managed_runtime(
     };
 
     if let Err(error) = wait_for_ready(listen_endpoint.as_str(), &mut child).await {
+        crate::stale_runtime_sweep::clear_runtime_pid_file(
+            workspace_root,
+            spec.app_id.as_str(),
+            spec.instance_id.as_str(),
+        );
         let _ = child.start_kill();
         let _ = child.wait().await;
+        if let Some(pid) = child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         return Err(error);
     }
 
@@ -668,6 +720,8 @@ async fn spawn_managed_runtime(
         token: token.to_string(),
         spec: spec.clone(),
         started_at_ms: crate::state::current_time_ms(),
+        child_pid,
+        workspace_root: workspace_root.to_path_buf(),
     })
 }
 
@@ -847,6 +901,19 @@ pub async fn bootstrap_supervisor_for_shell(
     {
         let mut guard = shell.write().expect("state lock");
         guard.install_launch_manifest(manifest.clone());
+    }
+
+    // Align OS process table with Cleared/Stopped disk state before any spawn.
+    let swept = crate::stale_runtime_sweep::sweep_stale_app_runtimes(
+        workspace,
+        &std::collections::BTreeSet::new(),
+    );
+    if swept > 0 {
+        tracing::info!(
+            swept,
+            workspace = %workspace.display(),
+            "bootstrap swept stale mei-app-runtime processes"
+        );
     }
 
     let desired_running = manifest

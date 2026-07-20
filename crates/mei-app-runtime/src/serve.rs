@@ -66,8 +66,27 @@ pub async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         }
     });
 
+    let (parent_shutdown_tx, parent_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    crate::parent_watch::spawn_parent_death_watcher(parent_shutdown_tx);
+
     let app = crate::http::router(state);
     axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let ctrl_c = async {
+                if let Err(error) = tokio::signal::ctrl_c().await {
+                    tracing::warn!(%error, "mei-app-runtime Ctrl-C handler failed");
+                    std::future::pending::<()>().await;
+                }
+            };
+            tokio::select! {
+                _ = ctrl_c => {
+                    tracing::info!("mei-app-runtime shutdown: Ctrl-C");
+                }
+                _ = parent_shutdown_rx => {
+                    tracing::info!("mei-app-runtime shutdown: parent process gone");
+                }
+            }
+        })
         .await
         .map_err(|e| anyhow::anyhow!(e))
 }

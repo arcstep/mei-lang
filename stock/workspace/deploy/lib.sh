@@ -452,10 +452,156 @@ print_runtime_banner() {
   echo "Binary:    ${host_shell}"
 }
 
+# Kill mei-app-runtime serve processes bound to this workspace only.
+# Never use bare `pkill mei-app-runtime` (other workspaces may share the host).
+sweep_stale_app_runtimes() {
+  local workspace_root="$1"
+  local workspace_abs
+  workspace_abs="$(cd "${workspace_root}" && pwd -P)"
+  local pids=()
+  local pid cmd
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    pid="$(awk '{print $1}' <<<"${line}")"
+    cmd="$(sed -E 's/^[[:space:]]*[0-9]+[[:space:]]+//' <<<"${line}")"
+    if [[ "${cmd}" == *mei-app-runtime* && "${cmd}" == *serve* && "${cmd}" == *"--workspace"* && "${cmd}" == *"${workspace_abs}"* ]]; then
+      pids+=("${pid}")
+    fi
+  done < <(ps -axo pid=,command= 2>/dev/null || true)
+
+  # Only signal PIDs that still exist (avoid "No such process" noise).
+  local live=()
+  for pid in "${pids[@]+"${pids[@]}"}"; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      live+=("${pid}")
+    fi
+  done
+  if [[ "${#live[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "sweeping ${#live[@]} stale mei-app-runtime for workspace=${workspace_abs}: ${live[*]}"
+  for pid in "${live[@]}"; do
+    kill -TERM "${pid}" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in "${live[@]}"; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  done
+}
+
+# Report orphan / child mei-app-runtime counts for status.sh.
+report_app_runtime_process_status() {
+  local workspace_root="$1"
+  local workspace_abs
+  workspace_abs="$(cd "${workspace_root}" && pwd -P)"
+  local host_pid=""
+  if [[ -f "${workspace_root}/deploy/state/host.pid" ]]; then
+    host_pid="$(cat "${workspace_root}/deploy/state/host.pid" 2>/dev/null || true)"
+  fi
+
+  local children=0
+  local orphans=0
+  local orphan_pids=()
+  local pid ppid cmd
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    pid="$(awk '{print $1}' <<<"${line}")"
+    ppid="$(awk '{print $2}' <<<"${line}")"
+    cmd="$(sed -E 's/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+//' <<<"${line}")"
+    if [[ "${cmd}" != *mei-app-runtime* || "${cmd}" != *serve* || "${cmd}" != *"--workspace"* || "${cmd}" != *"${workspace_abs}"* ]]; then
+      continue
+    fi
+    if [[ -n "${host_pid}" && "${ppid}" == "${host_pid}" ]]; then
+      children=$((children + 1))
+    elif [[ "${ppid}" == "1" ]]; then
+      orphans=$((orphans + 1))
+      orphan_pids+=("${pid}")
+    fi
+  done < <(ps -axo pid=,ppid=,command= 2>/dev/null || true)
+
+  echo "app-runtime.children=${children}"
+  echo "app-runtime.orphans(ppid=1)=${orphans}"
+  if [[ "${#orphan_pids[@]}" -gt 0 ]]; then
+    echo "app-runtime.orphan_pids=${orphan_pids[*]}"
+  fi
+
+  local tiles_dir="${workspace_abs}/stock/gis/tiles"
+  local martin_total=0
+  local martin_orphans=0
+  local martin_orphan_pids=()
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    pid="$(awk '{print $1}' <<<"${line}")"
+    ppid="$(awk '{print $2}' <<<"${line}")"
+    cmd="$(sed -E 's/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+//' <<<"${line}")"
+    if [[ "${cmd}" != *martin* || "${cmd}" != *"--listen"* || "${cmd}" != *"${tiles_dir}"* ]]; then
+      continue
+    fi
+    martin_total=$((martin_total + 1))
+    if [[ "${ppid}" == "1" ]]; then
+      martin_orphans=$((martin_orphans + 1))
+      martin_orphan_pids+=("${pid}")
+    fi
+  done < <(ps -axo pid=,ppid=,command= 2>/dev/null || true)
+  echo "martin.total=${martin_total}"
+  echo "martin.orphans(ppid=1)=${martin_orphans}"
+  if [[ "${#martin_orphan_pids[@]}" -gt 0 ]]; then
+    echo "martin.orphan_pids=${martin_orphan_pids[*]}"
+  fi
+}
+
+# Kill managed Martin processes serving this workspace's stock/gis/tiles.
+# Host may leave orphans after kill -9 / IDE Stop; stop.sh must sweep them.
+sweep_stale_managed_martin() {
+  local workspace_root="$1"
+  local workspace_abs tiles_dir
+  workspace_abs="$(cd "${workspace_root}" && pwd -P)"
+  tiles_dir="${workspace_abs}/stock/gis/tiles"
+  local pids=()
+  local pid cmd
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    pid="$(awk '{print $1}' <<<"${line}")"
+    cmd="$(sed -E 's/^[[:space:]]*[0-9]+[[:space:]]+//' <<<"${line}")"
+    if [[ "${cmd}" == *martin* && "${cmd}" == *"--listen"* && "${cmd}" == *"${tiles_dir}"* ]]; then
+      pids+=("${pid}")
+    fi
+  done < <(ps -axo pid=,command= 2>/dev/null || true)
+
+  local live=()
+  for pid in "${pids[@]+"${pids[@]}"}"; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      live+=("${pid}")
+    fi
+  done
+  if [[ "${#live[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "sweeping ${#live[@]} stale martin for tiles=${tiles_dir}: ${live[*]}"
+  for pid in "${live[@]}"; do
+    kill -TERM "${pid}" 2>/dev/null || true
+  done
+  sleep 0.5
+  for pid in "${live[@]}"; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  done
+}
+
 run_workspace_serve() {
   local workspace_root="$1"
   shift
   local deploy_dir="${DEPLOY_DIR:?set DEPLOY_DIR before calling run_workspace_serve}"
+  # Prevent stacking orphans from a previous hard-killed host.
+  sweep_stale_app_runtimes "${workspace_root}"
+  sweep_stale_managed_martin "${workspace_root}"
   local host port skip_prebuild prebuild_before_serve background warmup_policy auth_flag app
   host="${MEI_SERVE_HOST:-127.0.0.1}"
   port="${MEI_PORT:-9527}"

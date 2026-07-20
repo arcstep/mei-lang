@@ -18,11 +18,15 @@ const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(200);
 pub struct ManagedPlugDs {
     pub endpoint: String,
     child: Child,
+    child_pid: Option<u32>,
 }
 
 impl ManagedPlugDs {
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         if self.child.try_wait()?.is_some() {
+            if let Some(pid) = self.child_pid {
+                crate::process_group::kill_process_group_if_alive(pid);
+            }
             return Ok(());
         }
         if let Err(error) = self.child.start_kill() {
@@ -31,6 +35,9 @@ impl ManagedPlugDs {
             }
         }
         let _ = timeout(Duration::from_secs(3), self.child.wait()).await;
+        if let Some(pid) = self.child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         Ok(())
     }
 }
@@ -117,8 +124,8 @@ async fn spawn_managed_plug_ds_for_app(
     let port = reserve_loopback_port()?;
     let endpoint = format!("http://{MANAGED_PLUG_DS_HOST}:{port}");
     let binary = crate::tool_exec::resolve_mei_plug_ds(Some(workspace_root))?;
-    let mut child = Command::new(&binary)
-        .arg("serve")
+    let mut cmd = Command::new(&binary);
+    cmd.arg("serve")
         .arg("--workspace")
         .arg(workspace_root)
         .arg("--app")
@@ -130,17 +137,27 @@ async fn spawn_managed_plug_ds_for_app(
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    crate::process_group::configure_managed_child_process_group(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|error| anyhow::anyhow!("spawn {}: {error}", binary.display()))?;
+    let child_pid = child.id();
 
     if let Err(error) = wait_for_health(endpoint.as_str(), &mut child).await {
         let _ = child.start_kill();
         let _ = child.wait().await;
+        if let Some(pid) = child_pid {
+            crate::process_group::kill_process_group_if_alive(pid);
+        }
         return Err(error);
     }
 
-    Ok(ManagedPlugDs { endpoint, child })
+    Ok(ManagedPlugDs {
+        endpoint,
+        child,
+        child_pid,
+    })
 }
 
 fn reserve_loopback_port() -> anyhow::Result<u16> {

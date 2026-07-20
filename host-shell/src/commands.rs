@@ -975,18 +975,16 @@ async fn run_serve_control_plane(
             crate::request_logging::log_request,
         ));
     let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(crate::shutdown_signal::shutdown_signal())
         .await
         .map_err(|error| anyhow::anyhow!(error));
-    if let Some(actor) = runtime_actor_for_shutdown {
-        actor.shutdown().await;
-    }
-    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
-    {
-        let mut supervisor = app_runtime.lock().await;
-        if let Err(error) = supervisor.shutdown_all().await {
-            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
-        }
-    }
+    crate::managed_teardown::teardown_managed_children(
+        runtime_actor_for_shutdown,
+        None,
+        &managed_martin_for_shutdown,
+        &app_runtime,
+    )
+    .await;
     serve_result
 }
 
@@ -1263,23 +1261,16 @@ async fn run_serve_blocking_init(
             crate::request_logging::log_request,
         ));
     let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(crate::shutdown_signal::shutdown_signal())
         .await
         .map_err(|e| anyhow::anyhow!(e));
-    if let Some(actor) = runtime_actor_for_shutdown {
-        actor.shutdown().await;
-    }
-    if let Some(mut pool) = managed_plug.lock().ok().and_then(|mut guard| guard.take()) {
-        if let Err(error) = pool.shutdown().await {
-            tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
-        }
-    }
-    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
-    {
-        let mut supervisor = app_runtime.lock().await;
-        if let Err(error) = supervisor.shutdown_all().await {
-            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
-        }
-    }
+    crate::managed_teardown::teardown_managed_children(
+        runtime_actor_for_shutdown,
+        Some(managed_plug),
+        &managed_martin_for_shutdown,
+        &app_runtime,
+    )
+    .await;
     serve_result
 }
 
@@ -1394,27 +1385,16 @@ async fn run_serve_early_bind(
             mei_host_auth::auth_middleware,
         ));
     let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(crate::shutdown_signal::shutdown_signal())
         .await
         .map_err(|e| anyhow::anyhow!(e));
-    if let Some(actor) = runtime_actor_for_shutdown {
-        actor.shutdown().await;
-    }
-    if let Some(mut pool) = managed_plug_for_shutdown
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-    {
-        if let Err(error) = pool.shutdown().await {
-            tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
-        }
-    }
-    crate::managed_martin::shutdown_managed_martin_slot(&managed_martin_for_shutdown).await;
-    {
-        let mut supervisor = app_runtime_for_shutdown.lock().await;
-        if let Err(error) = supervisor.shutdown_all().await {
-            tracing::warn!(detail = %error, "app-runtime supervisor shutdown failed");
-        }
-    }
+    crate::managed_teardown::teardown_managed_children(
+        runtime_actor_for_shutdown,
+        Some(managed_plug_for_shutdown),
+        &managed_martin_for_shutdown,
+        &app_runtime_for_shutdown,
+    )
+    .await;
     serve_result
 }
 

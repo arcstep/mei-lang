@@ -37,4 +37,5 @@ if [[ -n "${MEI_PLUG_DS_URL:-}" ]]; then
 else
   echo "plug-ds=managed-by-host-shell"
 fi
+report_app_runtime_process_status "${WORKSPACE_ROOT}"
 echo "url=http://${HOST}:${PORT}/apps/app/${APP}/scene/home"

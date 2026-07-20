@@ -6,6 +6,7 @@ mod cli;
 mod host_data;
 pub mod http;
 mod lifecycle;
+mod parent_watch;
 mod serve;
 mod state;
 
