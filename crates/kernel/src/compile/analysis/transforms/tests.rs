@@ -297,3 +297,29 @@ fn extract_number_supports_regex_prefix_on_string_and_numeric_cells() {
     assert_eq!(eval_row_value(&expr, &row_text).as_f64(), Some(1.0));
     assert_eq!(eval_row_value(&expr, &row_number).as_f64(), Some(10.0));
 }
+
+#[test]
+fn div_and_coalesce_support_row_value_transforms() {
+    let div_expr = json!({
+        "__kind": "analysis_expr",
+        "type": "div",
+        "field": "采购限价（元）",
+        "by": 10000
+    });
+    let row = serde_json::Map::from_iter([
+        (String::from("采购限价（元）"), json!(15515000)),
+        (String::from("street_u"), json!("")),
+        (String::from("street_p"), json!("土主街道")),
+    ]);
+    assert_eq!(eval_row_value(&div_expr, &row).as_f64(), Some(1551.5));
+
+    let coalesce_expr = json!({
+        "__kind": "analysis_expr",
+        "type": "coalesce",
+        "fields": ["street_u", "street_p"]
+    });
+    assert_eq!(
+        eval_row_value(&coalesce_expr, &row).as_str(),
+        Some("土主街道")
+    );
+}

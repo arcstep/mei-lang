@@ -640,14 +640,18 @@
     const PROGRESS_STACK_AREAS =
       '". ." "label label" "value unit" ". ." "desc desc" ". ."';
     if (template === "row") {
-      style.gridTemplateColumns = "auto auto auto";
+      // 横排看板默认（作者声明 ui.row_accent_* 即可）：
+      // 标签四字槽两端拉开 + 弹性空隙 + 数值小数点对齐 + 单位保底宽左跟。
+      // 三列 label|value|unit：数值拿走标签/单位外全部剩余宽，避免空列把五位整数裁半个字。
+      style.gridTemplateColumns = "4em minmax(0, 1fr) minmax(1.25em, auto)";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
       style.alignItems = "center";
-      style.justifyItems = iconReserved ? "start" : "center";
-      style.justifyContent = iconReserved ? "start" : "center";
-      style.gap = compactInline ? "0 0.3em" : "2px 4px";
+      style.justifyItems = "stretch";
+      style.justifyContent = iconReserved ? "start" : "stretch";
+      style.gap = compactInline ? "0 0.25em" : "2px 4px";
       card.setAttribute("data-mei-metric-value-unit-tight", compactInline ? "true" : "false");
+      applyRowMetricBoardAlign(target);
       return;
     }
     if (template !== "stack" && template !== "stack_desc") return;
@@ -728,6 +732,39 @@
     target.setAttribute("data-metric-role", "desc");
   }
 
+  function patchMetricTextAlign(node, align) {
+    if (!(node instanceof HTMLElement)) return;
+    const props = parseHostProps(node);
+    if (String(props.align || "").trim().toLowerCase() === align) return;
+    const next = { ...props, align };
+    node.setAttribute("data-props", JSON.stringify(next));
+    if (typeof node._bind === "function") {
+      try {
+        node._bind();
+      } catch (_) {}
+    }
+  }
+
+  /** Row 横排看板：label 两端对齐 / value 小数点对齐 / unit 左跟. */
+  function applyRowMetricBoardAlign(bodyCell) {
+    if (!(bodyCell instanceof HTMLElement)) return;
+    bodyCell.querySelectorAll(":scope > .component-card").forEach((slot) => {
+      if (!(slot instanceof HTMLElement)) return;
+      const text = slot.querySelector("mei-text, MEI-TEXT");
+      const role = String(parseHostProps(text).metric_role || "").trim();
+      if (role === "label") {
+        slot.style.justifySelf = "stretch";
+        patchMetricTextAlign(text, "justify");
+      } else if (role === "value") {
+        slot.style.justifySelf = "stretch";
+        patchMetricTextAlign(text, "decimal");
+      } else if (role === "unit") {
+        slot.style.justifySelf = "start";
+        patchMetricTextAlign(text, "left");
+      }
+    });
+  }
+
   function wrapMetricRoleNode(node, role) {
     if (!(node instanceof HTMLElement)) return node;
     const parentCard = node.closest(".component-card");
@@ -739,6 +776,7 @@
     card.style.gridArea = role;
     card.style.minWidth = "0";
     card.style.minHeight = "0";
+    // stack：value 靠 unit；row 由 applyRowMetricBoardAlign 设为 stretch + 右齐。
     if (role === "value") card.style.justifySelf = "end";
     if (role === "unit") card.style.justifySelf = "start";
     const host = document.createElement("div");

@@ -115,7 +115,10 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
         mei_config.ops.strict_fill_down,
         mei_config.ops.fill_down,
     );
-    format!("{data_gen}|{policy}")
+    // sectionRows 等 layout theme 会进 runtime.plans / layout_budget；必须纳入 revision，
+    // 否则只改 app.toml themes.*.layout 时热重载仍命中旧 plan（养老/校服高度不同即此坑）。
+    let themes = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
+    format!("{data_gen}|{policy}|{themes}")
 }
 
 fn theme_digest_for_app(workspace_root: &Path, app_id: &str) -> String {

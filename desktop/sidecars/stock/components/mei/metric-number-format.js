@@ -18,11 +18,19 @@ export function normalizeMetricValueFormat(format) {
   if (format == null || typeof format !== "object") return null;
   const modeRaw = String(format.mode ?? format.style ?? "").trim().toLowerCase();
 
-  const fractionRaw = format.fraction_digits ?? format.fractionDigits ?? null;
+  const fractionRaw =
+    format.fraction_digits ?? format.fractionDigits ?? format.digits ?? null;
   const significantRaw = format.significant_digits ?? format.significantDigits ?? null;
   const precisionRaw = format.precision;
+  // Accept legacy `{ kind: "number", digits: N }` as fraction digits.
+  const kindRaw = String(format.kind ?? "").trim().toLowerCase();
 
-  if (modeRaw === "fraction" || fractionRaw != null || (precisionRaw != null && modeRaw !== "significant")) {
+  if (
+    modeRaw === "fraction" ||
+    kindRaw === "number" ||
+    fractionRaw != null ||
+    (precisionRaw != null && modeRaw !== "significant")
+  ) {
     const digits = Number(fractionRaw ?? precisionRaw);
     return {
       mode: "fraction",

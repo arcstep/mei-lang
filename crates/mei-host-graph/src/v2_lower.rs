@@ -3725,9 +3725,11 @@ fn metric_slot_align(template: &str, role: &str) -> &'static str {
         return "center";
     }
     if template == "row" {
+        // 横排看板：短标签两端拉开、数值按小数点对齐、单位左跟。
         return match role {
-            "label" | "desc" => "left",
-            _ => "right",
+            "label" | "desc" => "justify",
+            "value" => "decimal",
+            _ => "left",
         };
     }
     "center"
@@ -3751,8 +3753,18 @@ fn titled_shell_template_props(args: &Value) -> Value {
             "max_height",
             "margin",
             "justify_self",
+            // section_shell(background=…) — required when nested content_panel is
+            // collapsed (e.g. single data-table child) and would otherwise lose
+            // panel_glow_bg, leaving map bleed-through.
+            "background",
         ] {
             if let Some(value) = args.get(key) {
+                if value.is_null() {
+                    continue;
+                }
+                if value.as_str().is_some_and(|s| s.trim().is_empty()) {
+                    continue;
+                }
                 map.insert(key.to_string(), value.clone());
             }
         }
@@ -4494,6 +4506,54 @@ mod tests {
             panic!("expected wrapper panel");
         };
         assert!(wrapper.props.get("padding").is_none());
+    }
+
+    #[test]
+    fn lower_section_shell_keeps_background_arg() {
+        let payload = json!({
+            "id": "realtime_table",
+            "shell": {
+                "__call": "section_shell",
+                "__args": {
+                    "title": "实时预警",
+                    "background": "panel_glow_bg",
+                    "padding_profile": "dense",
+                    "body": {
+                        "__call": "content_panel",
+                        "__args": {
+                            "id": "realtime-table",
+                            "blocks": [{
+                                "__call": "component",
+                                "__args": {"arg0": "cockpit.data-table", "area": "table"}
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "qunfu",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "qunfu".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+            source_file: None,
+            diagnostics: LowerDiagnostics::new(),
+        };
+        let panel = lower_panel_payload(&payload, "realtime_table", &ctx).expect("panel");
+        assert_eq!(
+            panel.props.get("background").and_then(Value::as_str),
+            Some("panel_glow_bg"),
+            "section_shell(background=…) must survive lowering, got {}",
+            panel.props
+        );
     }
 
     #[test]

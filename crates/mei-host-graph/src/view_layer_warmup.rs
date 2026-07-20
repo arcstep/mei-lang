@@ -20,7 +20,12 @@ use crate::view_artifact::{
 
 fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     let app_root = resolve_app_root(workspace_root, app_id);
-    mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation
+    let mei_config =
+        mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let data_gen =
+        mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
+    let themes = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
+    format!("{data_gen}|{themes}")
 }
 
 fn layer_ref_from_materialized(value: &Value) -> Option<LayerRef> {

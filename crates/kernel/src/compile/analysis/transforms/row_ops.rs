@@ -198,6 +198,40 @@ pub fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Val
                     let right = row.get(right_field).and_then(parse_number).unwrap_or(0.0);
                     json!(left - right)
                 }
+                "div" => {
+                    let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
+                    let left = row.get(field).and_then(parse_number).unwrap_or(0.0);
+                    let by = analysis
+                        .get("by")
+                        .and_then(|value| {
+                            value
+                                .as_f64()
+                                .or_else(|| value.as_i64().map(|n| n as f64))
+                                .or_else(|| value.as_u64().map(|n| n as f64))
+                                .or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
+                        })
+                        .unwrap_or(1.0);
+                    if by.abs() < f64::EPSILON {
+                        Value::Null
+                    } else {
+                        json!(left / by)
+                    }
+                }
+                "coalesce" => {
+                    let fields = analysis
+                        .get("fields")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    for field_value in fields {
+                        let field = field_value.as_str().unwrap_or("");
+                        let text = row.get(field).map(scalar_text).unwrap_or_default();
+                        if !text.trim().is_empty() {
+                            return Value::String(text);
+                        }
+                    }
+                    Value::String(String::new())
+                }
                 _ => expr.clone(),
             };
         }

@@ -399,13 +399,36 @@ function textAlignCss(props) {
   if (raw === "left" || raw === "start") {
     return "left";
   }
+  // 横排短标签：在定宽槽内两端拉开（「金额」→「金　　额」对齐「政府采购」）。
+  if (raw === "justify" || raw === "distribute") {
+    return "justify";
+  }
+  // 横排数值：整数部右齐 + 小数部固定槽（小数点对齐）。
+  if (raw === "decimal" || raw === "decimal-point" || raw === "decimal_point") {
+    return "decimal";
+  }
   return "";
 }
 
 function justifyContentFromTextAlign(align) {
   if (align === "left") return "flex-start";
   if (align === "right") return "flex-end";
+  if (align === "justify" || align === "decimal") return "stretch";
   return "center";
+}
+
+/** Split display number into integer + fractional (incl. '.') for decimal-point align. */
+function splitDecimalDisplay(text) {
+  const raw = String(text ?? "").trim();
+  const m = raw.match(/^([+\-]?[\d,]+)(\.\d+)?(.*)$/);
+  if (!m) {
+    return { intPart: raw, fracPart: "", suffix: "" };
+  }
+  return {
+    intPart: m[1] || "",
+    fracPart: m[2] || "",
+    suffix: m[3] || "",
+  };
 }
 
 function metricVerticalAlign(props) {
@@ -596,6 +619,11 @@ function metricTypographyCss(props) {
   const lineHeight =
     lineHeightRaw &&
     (/^\d+(\.\d+)?$/.test(lineHeightRaw) ? lineHeightRaw : lineHeightRaw);
+  const justifyLast =
+    align === "justify" ? "text-align-last: justify; width: 100%;" : "";
+  // decimal 对齐由 .mei-text-num-decimal 网格承担，勿把非法 text-align:decimal 写进 CSS。
+  const cssAlign =
+    align === "decimal" ? "left" : align || `var(${prefix}-text-align, inherit)`;
   return `
     ${metricBodyClipCss(role)}
     font-size: ${fontSizeVar(props)};
@@ -604,7 +632,8 @@ function metricTypographyCss(props) {
     font-weight: var(${prefix}-font-weight, inherit);
     letter-spacing: var(${prefix}-letter-spacing, normal);
     line-height: ${lineHeight || `var(${prefix}-line-height, 1.2)`};
-    text-align: ${align || `var(${prefix}-text-align, inherit)`};
+    text-align: ${cssAlign};
+    ${justifyLast}
   `;
 }
 
@@ -984,6 +1013,42 @@ class MeiText extends HTMLElement {
           ${descShell}
           ${drilldownBodyStyle}
         }
+        .mei-text-body.mei-text-label-distribute {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+          white-space: nowrap;
+          text-align: left;
+          text-align-last: auto;
+        }
+        .mei-text-body.mei-text-label-distribute > span {
+          flex: 0 0 auto;
+        }
+        .mei-text-body.mei-text-num-decimal {
+          display: block;
+          width: 100%;
+          white-space: nowrap;
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          overflow: visible;
+        }
+        .mei-text-body.mei-text-num-decimal.mei-text-num-decimal-split {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 2.2ch;
+          align-items: baseline;
+          text-align: left;
+        }
+        .mei-text-body.mei-text-num-decimal-split > .mei-num-int {
+          min-width: 0;
+          text-align: right;
+          overflow: hidden;
+          text-overflow: clip;
+        }
+        .mei-text-body.mei-text-num-decimal-split > .mei-num-frac {
+          text-align: left;
+          font-variant-numeric: tabular-nums;
+        }
         .mei-text-body :where(p, h1, h2, h3, ul, ol) {
           margin: 0 0 0.5em;
         }
@@ -1061,8 +1126,37 @@ class MeiText extends HTMLElement {
     );
     if (!body) return;
 
+    const alignMode = textAlignCss(props);
+    const labelChars =
+      metricRole === "label" && alignMode === "justify" && format !== "html"
+        ? Array.from(String(content ?? "").trim())
+        : null;
+    // 二字/三字标签拉开对齐四字槽；四字及以上保持紧排（如「政府采购」）。
+    const distributeLabel = Boolean(labelChars && labelChars.length >= 2 && labelChars.length <= 3);
+    const decimalValue =
+      metricRole === "value" && alignMode === "decimal" && format !== "html";
+    body.classList.remove(
+      "mei-text-label-distribute",
+      "mei-text-num-decimal",
+      "mei-text-num-decimal-split",
+    );
     if (format === "html") {
       body.innerHTML = content;
+    } else if (distributeLabel) {
+      body.classList.add("mei-text-label-distribute");
+      body.innerHTML = labelChars.map((ch) => `<span>${escapeHtml(ch)}</span>`).join("");
+    } else if (decimalValue) {
+      const parts = splitDecimalDisplay(content);
+      body.classList.add("mei-text-num-decimal");
+      // 无小数：整格右齐，避免空小数槽把五位整数挤出容器；有小数再拆整数/小数槽。
+      if (parts.fracPart) {
+        body.classList.add("mei-text-num-decimal-split");
+        body.innerHTML =
+          `<span class="mei-num-int">${escapeHtml(parts.intPart)}${escapeHtml(parts.suffix)}</span>` +
+          `<span class="mei-num-frac">${escapeHtml(parts.fracPart)}</span>`;
+      } else {
+        body.textContent = `${parts.intPart}${parts.suffix}`;
+      }
     } else {
       body.textContent = content;
     }

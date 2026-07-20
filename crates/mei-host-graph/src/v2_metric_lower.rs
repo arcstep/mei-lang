@@ -304,15 +304,27 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
             "rename",
             &[("rowset", input.clone()), ("mapping", arg0(&args).clone())],
         ),
-        "mutate" => aek(
-            "mutate",
-            &[("rowset", input.clone()), ("updates", arg1(&args).clone())],
-        ),
+        "mutate" => {
+            // Pipeline form: mutate({updates}); two-arg form keeps updates in arg1.
+            let updates = if args.get("arg1").is_some() {
+                arg1(&args)
+            } else {
+                arg0(&args)
+            };
+            aek(
+                "mutate",
+                &[
+                    ("rowset", input.clone()),
+                    ("updates", lower_mutate_updates(updates)),
+                ],
+            )
+        }
         "limit" => aek(
             "limit",
             &[("rowset", input.clone()), ("n", arg0(&args).clone())],
         ),
         "label_status_pending" => lower_label_status_pending(input, &args),
+        "concat_rowsets" => lower_concat_rowsets(&args, ctx),
         "group_by" => lower_group_by(Some(input), &args, ctx),
         "lookup_value" => lower_lookup_value(Some(input), &args, ctx),
         "party_year_aggregate" => lower_party_year_aggregate(Some(input), &args, ctx),
@@ -320,6 +332,24 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
         "unpivot_columns" => lower_unpivot_columns(Some(input), &args, ctx),
         _ => input.clone(),
     }
+}
+
+fn lower_concat_rowsets(args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let mut rowsets = Vec::new();
+    if let Some(arr) = args.get("rowsets").and_then(Value::as_array) {
+        for expr in arr {
+            rowsets.push(lower_rowset(expr, ctx));
+        }
+    } else {
+        for index in 0..32 {
+            let key = format!("arg{index}");
+            let Some(expr) = args.get(&key) else {
+                break;
+            };
+            rowsets.push(lower_rowset(expr, ctx));
+        }
+    }
+    aek("concat_rowsets", &[("rowsets", json!(rowsets))])
 }
 
 fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
@@ -576,7 +606,16 @@ fn lower_sum_agg(agg: &Value, base_rowset: Value) -> Value {
 
 fn lower_sum_on_rowset(agg: &Value, base_rowset: Value) -> Value {
     if v2_call_name(agg).as_deref() == Some("sum") {
-        if let Some(field) = arg0_string_from_value(agg) {
+        let field = agg
+            .get("__args")
+            .and_then(|args| {
+                args.get("field")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| arg0_string_from_value(agg))
+            })
+            .or_else(|| arg0_string_from_value(agg));
+        if let Some(field) = field {
             return ae(
                 "sum",
                 vec![(
@@ -604,7 +643,16 @@ fn lower_nested_agg(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerContext)
         return match name.as_str() {
             "count" => {
                 let inner = arg0(&args);
-                if v2_call_name(inner).is_some() {
+                if let Some(inner_name) = v2_call_name(inner) {
+                    // Authoring sugar: count(where(pred)) binds metric base_rowset.
+                    // Two-arg where(rowset, pred) continues to lower via lower_rowset.
+                    if inner_name == "where" {
+                        if let Some(rowset) =
+                            lower_predicate_only_where(inner, base_rowset.clone(), ctx)
+                        {
+                            return ae("count", vec![("rowset".to_string(), rowset)]);
+                        }
+                    }
                     ae(
                         "count",
                         vec![("rowset".to_string(), lower_rowset(inner, ctx))],
@@ -618,6 +666,51 @@ fn lower_nested_agg(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerContext)
         };
     }
     lower_sum_on_rowset(agg, base_rowset)
+}
+
+/// `where(pred)` inside nested agg — arg0 is predicate, rowset inherited from metric.
+fn lower_predicate_only_where(
+    where_call: &Value,
+    base_rowset: Value,
+    _ctx: &V2MetricLowerContext,
+) -> Option<Value> {
+    let args = where_call.get("__args")?;
+    let a0 = arg0(args);
+    let a1 = arg1(args);
+    if !a1.is_null() {
+        return None;
+    }
+    let pred_name = v2_call_name(a0)?;
+    if is_rowset_call_name(pred_name.as_str()) {
+        return None;
+    }
+    Some(aek(
+        "where",
+        &[
+            ("rowset", base_rowset),
+            ("predicate", lower_predicate(a0)),
+        ],
+    ))
+}
+
+fn is_rowset_call_name(name: &str) -> bool {
+    matches!(
+        name,
+        "data_ref"
+            | "where"
+            | "first_by"
+            | "select"
+            | "group_by"
+            | "lookup_value"
+            | "party_year_aggregate"
+            | "trend_year_compare"
+            | "pivot_long"
+            | "unpivot_columns"
+            | "mutate"
+            | "concat_rowsets"
+            | "party_gov_sanction_rows"
+            | "handled_person_rows"
+    )
 }
 
 fn lower_scalar_expr(value: &Value, ctx: &V2MetricLowerContext) -> Value {
@@ -661,10 +754,108 @@ fn lower_scalar_expr(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                 )
             }
             "count" => lower_nested_agg(value, json!(null), ctx),
+            "lit" => {
+                let lit_value = args
+                    .get("arg0")
+                    .or_else(|| args.get("value"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                aek("lit", &[("value", lit_value)])
+            }
             _ => json!(0),
         };
     }
     json!(0)
+}
+
+fn lower_mutate_updates(updates: &Value) -> Value {
+    let Some(object) = updates.as_object() else {
+        return updates.clone();
+    };
+    let mut out = serde_json::Map::new();
+    for (key, value) in object {
+        out.insert(key.clone(), lower_row_value_expr(value));
+    }
+    Value::Object(out)
+}
+
+fn lower_row_value_expr(value: &Value) -> Value {
+    if let Some(name) = v2_call_name(value) {
+        let args = value.get("__args").cloned().unwrap_or(json!({}));
+        return match name.as_str() {
+            "lit" => {
+                let lit_value = args
+                    .get("arg0")
+                    .or_else(|| args.get("value"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                aek("lit", &[("value", lit_value)])
+            }
+            "col" | "number" | "text" => {
+                let field = args
+                    .get("field")
+                    .or_else(|| args.get("arg0"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                aek(name.as_str(), &[("field", field)])
+            }
+            "extract_match" | "extract_number" => {
+                let field = args
+                    .get("field")
+                    .or_else(|| args.get("arg0"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                let pattern = args
+                    .get("pattern")
+                    .or_else(|| args.get("arg1"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                aek(name.as_str(), &[("field", field), ("pattern", pattern)])
+            }
+            "div" => {
+                let field = args
+                    .get("field")
+                    .or_else(|| args.get("arg0"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                let by = args
+                    .get("by")
+                    .or_else(|| args.get("arg1"))
+                    .cloned()
+                    .unwrap_or(json!(1));
+                aek("div", &[("field", field), ("by", by)])
+            }
+            "coalesce" => {
+                let fields = args
+                    .get("fields")
+                    .or_else(|| args.get("arg0"))
+                    .cloned()
+                    .unwrap_or(json!([]));
+                aek("coalesce", &[("fields", fields)])
+            }
+            "sub" => {
+                let left_field = args
+                    .get("left_field")
+                    .or_else(|| args.get("arg0"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                let right_field = args
+                    .get("right_field")
+                    .or_else(|| args.get("arg1"))
+                    .cloned()
+                    .unwrap_or(json!(""));
+                aek(
+                    "sub",
+                    &[("left_field", left_field), ("right_field", right_field)],
+                )
+            }
+            _ => value.clone(),
+        };
+    }
+    if value.is_object() {
+        return value.clone();
+    }
+    aek("lit", &[("value", value.clone())])
 }
 
 fn arg2_from_args(args: &Value) -> Value {
@@ -1166,6 +1357,18 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
             "trend_year_compare" => lower_trend_year_compare(&args, ctx, None),
             "pivot_long" => lower_pivot_long(&args, ctx),
             "unpivot_columns" => lower_unpivot_columns(None, &args, ctx),
+            "mutate" => {
+                let rowset = lower_rowset(arg0(&args), ctx);
+                let updates = arg1(&args);
+                aek(
+                    "mutate",
+                    &[
+                        ("rowset", rowset),
+                        ("updates", lower_mutate_updates(updates)),
+                    ],
+                )
+            }
+            "concat_rowsets" => lower_concat_rowsets(&args, ctx),
             "party_gov_sanction_rows" | "handled_person_rows" => {
                 expand_person_rowset(name.as_str(), value, ctx).unwrap_or(json!(null))
             }
@@ -1655,6 +1858,157 @@ mod tests {
     }
 
     #[test]
+    fn lower_property_procedure_share_from_fixture_payload() {
+        let raw = serde_json::from_str::<Value>(
+            r#"{
+            "__call": "metric_dataframe",
+            "__args": {
+                "id": "property_procedure_share",
+                "label": "项目程序占比",
+                "pipeline": [
+                    {
+                        "__call": "concat_rowsets",
+                        "__args": {
+                            "arg0": {
+                                "__call": "mutate",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "where",
+                                        "__args": {
+                                            "arg0": {"__call": "data_ref", "__args": {"arg0": "maintenance_projects_ds"}},
+                                            "arg1": {"__call": "in_values", "__args": {"arg0": "紧急程序", "arg1": ["是"]}}
+                                        }
+                                    },
+                                    "arg1": {"label": {"__call": "lit", "__args": {"arg0": "紧急"}}}
+                                }
+                            },
+                            "arg1": {
+                                "__call": "mutate",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "where",
+                                        "__args": {
+                                            "arg0": {"__call": "data_ref", "__args": {"arg0": "maintenance_projects_ds"}},
+                                            "arg1": {"__call": "in_values", "__args": {"arg0": "普通程序", "arg1": ["是"]}}
+                                        }
+                                    },
+                                    "arg1": {"label": {"__call": "lit", "__args": {"arg0": "普通"}}}
+                                }
+                            }
+                        }
+                    },
+                    {"__call": "group_by", "__args": {"arg0": "label"}},
+                    {"__call": "select", "__args": {"arg0": ["label", "value"]}}
+                ]
+            }
+        }"#,
+        )
+        .expect("fixture json");
+        let ctx = V2MetricLowerContext::default();
+        let lowered = lower_v2_metric("property_procedure_share", &raw, &ctx).expect("lower");
+        let rowset_type = lowered
+            .pointer("/value/rowset/rowset/type")
+            .and_then(|v| v.as_str());
+        assert_eq!(
+            rowset_type,
+            Some("concat_rowsets"),
+            "got {lowered}"
+        );
+    }
+
+    #[test]
+    fn lower_concat_rowsets_pipeline_preserves_lit_labels() {
+        let raw = json!({
+            "__call": "metric_dataframe",
+            "__args": {
+                "id": "property_procedure_share",
+                "label": "项目程序占比",
+                "pipeline": [
+                    {
+                        "__call": "concat_rowsets",
+                        "__args": {
+                            "arg0": {
+                                "__call": "mutate",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "where",
+                                        "__args": {
+                                            "arg0": {"__call": "data_ref", "__args": {"arg0": "maintenance_projects_ds"}},
+                                            "arg1": {
+                                                "__call": "in_values",
+                                                "__args": {"arg0": "紧急程序", "arg1": ["是"]}
+                                            }
+                                        }
+                                    },
+                                    "arg1": {
+                                        "label": {"__call": "lit", "__args": {"arg0": "紧急"}}
+                                    }
+                                }
+                            },
+                            "arg1": {
+                                "__call": "mutate",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "where",
+                                        "__args": {
+                                            "arg0": {"__call": "data_ref", "__args": {"arg0": "maintenance_projects_ds"}},
+                                            "arg1": {
+                                                "__call": "in_values",
+                                                "__args": {"arg0": "普通程序", "arg1": ["是"]}
+                                            }
+                                        }
+                                    },
+                                    "arg1": {
+                                        "label": {"__call": "lit", "__args": {"arg0": "普通"}}
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    {"__call": "group_by", "__args": {"arg0": "label"}},
+                    {"__call": "select", "__args": {"arg0": ["label", "value"]}}
+                ]
+            }
+        });
+        let ctx = V2MetricLowerContext::default();
+        let lowered = lower_v2_metric("property_procedure_share", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered.pointer("/value/type").and_then(|v| v.as_str()),
+            Some("select"),
+            "pipeline should lower to select(...), got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/value/rowset/type")
+                .and_then(|v| v.as_str()),
+            Some("group_by")
+        );
+        assert_eq!(
+            lowered
+                .pointer("/value/rowset/rowset/type")
+                .and_then(|v| v.as_str()),
+            Some("concat_rowsets"),
+            "concat_rowsets must survive lowering, got {lowered}"
+        );
+        let rowsets = lowered
+            .pointer("/value/rowset/rowset/rowsets")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rowsets.len(), 2, "expected urgent+normal rowsets, got {lowered}");
+        assert_eq!(
+            rowsets[0].pointer("/updates/label/type").and_then(|v| v.as_str()),
+            Some("lit")
+        );
+        assert_eq!(
+            rowsets[0]
+                .pointer("/updates/label/value")
+                .and_then(|v| v.as_str()),
+            Some("紧急")
+        );
+    }
+
+    #[test]
     fn year_between_rowset_uses_lower_upper_bounds() {
         let rowset = year_between_rowset(
             json!({"__ref": "data", "id": "administrative_inspection"}),
@@ -1676,5 +2030,104 @@ mod tests {
         );
         assert!(predicate.get("min").is_none());
         assert!(predicate.get("max").is_none());
+    }
+
+    #[test]
+    fn ratio_count_where_predicate_only_binds_metric_rowset() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "issue_result_list",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "issue_handling_results"}}
+                }
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "verified_issue_tracking_rows",
+                    "from": "issue_result_list",
+                    "rowset": {
+                        "__call": "where",
+                        "__args": {
+                            "arg0": {
+                                "__call": "first_by",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "data_ref",
+                                        "__args": {"arg0": "issue_result_list"}
+                                    },
+                                    "arg1": "问题跟踪ID"
+                                }
+                            },
+                            "arg1": {
+                                "__call": "in_values",
+                                "__args": {"arg0": "是否查实", "arg1": ["是"]}
+                            }
+                        }
+                    }
+                }
+            }
+        ]);
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "effectiveness_verified_rectification_rate",
+                "rowset": {
+                    "__call": "data_ref",
+                    "__args": {"arg0": "verified_issue_tracking_rows"}
+                },
+                "agg": {
+                    "__call": "ratio",
+                    "__args": {
+                        "arg0": {
+                            "__call": "count",
+                            "__args": {
+                                "arg0": {
+                                    "__call": "where",
+                                    "__args": {
+                                        "arg0": {
+                                            "__call": "not_empty",
+                                            "__args": {"arg0": "健全机制"}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "arg1": {"__call": "count", "__args": {}}
+                    }
+                }
+            }
+        });
+        let lowered =
+            lower_v2_metric("effectiveness_verified_rectification_rate", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered
+                .pointer("/values/value/numerator/rowset/type")
+                .and_then(|v| v.as_str()),
+            Some("where"),
+            "numerator must be count(where(...)), got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/numerator/rowset/predicate/type")
+                .and_then(|v| v.as_str()),
+            Some("not_empty"),
+            "predicate-only where must keep not_empty, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/numerator/rowset/predicate/field")
+                .and_then(|v| v.as_str()),
+            Some("健全机制")
+        );
+        assert!(
+            lowered
+                .pointer("/values/value/numerator/rowset/rowset")
+                .is_some_and(|v| !v.is_null()),
+            "predicate-only where must bind metric base_rowset, got {lowered}"
+        );
     }
 }

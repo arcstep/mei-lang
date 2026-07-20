@@ -39,11 +39,11 @@ pub fn surface_field_layout_call(surface: &str) -> Value {
         "compound_top_row" | "solid_row_accent" | "solid_row_compact" | "strip_icon_left" => {
             grid_call(
                 &["1fr"],
-                &["auto", "auto", "auto"],
+                &["4em", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
                 &[vec!["label", "value", "unit"]],
                 "4px",
                 "center",
-                "start",
+                "stretch",
             )
         }
         // 与 stack_progress_skin / metric_stack_desc 同构：label 通栏 + value|unit 并排 + desc。

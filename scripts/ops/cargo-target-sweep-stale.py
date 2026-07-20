@@ -210,23 +210,37 @@ def remove_hash_artifacts(
     return freed
 
 
-def hash_artifact_paths(profile_dir: Path, hash_value: str) -> list[Path]:
-    paths: list[Path] = []
+def build_hash_artifact_index(profile_dir: Path) -> dict[str, list[Path]]:
+    """Index deps/build artifacts by cargo hash once (O(n)); avoid O(n×m) scans."""
+    index: dict[str, list[Path]] = defaultdict(list)
     deps = profile_dir / "deps"
     if deps.is_dir():
         for artifact in deps.iterdir():
-            if not artifact.is_file():
+            try:
+                if not artifact.is_file():
+                    continue
+            except OSError:
                 continue
             match = HASH_RE.search(artifact.name)
-            if match and match.group(1) == hash_value:
-                paths.append(artifact)
+            if match:
+                index[match.group(1)].append(artifact)
     build_root = profile_dir / "build"
     if build_root.is_dir():
         for entry in build_root.iterdir():
             _crate_key, entry_hash = split_fingerprint_name(entry.name)
-            if entry_hash == hash_value:
-                paths.append(entry)
-    return paths
+            if entry_hash:
+                index[entry_hash].append(entry)
+    return index
+
+
+def hash_artifact_paths(
+    profile_dir: Path,
+    hash_value: str,
+    index: dict[str, list[Path]] | None = None,
+) -> list[Path]:
+    if index is not None:
+        return list(index.get(hash_value, ()))
+    return list(build_hash_artifact_index(profile_dir).get(hash_value, ()))
 
 
 def remove_orphan_hash_artifacts(profile_dir: Path, dry_run: bool) -> int:
@@ -373,6 +387,7 @@ def pressure_reclaim(
         profile_dir = target_dir / profile
         if not profile_dir.is_dir():
             continue
+        hash_index = build_hash_artifact_index(profile_dir)
         fingerprint_root = profile_dir / ".fingerprint"
         live_hashes: set[str] = set()
         fingerprint_groups: dict[
@@ -390,14 +405,9 @@ def pressure_reclaim(
                     ].append(entry)
 
         orphan_paths_by_hash: dict[str, list[Path]] = defaultdict(list)
-        for root_name in ("deps", "build"):
-            root = profile_dir / root_name
-            if not root.is_dir():
-                continue
-            for entry in root.iterdir():
-                match = HASH_RE.search(entry.name)
-                if match and match.group(1) not in live_hashes:
-                    orphan_paths_by_hash[match.group(1)].append(entry)
+        for hash_value, paths in hash_index.items():
+            if hash_value not in live_hashes:
+                orphan_paths_by_hash[hash_value].extend(paths)
         for paths in orphan_paths_by_hash.values():
             add_candidate(
                 "orphan",
@@ -438,7 +448,9 @@ def pressure_reclaim(
                     _crate_key, hash_value = split_fingerprint_name(test_entry.name)
                     paths = [test_entry]
                     if hash_value:
-                        paths.extend(hash_artifact_paths(profile_dir, hash_value))
+                        paths.extend(
+                            hash_artifact_paths(profile_dir, hash_value, hash_index)
+                        )
                     add_candidate(
                         "test-artifact",
                         5,
@@ -450,7 +462,9 @@ def pressure_reclaim(
                 _crate_key, hash_value = split_fingerprint_name(stale.name)
                 paths = [stale]
                 if hash_value:
-                    paths.extend(hash_artifact_paths(profile_dir, hash_value))
+                    paths.extend(
+                        hash_artifact_paths(profile_dir, hash_value, hash_index)
+                    )
                 add_candidate(
                     "superseded-fingerprint",
                     30,

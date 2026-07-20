@@ -64,8 +64,12 @@ template frame_padding():
 template frame_gap():
     LAYOUT_SPACE_1
 
+# 面板半透明底默认 80%（实时预警 / 典型案例等 content_panel 常用，避免底图透出）
+PANEL_GLOW_BG = "linear-gradient(180deg, rgba(32, 96, 168, 0.8) 0%, rgba(14, 48, 92, 0.8) 100%)"
+SOLID_METRIC_BG = {"color": "rgb(14, 48, 92)"}
+
 template bg_panel_glow():
-    "linear-gradient(180deg, rgba(32, 96, 168, 0.72) 0%, rgba(14, 48, 92, 0.88) 100%)"
+    PANEL_GLOW_BG
 
 # --- 窄指标卡（显式 SVG 底；外壳拥有背景）---
 template narrow_metric_card(
@@ -100,6 +104,34 @@ template narrow_metric_card(
             "radius": "0",
             "border": "none",
             "__mei_slot_frame_bg": True,
+        },
+    )
+
+# --- 纯色窄指标卡（左栏等需要不透底时）---
+template solid_narrow_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    viewpoint = None,
+    layout = None,
+    placements = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        viewpoint = viewpoint,
+        layout = layout,
+        placements = placements,
+        props = {
+            "background": SOLID_METRIC_BG,
+            "padding": LAYOUT_SPACE_1,
+            "radius": "0",
+            "border": "1px solid rgba(98,190,235,0.35)",
         },
     )
 
@@ -347,6 +379,11 @@ template icon_metric_card(
     )
 
 # --- 行式 accent / compact 指标（行政检查/处罚左侧列；横排 label|value|unit，纯色底）---
+# 默认排版原则（无需业务侧重复声明）：
+# 1. 标签定宽约四字；二字/三字两端拉开，四字紧排
+# 2. 数值按小数点对齐：整数部右齐，小数部（含点）占固定槽；无小数时槽位留空
+# 3. 单位左跟；标签与数值之间弹性留白
+# 4. 编排建议：同组内含小数的指标尽量放末行，避免夹在整数指标中间
 template row_accent_metric_card(
     id = "metric_card",
     area = None,
@@ -402,11 +439,11 @@ template row_solid_metric_card(
         variant = variant,
         layout = grid(
             rows = ["1fr"],
-            columns = ["auto", "auto", "auto"],
+            columns = ["4em", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
             areas = [["label", "value", "unit"]],
             gap = LAYOUT_SPACE_1,
             align = "center",
-            justify = "start",
+            justify = "stretch",
         ),
         props = {
             "background": {
@@ -415,7 +452,7 @@ template row_solid_metric_card(
                 "origin": "border-box",
                 "clip": "border-box",
             },
-            "padding": "0 4px",
+            "padding": "0 2px",
             "radius": "0",
             "border": border,
             "label_vertical_align": "center",

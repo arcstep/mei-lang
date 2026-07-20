@@ -134,38 +134,8 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       });
       this.refresh = () => {
         this._props = parseProps(this);
-        const fillHeight =
-          this._props.fillHeight === true ||
-          this._props.fillHeight === "true" ||
-          this._props.fill_height === true ||
-          this._props.fill_height === "true";
-        // props 可能在 bootstrap 之后才带上 fillHeight；就地改 shell，避免仍按默认 64px 定高。
-        if (fillHeight && this.shadowRoot) {
-          this.style.display = "flex";
-          this.style.flexDirection = "column";
-          this.style.height = "100%";
-          this.style.minHeight = "0";
-          this.style.boxSizing = "border-box";
-          const wrap = this.shadowRoot.querySelector(".wrap");
-          if (wrap instanceof HTMLElement) {
-            wrap.style.display = "flex";
-            wrap.style.flexDirection = "column";
-            wrap.style.height = "100%";
-            wrap.style.minHeight = "0";
-            wrap.style.boxSizing = "border-box";
-            wrap.style.gridTemplateRows = "";
-          }
-          if (this.chartEl instanceof HTMLElement) {
-            this.chartEl.style.minHeight = "0";
-            this.chartEl.style.flex = "1 1 auto";
-            this.chartEl.style.height = "auto";
-            this.chartEl.style.maxHeight = "none";
-          }
-          const errorEl = this.shadowRoot.querySelector(".error");
-          if (errorEl instanceof HTMLElement && !String(errorEl.textContent || "").trim()) {
-            errorEl.style.display = "none";
-          }
-        }
+        // props 可能在 bootstrap 之后才带上 fillHeight / carousel；就地改 shell。
+        this.applyFillHeightShell(this._props);
         syncChartShellTitle(this.shadowRoot, defaultTitle, this._props);
         const needsRuntime = chartPropsNeedRuntimeFetch(this._props);
         if (needsRuntime && !this._queryStateId) {
@@ -184,10 +154,24 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         this.refresh();
       };
       window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
-      this.resizeObserver = new ResizeObserver(() => {
+      this.resizeObserver = new ResizeObserver((entries) => {
         if (this.chart) {
           this.chart.resize();
+          return;
         }
+        // rankingLayout=above + fillHeight：无 ECharts 实例，需随格子尺寸重算行高。
+        const props = Object.assign({}, parseProps(this), this._runtimeProps || {});
+        if (
+          normalizeKind(chartKind) !== "ranking" ||
+          resolveRankingLayout(props) !== "above" ||
+          !rankingFillHeightEnabled(props)
+        ) {
+          return;
+        }
+        const nextH = Math.round(entries?.[0]?.contentRect?.height || this.clientHeight || 0);
+        if (nextH <= 0 || nextH === this._rankingFillHeightPx) return;
+        this._rankingFillHeightPx = nextH;
+        void this.renderChart();
       });
       this.resizeObserver.observe(this);
       this._queryStateId = queryStateIdOf(this._props);
@@ -210,6 +194,8 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
 
     disconnectedCallback() {
       this.closeLabelPopover();
+      this.stopCarousel();
+      this.unbindCarouselHover();
       if (typeof this._deferUntilVisibleCleanup === "function") {
         this._deferUntilVisibleCleanup();
         this._deferUntilVisibleCleanup = null;
@@ -231,8 +217,143 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       }
     }
 
+    applyFillHeightShell(props) {
+      if (!chartFillHeightEnabled(props) || !this.shadowRoot) return;
+      this.style.display = "flex";
+      this.style.flexDirection = "column";
+      this.style.height = "100%";
+      this.style.minHeight = "0";
+      this.style.alignSelf = "stretch";
+      this.style.justifyContent = "flex-start";
+      this.style.boxSizing = "border-box";
+      const wrap = this.shadowRoot.querySelector(".wrap");
+      if (wrap instanceof HTMLElement) {
+        wrap.style.display = "flex";
+        wrap.style.flexDirection = "column";
+        wrap.style.height = "100%";
+        wrap.style.minHeight = "0";
+        wrap.style.flex = "1 1 0";
+        wrap.style.justifyContent = "flex-start";
+        wrap.style.alignItems = "stretch";
+        wrap.style.boxSizing = "border-box";
+        wrap.style.gridTemplateRows = "";
+      }
+      if (this.chartEl instanceof HTMLElement) {
+        // flex-basis:0 强制画布吃满头/脚之外的剩余高度，避免上下大块留白。
+        this.chartEl.style.minHeight = "96px";
+        this.chartEl.style.flex = "1 1 0";
+        this.chartEl.style.height = "auto";
+        this.chartEl.style.maxHeight = "none";
+      }
+      const headEl = this.shadowRoot.querySelector(".head");
+      if (headEl instanceof HTMLElement) {
+        headEl.style.flex = "0 0 auto";
+        headEl.style.margin = "0";
+        headEl.style.minHeight = "0";
+        headEl.style.lineHeight = "1.15";
+      }
+      const hintHost = this.shadowRoot.querySelector(".carousel-hint-host");
+      if (hintHost instanceof HTMLElement) {
+        hintHost.style.flex = "0 0 auto";
+        hintHost.style.margin = "0";
+        hintHost.style.padding = "0";
+      }
+      const errorEl = this.shadowRoot.querySelector(".error");
+      if (errorEl instanceof HTMLElement && !String(errorEl.textContent || "").trim()) {
+        errorEl.style.display = "none";
+      }
+    }
+
+    stopCarousel() {
+      if (this._carouselTimer) {
+        clearInterval(this._carouselTimer);
+        this._carouselTimer = null;
+      }
+    }
+
+    unbindCarouselHover() {
+      if (this._carouselHoverTarget && this._onCarouselPause && this._onCarouselResume) {
+        this._carouselHoverTarget.removeEventListener("mouseenter", this._onCarouselPause);
+        this._carouselHoverTarget.removeEventListener("mouseleave", this._onCarouselResume);
+      }
+      this._carouselHoverTarget = null;
+      this._carouselHoverBound = false;
+    }
+
+    bindCarouselHover(props) {
+      const pauseOnHover =
+        props?.carouselPauseOnHover !== false && props?.carousel_pause_on_hover !== "false";
+      if (!chartCarouselEnabled(props) || !pauseOnHover) {
+        this.unbindCarouselHover();
+        return;
+      }
+      const wrap = this.shadowRoot?.querySelector(".wrap");
+      if (!(wrap instanceof HTMLElement)) return;
+      if (this._carouselHoverBound && this._carouselHoverTarget === wrap) return;
+      this.unbindCarouselHover();
+      this._onCarouselPause = () => {
+        this._carouselPaused = true;
+        wrap.classList.add("carousel-paused");
+        this.stopCarousel();
+      };
+      this._onCarouselResume = () => {
+        this._carouselPaused = false;
+        wrap.classList.remove("carousel-paused");
+        this.startCarousel(props);
+      };
+      wrap.addEventListener("mouseenter", this._onCarouselPause);
+      wrap.addEventListener("mouseleave", this._onCarouselResume);
+      this._carouselHoverTarget = wrap;
+      this._carouselHoverBound = true;
+    }
+
+    startCarousel(props) {
+      this.stopCarousel();
+      if (!chartCarouselEnabled(props) || this._carouselPaused) return;
+      const slides = Array.isArray(this._carouselSlides) ? this._carouselSlides : [];
+      if (slides.length <= 1) return;
+      const interval = resolveChartCarouselIntervalMs(props);
+      this._carouselTimer = setInterval(() => {
+        const total = Array.isArray(this._carouselSlides) ? this._carouselSlides.length : 0;
+        if (total <= 1) return;
+        this._carouselIndex = ((Number(this._carouselIndex) || 0) + 1) % total;
+        this._carouselEpoch = (Number(this._carouselEpoch) || 0) + 1;
+        void this.renderChart();
+      }, interval);
+    }
+
+    syncCarouselHint(props) {
+      const host = this.shadowRoot?.querySelector(".carousel-hint-host");
+      const wrap = this.shadowRoot?.querySelector(".wrap");
+      if (!(host instanceof HTMLElement)) return;
+      if (!chartCarouselEnabled(props) || !chartCarouselShowsHint(props)) {
+        host.innerHTML = "";
+        host.hidden = true;
+        wrap?.classList.remove("has-carousel-hint");
+        return;
+      }
+      const total = Array.isArray(this._carouselSlides) ? this._carouselSlides.length : 0;
+      if (total <= 1) {
+        host.innerHTML = "";
+        host.hidden = true;
+        wrap?.classList.remove("has-carousel-hint");
+        return;
+      }
+      const page = (Number(this._carouselIndex) || 0) + 1;
+      const interval = resolveChartCarouselIntervalMs(props);
+      const epoch = Number(this._carouselEpoch) || 0;
+      host.hidden = false;
+      host.innerHTML = renderChartCarouselHintHtml(page, total, interval, epoch);
+      wrap?.classList.add("has-carousel-hint");
+    }
+
     async renderChart() {
-      const props = Object.assign({}, parseProps(this), this._runtimeProps || {}, { __host: this });
+      let props = Object.assign({}, parseProps(this), this._runtimeProps || {}, { __host: this });
+      props = applyChartCarouselFilter(this, props);
+      this.applyFillHeightShell(props);
+      if (this.shadowRoot) {
+        syncChartShellTitle(this.shadowRoot, defaultTitle, props);
+      }
       if (isStaticSkeletonDisplay(props)) {
         this.classList.add("mei-chart--static-skeleton");
       } else {
@@ -244,7 +365,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       const diagnostics = [];
       const model = buildChartModel(chartKind, props, diagnostics);
       this._selectionContext = resolveChartSelectionContext(chartKind, props, model);
-      this.metaEl.textContent = model.meta;
+      this.metaEl.textContent = props.__carouselActive ? "" : model.meta;
       if (diagnostics.length > 0) {
         this.errorEl.textContent = diagnostics.join(" | ");
       } else {
@@ -263,6 +384,8 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         renderRankingAboveDom(this.chartEl, model, props, (fullText, event) => {
           this.openLabelPopover(fullText, event);
         });
+        this.syncCarouselHint(props);
+        this.stopCarousel();
         return;
       }
       try {
@@ -311,6 +434,9 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         this._renderTrace?.mark("render_done", {
           rows: Array.isArray(model.rows) ? model.rows.length : 0,
         });
+        this.syncCarouselHint(props);
+        this.bindCarouselHover(props);
+        this.startCarousel(props);
       } catch (error) {
         this.errorEl.textContent = "图表引擎加载失败: " + String(error?.message || error);
         this._renderTrace?.mark("render_error", {
@@ -436,13 +562,16 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
             supportRole === "attribution" ||
             (!metricId.includes("::") && /composition|trend|breakdown|attribution/i.test(metricId));
           const topN = Number(props?.top_n ?? props?.topN ?? 0);
-          const pageSize = dedicatedExplain
-            ? topN > 0
-              ? Math.max(topN, 16)
-              : 64
-            : Number(props?.pageSize ?? props?.page_size ?? 0) > 0
-              ? Number(props?.pageSize ?? props?.page_size)
-              : 20;
+          const explicitPage = Number(props?.pageSize ?? props?.page_size ?? 0);
+          // 显式 pageSize 优先，避免 trend 角色默認 64 截断长表后 carouselTopN 算错学校。
+          const pageSize =
+            explicitPage > 0
+              ? Math.floor(explicitPage)
+              : dedicatedExplain
+                ? topN > 0
+                  ? Math.max(topN, 16)
+                  : 64
+                : 20;
           const rowsResult = await fetchDatasetRows(props, {
             queryStateId: this._queryStateId,
             filters: this._sharedFilters,
@@ -532,23 +661,35 @@ function syncChartShellTitle(shadowRoot, defaultTitle, props = {}) {
   if (!(titleEl instanceof HTMLElement) || !(headEl instanceof HTMLElement)) return;
   const title = String(props.title ?? defaultTitle).trim();
   titleEl.textContent = title || defaultTitle;
-  // Compact charts still show an authored title when present (eval may land after bootstrap).
-  headEl.style.display = title ? "flex" : "none";
+  // rankingLayout=above renders its own title inside the list; hide shell head to avoid duplicates.
+  const rankingAbove = resolveRankingLayout(props) === "above";
+  const showHead = Boolean(title) && !rankingAbove;
+  headEl.style.display = showHead ? "flex" : "none";
 }
 
-function chartShellHtml(defaultTitle, props = {}) {
-  const compact = props.compact === true || props.compact === "true";
-  const fillHeight =
+function chartFillHeightEnabled(props = {}) {
+  // 轮播图必须走 fill：校名头 + 倒计时脚会叠在 chartHeight 外，固定高度必裁 X 轴。
+  if (chartCarouselEnabled(props)) return true;
+  return (
     props.fillHeight === true ||
     props.fillHeight === "true" ||
     props.fill_height === true ||
     props.fill_height === "true" ||
-    (compact && !(Number(props.chartHeight) > 0));
+    ((props.compact === true || props.compact === "true") && !(Number(props.chartHeight) > 0))
+  );
+}
+
+function chartShellHtml(defaultTitle, props = {}) {
+  const compact = props.compact === true || props.compact === "true";
+  const fillHeight = chartFillHeightEnabled(props);
   const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : compact ? 64 : 260;
   const title = String(props.title ?? defaultTitle).trim();
-  const showHead = title.length > 0;
+  const rankingAbove = resolveRankingLayout(props) === "above";
+  // above layout owns the title node; shell .head would duplicate it.
+  // 轮播：校名放 head，但用更紧凑行高，把垂直空间留给画布与 hint。
+  const showHead = title.length > 0 && !rankingAbove;
   const chartSizeCss = fillHeight
-    ? "min-height: 0; flex: 1 1 auto; height: auto; max-height: none;"
+    ? "min-height: 96px; flex: 1 1 0; height: auto; max-height: none;"
     : `min-height: ${chartHeight}px; height: ${compact ? chartHeight + "px" : "auto"}; max-height: ${compact ? chartHeight + "px" : "none"};`;
   return `
     <style>
@@ -556,7 +697,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         display: ${fillHeight ? "flex" : "block"};
         flex-direction: column;
         width: 100%;
-        ${fillHeight ? "height: 100%; min-height: 0;" : ""}
+        ${fillHeight ? "height: 100%; min-height: 0; align-self: stretch; justify-content: flex-start;" : ""}
         min-width: 0;
         overflow: hidden;
         box-sizing: border-box;
@@ -564,23 +705,36 @@ function chartShellHtml(defaultTitle, props = {}) {
       }
       .wrap {
         display: ${fillHeight ? "flex" : "grid"};
-        ${fillHeight ? "flex-direction: column; height: 100%; min-height: 0;" : ""}
-        gap: ${compact ? (showHead ? "2px" : "0") : "8px"};
+        ${fillHeight ? "flex-direction: column; height: 100%; min-height: 0; flex: 1 1 0; justify-content: flex-start; align-items: stretch;" : ""}
+        gap: ${compact ? (showHead ? "1px" : "0") : "8px"};
         padding: ${compact ? "0" : "14px"};
         border-radius: 0;
         border: ${compact ? "none" : "1px solid rgba(148,163,184,.2)"};
         background: ${compact ? "transparent" : "rgba(15,23,42,.64)"};
         box-sizing: border-box;
+        min-height: 0;
       }
       .head {
         display: ${showHead ? "flex" : "none"};
         flex: 0 0 auto;
-        justify-content: space-between;
-        gap: 8px;
+        justify-content: flex-end;
+        gap: 6px;
         align-items: baseline;
         color: #e2e8f0;
+        min-width: 0;
+        margin: 0;
+        line-height: 1.15;
       }
-      .title { margin: 0; font-size: var(--cockpit-font-chart-title); font-weight: 600; color: ${compact ? "#94a3b8" : "#f8fafc"}; }
+      .title {
+        margin: 0;
+        font-size: var(--cockpit-font-chart-title);
+        font-weight: 600;
+        color: ${compact ? "#94a3b8" : "#f8fafc"};
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
       .meta { font-size: var(--cockpit-font-unit); color: #94a3b8; }
       .chart {
         width: 100%;
@@ -603,6 +757,9 @@ function chartShellHtml(defaultTitle, props = {}) {
         font-weight: 600;
         color: #94a3b8;
         line-height: 1.1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .mei-rank-above-list {
         flex: 1 1 0;
@@ -675,6 +832,96 @@ function chartShellHtml(defaultTitle, props = {}) {
         color: #fca5a5;
       }
       .error:empty { display: none; }
+      .carousel-hint-host {
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        min-height: 0;
+        padding: 0 2px;
+      }
+      .carousel-hint-host[hidden] { display: none !important; }
+      .carousel-hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 1px 2px;
+      }
+      .carousel-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .carousel-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(125, 211, 252, 0.22);
+        transition:
+          transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
+          background 220ms ease,
+          box-shadow 220ms ease;
+      }
+      .carousel-dot.is-active {
+        background: #38bdf8;
+        transform: scale(1.4);
+        box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+      }
+      .carousel-page-label {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 2px;
+        font-size: var(--cockpit-font-unit);
+        color: #94a3b8;
+        font-variant-numeric: tabular-nums;
+      }
+      .carousel-page-current {
+        display: inline-block;
+        min-width: 0.65em;
+        text-align: center;
+        color: #e2e8f0;
+        font-weight: 600;
+        animation: chart-carousel-page-bump 380ms cubic-bezier(0.34, 1.4, 0.64, 1);
+      }
+      .carousel-page-sep { opacity: 0.55; padding: 0 1px; }
+      .carousel-page-total { color: #cbd5e1; font-weight: 500; }
+      @keyframes chart-carousel-page-bump {
+        0% { transform: scale(0.82); opacity: 0.55; }
+        55% { transform: scale(1.14); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .carousel-timer {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+      }
+      .carousel-ring { display: block; }
+      .carousel-ring-track {
+        fill: none;
+        stroke: rgba(125, 211, 252, 0.16);
+        stroke-width: 2;
+      }
+      .carousel-ring-progress {
+        fill: none;
+        stroke: #38bdf8;
+        stroke-width: 2;
+        stroke-linecap: round;
+        transform: rotate(-90deg);
+        transform-origin: 50% 50%;
+        stroke-dasharray: var(--carousel-c);
+        stroke-dashoffset: 0;
+        animation: chart-carousel-ring-countdown var(--carousel-ms) linear forwards;
+      }
+      .wrap.carousel-paused .carousel-ring-progress {
+        animation-play-state: paused;
+      }
+      @keyframes chart-carousel-ring-countdown {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: var(--carousel-c); }
+      }
     </style>
     <section class="wrap">
       <div class="head">
@@ -682,6 +929,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         <span class="meta"></span>
       </div>
       <div class="chart"></div>
+      <div class="carousel-hint-host" hidden></div>
       <div class="error"></div>
     </section>
   `;
@@ -914,6 +1162,141 @@ function resolveChartSelectionValue(kind, params, selection) {
     return firstNonEmptyString(params?.name, params?.axisValueLabel, params?.axisValue);
   }
   return firstNonEmptyString(params?.name, params?.axisValueLabel, params?.axisValue, params?.data?.name);
+}
+
+const CHART_CAROUSEL_RING_RADIUS = 8;
+const CHART_CAROUSEL_RING_C = 2 * Math.PI * CHART_CAROUSEL_RING_RADIUS;
+
+function chartCarouselEnabled(props) {
+  return props?.carousel === true || props?.carousel === "true";
+}
+
+function chartCarouselShowsHint(props) {
+  if (props?.carouselHint === false || props?.carousel_hint === "false") return false;
+  if (!chartCarouselEnabled(props)) return false;
+  if (props?.carouselHint === true || props?.carousel_hint === "true") return true;
+  return true;
+}
+
+function resolveChartCarouselIntervalMs(props) {
+  const raw = Number(props?.carouselIntervalMs ?? props?.carousel_interval_ms ?? 5000);
+  if (!Number.isFinite(raw)) return 5000;
+  return Math.max(2000, Math.floor(raw));
+}
+
+function resolveChartCarouselByField(props) {
+  return String(props?.carouselBy ?? props?.carousel_by ?? "").trim();
+}
+
+function resolveChartCarouselTopN(props) {
+  const n = Number(props?.carouselTopN ?? props?.carousel_top_n ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function buildChartCarouselSlides(rows, byField, valueField, topN) {
+  const totals = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(row?.[byField] ?? "").trim();
+    if (!key) continue;
+    const amount = toNumber(row?.[valueField]);
+    const prev = totals.get(key) || 0;
+    totals.set(key, prev + (Number.isFinite(amount) ? amount : 0));
+  }
+  let keys = [...totals.keys()].sort((a, b) => (totals.get(b) || 0) - (totals.get(a) || 0));
+  if (topN > 0) keys = keys.slice(0, topN);
+  return keys;
+}
+
+function withChartCarouselRows(props, filteredRows) {
+  const next = Object.assign({}, props);
+  if (props.data && typeof props.data === "object") {
+    next.data = Object.assign({}, props.data, { rows: filteredRows });
+  } else {
+    next.data = { rows: filteredRows };
+  }
+  if (props.value && typeof props.value === "object") {
+    if (Array.isArray(props.value.rows)) {
+      next.value = Object.assign({}, props.value, { rows: filteredRows });
+    } else if (
+      props.value.shape === "dataframe" &&
+      props.value.value &&
+      typeof props.value.value === "object" &&
+      Array.isArray(props.value.value.rows)
+    ) {
+      next.value = Object.assign({}, props.value, {
+        value: Object.assign({}, props.value.value, { rows: filteredRows }),
+      });
+    }
+  }
+  return next;
+}
+
+function applyChartCarouselFilter(host, props) {
+  if (!chartCarouselEnabled(props)) {
+    host._carouselSlides = null;
+    return props;
+  }
+  const byField = resolveChartCarouselByField(props);
+  if (!byField) {
+    host._carouselSlides = null;
+    return props;
+  }
+  const rows = resolveRows(props);
+  const valueField =
+    props?.mapping?.y?.[0]?.field ||
+    props?.mapping?.y?.[0]?.name ||
+    "value";
+  const topN = resolveChartCarouselTopN(props);
+  const slidesSignature = JSON.stringify({
+    byField,
+    valueField,
+    topN,
+    keys: buildChartCarouselSlides(rows, byField, valueField, 0),
+  });
+  const slides = buildChartCarouselSlides(rows, byField, valueField, topN);
+  host._carouselSlides = slides;
+  if (slidesSignature !== host._carouselSlidesSignature) {
+    host._carouselSlidesSignature = slidesSignature;
+    host._carouselIndex = 0;
+    host._carouselEpoch = (Number(host._carouselEpoch) || 0) + 1;
+  }
+  if (slides.length === 0) {
+    return Object.assign({}, props, { __carouselActive: true });
+  }
+  let index = Number(host._carouselIndex) || 0;
+  if (index < 0 || index >= slides.length) {
+    index = 0;
+    host._carouselIndex = 0;
+  }
+  const current = slides[index];
+  const filtered = rows.filter((row) => String(row?.[byField] ?? "").trim() === current);
+  const titled = Object.assign(withChartCarouselRows(props, filtered), {
+    title: String(props.title || "").trim() || current,
+    __carouselActive: true,
+    __carouselCurrent: current,
+  });
+  return titled;
+}
+
+function renderChartCarouselHintHtml(page, totalPages, intervalMs, epoch) {
+  const dots = Array.from({ length: totalPages }, (_, index) => {
+    const pageNo = index + 1;
+    const active = pageNo === page;
+    return `<span class="carousel-dot${active ? " is-active" : ""}"></span>`;
+  }).join("");
+  return `
+    <div class="carousel-hint" role="status" aria-label="轮播第 ${page} 项，共 ${totalPages} 项">
+      <div class="carousel-dots" aria-hidden="true">${dots}</div>
+      <span class="carousel-page-label">
+        <span class="carousel-page-current" data-epoch="${epoch}">${page}</span><span class="carousel-page-sep">/</span><span class="carousel-page-total">${totalPages}</span>
+      </span>
+      <div class="carousel-timer" style="--carousel-ms:${intervalMs}ms;--carousel-c:${CHART_CAROUSEL_RING_C}" data-epoch="${epoch}" title="自动切换倒计时">
+        <svg class="carousel-ring" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+          <circle class="carousel-ring-track" cx="10" cy="10" r="${CHART_CAROUSEL_RING_RADIUS}" />
+          <circle class="carousel-ring-progress" cx="10" cy="10" r="${CHART_CAROUSEL_RING_RADIUS}" />
+        </svg>
+      </div>
+    </div>`;
 }
 
 function resolveRows(props) {
@@ -1861,15 +2244,18 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   const barColor = theme.barColor || canvasThemeColor(props.__host, "chart_2");
   const trackBg = theme.barBackground || "rgba(148, 163, 184, 0.14)";
   const trackBorder = theme.barBackgroundBorder || "rgba(100, 116, 139, 0.35)";
+  const valueUnit = String(model.valueName || "").trim();
+  const showValueUnit = valueUnit.length > 0 && valueUnit.length <= 4;
   const rowsHtml = items
     .map((item, index) => {
       const ratio = maxValue > 0 ? item.value / maxValue : 0;
       const pct = Math.max(8, Math.min(100, Math.round(ratio * 100)));
       const label = formatRankingNameLabel(item.label, maxChars);
+      const valueText = formatRankingAboveValue(item.value, showValueUnit ? valueUnit : "");
       return `<div class="mei-rank-above-row" data-idx="${index}" title="${escapeHtml(item.label)}" style="max-height:${Math.max(22, slotPx)}px">
         <div class="mei-rank-above-head">
           <span class="mei-rank-above-label">${escapeHtml(label.display)}</span>
-          <span class="mei-rank-above-value">${escapeHtml(String(item.value))}</span>
+          <span class="mei-rank-above-value">${escapeHtml(valueText)}</span>
         </div>
         <div class="mei-rank-above-track" style="background:${trackBg};border-color:${trackBorder}">
           <div class="mei-rank-above-fill" style="width:${pct}%;background-color:${barColor}"></div>
@@ -1928,6 +2314,16 @@ function formatRankingNameLabel(text, maxChars) {
   const full = String(text ?? "").trim();
   const display = truncateRankingLabel(full, maxChars);
   return { display, full, isTruncated: display !== full };
+}
+
+function formatRankingAboveValue(value, unit) {
+  const n = Number(value);
+  let text = String(value ?? "").trim();
+  if (Number.isFinite(n)) {
+    text = Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+  }
+  const u = String(unit || "").trim();
+  return u ? `${text} ${u}` : text;
 }
 
 function rankingBarBackgroundStyle(theme, borderRadius = [0, 0, 0, 0]) {

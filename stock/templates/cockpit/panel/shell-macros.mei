@@ -209,6 +209,9 @@ template section_shell(
     padding_profile = "space_1",
     margin = "0",
     justify_self = None,
+    # 叠在地图上的 section：单 child（如 data-table）会折叠掉内层 content_panel，
+    # 必须把底板写在 section 壳上，否则 panel_glow_bg 会丢失变成全透明。
+    background = None,
 ):
     content_panel(
         variant = "container",
@@ -228,6 +231,7 @@ template section_shell(
             "__mei_padding_profile": padding_profile,
             "margin": margin,
             "justify_self": justify_self,
+            "background": background,
         },
         blocks = [panel_body(body = body, padding = padding_profile_css(padding_profile))],
     )
