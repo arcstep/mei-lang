@@ -117,7 +117,9 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     );
     // sectionRows 等 layout theme 会进 runtime.plans / layout_budget；必须纳入 revision，
     // 否则只改 app.toml themes.*.layout 时热重载仍命中旧 plan（养老/校服高度不同即此坑）。
-    let themes = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    let themes =
+        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
     format!("{data_gen}|{policy}|{themes}")
 }
 
@@ -125,9 +127,9 @@ fn theme_digest_for_app(workspace_root: &Path, app_id: &str) -> String {
     let app_root = resolve_app_root(workspace_root, app_id);
     let mei_config =
         mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
-    // Theme tokens must invalidate when ops.themes (fonts / metric roles) change —
-    // not when layout policy alone changes.
-    mei_lang_kernel::ops_themes_revision_digest(&mei_config)
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    // Theme tokens must invalidate when workspace library / selection / font_scale change.
+    mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config)
 }
 
 fn default_tab_for_route(route_mode: &str) -> &'static str {
@@ -412,15 +414,34 @@ fn materialize_runtime_plans(
     }))
 }
 
+fn scene_theme_id(ctx: &MaterializeContext<'_>) -> String {
+    let app_root = resolve_app_root(ctx.workspace_root, ctx.app_id);
+    let mei_config =
+        mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(ctx.workspace_root));
+    let workspace = mei_lang_kernel::load_workspace_config(ctx.workspace_root);
+    let scene_theme = ctx
+        .compiled
+        .as_ref()
+        .and_then(|compiled| compiled.scene_contract.as_ref())
+        .and_then(|contract| contract.scene.theme.clone());
+    mei_lang_kernel::resolve_active_scene_theme_id(
+        Some(&workspace),
+        &mei_config,
+        scene_theme.as_deref(),
+    )
+}
+
 fn materialize_theme(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix) -> Result<Value> {
+    let theme_id = scene_theme_id(ctx);
     let (doc, hit) = crate::ensure_theme_tokens_cached(
         ctx.workspace_root,
         ctx.app_id,
         ctx.theme_digest.as_str(),
+        theme_id.as_str(),
     )?;
     hits.theme_hit = hit;
-    let key = theme_tokens_cache_key(ctx.theme_digest.as_str());
-    let content_hash = format!("theme:{}", ctx.theme_digest);
+    let key = theme_tokens_cache_key(ctx.theme_digest.as_str(), theme_id.as_str());
+    let content_hash = format!("theme:{}:{}", theme_id, ctx.theme_digest);
     Ok(json!({
         "artifact_id": key,
         "content_hash": content_hash,
@@ -949,7 +970,10 @@ fn materialize_layer_name(
             materialize_structure(ctx, hits)?;
             Ok(materialize_structure_document(ctx).unwrap_or(Value::Null))
         }
-        "theme.tokens" => materialize_theme(ctx, hits),
+        "theme.tokens" => {
+            ensure_materialize_assembled(ctx)?;
+            materialize_theme(ctx, hits)
+        }
         "layout.overlay" => materialize_overlay(ctx, hits),
         "runtime.plans" => materialize_runtime_plans(ctx, hits),
         name if name.starts_with("eval.slot_group.") => {

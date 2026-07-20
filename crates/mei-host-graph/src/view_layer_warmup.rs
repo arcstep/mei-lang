@@ -24,7 +24,9 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
         mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
     let data_gen =
         mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
-    let themes = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    let themes =
+        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
     format!("{data_gen}|{themes}")
 }
 
@@ -87,16 +89,29 @@ pub fn warm_manifest_index_for_scope(
     let app_root = resolve_app_root(workspace_root, app_id);
     let mei_config =
         mei_lang_kernel::load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
-    let theme_rev = mei_lang_kernel::ops_themes_revision_digest(&mei_config);
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    let theme_rev =
+        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
+    let scene_theme = compiled
+        .scene_contract
+        .as_ref()
+        .and_then(|contract| contract.scene.theme.clone());
+    let theme_id = mei_lang_kernel::resolve_active_scene_theme_id(
+        Some(&workspace),
+        &mei_config,
+        scene_theme.as_deref(),
+    );
     let (theme_doc, _) = crate::layer_overlay::ensure_theme_tokens_cached(
         workspace_root,
         app_id,
         theme_rev.as_str(),
+        theme_id.as_str(),
     )?;
-    let theme_key = crate::view_artifact::theme_tokens_cache_key(theme_rev.as_str());
+    let theme_key =
+        crate::view_artifact::theme_tokens_cache_key(theme_rev.as_str(), theme_id.as_str());
     let theme_doc_value = json!({
         "artifact_id": theme_key,
-        "content_hash": format!("theme:{}", theme_rev),
+        "content_hash": format!("theme:{}:{}", theme_id, theme_rev),
         "document": theme_doc,
     });
 

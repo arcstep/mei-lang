@@ -330,6 +330,10 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/datasets/fixture/:app_id", post(api_datasets_fixture))
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route(
+            "/api/ops/scene-themes",
+            get(crate::ops_scene_themes_api::api_ops_scene_themes_get),
+        )
+        .route(
             "/api/ops/themes/layout/overlay/:app_id",
             get(crate::ops_theme_layout_api::api_ops_theme_layout_overlay_get),
         )
@@ -978,14 +982,20 @@ async fn api_ops_theme_style(
     let guard = state.read().expect("state lock");
     let app_ctx = guard.host_ctx_for_app(app_id.as_str());
     let app_root = app_ctx.app_root();
-    let live_config =
-        load_mei_config_for_app(app_root.as_path(), Some(guard.ctx.workspace_root.as_path()));
+    let workspace_root = guard.ctx.workspace_root.clone();
+    let live_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root.as_path()));
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root.as_path());
     let theme_id = query
         .theme
         .as_deref()
-        .and_then(decode_theme_ref_token)
-        .unwrap_or_else(|| "cockpit".to_string());
-    let css = scene_theme_style_for_theme_id(theme_id.as_str(), Some(&live_config));
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|raw| decode_theme_ref_token(raw).unwrap_or_else(|| raw.to_string()))
+        .unwrap_or_else(|| {
+            mei_lang_kernel::resolve_active_scene_theme_id(Some(&workspace), &live_config, None)
+        });
+    let css =
+        scene_theme_style_for_theme_id(theme_id.as_str(), Some(&live_config), Some(&workspace));
     (
         StatusCode::OK,
         [(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")],

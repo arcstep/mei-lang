@@ -20,7 +20,6 @@ use std::fs;
 use std::path::Path;
 
 use crate::admin_registry::AdminRegistry;
-use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::state::SharedState;
 
 #[derive(Debug, Deserialize)]
@@ -148,14 +147,15 @@ fn ensure_registry(state: &SharedState) -> AdminRegistrySnapshot {
             guard.admin_registry.clone(),
         )
     };
-    let topbar_menu = mei_lang_app::load_topbar_menu_context(workspace_root.as_path());
-    let discovered = discover_workspace_apps(workspace_root.as_path()).unwrap_or_default();
-    let apps = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
-    registry.refresh_workspace(workspace_root.as_path(), &apps);
     AdminRegistrySnapshot {
         workspace_root,
         registry,
     }
+}
+
+fn ensure_app_registry(snap: &AdminRegistrySnapshot, app_id: &str) {
+    snap.registry
+        .ensure_app_loaded(snap.workspace_root.as_path(), app_id);
 }
 
 struct AdminRegistrySnapshot {
@@ -211,6 +211,7 @@ pub async fn api_admin_resources(
     if principal.is_some_and(|value| !value.can_access_app(app_id)) {
         return admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response();
     }
+    ensure_app_registry(&snap, app_id);
     let resources = snap
         .registry
         .nav_items_for_capabilities(app_id, &|capability| {
@@ -238,6 +239,7 @@ fn load_provider_context(
             admin_err(StatusCode::FORBIDDEN, "forbidden", "app not allowed").into_response(),
         );
     }
+    ensure_app_registry(snap, context.app_id.as_str());
     let Some(resource) = snap.registry.resource(
         context.app_id.as_str(),
         context.resource_id.as_str(),

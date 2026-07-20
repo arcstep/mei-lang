@@ -49,7 +49,12 @@ pub fn theme_tokens_document_from_theme(theme: &Value) -> ThemeTokensDocument {
         }
     }
     for role in ["label", "value", "unit", "desc"] {
-        push_metric_role_font_var(theme, &format!("metric_{role}"), &format!("metric-{role}"), &mut colors);
+        push_metric_role_font_var(
+            theme,
+            &format!("metric_{role}"),
+            &format!("metric-{role}"),
+            &mut colors,
+        );
     }
     for role in ["label", "value", "unit"] {
         push_metric_role_font_var(
@@ -112,10 +117,7 @@ fn push_metric_role_font_var(
     } else {
         format!("var(--mei-font-{raw})")
     };
-    colors.insert(
-        format!("{css_prefix}-font-size"),
-        Value::String(resolved),
-    );
+    colors.insert(format!("{css_prefix}-font-size"), Value::String(resolved));
 }
 
 pub fn layout_overlay_from_draft(draft: Option<&Value>) -> LayoutOverlayDocument {
@@ -148,25 +150,51 @@ pub fn persist_layout_overlay(
     ))
 }
 
+/// Resolve which `ops.themes.<id>` to materialize for `theme.tokens`.
+/// Prefer explicit scene `theme_ref` / `theme_id`; fall back to `cockpit`, then first profile.
+pub fn resolve_theme_profile_id(
+    themes: &std::collections::BTreeMap<String, Value>,
+    theme_id: &str,
+) -> String {
+    let trimmed = theme_id.trim();
+    if !trimmed.is_empty() && themes.contains_key(trimmed) {
+        return trimmed.to_string();
+    }
+    if themes.contains_key("cockpit") {
+        return "cockpit".to_string();
+    }
+    themes
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| "cockpit".to_string())
+}
+
 pub fn ensure_theme_tokens_cached(
     workspace_root: &Path,
     app_id: &str,
     theme_digest: &str,
+    theme_id: &str,
 ) -> Result<(ThemeTokensDocument, bool)> {
-    let cache_key = theme_tokens_cache_key(theme_digest);
+    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
+    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    let resolved_id = if workspace.ops.scene_themes.contains_key(theme_id.trim()) {
+        theme_id.trim().to_string()
+    } else {
+        resolve_theme_profile_id(&mei_config.ops.themes, theme_id)
+    };
+    let cache_key = theme_tokens_cache_key(theme_digest, resolved_id.as_str());
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         let doc: ThemeTokensDocument = serde_json::from_slice(bytes.as_slice())?;
         return Ok((doc, true));
     }
-    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
-    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
-    let theme = mei_config
-        .ops
-        .themes
-        .get("cockpit")
-        .or_else(|| mei_config.ops.themes.values().next())
-        .cloned()
-        .unwrap_or(Value::Null);
+    let theme = mei_lang_kernel::resolve_assembled_scene_theme(
+        Some(&workspace),
+        &mei_config,
+        resolved_id.as_str(),
+    )
+    .unwrap_or(Value::Null);
     let document = if theme.is_object() {
         theme_tokens_document_from_theme(&theme)
     } else {
@@ -230,6 +258,66 @@ mod tests {
     }
 
     #[test]
+    fn resolve_theme_profile_id_prefers_explicit_then_cockpit() {
+        let mut themes = std::collections::BTreeMap::new();
+        themes.insert("cockpit".to_string(), json!({}));
+        themes.insert("tech-bright".to_string(), json!({}));
+        assert_eq!(
+            resolve_theme_profile_id(&themes, "tech-bright"),
+            "tech-bright"
+        );
+        assert_eq!(resolve_theme_profile_id(&themes, ""), "cockpit");
+        assert_eq!(resolve_theme_profile_id(&themes, "missing"), "cockpit");
+    }
+
+    #[test]
+    fn ensure_theme_tokens_cached_honors_theme_id_when_workspace_present() {
+        let workspace = std::env::var("MEI_TEST_WORKSPACE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2")
+            });
+        let app_toml = workspace.join("apps/mini-data/app.toml");
+        if !app_toml.is_file() {
+            eprintln!(
+                "skip: mini-data workspace not present at {}",
+                app_toml.display()
+            );
+            return;
+        }
+        let app_root = workspace.join("apps/mini-data");
+        let cfg = load_mei_config_for_app(app_root.as_path(), Some(workspace.as_path()));
+        let digest = mei_lang_kernel::ops_themes_revision_digest(&cfg);
+        let (bright, _) = ensure_theme_tokens_cached(
+            workspace.as_path(),
+            "mini-data",
+            digest.as_str(),
+            "tech-bright",
+        )
+        .expect("tech-bright tokens");
+        let (steady, _) = ensure_theme_tokens_cached(
+            workspace.as_path(),
+            "mini-data",
+            digest.as_str(),
+            "tech-steady",
+        )
+        .expect("tech-steady tokens");
+        let bright_bg = bright
+            .colors
+            .get("color-surface-bg")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let steady_bg = steady
+            .colors
+            .get("color-surface-bg")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert_eq!(bright_bg, "rgb(18, 72, 128)");
+        assert_eq!(steady_bg, "rgb(8, 28, 52)");
+        assert_ne!(bright_bg, steady_bg);
+    }
+
+    #[test]
     fn theme_tokens_include_metric_role_font_vars() {
         let theme = json!({
             "font": { "3": "26px", "6": "40px", "7": "48px" },
@@ -241,15 +329,21 @@ mod tests {
         let doc = theme_tokens_document_from_theme(&theme);
         let colors = doc.colors.as_object().expect("colors object");
         assert_eq!(
-            colors.get("metric-value-font-size").and_then(|v| v.as_str()),
+            colors
+                .get("metric-value-font-size")
+                .and_then(|v| v.as_str()),
             Some("var(--mei-font-6)")
         );
         assert_eq!(
-            colors.get("metric-label-font-size").and_then(|v| v.as_str()),
+            colors
+                .get("metric-label-font-size")
+                .and_then(|v| v.as_str()),
             Some("var(--mei-font-7)")
         );
         assert_eq!(
-            colors.get("metric-sub-value-font-size").and_then(|v| v.as_str()),
+            colors
+                .get("metric-sub-value-font-size")
+                .and_then(|v| v.as_str()),
             Some("var(--mei-font-7)")
         );
         assert_eq!(

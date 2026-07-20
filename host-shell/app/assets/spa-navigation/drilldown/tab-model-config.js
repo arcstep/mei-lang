@@ -507,6 +507,24 @@
       panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
       panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
       panelEl.dataset.drilldownLayoutMode = String(config?.sceneShell?.layoutMode || "");
+      // Layer2 页头常 hidden：若仍用 auto|1fr，唯一可见 body 会落在 auto 行按内容收缩。
+      const layoutMode = String(config?.sceneShell?.layoutMode || "");
+      const layer2Fill =
+        panelEl.classList.contains("mei-layer2-page-panel") &&
+        (layoutMode === "list_preview" || layoutMode === "analytics");
+      if (layer2Fill) {
+        panelEl.style.gridTemplateRows = "minmax(0, 1fr)";
+        const structuredBody = root.querySelector(
+          '.access-drilldown-overlay-body--structured',
+        );
+        if (structuredBody instanceof HTMLElement) {
+          structuredBody.style.minHeight = "0";
+          structuredBody.style.height = "100%";
+          structuredBody.style.display = "flex";
+          structuredBody.style.flexDirection = "column";
+          structuredBody.style.overflow = "hidden";
+        }
+      }
     }
     const genericBody = root.querySelector('[data-drilldown-body-mode="generic"]');
     const structuredBody = root.querySelector('[data-drilldown-body-mode="structured"]');

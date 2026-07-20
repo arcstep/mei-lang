@@ -39,7 +39,7 @@ pub fn surface_field_layout_call(surface: &str) -> Value {
         "compound_top_row" | "solid_row_accent" | "solid_row_compact" | "strip_icon_left" => {
             grid_call(
                 &["1fr"],
-                &["4em", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
+                &["max-content", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
                 &[vec!["label", "value", "unit"]],
                 "4px",
                 "center",

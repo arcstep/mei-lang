@@ -4372,39 +4372,59 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.14), rgba(10, 36, 68, 0.22));
   box-shadow: inset 0 -10px 0 rgba(125, 211, 252, 0.1);
 }
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] {
+/* 经典 overlay：head + body。Layer2 页头常 hidden，若仍用 auto|1fr，唯一可见 body 会落在 auto 行按内容收缩。 */
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"]:not(.mei-layer2-page-panel) {
   grid-template-rows: auto minmax(0, 1fr);
 }
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-overlay-body--structured {
+.access-drilldown-overlay-panel.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"],
+.access-drilldown-overlay-panel.mei-layer2-page-panel[data-drilldown-layout-mode="analytics"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-overlay-body--structured,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-overlay-body--structured {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-shell,
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-shell,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout {
+  flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-shell,
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout > .access-drilldown-shell-zone {
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout > .access-drilldown-shell-zone,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-structured-layout > .access-drilldown-shell-zone {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-surface,
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host {
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-surface,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host {
   flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host > mei-cockpit-data-table {
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host > mei-cockpit-data-table,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-shell-host > mei-cockpit-data-table {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
   display: block;
 }
-.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-document-preview-panel {
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-document-preview-panel,
+.mei-layer2-page-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-document-preview-panel {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;

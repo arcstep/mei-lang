@@ -1,5 +1,6 @@
 import {
   deferUntilDisplayed,
+  elementIsDisplayed,
   shouldReactToPreviewUpdated,
   fetchDatasetRows,
   fetchPanelRuntimeMetrics,
@@ -19,6 +20,7 @@ import {
   cockpitCssVars,
   readThemeColor,
   readThemeTypography,
+  readThemeUiFontFamily,
 } from "../../cockpit/tokens.js";
 import {
   bindFloatingPopoverDrag,
@@ -152,28 +154,33 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           return;
         }
         this.refresh();
+        // SPA 切页后布局常晚于 setOption；即使 refresh 已触发，再排一轮 settle resize
+        this.scheduleChartSurfaceSync({ reason: "preview-updated" });
       };
       window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
       this.resizeObserver = new ResizeObserver((entries) => {
-        if (this.chart) {
-          this.chart.resize();
-          return;
-        }
-        // rankingLayout=above + fillHeight：无 ECharts 实例，需随格子尺寸重算行高。
-        const props = Object.assign({}, parseProps(this), this._runtimeProps || {});
-        if (
-          normalizeKind(chartKind) !== "ranking" ||
-          resolveRankingLayout(props) !== "above" ||
-          !rankingFillHeightEnabled(props)
-        ) {
-          return;
-        }
-        const nextH = Math.round(entries?.[0]?.contentRect?.height || this.clientHeight || 0);
-        if (nextH <= 0 || nextH === this._rankingFillHeightPx) return;
-        this._rankingFillHeightPx = nextH;
-        void this.renderChart();
+        this.scheduleChartSurfaceSync({
+          reason: "resize-observer",
+          entryHeight: Math.round(entries?.[0]?.contentRect?.height || 0),
+        });
       });
       this.resizeObserver.observe(this);
+      if (this.chartEl instanceof HTMLElement) {
+        // host 宽高未变、仅内部 .chart flex 撑开时，也必须跟着 resize
+        this.resizeObserver.observe(this.chartEl);
+      }
+      // 从其它页切回：元素已连接但曾被隐藏，交叉可见后再对齐画布
+      if (typeof IntersectionObserver === "function") {
+        this._visibilityObserver = new IntersectionObserver(
+          (entries) => {
+            const visible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0);
+            if (!visible) return;
+            this.scheduleChartSurfaceSync({ reason: "intersection-visible" });
+          },
+          { threshold: [0, 0.01, 0.1] },
+        );
+        this._visibilityObserver.observe(this);
+      }
       this._queryStateId = queryStateIdOf(this._props);
       this._renderTrace.mark("bootstrap", {
         query_state_id: this._queryStateId || "",
@@ -211,10 +218,108 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       if (this.resizeObserver) {
         this.resizeObserver.disconnect();
       }
+      if (this._visibilityObserver) {
+        this._visibilityObserver.disconnect();
+        this._visibilityObserver = null;
+      }
+      this.cancelChartSurfaceSync();
       if (this.chart) {
         this.chart.dispose();
         this.chart = null;
       }
+    }
+
+    cancelChartSurfaceSync() {
+      if (this._surfaceSyncRaf != null) {
+        cancelAnimationFrame(this._surfaceSyncRaf);
+        this._surfaceSyncRaf = null;
+      }
+      if (Array.isArray(this._surfaceSyncTimers)) {
+        for (const id of this._surfaceSyncTimers) {
+          window.clearTimeout(id);
+        }
+      }
+      this._surfaceSyncTimers = [];
+    }
+
+    /** 读取画布盒；优先 client*（设计像素），避免 stage CSS scale 把 visual rect 缩窄 */
+    readChartSurfaceBox() {
+      const box = this.chartEl instanceof HTMLElement ? this.chartEl : this;
+      const width = Math.max(
+        0,
+        Math.floor(box.clientWidth || this.clientWidth || 0),
+      );
+      const height = Math.max(
+        0,
+        Math.floor(box.clientHeight || this.clientHeight || 0),
+      );
+      return { width, height, box };
+    }
+
+    syncChartSurfaceSize(meta = {}) {
+      if (!this.isConnected || !elementIsDisplayed(this)) {
+        return;
+      }
+      const props = Object.assign({}, parseProps(this), this._runtimeProps || {}, {
+        __host: this,
+      });
+      if (this.chart) {
+        const { width, height } = this.readChartSurfaceBox();
+        if (width < 8 || height < 8) {
+          return;
+        }
+        const prev = this._lastSurfaceBox || { width: 0, height: 0 };
+        // 尺寸未变也允许强制对齐（SPA 切回后 canvas 常仍是旧 px）
+        const force = meta.force === true;
+        if (!force && prev.width === width && prev.height === height) {
+          return;
+        }
+        this._lastSurfaceBox = { width, height };
+        try {
+          this.chart.resize({ width, height });
+        } catch (_) {
+          try {
+            this.chart.resize();
+          } catch (__) {
+            /* ignore */
+          }
+        }
+        return;
+      }
+      // rankingLayout=above + fillHeight：无 ECharts 实例，需随格子尺寸重算行高。
+      if (
+        normalizeKind(chartKind) !== "ranking" ||
+        resolveRankingLayout(props) !== "above" ||
+        !rankingFillHeightEnabled(props)
+      ) {
+        return;
+      }
+      const nextH = Math.round(
+        meta.entryHeight || this.readChartSurfaceBox().height || this.clientHeight || 0,
+      );
+      if (nextH <= 0 || nextH === this._rankingFillHeightPx) return;
+      this._rankingFillHeightPx = nextH;
+      void this.renderChart();
+    }
+
+    /**
+     * 布局结算后再 resize：首帧 flex/grid 常未给出最终宽高，
+     * 只靠单次 resize 会把柱图锁在「挤成一团」的旧 canvas 尺寸上（F5 才恢复）。
+     */
+    scheduleChartSurfaceSync(meta = {}) {
+      this.cancelChartSurfaceSync();
+      const run = (force) => {
+        this.syncChartSurfaceSize({ ...meta, force });
+      };
+      this._surfaceSyncRaf = requestAnimationFrame(() => {
+        this._surfaceSyncRaf = requestAnimationFrame(() => {
+          this._surfaceSyncRaf = null;
+          run(true);
+        });
+      });
+      this._surfaceSyncTimers = [0, 48, 160].map((ms) =>
+        window.setTimeout(() => run(true), ms),
+      );
     }
 
     applyFillHeightShell(props) {
@@ -244,6 +349,9 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         this.chartEl.style.flex = "1 1 0";
         this.chartEl.style.height = "auto";
         this.chartEl.style.maxHeight = "none";
+        this.chartEl.style.width = "100%";
+        this.chartEl.style.minWidth = "0";
+        this.chartEl.style.boxSizing = "border-box";
       }
       const headEl = this.shadowRoot.querySelector(".head");
       if (headEl instanceof HTMLElement) {
@@ -322,10 +430,30 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       }, interval);
     }
 
+    onCarouselDotClick(event) {
+      const pageRaw = event
+        .composedPath()
+        .find((node) => node instanceof HTMLElement && node.dataset?.carouselPage)
+        ?.dataset?.carouselPage;
+      if (pageRaw == null) return;
+      const nextIndex = Number(pageRaw) - 1;
+      const total = Array.isArray(this._carouselSlides) ? this._carouselSlides.length : 0;
+      if (!Number.isFinite(nextIndex) || nextIndex < 0 || nextIndex >= total) return;
+      if (nextIndex === (Number(this._carouselIndex) || 0)) return;
+      this._carouselIndex = nextIndex;
+      this._carouselEpoch = (Number(this._carouselEpoch) || 0) + 1;
+      // renderChart 末尾会 sync hint 并重启自动轮播计时
+      void this.renderChart();
+    }
+
     syncCarouselHint(props) {
       const host = this.shadowRoot?.querySelector(".carousel-hint-host");
       const wrap = this.shadowRoot?.querySelector(".wrap");
       if (!(host instanceof HTMLElement)) return;
+      if (!this._carouselDotBound) {
+        this._carouselDotBound = true;
+        host.addEventListener("click", (event) => this.onCarouselDotClick(event));
+      }
       if (!chartCarouselEnabled(props) || !chartCarouselShowsHint(props)) {
         host.innerHTML = "";
         host.hidden = true;
@@ -406,21 +534,20 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         if (!this.chart) {
           this.chart = echarts.init(this.chartEl);
         }
-        this.chart.setOption(model.option, true);
-        try {
-          this.chart.resize();
-        } catch (_) {
-          /* ignore */
-        }
         if (chartKind === "ranking") {
           this._rankingFullLabels = Array.isArray(model.fullLabels) ? model.fullLabels : [];
+          const fillHeight = rankingFillHeightEnabled(props);
           const shellH = resolveRankingShellHeight(props, model.rowCount);
-          if (model.rowCount > 0 && shellH > 0) {
+          // fillHeight 时由 flex 吃满格子，勿再写死 minHeight 与壳抢尺寸
+          if (!fillHeight && model.rowCount > 0 && shellH > 0) {
             this.chartEl.style.minHeight = `${shellH}px`;
             if (isRankingCompact(props) && Number(props.chartHeight) > 0) {
               this.chartEl.style.height = `${shellH}px`;
               this.chartEl.style.maxHeight = `${shellH}px`;
             }
+          } else if (fillHeight) {
+            this.chartEl.style.width = "100%";
+            this.chartEl.style.minWidth = "0";
           } else {
             this.chartEl.style.minHeight = "";
             this.chartEl.style.height = "";
@@ -431,6 +558,8 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           this._rankingFullLabels = null;
           this.setupSelectionInteractions(chartKind);
         }
+        this.chart.setOption(model.option, true);
+        this.scheduleChartSurfaceSync({ reason: "render-chart", force: true });
         this._renderTrace?.mark("render_done", {
           rows: Array.isArray(model.rows) ? model.rows.length : 0,
         });
@@ -449,8 +578,15 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       if (!this.chart) return;
       this.chart.off("click");
       this.chart.on("click", (params) => {
-        if (params.componentType !== "series") return;
-        const full = this._rankingFullLabels?.[params.dataIndex];
+        let index = -1;
+        if (params.componentType === "series") {
+          index = Number(params.dataIndex);
+        } else if (params.componentType === "yAxis") {
+          index = Number.isFinite(params.dataIndex)
+            ? Number(params.dataIndex)
+            : (this._rankingFullLabels || []).indexOf(params.value);
+        }
+        const full = this._rankingFullLabels?.[index];
         if (!full) return;
         this.openLabelPopover(full, params.event?.event);
       });
@@ -855,17 +991,24 @@ function chartShellHtml(defaultTitle, props = {}) {
       .carousel-dot {
         width: 6px;
         height: 6px;
+        padding: 0;
+        border: 0;
         border-radius: 50%;
         background: rgba(125, 211, 252, 0.22);
+        cursor: pointer;
         transition:
           transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
           background 220ms ease,
           box-shadow 220ms ease;
       }
+      .carousel-dot:hover {
+        background: rgba(125, 211, 252, 0.45);
+      }
       .carousel-dot.is-active {
         background: #38bdf8;
         transform: scale(1.4);
         box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+        cursor: default;
       }
       .carousel-page-label {
         display: inline-flex;
@@ -1097,12 +1240,15 @@ function buildChartModel(kind, props, diagnostics) {
     };
   }
   const option = buildOption(kind, chartRows, mapping, legacy, diagnostics);
+  const compact = props.compact === true || props.compact === "true";
   const dimensionCount =
     normalized === "radar"
       ? (mapping.radarDimensions?.length || mapping.y?.length || 0)
       : 0;
-  const meta =
-    normalized === "radar"
+  // compact 驾驶舱不展示「label -> 项目数」这类调试 meta
+  const meta = compact
+    ? ""
+    : normalized === "radar"
       ? `${mapping.label?.[0]?.name || mapping.label?.[0]?.field || "series"} · ${dimensionCount} dims · ${chartRows.length} rows`
       : `${mapping.titleLeft} -> ${mapping.titleRight}`;
   return {
@@ -1282,11 +1428,11 @@ function renderChartCarouselHintHtml(page, totalPages, intervalMs, epoch) {
   const dots = Array.from({ length: totalPages }, (_, index) => {
     const pageNo = index + 1;
     const active = pageNo === page;
-    return `<span class="carousel-dot${active ? " is-active" : ""}"></span>`;
+    return `<button type="button" class="carousel-dot${active ? " is-active" : ""}" data-carousel-page="${pageNo}" aria-label="切换到第 ${pageNo} 项" aria-current="${active ? "true" : "false"}"></button>`;
   }).join("");
   return `
-    <div class="carousel-hint" role="status" aria-label="轮播第 ${page} 项，共 ${totalPages} 项">
-      <div class="carousel-dots" aria-hidden="true">${dots}</div>
+    <div class="carousel-hint" role="navigation" aria-label="轮播第 ${page} 项，共 ${totalPages} 项">
+      <div class="carousel-dots">${dots}</div>
       <span class="carousel-page-label">
         <span class="carousel-page-current" data-epoch="${epoch}">${page}</span><span class="carousel-page-sep">/</span><span class="carousel-page-total">${totalPages}</span>
       </span>
@@ -1512,35 +1658,36 @@ function echartsTooltipTextStyle(typography, role = "label", host) {
   };
 }
 
-/** ECharts 飘窗：深色底 + 主题字号 + 二级看板内 z-index */
-function resolveEchartsTooltipAppendTo(host) {
+/**
+ * ECharts 飘窗挂载点。
+ * 勿挂到带 CSS scale 的 stage context-plane：ECharts 按屏幕坐标定位，
+ * 挂在缩放容器内会错位，并被 preview-stage-shell 的 overflow:hidden 裁切
+ *（左栏环图左侧 hover 时只露出半截飘窗）。
+ */
+function resolveEchartsTooltipAppendTo(_host) {
   if (typeof document === "undefined") {
     return undefined;
-  }
-  const boot = window.__meiLangBoot || {};
-  if (
-    typeof boot.resolveOverlayMountRoot === "function" &&
-    typeof boot.ensureViewportContextPlane === "function"
-  ) {
-    const root = boot.resolveOverlayMountRoot(host);
-    const plane = boot.ensureViewportContextPlane(root);
-    if (plane instanceof HTMLElement) {
-      return plane;
-    }
   }
   return document.body;
 }
 
 function echartsTooltip(typography, trigger, extra = {}, host) {
   const { textRole = "label", ...rest } = extra;
+  const tipZ =
+    typeof window !== "undefined" &&
+    typeof window.__meiLangBoot?.resolveRuntimeOverlayZIndex === "function"
+      ? window.__meiLangBoot.resolveRuntimeOverlayZIndex("tooltip", host)
+      : 1300;
   return {
     trigger,
     ...ECHARTS_TOOLTIP_CHROME,
     className: "mei-cockpit-echarts-tooltip",
+    appendToBody: true,
     appendTo: resolveEchartsTooltipAppendTo(host),
-    confine: false,
+    // 贴边时把飘窗收进图表可视区，避免再跑出左栏
+    confine: true,
     extraCssText:
-      "box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:0;",
+      `box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:0;z-index:${tipZ};`,
     textStyle: echartsTooltipTextStyle(typography, textRole, host),
     ...rest,
   };
@@ -1966,39 +2113,71 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   const themeTypography = readThemeTypography(legacy.__host);
   const host = legacy.__host;
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
+  // compact 默认仍隐藏图例/外标；仅当 props 显式打开时启用（避免误开其它紧凑环图）
+  const chartProps = legacy.chartProps || {};
+  const explicitLegendOn =
+    chartProps.showLegend === true ||
+    chartProps.showLegend === "true" ||
+    chartProps.show_legend === true ||
+    chartProps.show_legend === "true";
+  const explicitLegendOff =
+    chartProps.showLegend === false ||
+    chartProps.showLegend === "false" ||
+    chartProps.show_legend === false ||
+    chartProps.show_legend === "false";
+  const showLegend = compact ? explicitLegendOn : !explicitLegendOff;
+  const showLabel =
+    chartProps.showLabel === true ||
+    chartProps.showLabel === "true" ||
+    chartProps.show_label === true ||
+    chartProps.show_label === "true";
+  const compactWithLegend = compact && showLegend;
   const donutRadius = tight
     ? ["58%", "82%"]
-    : compact
-      ? ["52%", "78%"]
-      : ["45%", "72%"];
+    : compactWithLegend
+      ? ["38%", "60%"]
+      : compact
+        ? ["52%", "78%"]
+        : ["45%", "72%"];
   const option = {
     tooltip: echartsTooltip(themeTypography, "item", {}, host),
-    legend: compact
-      ? { show: false }
-      : {
-          top: 4,
-          left: "center",
-          orient: "horizontal",
+    legend: showLegend
+      ? {
+          show: true,
+          ...(compact
+            ? { bottom: 2, left: "center", orient: "horizontal", itemWidth: 10, itemHeight: 10, itemGap: 14 }
+            : { top: 4, left: "center", orient: "horizontal" }),
           textStyle: {
             fontSize: themeTypography.label,
-            color: canvasThemeColor(host, "text_muted"),
+            color: canvasThemeColor(host, "text_body"),
+            fontFamily: readThemeUiFontFamily(host),
           },
-        },
+        }
+      : { show: false },
     toolbox: compact ? undefined : { feature: { saveAsImage: {} } },
     series: [
       {
         type: "pie",
         radius: kind === "donut" ? donutRadius : tight ? "62%" : compact ? "68%" : "70%",
         // Legend and pie share one canvas; reserve vertical space so slices are not clipped to zero height.
-        center: compact ? ["50%", "50%"] : ["50%", "58%"],
+        center: compactWithLegend ? ["50%", "44%"] : compact ? ["50%", "50%"] : ["50%", "58%"],
         top: compact ? 0 : 36,
         height: compact ? undefined : "72%",
-        label: {
-          show: !compact,
-          fontSize: themeTypography.label,
-          color: canvasThemeColor(host, "text_body"),
-        },
-        labelLine: { show: !compact },
+        label: showLabel
+          ? {
+              show: true,
+              position: compact ? "inside" : "outside",
+              formatter: compact ? "{d}%" : "{b}\n{d}%",
+              fontSize: Math.max(11, Math.round(themeTypography.label * (compact ? 0.9 : 1))),
+              fontFamily: readThemeUiFontFamily(host),
+              // Cockpit 为深色底；环内/环外百分比都必须用浅色前景，禁止写死深色字。
+              color: canvasThemeColor(host, "text_primary"),
+              fontWeight: 600,
+              textBorderColor: "rgba(8, 28, 52, 0.55)",
+              textBorderWidth: 1,
+            }
+          : { show: false },
+        labelLine: { show: showLabel && !compact },
         ...(kind === "rose" ? { roseType: "radius" } : {}),
         data,
       },
@@ -2316,14 +2495,22 @@ function formatRankingNameLabel(text, maxChars) {
   return { display, full, isTruncated: display !== full };
 }
 
-function formatRankingAboveValue(value, unit) {
+/** 排名数值展示：最多 1 位小数；整数量不带 `.0`（避免浮点长尾） */
+function formatRankingValueText(value, unit = "") {
   const n = Number(value);
   let text = String(value ?? "").trim();
   if (Number.isFinite(n)) {
-    text = Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+    const rounded = Math.round(n * 10) / 10;
+    text = Number.isInteger(rounded)
+      ? String(Math.trunc(rounded))
+      : rounded.toFixed(1);
   }
   const u = String(unit || "").trim();
   return u ? `${text} ${u}` : text;
+}
+
+function formatRankingAboveValue(value, unit) {
+  return formatRankingValueText(value, unit);
 }
 
 function rankingBarBackgroundStyle(theme, borderRadius = [0, 0, 0, 0]) {
@@ -2335,10 +2522,37 @@ function rankingBarBackgroundStyle(theme, borderRadius = [0, 0, 0, 0]) {
   };
 }
 
-function rankingBarItemStyle(theme, borderRadius = [0, 0, 0, 0]) {
+function resolveRankingBarFill(theme, props = null) {
+  const gradient = String(props?.barGradient ?? props?.bar_gradient ?? "")
+    .trim()
+    .toLowerCase();
+  const solid = theme.barColor || "#38bdf8";
+  if (
+    gradient === "ranking-cyan" ||
+    gradient === "cyan" ||
+    gradient === "true" ||
+    gradient === "1"
+  ) {
+    return {
+      type: "linear",
+      x: 0,
+      y: 0,
+      x2: 1,
+      y2: 0,
+      colorStops: [
+        { offset: 0, color: "#0284c7" },
+        { offset: 0.55, color: solid },
+        { offset: 1, color: "#67e8f9" },
+      ],
+    };
+  }
+  return solid;
+}
+
+function rankingBarItemStyle(theme, borderRadius = [0, 0, 0, 0], props = null) {
   return {
     borderRadius,
-    color: theme.barColor,
+    color: resolveRankingBarFill(theme, props),
     shadowBlur: 6,
     shadowColor: "rgba(56, 189, 248, 0.3)",
     shadowOffsetY: 1,
@@ -2353,7 +2567,9 @@ function buildRankingBarSeries({
   theme,
   borderRadius = [0, 0, 0, 0],
   valueLabel,
+  props = null,
 }) {
+  const itemStyle = rankingBarItemStyle(theme, borderRadius, props);
   return {
     name: valueName,
     type: "bar",
@@ -2363,11 +2579,11 @@ function buildRankingBarSeries({
     z: 2,
     showBackground: true,
     backgroundStyle: rankingBarBackgroundStyle(theme, borderRadius),
-    itemStyle: rankingBarItemStyle(theme, borderRadius),
+    itemStyle,
     emphasis: {
       focus: "series",
       itemStyle: {
-        ...rankingBarItemStyle(theme, borderRadius),
+        ...itemStyle,
         shadowBlur: 10,
         shadowColor: "rgba(56, 189, 248, 0.42)",
       },
@@ -2385,7 +2601,8 @@ function rankingTooltipFormatter(items, valueName, typography) {
     const item = items[idx];
     if (!item) return "";
     const title = escapeHtml(item.label);
-    return `<div style="max-width:min(92vw,420px);line-height:1.45;word-break:break-all;font-size:${labelPx}px;color:${ECHARTS_TOOLTIP_TEXT.primary};">${title}<br/><span style="color:${ECHARTS_TOOLTIP_TEXT.secondary};font-size:${unitPx}px">${escapeHtml(valueName)}: ${item.value}</span></div>`;
+    const valueText = formatRankingValueText(item.value);
+    return `<div style="max-width:min(92vw,420px);line-height:1.45;word-break:break-all;font-size:${labelPx}px;color:${ECHARTS_TOOLTIP_TEXT.primary};">${title}<br/><span style="color:${ECHARTS_TOOLTIP_TEXT.secondary};font-size:${unitPx}px">${escapeHtml(valueName)}: ${escapeHtml(valueText)}</span></div>`;
   };
 }
 
@@ -2403,41 +2620,77 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
   const values = items.map((item) => item.value);
   const compact = props.compact === true || props.compact === "true";
   const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : 0;
-  let gridTop = compact ? 8 : 28;
-  let gridBottom = compact ? 12 : 24;
+  let gridTop = compact ? 4 : 28;
+  let gridBottom = compact ? 4 : 24;
   let barMaxWidth = 22;
   let slotPx = 0;
   if (compact && chartHeight > 0 && items.length > 0) {
-    gridTop = 6;
-    gridBottom = 8;
+    gridTop = 4;
+    gridBottom = 4;
     const plotH = Math.max(20, chartHeight - gridTop - gridBottom);
     slotPx = plotH / items.length;
     barMaxWidth = Math.min(22, Math.max(8, Math.floor(slotPx * 0.58)));
   }
   const typography = resolveRankingTypography(props, slotPx);
   const themeTypography = readThemeTypography(props.__host);
-  const charWidth = Math.max(8, Math.round(typography.labelFontSize * 0.58));
+  // 统一走 theme font-1（chart_label / metric_unit），禁止压成自定义小字号
+  const labelFontPx = typography.labelFontSize;
+  const valueFontPx = typography.labelFontSize;
+  const uiFontFamily = readThemeUiFontFamily(props.__host);
+  const charWidth = Math.max(8, Math.round(labelFontPx * 0.58));
   const gridLeftMin = compact ? 76 : 100;
   const gridLeftMax = compact ? 220 : 380;
   const gridLeft = Math.min(
     gridLeftMax,
     Math.max(gridLeftMin, configuredMaxChars * charWidth + (compact ? 18 : 28)),
   );
-  const labelWidthPx = gridLeft - (compact ? 14 : 20);
-  const maxChars = Math.min(
-    configuredMaxChars,
-    estimateRankingMaxChars(labelWidthPx, typography.axisLabelFontSize),
+  // 短标签（2～3 字）：右对齐落在柱左侧槽内（左对齐会锚在绘图区并向右盖住柱形）
+  const shortLabel = configuredMaxChars > 0 && configuredMaxChars <= 4;
+  const cjkCharPx = Math.max(labelFontPx, Math.round(labelFontPx * 1.05));
+  const labelWidthPx = shortLabel
+    ? Math.ceil((configuredMaxChars + 1) * cjkCharPx)
+    : Math.max(24, gridLeft - (compact ? 4 : 8));
+  // 左槽 = 标签宽 + 与柱的小间距；不再额外放大造成外侧空档
+  const gridLeftResolved = shortLabel
+    ? labelWidthPx + (compact ? 4 : 6)
+    : gridLeft;
+  const resolvedMaxChars = shortLabel
+    ? configuredMaxChars
+    : Math.min(
+      configuredMaxChars,
+      estimateRankingMaxChars(labelWidthPx, labelFontPx),
+    );
+  const unitText = String(valueName || "").trim();
+  const showUnit = unitText.length > 0 && unitText.length <= 4;
+  const valueTexts = values.map((value) =>
+    formatRankingValueText(value, showUnit ? unitText : ""),
   );
-  const borderRadius = [0, 0, 0, 0];
+  // 数字偏窄、中文单位偏宽：按混合宽度估算右槽
+  const maxValueChars = valueTexts.reduce(
+    (peak, text) => Math.max(peak, [...String(text)].length),
+    showUnit ? unitText.length + 2 : 2,
+  );
+  const valueSlotPx = Math.ceil(
+    maxValueChars * Math.max(7, valueFontPx * 0.62) + (compact ? 4 : 8),
+  );
+  const gridRight = Math.min(
+    compact ? 76 : 92,
+    Math.max(compact ? 48 : 60, valueSlotPx),
+  );
+  const borderRadius = [0, 4, 4, 0];
   const host = props.__host;
   const option = {
+    textStyle: {
+      fontFamily: uiFontFamily,
+      fontSize: labelFontPx,
+    },
     tooltip: echartsTooltip(themeTypography, "axis", {
       axisPointer: { type: "shadow" },
       formatter: rankingTooltipFormatter(items, valueName, themeTypography),
     }, host),
     grid: {
-      left: gridLeft,
-      right: compact ? 28 : 36,
+      left: gridLeftResolved,
+      right: gridRight,
       top: gridTop,
       bottom: gridBottom,
       containLabel: false,
@@ -2451,40 +2704,60 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
       axisTick: { show: false },
       axisLine: { show: false },
     },
-    yAxis: {
-      type: "category",
-      data: categories,
-      inverse: true,
-      axisLabel: {
-        color: canvasThemeColor(host, "text_body"),
-        fontSize: typography.axisLabelFontSize,
-        fontWeight: 500,
-        width: labelWidthPx,
-        overflow: "truncate",
-        ellipsis: "…",
-        formatter: (value) =>
-          formatRankingNameLabel(value, maxChars).display,
+    yAxis: [
+      {
+        type: "category",
+        data: categories,
+        inverse: true,
+        triggerEvent: true,
+        axisLabel: {
+          show: true,
+          interval: 0,
+          align: "right",
+          color: canvasThemeColor(host, "text_body"),
+          fontFamily: uiFontFamily,
+          fontSize: labelFontPx,
+          fontWeight: 500,
+          width: labelWidthPx,
+          margin: 4,
+          overflow: "truncate",
+          ellipsis: "…",
+          formatter: (value) =>
+            formatRankingNameLabel(value, resolvedMaxChars).display,
+        },
+        axisTick: { show: false },
+        axisLine: { show: false },
       },
-      axisTick: { show: false },
-      axisLine: { show: false },
-    },
+      {
+        type: "category",
+        data: categories,
+        inverse: true,
+        position: "right",
+        triggerEvent: true,
+        axisLabel: {
+          show: true,
+          interval: 0,
+          color: canvasThemeColor(host, "text_value"),
+          fontFamily: uiFontFamily,
+          fontSize: valueFontPx,
+          fontWeight: 600,
+          margin: 2,
+          formatter: (_value, index) => valueTexts[index] || "",
+        },
+        axisTick: { show: false },
+        axisLine: { show: false },
+      },
+    ],
     series: [
       buildRankingBarSeries({
         values,
         valueName,
         barMaxWidth,
-        barCategoryGap: compact && chartHeight > 0 ? "30%" : "22%",
+        barCategoryGap: compact ? "18%" : "22%",
         theme,
         borderRadius,
-        valueLabel: {
-          show: true,
-          position: "right",
-          distance: 6,
-          color: "#f1f5f9",
-          fontSize: typography.valueFontSize,
-          fontWeight: 600,
-          formatter: ({ value }) => (Number.isFinite(value) ? String(value) : ""),
-        },
+        props,
+        valueLabel: { show: false },
       }),
     ],
   };
@@ -2492,7 +2765,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
     option,
     fullLabels: items.map((item) => item.label),
     rowCount: items.length,
-    meta: `排名 ${items.length} 项 · 左侧标签最多约 ${maxChars} 字（点击查看全文）`,
+    meta: `排名 ${items.length} 项 · 左侧标签最多约 ${resolvedMaxChars} 字（点击查看全文）`,
   };
 }
 

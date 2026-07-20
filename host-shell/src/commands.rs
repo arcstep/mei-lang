@@ -5,12 +5,12 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::build_ops::{import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint};
 use crate::cli::{
-    AppsCommand, AppsListArgs, AppsStartArgs, AppsStopArgs, BuildCleanArgs, BuildCommand,
-    BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs,
-    BuildStatusArgs, Command, EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, LaunchMode,
-    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs,
-    SnapshotCommand, SnapshotPackArgs, SnapshotUnpackArgs, VersionArgs, WorkspaceCommand,
-    WorkspaceInitArgs,
+    AdminRegistryCommand, AdminRegistryMaterializeArgs, AppsCommand, AppsListArgs, AppsStartArgs,
+    AppsStopArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs,
+    BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command,
+    EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs, LaunchMode, MrgCommand, MrgStatusArgs,
+    PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, SnapshotCommand, SnapshotPackArgs,
+    SnapshotUnpackArgs, VersionArgs, WorkspaceCommand, WorkspaceInitArgs,
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
@@ -32,7 +32,23 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Apps(sub) => run_apps(sub),
         Command::EvalCache(sub) => run_eval_cache(sub),
         Command::Snapshot(sub) => run_snapshot(sub),
+        Command::AdminRegistry(sub) => run_admin_registry(sub),
     }
+}
+
+fn run_admin_registry(command: AdminRegistryCommand) -> anyhow::Result<()> {
+    match command {
+        AdminRegistryCommand::Materialize(args) => run_admin_registry_materialize(args),
+    }
+}
+
+fn run_admin_registry_materialize(args: AdminRegistryMaterializeArgs) -> anyhow::Result<()> {
+    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
+    let app = resolve_app_id(workspace.as_path(), Some(args.app.as_str()))?;
+    let path =
+        crate::admin_registry::materialize_admin_registry_for_app(workspace.as_path(), app.as_str())?;
+    println!("{}", path.display());
+    Ok(())
 }
 
 fn run_snapshot(command: SnapshotCommand) -> anyhow::Result<()> {

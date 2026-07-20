@@ -151,7 +151,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         runtime_ctx.host_ssr_slim_payload,
         "build mode must enable host SSR slim payload"
     );
-    let resolved_theme = theme::resolve_theme(scene_contract, None);
+    let resolved_theme = theme::resolve_theme(scene_contract, None, None);
     let scene_anchor = RuntimeSceneAnchor {
         scene_id: scene_contract.scene.id.clone(),
         scene_path: Some("scenes/home.mei".to_string()),

@@ -21,12 +21,18 @@ impl ThemeResolveContext {
     pub fn from_compiled(workspace_root: &Path, compiled: &CompiledApp) -> Option<Self> {
         let app_root = resolve_app_root(workspace_root, compiled.app_id.as_str());
         let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
-        let theme_id = compiled
+        let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+        let scene_theme = compiled
             .scene_contract
             .as_ref()
-            .and_then(|contract| contract.scene.theme.clone())
-            .unwrap_or_else(|| "cockpit".to_string());
-        mei_config.ops.themes.get(&theme_id).cloned().map(Self::new)
+            .and_then(|contract| contract.scene.theme.clone());
+        let theme_id = mei_lang_kernel::resolve_active_scene_theme_id(
+            Some(&workspace),
+            &mei_config,
+            scene_theme.as_deref(),
+        );
+        mei_lang_kernel::resolve_assembled_scene_theme(Some(&workspace), &mei_config, &theme_id)
+            .map(Self::new)
     }
 
     fn theme_object(&self) -> Option<&serde_json::Map<String, Value>> {

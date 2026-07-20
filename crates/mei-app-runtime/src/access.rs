@@ -135,7 +135,7 @@ fn cached_html_covers_component_assets(
 
 /// Host SSR embeds `mei-host-runtime-capabilities`; without it metric/rows query stay disabled
 /// (`runtime_capabilities: {}` → `mei-text` stuck on `--`).
-fn inject_runtime_capabilities(html: String, app_id: &str) -> String {
+fn inject_runtime_capabilities(html: String, app_id: &str, copilot_fab: bool) -> String {
     let payload = serde_json::json!({
         "data_mode": "eval",
         "rows_query": {
@@ -159,6 +159,7 @@ fn inject_runtime_capabilities(html: String, app_id: &str) -> String {
             "scene_qualified": true,
         },
         "static_display": { "enabled": false },
+        "features": { "copilotFab": copilot_fab },
     });
     let script = format!(
         r#"<script id="mei-host-runtime-capabilities" type="application/json">{payload}</script>"#,
@@ -200,7 +201,16 @@ fn finalize_access_html(
             );
         }
     }
-    let html = thin_access_shell_document(app_id, scene_id);
+    let document_title = resolve_access_document_title(
+        workspace_root,
+        state.host.app_root().as_path(),
+        app_id,
+        scene_id,
+    );
+    let copilot_fab = mei_lang_kernel::load_mei_config_for_app(state.host.app_root().as_path(), None)
+        .features
+        .copilot_fab_enabled();
+    let html = thin_access_shell_document(app_id, scene_id, document_title.as_str(), copilot_fab);
     let html = fill_runtime_page_theme(html, workspace_root);
     let dev_eval = mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(
         state.spec.config_snapshot.runtime_plan.clone(),
@@ -220,7 +230,7 @@ fn finalize_access_html(
         Some(&dev_eval),
         client_revision.as_deref(),
     );
-    let html = inject_runtime_capabilities(html, app_id);
+    let html = inject_runtime_capabilities(html, app_id, copilot_fab);
     let (html, component_count) =
         inject_runtime_component_scripts(html, workspace_root, app_id, scene_id);
     let html = fill_runtime_asset_version(html);
@@ -242,6 +252,7 @@ fn finalize_access_html(
 }
 
 /// Floating FAB so Access clients can attach Copilot chrome (mirrors host-shell thin shell).
+/// Omitted when `features.copilotFab = false`.
 const THIN_SHELL_ACCESS_FAB_HTML: &str = concat!(
     r#"<div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false" data-mei-stage-kind="scene" data-mei-fab-policy="required">"#,
     r#"<button id="access-chat-fab" class="access-chat-fab" type="button" aria-label="展开 Copilot 工具条" title="展开 Copilot 工具条" data-mei-fab-policy="required">"#,
@@ -264,12 +275,82 @@ pub struct AccessQuery {
     pub node: Option<String>,
 }
 
-pub fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String {
+/// Browser tab title: prefer readable menu labels (`执法监督-驾驶舱`) over raw `app_id`.
+fn resolve_access_document_title(
+    workspace_root: &std::path::Path,
+    app_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+) -> String {
+    let app_label = mei_lang_kernel::discover_apps(workspace_root)
+        .ok()
+        .and_then(|apps| {
+            apps.into_iter().find(|app| app.id == app_id).map(|app| {
+                app.short_title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        let title = app.title.trim();
+                        (!title.is_empty()).then(|| title.to_string())
+                    })
+                    .unwrap_or_else(|| app.id.clone())
+            })
+        })
+        .unwrap_or_else(|| app_id.to_string());
+    let programs = mei_host_graph::discover_stage_programs(app_root);
+    let stage_label = mei_host_graph::discover_program_for_stage(&programs, scene_id)
+        .and_then(|program| {
+            program
+                .short_title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    program
+                        .title
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                })
+        })
+        .unwrap_or_else(|| scene_id.to_string());
+    match (app_label.trim(), stage_label.trim()) {
+        ("", "") => app_id.to_string(),
+        ("", stage) => stage.to_string(),
+        (app, "") => app.to_string(),
+        (app, stage) => format!("{app}-{stage}"),
+    }
+}
+
+pub fn thin_access_shell_document(
+    app_id: &str,
+    scene_id: &str,
+    document_title: &str,
+    copilot_fab: bool,
+) -> String {
+    let title = {
+        let trimmed = document_title.trim();
+        if trimmed.is_empty() {
+            app_id
+        } else {
+            trimmed
+        }
+    };
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{app_id}</title><meta name="mei-view" content="app"/><link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/><link rel="stylesheet" href="/app-bundles/styles.css?v=__MEI_HOST_ASSET_VERSION__"/><link rel="stylesheet" href="/app-assets/host-shell.css"/><script defer src="/app-bundles/shoelace.js?v=__MEI_HOST_ASSET_VERSION__"></script></head><body class="app-view sl-theme-dark" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}" data-mei-app-runtime="1"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}<script defer src="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__"></script></body></html>"#,
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{title}</title><meta name="mei-view" content="app"/><link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/><link rel="stylesheet" href="/app-bundles/styles.css?v=__MEI_HOST_ASSET_VERSION__"/><link rel="stylesheet" href="/app-assets/host-shell.css"/><script defer src="/app-bundles/shoelace.js?v=__MEI_HOST_ASSET_VERSION__"></script></head><body class="app-view sl-theme-dark" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-scene-id="{scene_id}" data-mei-app-runtime="1" data-mei-copilot-fab="{copilot_fab_attr}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}<script defer src="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__"></script></body></html>"#,
+        title = html_escape_attr(title),
         app_id = app_id,
         scene_id = scene_id,
-        fab = THIN_SHELL_ACCESS_FAB_HTML,
+        copilot_fab_attr = if copilot_fab { "1" } else { "0" },
+        fab = if copilot_fab {
+            THIN_SHELL_ACCESS_FAB_HTML
+        } else {
+            ""
+        },
     )
 }
 
@@ -452,11 +533,16 @@ mod tests {
 
     #[test]
     fn thin_shell_contains_compose_host_and_envelope_hooks() {
-        let html = thin_access_shell_document("demo", "home");
+        let html = thin_access_shell_document("demo", "home", "演示-首页", true);
         assert!(html.contains("mei-compose-host"));
+        assert!(html.contains("<title>演示-首页</title>"));
         assert!(html.contains("data-app-id=\"demo\""));
         assert!(html.contains("data-scene-id=\"home\""));
+        assert!(html.contains(r#"data-mei-copilot-fab="1""#));
         assert!(html.contains("access-chat-fab"));
+        let html_no_fab = thin_access_shell_document("demo", "home", "演示-首页", false);
+        assert!(html_no_fab.contains(r#"data-mei-copilot-fab="0""#));
+        assert!(!html_no_fab.contains("access-chat-fab"));
         assert!(html.contains("/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__"));
         assert!(html.contains("/app-bundles/styles.css?v=__MEI_HOST_ASSET_VERSION__"));
         assert!(html.contains("/app-bundles/shoelace.js?v=__MEI_HOST_ASSET_VERSION__"));

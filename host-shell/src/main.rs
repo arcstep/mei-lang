@@ -47,6 +47,7 @@ mod managed_martin;
 mod managed_plug;
 mod ops_api;
 mod ops_config_api;
+mod ops_scene_themes_api;
 mod ops_theme_layout_api;
 mod page_observability;
 mod pages;

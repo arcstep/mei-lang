@@ -25,6 +25,22 @@ pub enum Command {
     EvalCache(EvalCacheCommand),
     #[command(subcommand, name = "snapshot")]
     Snapshot(SnapshotCommand),
+    #[command(subcommand, name = "admin-registry")]
+    AdminRegistry(AdminRegistryCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AdminRegistryCommand {
+    /// Materialize `build/registry/admin-registry.json` (discover + enrich).
+    Materialize(AdminRegistryMaterializeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct AdminRegistryMaterializeArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
 }
 
 #[derive(Subcommand, Debug)]

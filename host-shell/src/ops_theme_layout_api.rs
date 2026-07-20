@@ -29,14 +29,11 @@ struct ThemeLayoutOverlayResponse {
     entries: BTreeMap<String, Value>,
 }
 
-fn resolve_scene_theme_id(config: &mei_lang_kernel::MeiConfig) -> String {
-    config
-        .ops
-        .themes
-        .keys()
-        .next()
-        .cloned()
-        .unwrap_or_else(|| "cockpit".to_string())
+fn resolve_scene_theme_id(
+    workspace: Option<&mei_lang_kernel::WorkspaceConfig>,
+    config: &mei_lang_kernel::MeiConfig,
+) -> String {
+    mei_lang_kernel::resolve_active_scene_theme_id(workspace, config, None)
 }
 
 pub async fn api_ops_theme_layout_overlay_get(
@@ -58,14 +55,17 @@ pub async fn api_ops_theme_layout_overlay_get(
     let app_ctx = guard.host_ctx_for_app(app_id);
     let config =
         load_mei_config_for_app(app_ctx.app_root().as_path(), Some(workspace_root.as_path()));
-    let theme_id = resolve_scene_theme_id(&config);
-    let persisted_layout = config
-        .ops
-        .themes
-        .get(theme_id.as_str())
-        .and_then(|theme| theme.get("layout"));
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root.as_path());
+    let theme_id = resolve_scene_theme_id(Some(&workspace), &config);
+    let assembled =
+        mei_lang_kernel::resolve_assembled_scene_theme(Some(&workspace), &config, theme_id.as_str());
+    let persisted_layout = assembled
+        .as_ref()
+        .and_then(|theme| theme.get("layout"))
+        .or_else(|| config.ops.extensions.get("layout"));
     let revision = ops_theme_layout_revision_digest(&config, theme_id.as_str());
-    let themes_revision = mei_lang_kernel::ops_themes_revision_digest(&config);
+    let themes_revision =
+        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &config);
     let entries = persisted_layout
         .map(theme_layout_overlay_keys)
         .unwrap_or_default();
@@ -126,23 +126,40 @@ pub async fn api_ops_theme_layout_apply_post(
     let app_root = resolve_app_root(workspace_root.as_path(), app_id);
     let config_path = resolve_mei_config_path(app_root.as_path(), Some(workspace_root.as_path()));
     let config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root.as_path()));
-    let theme_id = resolve_scene_theme_id(&config);
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root.as_path());
+    let theme_id = resolve_scene_theme_id(Some(&workspace), &config);
     let existing_theme = config
         .ops
         .themes
         .get(theme_id.as_str())
         .cloned()
-        .unwrap_or_else(|| json!({}));
+        .or_else(|| {
+            config
+                .ops
+                .themes
+                .get("_layout")
+                .cloned()
+        })
+        .unwrap_or_else(|| {
+            config
+                .ops
+                .extensions
+                .get("layout")
+                .cloned()
+                .map(|layout| json!({ "layout": layout }))
+                .unwrap_or_else(|| json!({}))
+        });
     let merged_theme = merge_theme_layout_draft_into_theme(&existing_theme, &draft_value);
+    // Keep layout under app-owned theme slot `_layout` so color library themes stay clean.
     let patch = OpsConfigPatch {
-        themes: Some(BTreeMap::from([(theme_id.clone(), merged_theme)])),
+        themes: Some(BTreeMap::from([("_layout".to_string(), merged_theme)])),
         ..Default::default()
     };
     match apply_ops_patch_with_journal(
         app_root.as_path(),
         config_path.as_path(),
         "build-theme-layout",
-        "apply theme.layout draft to ops.themes",
+        "apply theme.layout draft to ops.themes._layout",
         &patch,
     ) {
         Ok((updated, entry)) => {
@@ -155,9 +172,12 @@ pub async fn api_ops_theme_layout_apply_post(
                 Json(json!({
                     "ok": true,
                     "revision": entry.revision,
-                    "theme_layout_revision": ops_theme_layout_revision_digest(&updated, theme_id.as_str()),
-                    "themes_revision": mei_lang_kernel::ops_themes_revision_digest(&updated),
-                                    })),
+                    "theme_layout_revision": ops_theme_layout_revision_digest(&updated, "_layout"),
+                    "themes_revision": mei_lang_kernel::ops_active_theme_revision_digest(
+                        Some(&workspace),
+                        &updated,
+                    ),
+                })),
             )
                 .into_response()
         }

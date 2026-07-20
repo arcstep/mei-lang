@@ -38,8 +38,6 @@ fn principal_caps_fn<'a>(principal_ref: Option<&'a AuthPrincipal>) -> impl Fn(&s
 pub(crate) struct AdminPageRenderArgs<'a> {
     pub workspace_root: &'a std::path::Path,
     pub registry: &'a SharedAdminRegistry,
-    /// Full discovered set used to refresh Registry (includes stopped apps).
-    pub apps: &'a [WorkspaceAppMeta],
     /// 0544 App Switcher list: running ∩ endpoint-ready only.
     pub topbar_apps: &'a [WorkspaceAppMeta],
     pub app_id: &'a str,
@@ -56,7 +54,6 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
     let AdminPageRenderArgs {
         workspace_root,
         registry,
-        apps,
         topbar_apps,
         app_id,
         app_title,
@@ -68,7 +65,7 @@ pub(crate) fn render_admin_resource_html(args: AdminPageRenderArgs<'_>) -> Strin
         principal_ref,
     } = args;
 
-    registry.refresh_workspace(workspace_root, apps);
+    registry.ensure_app_loaded(workspace_root, app_id);
     let caps = principal_caps_fn(principal_ref);
     let nav_items = registry.nav_items_for_capabilities(app_id, &caps);
     let resource = registry.resource(app_id, resource_id, module_id);
@@ -261,11 +258,10 @@ pub async fn host_admin_resource_page(
         .map(|a| a.title.as_str())
         .unwrap_or(app_id.as_str());
 
-    // Registry refresh needs the full discovered set so stopped apps still project resources.
+    // Registry loads AOT admin-registry.json for this app (fallback discover once if missing).
     let html = render_admin_resource_html(AdminPageRenderArgs {
         workspace_root: workspace_root.as_path(),
         registry: &registry,
-        apps: &apps_all,
         topbar_apps: &topbar_apps,
         app_id: app_id.as_str(),
         app_title,

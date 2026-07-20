@@ -15,6 +15,13 @@ pub(crate) fn resolve_access_ai_external(compiled: &CompiledApp) -> Option<Acces
         .filter(|entry| entry.is_configured())
 }
 
+pub(crate) fn resolve_copilot_fab_enabled(compiled: &CompiledApp) -> bool {
+    let app_root = Path::new(compiled.app_root.as_str());
+    load_mei_config_for_app(app_root, None)
+        .features
+        .copilot_fab_enabled()
+}
+
 pub(crate) fn external_access_ai_floating_entry(
     app_path: &str,
     config: &AccessAiExternalConfig,
@@ -147,6 +154,8 @@ pub(crate) fn access_ai_floating_entry(
 ) -> AnyView {
     if let Some(external) = resolve_access_ai_external(compiled) {
         external_access_ai_floating_entry(app_path, &external).into_any()
+    } else if !resolve_copilot_fab_enabled(compiled) {
+        view! { <></> }.into_any()
     } else {
         builtin_access_ai_floating_entry(compiled, app_path, current_target, panel_tab).into_any()
     }

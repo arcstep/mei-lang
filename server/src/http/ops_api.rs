@@ -214,7 +214,9 @@ pub async fn ops_theme_style_get(
     };
     let source_root = state.source_root.as_path();
     let config = load_mei_config_for_app(&app_root, Some(source_root));
-    let revision = ops_themes_revision_digest(&config);
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    let revision =
+        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &config);
     let theme_revision_header = revision.clone();
     let scene_id = query
         .scene
@@ -245,7 +247,7 @@ pub async fn ops_theme_style_get(
             .map(theme_id_from_scene_contract)
             .unwrap_or_else(|| "page".to_string());
         (
-            scene_viewport_theme_style(&outcome.compiled, Some(&config)),
+            scene_viewport_theme_style(&outcome.compiled, Some(&config), Some(&workspace)),
             theme_id,
         )
     } else if let Ok(compiled) =
@@ -257,7 +259,7 @@ pub async fn ops_theme_style_get(
             .map(theme_id_from_scene_contract)
             .unwrap_or_else(|| "page".to_string());
         (
-            scene_viewport_theme_style(&compiled, Some(&config)),
+            scene_viewport_theme_style(&compiled, Some(&config), Some(&workspace)),
             theme_id,
         )
     } else if let Some(theme_id) = query
@@ -267,7 +269,7 @@ pub async fn ops_theme_style_get(
         .filter(|value| !value.is_empty())
     {
         (
-            scene_theme_style_for_theme_id(theme_id, Some(&config)),
+            scene_theme_style_for_theme_id(theme_id, Some(&config), Some(&workspace)),
             theme_id.to_string(),
         )
     } else {

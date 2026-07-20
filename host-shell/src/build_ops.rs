@@ -339,6 +339,17 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, scenes: &[String]) -> anyh
         "prebuild phase=warmup"
     );
 
+    let admin_registry_phase = mei_host_core::ProcessPhaseTimer::start();
+    let admin_registry_path =
+        crate::admin_registry::materialize_admin_registry_for_app(workspace.as_path(), app)?;
+    let admin_registry_sample = admin_registry_phase.finish();
+    tracing::info!(
+        app_id = %app,
+        wall_ms = admin_registry_sample.wall_ms,
+        path = %admin_registry_path.display(),
+        "prebuild phase=admin-registry"
+    );
+
     let finalize_phase = mei_host_core::ProcessPhaseTimer::start();
     let generation = PrebuildGeneration {
         env_version: build_id.clone(),

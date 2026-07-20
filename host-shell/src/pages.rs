@@ -709,6 +709,17 @@ pub async fn app_page(
             .and_then(|outcome| outcome.compiled.stage_registry.get(scene_id.as_str()))
             .map(|stage| stage.profile.as_str())
             .unwrap_or("cockpit");
+        let copilot_fab = shell_assemble_outcome
+            .as_ref()
+            .map(|outcome| {
+                mei_lang_kernel::load_mei_config_for_app(
+                    std::path::Path::new(outcome.compiled.app_root.as_str()),
+                    None,
+                )
+                .features
+                .copilot_fab_enabled()
+            })
+            .unwrap_or(true);
         let template = render_thin_access_shell(
             thin_access_shell_document(
                 app_id.as_str(),
@@ -716,6 +727,7 @@ pub async fn app_page(
                 app_menu_label,
                 stage_menu_label,
                 stage_profile,
+                copilot_fab,
             ),
             workspace_root,
             package_root,
@@ -1866,7 +1878,7 @@ pub(crate) fn render_thin_access_shell(
 }
 
 /// Thin Access / App shell：revision-first 页面不含完整 Leptos shell，须内嵌 FAB DOM，
-/// 否则 `copilot-fab-context` 找不到 `#access-chat-fab`。
+/// 否则 `copilot-fab-context` 找不到 `#access-chat-fab`（`features.copilotFab = false` 时省略）。
 const THIN_SHELL_ACCESS_FAB_HTML: &str = concat!(
     r#"<div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false" data-mei-stage-kind="scene" data-mei-fab-policy="required">"#,
     r#"<button id="access-chat-fab" class="access-chat-fab" type="button" aria-label="展开 Copilot 工具条" title="展开 Copilot 工具条" data-mei-fab-policy="required">"#,
@@ -1880,15 +1892,28 @@ pub(crate) fn thin_access_shell_document(
     app_menu_label: &str,
     stage_menu_label: &str,
     stage_profile: &str,
+    copilot_fab: bool,
 ) -> String {
+    let document_title = match (app_menu_label.trim(), stage_menu_label.trim()) {
+        ("", "") => app_id.to_string(),
+        ("", stage) => stage.to_string(),
+        (app, "") => app.to_string(),
+        (app, stage) => format!("{app}-{stage}"),
+    };
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="mei-app-short-title" content="{app_menu_label}"><meta name="mei-stage-short-title" content="{stage_menu_label}"><meta name="mei-stage-profile" content="{stage_profile}"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-mei-app-short-title="{app_menu_label}" data-scene-id="{scene_id}" data-mei-stage-short-title="{stage_menu_label}" data-mei-stage-profile="{stage_profile}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="mei-app-short-title" content="{app_menu_label}"><meta name="mei-stage-short-title" content="{stage_menu_label}"><meta name="mei-stage-profile" content="{stage_profile}"><title>{document_title}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="app" data-app-id="{app_id}" data-mei-app-short-title="{app_menu_label}" data-scene-id="{scene_id}" data-mei-stage-short-title="{stage_menu_label}" data-mei-stage-profile="{stage_profile}" data-mei-copilot-fab="{copilot_fab_attr}"><div class="shell shell-surface scene-shell mei-text-primary min-h-screen flex min-h-0 flex-col" id="mei-compose-host" data-scene="{scene_id}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></main><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></div>{fab}</body></html>"#,
         app_id = app_id,
         scene_id = scene_id,
         app_menu_label = crate::build_info::html_escape_attr(app_menu_label),
         stage_menu_label = crate::build_info::html_escape_attr(stage_menu_label),
         stage_profile = crate::build_info::html_escape_attr(stage_profile),
-        fab = THIN_SHELL_ACCESS_FAB_HTML,
+        document_title = crate::build_info::html_escape_attr(document_title.as_str()),
+        copilot_fab_attr = if copilot_fab { "1" } else { "0" },
+        fab = if copilot_fab {
+            THIN_SHELL_ACCESS_FAB_HTML
+        } else {
+            ""
+        },
     )
 }
 
@@ -2312,11 +2337,18 @@ mod inject_scene_manifest_tests {
 
     #[test]
     fn thin_access_shell_embeds_readable_menu_metadata_and_footer_slot() {
-        let html = thin_access_shell_document("demo", "home", "演示", "首页", "page");
+        let html = thin_access_shell_document("demo", "home", "演示", "首页", "page", true);
         assert!(html.contains(r#"name="mei-app-short-title" content="演示""#));
         assert!(html.contains(r#"name="mei-stage-short-title" content="首页""#));
         assert!(html.contains(r#"name="mei-stage-profile" content="page""#));
+        assert!(html.contains("<title>演示-首页</title>"));
         assert!(html.contains("mei-host-statusbar-slot"));
+        assert!(html.contains(r#"data-mei-copilot-fab="1""#));
+        assert!(html.contains("access-chat-fab"));
+        let html_no_fab =
+            thin_access_shell_document("demo", "home", "演示", "首页", "page", false);
+        assert!(html_no_fab.contains(r#"data-mei-copilot-fab="0""#));
+        assert!(!html_no_fab.contains("access-chat-fab"));
     }
 
     #[test]

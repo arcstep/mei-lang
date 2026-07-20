@@ -86,8 +86,19 @@ pub struct AppFeaturesConfig {
     pub ai_chat: Option<bool>,
     #[serde(default, rename = "sceneBundle")]
     pub scene_bundle: Option<bool>,
+    /// Access 内置 Copilot FAB（`#access-chat-fab`）。`Some(false)` 关闭；缺省/true 开启。
+    /// 与 `accessAiExternal` 无关（外链 FAB 仍由后者单独配置）。
+    #[serde(default, rename = "copilotFab")]
+    pub copilot_fab: Option<bool>,
     #[serde(default, rename = "accessAiExternal")]
     pub access_ai_external: Option<AccessAiExternalConfig>,
+}
+
+impl AppFeaturesConfig {
+    /// 内置 Copilot FAB 是否启用；仅当显式 `copilotFab = false` 时关闭。
+    pub fn copilot_fab_enabled(&self) -> bool {
+        self.copilot_fab != Some(false)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

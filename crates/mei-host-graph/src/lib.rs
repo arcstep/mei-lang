@@ -73,8 +73,9 @@ pub use eval_slot_group::{
 pub use import::{compile_and_import_workspace, import_bundle, load_block_artifact, ImportOptions};
 pub use layer_overlay::{
     default_theme_tokens, ensure_layout_overlay_cached, ensure_theme_tokens_cached,
-    layout_overlay_from_draft, persist_layout_overlay, persist_theme_tokens, LayoutOverlayDocument,
-    ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA, THEME_TOKENS_SCHEMA,
+    layout_overlay_from_draft, persist_layout_overlay, persist_theme_tokens,
+    resolve_theme_profile_id, LayoutOverlayDocument, ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA,
+    THEME_TOKENS_SCHEMA,
 };
 pub use layer_store::{
     clear_layers_for_app, clear_layers_for_partition, layer_entry_meta, store_layer,

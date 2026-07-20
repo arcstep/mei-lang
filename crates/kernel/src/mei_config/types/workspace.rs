@@ -101,15 +101,21 @@ impl WorkspaceProfile {
     }
 }
 
-/// Workspace 级 ops：宿主 shell 主题（与 app `ops.themes` 独立）。
+/// Workspace 级 ops：shell chrome 与 scene 色板库分轨。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceOpsConfig {
     /// 宿主 shell 主题 id，对应 `themes` 表中的条目。
     #[serde(default, rename = "shellTheme")]
     pub shell_theme: Option<String>,
-    /// Workspace 级主题表（仅 shell chrome；与 app `ops.themes` 独立）。
+    /// Workspace 级主题表（仅 shell chrome；与 scene 色板库独立）。
     #[serde(default)]
     pub themes: BTreeMap<String, Value>,
+    /// Scene 色板库（tokens.color / gradient 等；不含应用字号档位）。
+    #[serde(default, rename = "sceneThemes")]
+    pub scene_themes: BTreeMap<String, Value>,
+    /// 默认 scene 色板 id（当应用未设置 theme_selection 时）。
+    #[serde(default, rename = "sceneThemeDefault")]
+    pub scene_theme_default: Option<String>,
 }
 
 /// workspace / segment 级配置：发现规则、默认菜单与运行时回退。

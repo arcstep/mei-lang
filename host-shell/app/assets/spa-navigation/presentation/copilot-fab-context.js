@@ -5,6 +5,30 @@
     return Boolean(document.getElementById("access-external-ai-fab"));
   }
 
+  /** `features.copilotFab`（runtime capabilities / body data-mei-copilot-fab）；缺省启用。 */
+  function isCopilotFabEnabled() {
+    if (isExternalAiFab()) return true;
+    const bodyFlag = document.body?.getAttribute("data-mei-copilot-fab");
+    if (bodyFlag === "0" || bodyFlag === "false") return false;
+    if (bodyFlag === "1" || bodyFlag === "true") return true;
+    try {
+      const el = document.getElementById("mei-host-runtime-capabilities");
+      const raw = el?.textContent?.trim();
+      if (raw) {
+        const caps = JSON.parse(raw);
+        if (
+          caps?.features &&
+          Object.prototype.hasOwnProperty.call(caps.features, "copilotFab")
+        ) {
+          return caps.features.copilotFab !== false;
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return true;
+  }
+
   function routeUtils() {
     return boot.presentationRouteUtils || window.MeiPresentationRouteUtils || null;
   }
@@ -26,6 +50,7 @@
 
   /** Thin Access shell 若缺 FAB DOM，补挂最小结构（与 host thin shell SSR 对齐）。 */
   function ensureFabDom() {
+    if (!isCopilotFabEnabled()) return null;
     if (isExternalAiFab() || fabButton()) return fabButton();
     let root = floatingRoot();
     if (!(root instanceof HTMLElement)) {
@@ -126,10 +151,23 @@
   }
 
   function fabPolicy() {
-    return "required";
+    return isCopilotFabEnabled() ? "required" : "off";
   }
 
   function syncFabVisibility() {
+    if (!isCopilotFabEnabled()) {
+      const fab = fabButton();
+      if (fab instanceof HTMLElement) {
+        fab.hidden = true;
+        fab.setAttribute("hidden", "");
+      }
+      const root = floatingRoot();
+      if (root) {
+        root.setAttribute("data-mei-fab-policy", "off");
+        root.setAttribute("data-mei-fab-visible", "false");
+      }
+      return;
+    }
     ensureFabDom();
     const fab = fabButton();
     if (!(fab instanceof HTMLElement) || isExternalAiFab()) return;
@@ -383,6 +421,7 @@
 
   boot.copilotFabContext = {
     isExternalAiFab,
+    isCopilotFabEnabled,
     resolveStageKind,
     resolveStageTargetKey,
     parseSceneIdFromPath,

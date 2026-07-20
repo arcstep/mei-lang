@@ -89,6 +89,10 @@
       "properties": {
         "aiChat": { "type": "boolean" },
         "sceneBundle": { "type": "boolean" },
+        "copilotFab": {
+          "type": "boolean",
+          "description": "Whether Access shows the built-in Copilot FAB (#access-chat-fab). Default true; set false to hide."
+        },
         "accessAiExternal": { "type": "object", "additionalProperties": true }
       }
     },

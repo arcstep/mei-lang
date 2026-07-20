@@ -42,8 +42,8 @@
     node.style.padding = nonEmptyString(layout?.padding);
   }
 
-  /** Analytics T2：锁住 region/section 等价配额，禁止内容后加载撑开壳。 */
-  function lockAnalyticsShellFill(node, { scrollable = false } = {}) {
+  /** Analytics / list_preview T2：锁住 region/section 等价配额，禁止内容后加载撑开壳。 */
+  function lockStructuredShellFill(node, { scrollable = false } = {}) {
     if (!(node instanceof HTMLElement)) return;
     node.style.minHeight = "0";
     node.style.minWidth = "0";
@@ -58,13 +58,15 @@
     layoutHost.replaceChildren();
     layoutHost.dataset.shellLayoutMode = String(sceneShell.layoutMode || "");
     applySceneShellLayout(layoutHost, sceneShell.layout);
-    const analyticsLock = String(sceneShell.layoutMode || "") === "analytics";
-    if (analyticsLock) {
-      lockAnalyticsShellFill(layoutHost);
+    const layoutMode = String(sceneShell.layoutMode || "");
+    const fillLock = layoutMode === "analytics" || layoutMode === "list_preview";
+    if (fillLock) {
+      lockStructuredShellFill(layoutHost);
       const shell = layoutHost.closest(".access-drilldown-structured-shell");
       if (shell instanceof HTMLElement) {
         shell.style.minHeight = "0";
         shell.style.flex = "1";
+        shell.style.height = "100%";
         shell.style.overflow = "hidden";
       }
     }
@@ -85,14 +87,14 @@
       if (zone.area) {
         wrapper.style.gridArea = zone.area;
       }
-      if (analyticsLock) {
-        lockAnalyticsShellFill(wrapper);
+      if (fillLock) {
+        lockStructuredShellFill(wrapper);
       }
       if (zone.role === "container") {
         wrapper.classList.add("access-drilldown-shell-zone--container");
         applySceneShellLayout(wrapper, zone.layout);
-        if (analyticsLock) {
-          lockAnalyticsShellFill(wrapper);
+        if (fillLock) {
+          lockStructuredShellFill(wrapper);
         }
       } else {
         const host =
@@ -106,9 +108,10 @@
               })();
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
-        if (analyticsLock) {
-          const scrollable = zone.id === "detail";
-          lockAnalyticsShellFill(host, { scrollable });
+        if (fillLock) {
+          const scrollable =
+            zone.id === "detail" || zone.id === "list" || zone.role === "list";
+          lockStructuredShellFill(host, { scrollable });
           if (zone.role === "filter") {
             host.style.overflow = "visible";
             if (host !== wrapper) {
@@ -116,7 +119,7 @@
             }
           }
           if (host !== wrapper) {
-            lockAnalyticsShellFill(wrapper);
+            lockStructuredShellFill(wrapper);
             if (zone.role === "filter") {
               wrapper.style.overflow = "visible";
             }

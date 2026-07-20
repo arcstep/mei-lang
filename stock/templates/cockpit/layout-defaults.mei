@@ -9,13 +9,16 @@
 
 METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
 
-# zhifa card_solid_stack_corner：四角 #71F1EA L 形装饰 + 半透明底
-CORNER_DECOR_BG = "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,"
-    + "linear-gradient(#71F1EA,#71F1EA) right top / 4px 2px no-repeat,"
-    + "linear-gradient(#71F1EA,#71F1EA) left bottom / 4px 2px no-repeat,"
-    + "linear-gradient(#71F1EA,#71F1EA) right bottom / 4px 2px no-repeat,"
-    + "rgba(98,190,235,0.10)"
-SOLID_PLAIN_BG = {"color": "rgba(98,190,235,0.10)"}
+# zhifa card_solid_stack_corner：四角装饰叠在 theme token 底色上（可随配色方案切换）
+CORNER_DECOR_IMAGE = "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left top / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right top / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left bottom / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right bottom / 4px 2px no-repeat"
+CORNER_DECOR_BG = {
+    "color": "metric_accent_tint",
+    "image": CORNER_DECOR_IMAGE,
+}
+SOLID_PLAIN_BG = {"color": "metric_accent_tint"}
 
 # --- 层级边距规范（0332）：字面 1px；省略时由平台注入 ---
 # plane  gap→region 外边距 1px / padding 1px
@@ -64,9 +67,9 @@ template frame_padding():
 template frame_gap():
     LAYOUT_SPACE_1
 
-# 面板半透明底默认 80%（实时预警 / 典型案例等 content_panel 常用，避免底图透出）
-PANEL_GLOW_BG = "linear-gradient(180deg, rgba(32, 96, 168, 0.8) 0%, rgba(14, 48, 92, 0.8) 100%)"
-SOLID_METRIC_BG = {"color": "rgb(14, 48, 92)"}
+# 面板半透明底 / 指标卡底：走 theme token，随 ops.themes / theme_selection 整组切换
+PANEL_GLOW_BG = "panel_glow_bg"
+SOLID_METRIC_BG = {"color": "metric_compound_bg"}
 
 template bg_panel_glow():
     PANEL_GLOW_BG
@@ -93,6 +96,7 @@ template narrow_metric_card(
         placements = placements,
         props = {
             "background": {
+                "color": "metric_compound_bg",
                 "image": "url(" + METRICS_ASSET + "/metric-bg-normal@3x.svg)",
                 "size": "100% 100%",
                 "position": "center",
@@ -131,7 +135,7 @@ template solid_narrow_metric_card(
             "background": SOLID_METRIC_BG,
             "padding": LAYOUT_SPACE_1,
             "radius": "0",
-            "border": "1px solid rgba(98,190,235,0.35)",
+            "border": "1px solid metric_accent_border",
         },
     )
 
@@ -204,11 +208,11 @@ template row_metric_card(
         surface = "compound_top_row",
         layout = grid(
             rows = ["1fr"],
-            columns = ["auto", "auto", "auto"],
+            columns = ["max-content", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
             areas = [["label", "value", "unit"]],
             gap = gap,
             align = "center",
-            justify = "center",
+            justify = "stretch",
         ),
         props = {
             "padding": LAYOUT_SPACE_1,
@@ -439,7 +443,7 @@ template row_solid_metric_card(
         variant = variant,
         layout = grid(
             rows = ["1fr"],
-            columns = ["4em", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
+            columns = ["max-content", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
             areas = [["label", "value", "unit"]],
             gap = LAYOUT_SPACE_1,
             align = "center",
@@ -468,7 +472,7 @@ PROGRESS_SHELL = {
     "extend_x": "10px",
     "height": "10px",
     "border_radius": "0",
-    "fill": "#C9E9F8",
+    "fill": "tone_cyan",
 }
 
 # zhifa PROGRESS_STACK_ROWS：固定六行，避免 desc 进度条与右侧 donut 重叠

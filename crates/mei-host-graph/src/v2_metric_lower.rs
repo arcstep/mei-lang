@@ -686,10 +686,7 @@ fn lower_predicate_only_where(
     }
     Some(aek(
         "where",
-        &[
-            ("rowset", base_rowset),
-            ("predicate", lower_predicate(a0)),
-        ],
+        &[("rowset", base_rowset), ("predicate", lower_predicate(a0))],
     ))
 }
 
@@ -1909,11 +1906,7 @@ mod tests {
         let rowset_type = lowered
             .pointer("/value/rowset/rowset/type")
             .and_then(|v| v.as_str());
-        assert_eq!(
-            rowset_type,
-            Some("concat_rowsets"),
-            "got {lowered}"
-        );
+        assert_eq!(rowset_type, Some("concat_rowsets"), "got {lowered}");
     }
 
     #[test]
@@ -1995,9 +1988,15 @@ mod tests {
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        assert_eq!(rowsets.len(), 2, "expected urgent+normal rowsets, got {lowered}");
         assert_eq!(
-            rowsets[0].pointer("/updates/label/type").and_then(|v| v.as_str()),
+            rowsets.len(),
+            2,
+            "expected urgent+normal rowsets, got {lowered}"
+        );
+        assert_eq!(
+            rowsets[0]
+                .pointer("/updates/label/type")
+                .and_then(|v| v.as_str()),
             Some("lit")
         );
         assert_eq!(
@@ -2101,8 +2100,8 @@ mod tests {
                 }
             }
         });
-        let lowered =
-            lower_v2_metric("effectiveness_verified_rectification_rate", &raw, &ctx).expect("lower");
+        let lowered = lower_v2_metric("effectiveness_verified_rectification_rate", &raw, &ctx)
+            .expect("lower");
         assert_eq!(
             lowered
                 .pointer("/values/value/numerator/rowset/type")

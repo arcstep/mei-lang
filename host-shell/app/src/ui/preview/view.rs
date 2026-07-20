@@ -6,7 +6,11 @@ use crate::ui::compile_status::{
 };
 use crate::ui::manage_routing::WorldSemanticQuery;
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::{CompiledApp, MeiConfig};
+use mei_lang_kernel::{
+    load_workspace_config, resolve_workspace_source_root_from_app_root, CompiledApp, MeiConfig,
+    WorkspaceConfig,
+};
+use std::path::Path;
 
 use super::world_capsule;
 pub(crate) fn preview_view(
@@ -23,6 +27,12 @@ pub(crate) fn preview_view(
     let mut live_config_loaded = MeiConfig::default();
     let scene_live_config =
         theme::scene_live_config_for_compiled(compiled, None, &mut live_config_loaded);
+    let workspace_loaded: Option<WorkspaceConfig> = (!compiled.app_root.trim().is_empty()).then(|| {
+        let app_root = Path::new(compiled.app_root.as_str());
+        let root = resolve_workspace_source_root_from_app_root(app_root);
+        load_workspace_config(root.as_path())
+    });
+    let workspace_ref = workspace_loaded.as_ref();
     let runtime_ctx = build_preview_runtime_context(
         compiled,
         route_mode,
@@ -48,7 +58,8 @@ pub(crate) fn preview_view(
             // Build view may compile a cached home artifact while the selected node targets a
             // world capsule; do not render the home scene frame (it embeds unrelated metric refs).
         } else {
-            let resolved_theme = theme::resolve_theme(scene_contract, scene_live_config);
+            let resolved_theme =
+                theme::resolve_theme(scene_contract, scene_live_config, workspace_ref);
             if let Some(frame) = &scene_contract.frame {
                 let frame_props = theme::resolve_shared_refs(
                     &theme::deep_merge_value(&resolved_theme.frame, &frame.props),
@@ -102,6 +113,7 @@ pub(crate) fn preview_view(
                     viewport_style.push_str(&theme::scene_viewport_theme_style(
                         compiled,
                         scene_live_config,
+                        workspace_ref,
                     ));
                     let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
                     let content_height = if fluid_width {

@@ -673,7 +673,29 @@ function ensureAdminStyles() {
     .mei-admin-explorer-root > .mei-admin-explorer-header { display: none; }
     .mei-admin-form-card { display: grid; gap: 14px; }
     .mei-admin-field { display: grid; gap: 6px; color: var(--mei-color-text-body, #cbd5e1); }
-    .mei-admin-field input, .mei-admin-field textarea { width: 100%; padding: 9px 11px; color: var(--mei-color-text-primary, #fff); border: 1px solid var(--mei-color-input-border, #334155); border-radius: 6px; background: var(--mei-color-input-bg, rgba(15,23,42,.8)); box-sizing: border-box; }
+    .mei-admin-field input, .mei-admin-field textarea, .mei-admin-field select {
+      width: 100%; padding: 9px 11px; color: var(--mei-color-text-primary, #fff);
+      border: 1px solid var(--mei-color-input-border, #334155); border-radius: 6px;
+      background: var(--mei-color-input-bg, rgba(15,23,42,.8)); box-sizing: border-box;
+    }
+    .mei-admin-field select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 36px;
+      background-image:
+        linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+        linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 3px),
+        calc(100% - 12px) calc(50% - 3px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      cursor: pointer;
+    }
+    .mei-admin-field select option {
+      color: #0f172a;
+      background: #f8fafc;
+    }
     .mei-admin-field textarea { min-height: 120px; font-family: ui-monospace, monospace; }
     .mei-admin-brick button { justify-self: start; padding: 7px 12px; font-size: var(--mei-shell-font-1, 16px); color: var(--mei-color-btn-primary-text, #041320); border: 0; border-radius: 6px; background: var(--mei-color-btn-primary-bg, #38bdf8); cursor: pointer; }
     .mei-admin-brick button:disabled { opacity: .55; cursor: wait; }
@@ -1198,14 +1220,93 @@ class GroupedForm extends AdminBrick {
     return String(group?.id || group?.title || `group-${index}`);
   }
 
+  resolveProfileId(group, groups) {
+    const profileProviders = group?.profile_providers;
+    if (!profileProviders || typeof profileProviders !== "object") return "";
+    const fromGroupId = String(group.profile_from_group || "theme").trim();
+    const field = String(group.profile_field || "active").trim() || "active";
+    const sourceKey = this.groupKey(
+      groups.find((item) => item && String(item.id || "") === fromGroupId) || {
+        id: fromGroupId,
+      },
+      groups.findIndex((item) => item && String(item.id || "") === fromGroupId),
+    );
+    const raw = this._groupPayloads?.[sourceKey]?.[field];
+    const profileId = String(raw || "").trim();
+    if (profileId && profileProviders[profileId]) return profileId;
+    const fallback = Object.keys(profileProviders)[0] || "";
+    return fallback;
+  }
+
+  resolveGroupProviders(group, groups, props) {
+    const profileProviders = group?.profile_providers;
+    if (profileProviders && typeof profileProviders === "object") {
+      const profileId = this.resolveProfileId(group, groups);
+      const binding = profileProviders[profileId] || {};
+      return {
+        profileId,
+        getRef: binding.payload_provider || binding.get || null,
+        putRef: binding.submit_provider || binding.put || null,
+      };
+    }
+    return {
+      profileId: "",
+      getRef: group.payload_provider || props.payload_provider,
+      putRef: group.submit_provider || props.submit_provider,
+    };
+  }
+
+  async loadFieldOptions(groups) {
+    this._fieldOptions = this._fieldOptions || {};
+    const urls = new Set();
+    (Array.isArray(groups) ? groups : []).forEach((group) => {
+      (Array.isArray(group?.fields) ? group.fields : []).forEach((field) => {
+        const spec = typeof field === "string" ? { name: field } : field || {};
+        const url = String(spec.options_url || "").trim();
+        if (url) urls.add(url);
+      });
+    });
+    await Promise.all(
+      [...urls].map(async (url) => {
+        try {
+          const data = await requestJson(url);
+          const list = Array.isArray(data?.themes)
+            ? data.themes
+            : Array.isArray(data?.options)
+              ? data.options
+              : Array.isArray(data)
+                ? data
+                : [];
+          this._fieldOptions[url] = list
+            .map((item) => {
+              if (typeof item === "string" || typeof item === "number") {
+                return { value: String(item), label: String(item) };
+              }
+              const value = String(item?.value ?? item?.id ?? "").trim();
+              if (!value) return null;
+              return { value, label: String(item?.label || value) };
+            })
+            .filter(Boolean);
+        } catch (error) {
+          console.warn("[admin.grouped-form] options_url failed", url, error);
+          this._fieldOptions[url] = [];
+        }
+      }),
+    );
+  }
+
   async hydrate(props) {
     const groups = Array.isArray(props.groups) ? props.groups : [];
     this._groupRevisions = {};
     this._groupPayloads = {};
+    this._groupProfileIds = {};
+    this._providerCache = {};
     const seen = new Set();
+    await this.loadFieldOptions(groups);
+    // First pass: direct providers (theme selection / organization / font_scale).
     for (let index = 0; index < groups.length; index += 1) {
       const group = groups[index];
-      if (!group || group.rest) continue;
+      if (!group || group.rest || group.profile_providers) continue;
       const getRef = group.payload_provider || props.payload_provider;
       if (!providerRefId(getRef)) continue;
       const cacheKey = providerRefId(getRef);
@@ -1213,7 +1314,27 @@ class GroupedForm extends AdminBrick {
       if (!seen.has(cacheKey)) {
         const response = await readProvider(getRef);
         seen.add(cacheKey);
-        this._providerCache = this._providerCache || {};
+        this._providerCache[cacheKey] = {
+          revision: Number(response.revision || 0),
+          payload: deepClone(response.payload || {}),
+        };
+      }
+      const cached = this._providerCache[cacheKey];
+      this._groupRevisions[key] = cached.revision;
+      this._groupPayloads[key] = deepClone(cached.payload);
+    }
+    // Second pass: profile-bound groups (legacy per-theme font hosts).
+    for (let index = 0; index < groups.length; index += 1) {
+      const group = groups[index];
+      if (!group || group.rest || !group.profile_providers) continue;
+      const key = this.groupKey(group, index);
+      const resolved = this.resolveGroupProviders(group, groups, props);
+      this._groupProfileIds[key] = resolved.profileId;
+      if (!providerRefId(resolved.getRef)) continue;
+      const cacheKey = providerRefId(resolved.getRef);
+      if (!seen.has(cacheKey)) {
+        const response = await readProvider(resolved.getRef);
+        seen.add(cacheKey);
         this._providerCache[cacheKey] = {
           revision: Number(response.revision || 0),
           payload: deepClone(response.payload || {}),
@@ -1278,7 +1399,13 @@ class GroupedForm extends AdminBrick {
         this._groupPayloads?.[key] != null ? deepClone(this._groupPayloads[key]) : legacyPayload;
       const section = element("section", { className: "mei-admin-form-group" });
       section.dataset.groupKey = key;
-      section.append(element("h3", { text: group.title || group.id || `分组 ${index + 1}` }));
+      const profileId = this._groupProfileIds?.[key] || "";
+      const titleBase = group.title || group.id || `分组 ${index + 1}`;
+      section.append(
+        element("h3", {
+          text: profileId ? `${titleBase}（${profileId}）` : titleBase,
+        }),
+      );
       const paths = Array.isArray(group.paths)
         ? group.paths
         : group.path
@@ -1334,10 +1461,40 @@ class GroupedForm extends AdminBrick {
           const value = payload[name] ?? spec.default ?? "";
           const label = element("label", { className: "mei-admin-field" });
           label.append(element("span", { text: spec.label || name }));
-          const input =
-            spec.multiline || (value && typeof value === "object")
-              ? element("textarea")
-              : element("input");
+          const optionsUrl = String(spec.options_url || "").trim();
+          const options = optionsUrl
+            ? Array.isArray(this._fieldOptions?.[optionsUrl])
+              ? this._fieldOptions[optionsUrl]
+              : []
+            : Array.isArray(spec.options)
+              ? spec.options
+              : [];
+          const useSelect =
+            String(spec.type || "").toLowerCase() === "select" ||
+            options.length > 0 ||
+            Boolean(optionsUrl);
+          let input;
+          if (useSelect) {
+            input = element("select", { className: "mei-admin-select" });
+            input.setAttribute("aria-label", String(spec.label || name));
+            options.forEach((opt) => {
+              const optionSpec =
+                typeof opt === "string" || typeof opt === "number"
+                  ? { value: String(opt), label: String(opt) }
+                  : opt || {};
+              const optionValue = String(optionSpec.value ?? optionSpec.id ?? "").trim();
+              if (!optionValue) return;
+              const option = document.createElement("option");
+              option.value = optionValue;
+              option.textContent = String(optionSpec.label || optionValue);
+              input.append(option);
+            });
+          } else {
+            input =
+              spec.multiline || (value && typeof value === "object")
+                ? element("textarea")
+                : element("input");
+          }
           input.name = name;
           input.dataset.groupKey = key;
           input.dataset.path = name;
@@ -1372,12 +1529,14 @@ class GroupedForm extends AdminBrick {
       });
       actions.append(save, cancel);
       form.append(actions);
+      const markDirty = () => {
+        if (this._dirty) return;
+        this._dirty = true;
+        status.textContent = "有未保存的更改";
+      };
       form.querySelectorAll("[name]").forEach((input) => {
-        input.addEventListener("input", () => {
-          if (this._dirty) return;
-          this._dirty = true;
-          status.textContent = "有未保存的更改";
-        });
+        input.addEventListener("input", markDirty);
+        input.addEventListener("change", markDirty);
       });
     }
     form.append(status);
@@ -1387,11 +1546,40 @@ class GroupedForm extends AdminBrick {
       try {
         save.disabled = true;
         status.textContent = "正在保存…";
-        for (let index = 0; index < groups.length; index += 1) {
-          const group = groups[index];
+        // Save theme selection first so profile-bound groups write the new active profile.
+        const ordered = [
+          ...groups.filter((group) => group && !group.profile_providers),
+          ...groups.filter((group) => group && group.profile_providers),
+        ];
+        for (let index = 0; index < ordered.length; index += 1) {
+          const group = ordered[index];
           if (!group || group.rest) continue;
-          const key = this.groupKey(group, index);
-          const putRef = group.submit_provider || props.submit_provider;
+          const key = this.groupKey(group, groups.indexOf(group));
+          const resolved = this.resolveGroupProviders(group, groups, props);
+          // For profile-bound groups, prefer the in-form theme select value if present.
+          let putRef = resolved.putRef;
+          let getRef = resolved.getRef;
+          let profileSwitched = false;
+          if (group.profile_providers) {
+            const themeGroup = groups.find((item) => item && item.id === (group.profile_from_group || "theme"));
+            if (themeGroup) {
+              const themeKey = this.groupKey(themeGroup, groups.indexOf(themeGroup));
+              const activeInput = form.querySelector(
+                `[name][data-group-key="${themeKey}"][data-path="${group.profile_field || "active"}"]`,
+              );
+              const active = String(activeInput?.value || this._groupPayloads?.[themeKey]?.active || "").trim();
+              const previous = String(this._groupProfileIds?.[key] || "").trim();
+              const binding = group.profile_providers[active];
+              if (binding) {
+                putRef = binding.submit_provider || binding.put || putRef;
+                getRef = binding.payload_provider || binding.get || getRef;
+                profileSwitched = Boolean(active && previous && active !== previous);
+                this._groupProfileIds[key] = active;
+              }
+            }
+          }
+          // Switching palette must not write the previous profile's font payload onto the new one.
+          if (profileSwitched) continue;
           if (!providerRefId(putRef)) continue;
           const base = deepClone(this._groupPayloads?.[key] || {});
           form.querySelectorAll(`[name][data-group-key="${key}"]`).forEach((input) => {
@@ -1411,8 +1599,9 @@ class GroupedForm extends AdminBrick {
           );
           this._groupRevisions[key] = Number(response.revision || this._groupRevisions?.[key] || 0);
           this._groupPayloads[key] = deepClone(base);
-          const cacheKey = providerRefId(group.payload_provider || props.payload_provider);
-          if (cacheKey && this._providerCache?.[cacheKey]) {
+          const cacheKey = providerRefId(getRef);
+          if (cacheKey) {
+            this._providerCache = this._providerCache || {};
             this._providerCache[cacheKey] = {
               revision: this._groupRevisions[key],
               payload: deepClone(base),
@@ -1422,6 +1611,21 @@ class GroupedForm extends AdminBrick {
         this._dirty = false;
         status.textContent = "已保存";
         status.dataset.tone = "ok";
+        const themeGroup = groups.find(
+          (group) => group && (group.id === "theme" || group.refresh_scene_theme === true),
+        );
+        if (themeGroup) {
+          const themeKey = this.groupKey(themeGroup, groups.indexOf(themeGroup));
+          const active =
+            this._groupPayloads?.[themeKey]?.active ||
+            this._groupPayloads?.[themeKey]?.scene_theme ||
+            "";
+          await refreshSceneThemeCss(String(active || "").trim());
+          // Reload font fields for the newly selected profile.
+          await this.hydrate(props);
+          status.textContent = "已保存";
+          status.dataset.tone = "ok";
+        }
       } catch (error) {
         status.textContent = error.message || String(error);
         status.dataset.tone = "error";
@@ -1435,6 +1639,94 @@ class GroupedForm extends AdminBrick {
     queueMicrotask(() => this.fitFormPageHeight());
     requestAnimationFrame(() => this.fitFormPageHeight());
     setTimeout(() => this.fitFormPageHeight(), 50);
+  }
+}
+
+function mergeSceneThemeInlineStyle(existingStyle, cssVarsStyle) {
+  const merged = new Map();
+  String(existingStyle || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const idx = part.indexOf(":");
+      if (idx <= 0) return;
+      merged.set(part.slice(0, idx).trim(), part.slice(idx + 1).trim());
+    });
+  String(cssVarsStyle || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const idx = part.indexOf(":");
+      if (idx <= 0) return;
+      merged.set(part.slice(0, idx).trim(), part.slice(idx + 1).trim());
+    });
+  return Array.from(merged.entries())
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("; ");
+}
+
+function patchSceneThemeStyleInDocument(doc, cssVarsStyle) {
+  if (!doc || !cssVarsStyle?.trim()) return false;
+  const style = cssVarsStyle.trim();
+  let patched = false;
+  doc.querySelectorAll(".preview-viewport, [data-mei-frame-viewport]").forEach((node) => {
+    node.setAttribute(
+      "style",
+      mergeSceneThemeInlineStyle(node.getAttribute("style") || "", style),
+    );
+    patched = true;
+  });
+  if (doc.body) {
+    doc.body.setAttribute(
+      "style",
+      mergeSceneThemeInlineStyle(doc.body.getAttribute("style") || "", style),
+    );
+    patched = true;
+  }
+  return patched;
+}
+
+async function refreshSceneThemeCss(themeId) {
+  const route = currentAdminContext();
+  if (!route?.appId) return;
+  const query = themeId ? `?theme=${encodeURIComponent(themeId)}` : "";
+  try {
+    const response = await fetch(
+      `/api/ops/theme/style/${encodeURIComponent(route.appId)}${query}`,
+      { credentials: "same-origin" },
+    );
+    if (!response.ok) return;
+    const contentType = response.headers.get("content-type") || "";
+    let cssVarsStyle = "";
+    if (contentType.includes("application/json")) {
+      const payload = await response.json();
+      cssVarsStyle = payload.css_vars_style || payload.cssVarsStyle || "";
+    } else {
+      cssVarsStyle = await response.text();
+    }
+    if (!cssVarsStyle.trim()) return;
+    const targets = [window];
+    if (window.opener && !window.opener.closed) targets.push(window.opener);
+    const seen = new Set();
+    for (const target of targets) {
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+      try {
+        patchSceneThemeStyleInDocument(target.document, cssVarsStyle);
+        target.dispatchEvent?.(
+          new CustomEvent("meilang:preview-updated", {
+            bubbles: true,
+            detail: { reason: "ops-theme-overlay", resetRuntimeQueryCache: false },
+          }),
+        );
+      } catch {
+        /* ignore closed / cross-origin opener */
+      }
+    }
+  } catch (error) {
+    console.warn("[admin.grouped-form] refreshSceneThemeCss failed", error);
   }
 }
 

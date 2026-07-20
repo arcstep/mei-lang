@@ -113,7 +113,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
         panels: vec![],
     };
 
-    let resolved = resolve_theme(&scene_contract, None);
+    let resolved = resolve_theme(&scene_contract, None, None);
     assert_eq!(
         resolved
             .shared

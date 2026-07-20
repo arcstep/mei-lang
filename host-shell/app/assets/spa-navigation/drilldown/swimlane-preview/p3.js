@@ -153,8 +153,14 @@
 
     const frame = document.createElement("div");
     frame.className = "access-drilldown-document-preview-frame";
+    frame.style.flex = "1 1 auto";
+    frame.style.minHeight = "0";
+    frame.style.height = "100%";
     const iframe = document.createElement("iframe");
     iframe.className = "access-drilldown-document-preview-iframe";
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "0";
     iframe.src = src;
     iframe.title = titleText || "PDF 预览";
     frame.appendChild(iframe);

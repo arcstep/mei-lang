@@ -60,6 +60,7 @@ export function normalizeColumnFormats(raw) {
     if (!normalizedKey || !value || typeof value !== "object") continue;
     const precision = Number(value.precision);
     const maxChars = Number(value.maxChars ?? value.max_chars);
+    const align = String(value.align || "").trim().toLowerCase();
     out[normalizedKey] = {
       type: normalizeType(value.type),
       precision: Number.isFinite(precision) ? Math.max(0, Math.min(precision, 8)) : null,
@@ -76,6 +77,7 @@ export function normalizeColumnFormats(raw) {
       relative: value.relative === true || value.relative === "true",
       tag: value.tag === true || value.tag === "true",
       emptyText: value.emptyText != null ? String(value.emptyText) : "",
+      align: ["left", "center", "right"].includes(align) ? align : null,
     };
   }
   return out;
@@ -583,11 +585,16 @@ export function resolveColumnDescriptors({
         width: Number.isFinite(Number(state.width)) ? Number(state.width) : null,
         minWidth: Number.isFinite(Number(state.min_width)) ? Number(state.min_width) : null,
         maxWidth: Number.isFinite(Number(state.max_width)) ? Number(state.max_width) : null,
-        align: String(state.align || "").trim().toLowerCase() || defaultAlignForType(type),
+        align:
+          String(state.align || format.align || "")
+            .trim()
+            .toLowerCase() || defaultAlignForType(type),
         valign: String(state.valign || "").trim().toLowerCase() || "middle",
         headerAlign:
           String(state.header_align || "").trim().toLowerCase() ||
-          String(state.align || "").trim().toLowerCase() ||
+          String(state.align || format.align || "")
+            .trim()
+            .toLowerCase() ||
           defaultAlignForType(type),
         headerValign: String(state.header_valign || "").trim().toLowerCase() || "middle",
         wrap: state.wrap === true,

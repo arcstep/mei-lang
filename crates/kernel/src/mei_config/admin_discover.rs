@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use mei_syntax::v2::{parse_v2_source_file, V2Expr, V2Item};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
@@ -27,7 +27,7 @@ pub const ADMIN_LEGACY_MANIFEST_FORBIDDEN: &str = "admin_legacy_manifest_forbidd
 pub const ADMIN_LEGACY_DATA_JSON_FORBIDDEN: &str = "admin_legacy_data_json_forbidden";
 pub const ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN: &str = "admin_legacy_dual_projection_forbidden";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminRegistryProjection {
     pub app_id: String,
@@ -37,7 +37,7 @@ pub struct AdminRegistryProjection {
     pub resources: Vec<AdminEntryProjection>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminEntryProjection {
     pub registry_entry: AdminRegistryEntry,
@@ -47,7 +47,7 @@ pub struct AdminEntryProjection {
     pub artifact_refs: AdminArtifactRefs,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminDiscoveryDiagnostic {
     pub app_id: String,

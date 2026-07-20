@@ -6578,9 +6578,9 @@
       '". ." "label label" "value unit" ". ." "desc desc" ". ."';
     if (template === "row") {
       // 横排看板默认（作者声明 ui.row_accent_* 即可）：
-      // 标签四字槽两端拉开 + 弹性空隙 + 数值小数点对齐 + 单位保底宽左跟。
-      // 三列 label|value|unit：数值拿走标签/单位外全部剩余宽，避免空列把五位整数裁半个字。
-      style.gridTemplateColumns = "4em minmax(0, 1fr) minmax(1.25em, auto)";
+      // 标签列用 max-content（不可再被压回 4em）；数值拿走剩余宽 + 单位保底宽左跟。
+      // minmax(4em, max-content) 在窄槽仍会缩到 4em，导致「执法记…」截断。
+      style.gridTemplateColumns = "max-content minmax(0, 1fr) minmax(1.25em, auto)";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
       style.alignItems = "center";

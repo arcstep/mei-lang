@@ -15543,6 +15543,24 @@
       panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
       panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
       panelEl.dataset.drilldownLayoutMode = String(config?.sceneShell?.layoutMode || "");
+      // Layer2 页头常 hidden：若仍用 auto|1fr，唯一可见 body 会落在 auto 行按内容收缩。
+      const layoutMode = String(config?.sceneShell?.layoutMode || "");
+      const layer2Fill =
+        panelEl.classList.contains("mei-layer2-page-panel") &&
+        (layoutMode === "list_preview" || layoutMode === "analytics");
+      if (layer2Fill) {
+        panelEl.style.gridTemplateRows = "minmax(0, 1fr)";
+        const structuredBody = root.querySelector(
+          '.access-drilldown-overlay-body--structured',
+        );
+        if (structuredBody instanceof HTMLElement) {
+          structuredBody.style.minHeight = "0";
+          structuredBody.style.height = "100%";
+          structuredBody.style.display = "flex";
+          structuredBody.style.flexDirection = "column";
+          structuredBody.style.overflow = "hidden";
+        }
+      }
     }
     const genericBody = root.querySelector('[data-drilldown-body-mode="generic"]');
     const structuredBody = root.querySelector('[data-drilldown-body-mode="structured"]');
@@ -19642,8 +19660,14 @@
 
     const frame = document.createElement("div");
     frame.className = "access-drilldown-document-preview-frame";
+    frame.style.flex = "1 1 auto";
+    frame.style.minHeight = "0";
+    frame.style.height = "100%";
     const iframe = document.createElement("iframe");
     iframe.className = "access-drilldown-document-preview-iframe";
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "0";
     iframe.src = src;
     iframe.title = titleText || "PDF 预览";
     frame.appendChild(iframe);
@@ -20242,8 +20266,8 @@
     node.style.padding = nonEmptyString(layout?.padding);
   }
 
-  /** Analytics T2：锁住 region/section 等价配额，禁止内容后加载撑开壳。 */
-  function lockAnalyticsShellFill(node, { scrollable = false } = {}) {
+  /** Analytics / list_preview T2：锁住 region/section 等价配额，禁止内容后加载撑开壳。 */
+  function lockStructuredShellFill(node, { scrollable = false } = {}) {
     if (!(node instanceof HTMLElement)) return;
     node.style.minHeight = "0";
     node.style.minWidth = "0";
@@ -20258,13 +20282,15 @@
     layoutHost.replaceChildren();
     layoutHost.dataset.shellLayoutMode = String(sceneShell.layoutMode || "");
     applySceneShellLayout(layoutHost, sceneShell.layout);
-    const analyticsLock = String(sceneShell.layoutMode || "") === "analytics";
-    if (analyticsLock) {
-      lockAnalyticsShellFill(layoutHost);
+    const layoutMode = String(sceneShell.layoutMode || "");
+    const fillLock = layoutMode === "analytics" || layoutMode === "list_preview";
+    if (fillLock) {
+      lockStructuredShellFill(layoutHost);
       const shell = layoutHost.closest(".access-drilldown-structured-shell");
       if (shell instanceof HTMLElement) {
         shell.style.minHeight = "0";
         shell.style.flex = "1";
+        shell.style.height = "100%";
         shell.style.overflow = "hidden";
       }
     }
@@ -20285,14 +20311,14 @@
       if (zone.area) {
         wrapper.style.gridArea = zone.area;
       }
-      if (analyticsLock) {
-        lockAnalyticsShellFill(wrapper);
+      if (fillLock) {
+        lockStructuredShellFill(wrapper);
       }
       if (zone.role === "container") {
         wrapper.classList.add("access-drilldown-shell-zone--container");
         applySceneShellLayout(wrapper, zone.layout);
-        if (analyticsLock) {
-          lockAnalyticsShellFill(wrapper);
+        if (fillLock) {
+          lockStructuredShellFill(wrapper);
         }
       } else {
         const host =
@@ -20306,9 +20332,10 @@
               })();
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
-        if (analyticsLock) {
-          const scrollable = zone.id === "detail";
-          lockAnalyticsShellFill(host, { scrollable });
+        if (fillLock) {
+          const scrollable =
+            zone.id === "detail" || zone.id === "list" || zone.role === "list";
+          lockStructuredShellFill(host, { scrollable });
           if (zone.role === "filter") {
             host.style.overflow = "visible";
             if (host !== wrapper) {
@@ -20316,7 +20343,7 @@
             }
           }
           if (host !== wrapper) {
-            lockAnalyticsShellFill(wrapper);
+            lockStructuredShellFill(wrapper);
             if (zone.role === "filter") {
               wrapper.style.overflow = "visible";
             }
@@ -28712,6 +28739,30 @@
     return Boolean(document.getElementById("access-external-ai-fab"));
   }
 
+  /** `features.copilotFab`（runtime capabilities / body data-mei-copilot-fab）；缺省启用。 */
+  function isCopilotFabEnabled() {
+    if (isExternalAiFab()) return true;
+    const bodyFlag = document.body?.getAttribute("data-mei-copilot-fab");
+    if (bodyFlag === "0" || bodyFlag === "false") return false;
+    if (bodyFlag === "1" || bodyFlag === "true") return true;
+    try {
+      const el = document.getElementById("mei-host-runtime-capabilities");
+      const raw = el?.textContent?.trim();
+      if (raw) {
+        const caps = JSON.parse(raw);
+        if (
+          caps?.features &&
+          Object.prototype.hasOwnProperty.call(caps.features, "copilotFab")
+        ) {
+          return caps.features.copilotFab !== false;
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return true;
+  }
+
   function routeUtils() {
     return boot.presentationRouteUtils || window.MeiPresentationRouteUtils || null;
   }
@@ -28733,6 +28784,7 @@
 
   /** Thin Access shell 若缺 FAB DOM，补挂最小结构（与 host thin shell SSR 对齐）。 */
   function ensureFabDom() {
+    if (!isCopilotFabEnabled()) return null;
     if (isExternalAiFab() || fabButton()) return fabButton();
     let root = floatingRoot();
     if (!(root instanceof HTMLElement)) {
@@ -28833,10 +28885,23 @@
   }
 
   function fabPolicy() {
-    return "required";
+    return isCopilotFabEnabled() ? "required" : "off";
   }
 
   function syncFabVisibility() {
+    if (!isCopilotFabEnabled()) {
+      const fab = fabButton();
+      if (fab instanceof HTMLElement) {
+        fab.hidden = true;
+        fab.setAttribute("hidden", "");
+      }
+      const root = floatingRoot();
+      if (root) {
+        root.setAttribute("data-mei-fab-policy", "off");
+        root.setAttribute("data-mei-fab-visible", "false");
+      }
+      return;
+    }
     ensureFabDom();
     const fab = fabButton();
     if (!(fab instanceof HTMLElement) || isExternalAiFab()) return;
@@ -29090,6 +29155,7 @@
 
   boot.copilotFabContext = {
     isExternalAiFab,
+    isCopilotFabEnabled,
     resolveStageKind,
     resolveStageTargetKey,
     parseSceneIdFromPath,
@@ -37784,9 +37850,9 @@
       '". ." "label label" "value unit" ". ." "desc desc" ". ."';
     if (template === "row") {
       // 横排看板默认（作者声明 ui.row_accent_* 即可）：
-      // 标签四字槽两端拉开 + 弹性空隙 + 数值小数点对齐 + 单位保底宽左跟。
-      // 三列 label|value|unit：数值拿走标签/单位外全部剩余宽，避免空列把五位整数裁半个字。
-      style.gridTemplateColumns = "4em minmax(0, 1fr) minmax(1.25em, auto)";
+      // 标签列用 max-content（不可再被压回 4em）；数值拿走剩余宽 + 单位保底宽左跟。
+      // minmax(4em, max-content) 在窄槽仍会缩到 4em，导致「执法记…」截断。
+      style.gridTemplateColumns = "max-content minmax(0, 1fr) minmax(1.25em, auto)";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
       style.alignItems = "center";

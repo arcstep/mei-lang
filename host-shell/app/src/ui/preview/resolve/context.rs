@@ -62,13 +62,24 @@ pub(crate) struct HostMetaOptions {
     pub data_mode: Option<String>,
 }
 
-pub(crate) fn host_runtime_capabilities_value(app_path: &str, data_mode: Option<&str>) -> Value {
+pub(crate) fn host_runtime_capabilities_value(
+    app_path: &str,
+    data_mode: Option<&str>,
+    app_root: Option<&std::path::Path>,
+) -> Value {
     let mode = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("eval");
     let eval_enabled = mode == "eval";
     let fixture_enabled = mode == "fixture";
+    let copilot_fab = app_root
+        .map(|root| {
+            load_mei_config_for_app(root, None)
+                .features
+                .copilot_fab_enabled()
+        })
+        .unwrap_or(true);
     json!({
         "data_mode": mode,
         "rows_query": {
@@ -104,6 +115,9 @@ pub(crate) fn host_runtime_capabilities_value(app_path: &str, data_mode: Option<
         "static_display": {
             "enabled": mode == "static",
             "origin": "static_skeleton",
+        },
+        "features": {
+            "copilotFab": copilot_fab,
         },
     })
 }
@@ -271,7 +285,11 @@ pub(crate) fn attach_host_meta(
         if !options.host_ssr_slim_payload {
             host_meta.insert(
                 "runtime_capabilities".to_string(),
-                host_runtime_capabilities_value(app_path, options.data_mode.as_deref()),
+                host_runtime_capabilities_value(
+                    app_path,
+                    options.data_mode.as_deref(),
+                    Some(std::path::Path::new(compiled.app_root.as_str())),
+                ),
             );
         }
         if let Some(mode) = options.data_mode.as_deref() {

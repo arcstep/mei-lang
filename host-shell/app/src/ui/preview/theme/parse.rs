@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use mei_lang_kernel::{
-    decode_theme_ref_token, load_mei_config_for_app, resolve_live_ops_theme_value,
-    resolve_workspace_shell_theme, CompiledApp, MeiConfig, SceneContract, SceneDecl,
-    WorkspaceConfig,
+    decode_theme_ref_token, load_mei_config_for_app, resolve_active_scene_theme_id,
+    resolve_assembled_scene_theme, resolve_workspace_shell_theme, CompiledApp, MeiConfig,
+    SceneContract, SceneDecl, WorkspaceConfig,
 };
 use serde_json::Value;
 
@@ -35,17 +35,22 @@ pub(crate) struct ThemeResolved {
 pub(crate) fn resolve_theme(
     scene_contract: &SceneContract,
     live_config: Option<&MeiConfig>,
+    workspace: Option<&WorkspaceConfig>,
 ) -> ThemeResolved {
-    let mut theme_id = scene_contract
+    let scene_theme = scene_contract
         .scene
         .theme
         .as_deref()
         .and_then(decode_theme_ref_token)
         .or_else(|| scene_contract.scene.theme.clone())
-        .or_else(|| scene_contract.scene.profile.clone())
-        .unwrap_or_else(|| "page".to_string());
+        .or_else(|| scene_contract.scene.profile.clone());
+    let mut theme_id = if let Some(config) = live_config {
+        resolve_active_scene_theme_id(workspace, config, scene_theme.as_deref())
+    } else {
+        scene_theme.unwrap_or_else(|| "page".to_string())
+    };
     let mut theme = builtin_theme(theme_id.as_str());
-    if theme.is_none() {
+    if theme.is_none() && live_config.is_none() {
         theme_id = "page".to_string();
         theme = builtin_theme("page");
     }
@@ -62,7 +67,9 @@ pub(crate) fn resolve_theme(
         }
     }
     if let Some(config) = live_config {
-        if let Some(live_theme) = resolve_live_ops_theme_value(config, theme_id.as_str()) {
+        theme_id = resolve_active_scene_theme_id(workspace, config, Some(theme_id.as_str()));
+        if let Some(live_theme) = resolve_assembled_scene_theme(workspace, config, theme_id.as_str())
+        {
             theme = deep_merge_value(&theme, &live_theme);
         }
     }
@@ -125,8 +132,12 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
     shell_css_vars_style(theme_id.as_str(), &vars)
 }
 
-/// Scene CSS variables for a theme id using live `ops.themes` overlay (no compile artifact).
-pub fn scene_theme_style_for_theme_id(theme_id: &str, live_config: Option<&MeiConfig>) -> String {
+/// Scene CSS variables for a theme id using workspace sceneThemes ⊕ app overlay.
+pub fn scene_theme_style_for_theme_id(
+    theme_id: &str,
+    live_config: Option<&MeiConfig>,
+    workspace: Option<&WorkspaceConfig>,
+) -> String {
     let theme_id = theme_id.trim();
     let contract = SceneContract {
         scene: SceneDecl {
@@ -156,7 +167,7 @@ pub fn scene_theme_style_for_theme_id(theme_id: &str, live_config: Option<&MeiCo
         frame: None,
         panels: vec![],
     };
-    scene_css_vars_style(&resolve_theme(&contract, live_config))
+    scene_css_vars_style(&resolve_theme(&contract, live_config, workspace))
 }
 
 /// Shell vars on `<body>` plus scene vars for body-mounted cockpit/access overlays.
@@ -167,7 +178,11 @@ pub fn page_body_theme_style(
 ) -> String {
     let mut style = shell_body_theme_style(workspace);
     if let Some(compiled) = compiled {
-        style.push_str(&scene_viewport_theme_style(compiled, live_config));
+        style.push_str(&scene_viewport_theme_style(
+            compiled,
+            live_config,
+            Some(workspace),
+        ));
     }
     style
 }
@@ -200,11 +215,12 @@ pub fn scene_live_config_for_compiled<'a>(
 pub fn scene_viewport_theme_style(
     compiled: &CompiledApp,
     live_config: Option<&MeiConfig>,
+    workspace: Option<&WorkspaceConfig>,
 ) -> String {
     let mut loaded = MeiConfig::default();
     let config = live_config_for_compiled(compiled, live_config, &mut loaded);
     if let Some(contract) = compiled.scene_contract.as_ref() {
-        return scene_css_vars_style(&resolve_theme(contract, config));
+        return scene_css_vars_style(&resolve_theme(contract, config, workspace));
     }
     scene_css_vars_style(&resolve_builtin_only("page"))
 }
@@ -405,7 +421,7 @@ mod tests {
             "cockpit".to_string(),
             json!({"tokens": {"color": {"panel_title": "#010203"}}}),
         );
-        let resolved = resolve_theme(&scene_contract, Some(&live));
+        let resolved = resolve_theme(&scene_contract, Some(&live), None);
         let panel_title = resolved
             .css_vars
             .iter()
@@ -462,7 +478,7 @@ mod tests {
             page_style.contains("--mei-color-"),
             "page body should also inject scene vars for body-mounted overlays"
         );
-        let scene_style = scene_viewport_theme_style(&compiled, None);
+        let scene_style = scene_viewport_theme_style(&compiled, None, Some(&workspace));
         assert!(
             scene_style.contains("--mei-color-"),
             "viewport should inject scene color vars"

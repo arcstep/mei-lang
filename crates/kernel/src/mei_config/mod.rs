@@ -7,6 +7,7 @@ mod admin_command_job;
 mod admin_discover;
 mod admin_record;
 mod admin_registry;
+mod admin_registry_artifact;
 mod app_manifest;
 mod auth_bundle;
 mod authoring_policy;
@@ -40,6 +41,12 @@ pub use admin_discover::{
     ADMIN_LEGACY_DUAL_PROJECTION_FORBIDDEN, ADMIN_LEGACY_MANIFEST_FORBIDDEN,
     ADMIN_MODULE_ID_DUPLICATE, ADMIN_SCENE_ROOT_DUPLICATE, ADMIN_SCENE_ROOT_UNKNOWN,
     ADMIN_SOURCE_PATH_INVALID,
+};
+pub use admin_registry_artifact::{
+    admin_registry_artifact_path, admin_registry_artifact_path_for_app,
+    load_admin_registry_artifact, load_admin_registry_artifact_for_app,
+    write_admin_registry_artifact, write_admin_registry_artifact_for_app, AdminRegistryArtifact,
+    ADMIN_REGISTRY_ARTIFACT_FILENAME, ADMIN_REGISTRY_SCHEMA_VERSION,
 };
 pub use admin_record::{
     append_admin_audit, get_config_record, put_config_record, AdminAuditEntry, AdminRecordError,
@@ -108,7 +115,11 @@ pub use theme_layout_overlay::{
     ops_theme_layout_revision_digest, theme_layout_overlay_keys,
 };
 pub use theme_overlay::{
-    mei_config_compile_revision_digest, ops_themes_revision_digest, resolve_live_ops_theme_value,
+    list_workspace_scene_theme_catalog, mei_config_compile_revision_digest,
+    ops_active_theme_revision_digest, ops_active_theme_revision_digest_app_only,
+    ops_themes_revision_digest, resolve_active_scene_theme_id,
+    resolve_active_scene_theme_id_app_only, resolve_assembled_scene_theme,
+    resolve_live_ops_theme_value, resolve_workspace_scene_theme_value,
 };
 pub use types::{
     AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig,

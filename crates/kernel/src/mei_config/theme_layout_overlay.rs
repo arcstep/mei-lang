@@ -12,13 +12,27 @@ pub fn ops_theme_layout_revision_digest(config: &MeiConfig, theme_id: &str) -> S
     let id = theme_id.trim();
     let layout = config
         .ops
-        .themes
-        .get(id)
-        .and_then(|theme| theme.get("layout"));
+        .extensions
+        .get("layout")
+        .cloned()
+        .or_else(|| {
+            config
+                .ops
+                .themes
+                .get("_layout")
+                .and_then(|theme| theme.get("layout").cloned())
+        })
+        .or_else(|| {
+            config
+                .ops
+                .themes
+                .get(id)
+                .and_then(|theme| theme.get("layout").cloned())
+        });
     let Some(layout) = layout else {
         return String::new();
     };
-    let canonical = serde_json::to_string(layout).unwrap_or_default();
+    let canonical = serde_json::to_string(&layout).unwrap_or_default();
     let mut hasher = DefaultHasher::new();
     canonical.hash(&mut hasher);
     format!("theme-layout:{:016x}", hasher.finish())

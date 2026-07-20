@@ -217,11 +217,11 @@ function renderCarouselHintHtml(page, totalPages, intervalMs, epoch) {
   const dots = Array.from({ length: totalPages }, (_, index) => {
     const pageNo = index + 1;
     const active = pageNo === page;
-    return `<span class="carousel-dot${active ? " is-active" : ""}"></span>`;
+    return `<button type="button" class="carousel-dot${active ? " is-active" : ""}" data-carousel-page="${pageNo}" aria-label="切换到第 ${pageNo} 页" aria-current="${active ? "true" : "false"}"></button>`;
   }).join("");
   return `
-    <div class="carousel-hint" role="status" aria-label="轮播第 ${page} 页，共 ${totalPages} 页">
-      <div class="carousel-dots" aria-hidden="true">${dots}</div>
+    <div class="carousel-hint" role="navigation" aria-label="轮播第 ${page} 页，共 ${totalPages} 页">
+      <div class="carousel-dots">${dots}</div>
       <span class="carousel-page-label">
         <span class="carousel-page-current" data-epoch="${epoch}">${page}</span><span class="carousel-page-sep">/</span><span class="carousel-page-total">${totalPages}</span>
       </span>
@@ -720,11 +720,37 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   onPagerClick(event) {
-    const action = event
-      .composedPath()
-      .find((node) => node instanceof HTMLElement && node.dataset?.pagerAction)
-      ?.dataset?.pagerAction;
-    if (!action || !this._paging || this._state.loading) return;
+    if (this._state.loading) return;
+    const path = event.composedPath();
+    const carouselPageRaw = path.find(
+      (node) => node instanceof HTMLElement && node.dataset?.carouselPage,
+    )?.dataset?.carouselPage;
+    if (carouselPageRaw != null && this._paging && this._pagingMode === "client") {
+      const nextPage = Number(carouselPageRaw);
+      const totalPages =
+        this._state.total > 0
+          ? Math.max(1, Math.ceil(this._state.total / (this._pageSize || 1)))
+          : 1;
+      if (
+        Number.isFinite(nextPage) &&
+        nextPage >= 1 &&
+        nextPage <= totalPages &&
+        nextPage !== this._state.page
+      ) {
+        this._state.page = nextPage;
+        this._carouselEpoch += 1;
+        this._carouselPageTurn = true;
+        this.applyPagedRows(this._allRows);
+        this.render();
+        this._carouselPageTurn = false;
+        this.startCarousel();
+      }
+      return;
+    }
+    const action = path.find(
+      (node) => node instanceof HTMLElement && node.dataset?.pagerAction,
+    )?.dataset?.pagerAction;
+    if (!action || !this._paging) return;
     if (action === "prev" && this._state.page > 1) {
       this._state.page -= 1;
       if (this._pagingMode === "client") {
@@ -1220,6 +1246,13 @@ export class MeiCockpitDataTable extends HTMLElement {
           minVisibleChars: Number(p.cellOverflowMinChars ?? p.cell_overflow_min_chars) || 10,
         })
       : descriptors;
+    // cases 末列（处理结果 ID）：强制左对齐，覆盖 number meta / defaultAlignForType("right")
+    // 带来的 inline text-align:right（否则 .align-accent 被内联样式压过）。
+    if (String(p.layoutPreset ?? "") === "cases" && layoutDescriptors.length > 0) {
+      const last = layoutDescriptors[layoutDescriptors.length - 1];
+      last.align = "left";
+      last.headerAlign = "left";
+    }
     this._visibleDescriptors = layoutDescriptors;
     const visibleKeys = layoutDescriptors.map((descriptor) => descriptor.key);
     const colTemplateValue = resolveColumnTemplate(p, visibleKeys, layoutDescriptors);
@@ -1230,7 +1263,8 @@ export class MeiCockpitDataTable extends HTMLElement {
         : "173px";
     const colTemplate = colTemplateValue ? `grid-template-columns: ${colTemplateValue};` : "";
     const gridSizing = resolveTableGridSizing(p, layoutDescriptors, colTemplateValue, columnMinWidth);
-    const lastColRight = p.layoutPreset === "cases";
+    // cases 末列：强调色 + 左对齐，避免长短 ID 右齐后左缘参差。
+    const lastColAccent = p.layoutPreset === "cases";
 
     this._cellTextMap = new Map();
     const headCells = layoutDescriptors
@@ -1264,7 +1298,7 @@ export class MeiCockpitDataTable extends HTMLElement {
               : [];
             const cls = [
               "td-cell",
-              lastColRight && i === layoutDescriptors.length - 1 ? "align-right" : "",
+              lastColAccent && i === layoutDescriptors.length - 1 ? "align-accent" : "",
               objectLinkTargets.length ? "" : tone,
               objectLinkTargets.length ? "has-object-link" : "",
             ]
@@ -1472,6 +1506,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           color: ${color("text_primary")};
         }
         .align-right { text-align: right; color: ${color("text_accent")}; }
+        .align-accent { text-align: left; justify-content: flex-start; color: ${color("text_accent")}; }
         .tone-blue { color: ${color("tone_blue")}; }
         .tone-yellow { color: ${color("tone_yellow")}; }
         .tone-red { color: ${color("tone_red")}; }
@@ -1531,7 +1566,14 @@ export class MeiCockpitDataTable extends HTMLElement {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .cell-object-link:hover {
+        .td-cell.has-object-link {
+          color: inherit;
+        }
+        .cell-object-link:hover,
+        .tr:hover .cell-object-link,
+        .tr.drilldown-row:hover .cell-object-link,
+        .tr.selectable-row:hover .cell-object-link {
+          color: ${color("text_accent")};
           filter: brightness(1.12);
         }
         .object-field-chooser {
@@ -1645,17 +1687,24 @@ export class MeiCockpitDataTable extends HTMLElement {
         .carousel-dot {
           width: 6px;
           height: 6px;
+          padding: 0;
+          border: 0;
           border-radius: 50%;
           background: rgba(125, 211, 252, 0.22);
+          cursor: pointer;
           transition:
             transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
             background 220ms ease,
             box-shadow 220ms ease;
         }
+        .carousel-dot:hover {
+          background: rgba(125, 211, 252, 0.45);
+        }
         .carousel-dot.is-active {
           background: ${color("tone_blue")};
           transform: scale(1.4);
           box-shadow: ${themeShadow("scrollbar_thumb", "0 0 8px rgba(56, 189, 248, 0.5)")};
+          cursor: default;
         }
         .carousel-page-label {
           display: inline-flex;

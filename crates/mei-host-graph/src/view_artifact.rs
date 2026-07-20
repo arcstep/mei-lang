@@ -414,10 +414,11 @@ pub fn eval_slot_group_cache_key(
     serde_json::to_string(&wrapper).unwrap_or_else(|_| EVAL_SLOT_GROUP_KIND.to_string())
 }
 
-pub fn theme_tokens_cache_key(theme_digest: &str) -> String {
+pub fn theme_tokens_cache_key(theme_digest: &str, theme_id: &str) -> String {
     json!({
         "artifact": THEME_TOKENS_KIND,
         "theme_digest": theme_digest,
+        "theme_id": theme_id,
     })
     .to_string()
 }
