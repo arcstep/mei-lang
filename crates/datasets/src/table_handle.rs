@@ -174,3 +174,14 @@ fn maybe_prune_table_handle_cache(state: &mut TableHandleCacheState) {
     });
     state.next_prune_at = Some(now + Duration::from_millis(TABLE_HANDLE_CACHE_PRUNE_INTERVAL_MS));
 }
+
+pub(crate) fn clear_table_handle_cache() -> usize {
+    let Ok(mut guard) = table_handle_cache().lock() else {
+        return 0;
+    };
+    let cleared = guard.entries.len();
+    guard.entries.clear();
+    guard.lru.clear();
+    guard.next_prune_at = None;
+    cleared
+}

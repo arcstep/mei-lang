@@ -5,8 +5,8 @@ use mei_lang_datasets::{
 };
 use mei_lang_kernel::{load_mei_config_for_app, runtime_plan_requires_warm};
 use mei_plug_ds::{
-    collect_warmup_targets_for_scopes_with_filter, hydrate_existing_l1_slots,
-    run_warmup_targets_with_tier, WarmupScopeFilter,
+    apply_memory_warmup_pin_policy, collect_warmup_targets_for_scopes_with_filter,
+    hydrate_existing_l1_slots, run_warmup_targets_with_tier, WarmupScopeFilter,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +19,13 @@ pub fn bootstrap_runtime(state: &AppRuntimeServeState) -> anyhow::Result<()> {
 
     let app_config = load_mei_config_for_app(state.host.app_root().as_path(), None);
     configure_metric_response_cache_ttl_ms(app_config.runtime.server_eval_cache.ttl_ms);
+    apply_memory_warmup_pin_policy(
+        &app_config
+            .runtime
+            .memory_warmup
+            .clone()
+            .unwrap_or_default(),
+    );
 
     state.set_phase(InstancePhase::Importing);
     ensure_registry_materialized(&state.host)?;
@@ -144,9 +151,18 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
                 node_pack_store_skipped_full_hit: report.node_pack_store_skipped_full_hit,
                 tier: "memory".to_string(),
                 memory_hydrated: report.memory_hydrated,
+                memory_pinned_bytes: report.memory_pinned_bytes,
+                rowset_skipped: report.rowset_skipped,
+                oversized_skipped: report.oversized_skipped,
+                projected_metric_count: report.projected_metric_count,
+                lite_hydrated: report.lite_hydrated,
+                lite_bytes: report.lite_bytes,
+                full_artifact_loads: report.full_artifact_loads,
+                lite_backfill: report.lite_backfill,
             },
         );
     } else {
+        let lite_io = mei_lang_datasets::take_lite_artifact_io_stats();
         let _ = mei_host_graph::write_warmup_last_run(
             app_root.as_path(),
             &mei_host_graph::WarmupLastRunRecord {
@@ -161,6 +177,11 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
                 tier: "memory-hydrate".to_string(),
                 memory_hydrated,
                 target_count: targets.len(),
+                memory_pinned_bytes: mei_lang_datasets::memory_pinned_bytes() as u64,
+                lite_hydrated: lite_io.lite_hydrated,
+                lite_bytes: lite_io.lite_bytes,
+                full_artifact_loads: lite_io.full_artifact_loads,
+                lite_backfill: lite_io.lite_backfill,
                 ..Default::default()
             },
         );

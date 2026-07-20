@@ -76,6 +76,14 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
             node_pack_store_skipped_full_hit: report.node_pack_store_skipped_full_hit,
             tier: args.tier.clone(),
             memory_hydrated: report.memory_hydrated,
+            memory_pinned_bytes: report.memory_pinned_bytes,
+            rowset_skipped: report.rowset_skipped,
+            oversized_skipped: report.oversized_skipped,
+            projected_metric_count: report.projected_metric_count,
+            lite_hydrated: report.lite_hydrated,
+            lite_bytes: report.lite_bytes,
+            full_artifact_loads: report.full_artifact_loads,
+            lite_backfill: report.lite_backfill,
         },
     );
     if args.hops > 0 {
@@ -93,7 +101,7 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         }
     }
     println!(
-        "[{}] warmup ok: policy={} tier={} worksets={} targets={} slots={} unique_hash={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={} disk_hit={} l1_hit={} io_read_ops={} io_write_ops={} dedupe_skips={} node_pack_loads={} node_pack_stores={} node_pack_skip_full_hit={} rss_before={:?} rss_after={:?} cpu_user_ms={:?} cpu_system_ms={:?}",
+        "[{}] warmup ok: policy={} tier={} worksets={} targets={} slots={} unique_hash={} memory_hydrated={} memory_pinned_bytes={} rowset_skipped={} oversized_skipped={} projected_metrics={} lite_hydrated={} lite_bytes={} full_artifact_loads={} lite_backfill={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={} disk_hit={} l1_hit={} io_read_ops={} io_write_ops={} dedupe_skips={} node_pack_loads={} node_pack_stores={} node_pack_skip_full_hit={} rss_before={:?} rss_after={:?} cpu_user_ms={:?} cpu_system_ms={:?}",
         log_timestamp_rfc3339(),
         args.policy,
         args.tier,
@@ -102,6 +110,14 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         report.slot_count,
         report.unique_content_hash_count,
         report.memory_hydrated,
+        report.memory_pinned_bytes,
+        report.rowset_skipped,
+        report.oversized_skipped,
+        report.projected_metric_count,
+        report.lite_hydrated,
+        report.lite_bytes,
+        report.full_artifact_loads,
+        report.lite_backfill,
         report.client_manifest_written,
         report.failed_count,
         report.elapsed_ms,

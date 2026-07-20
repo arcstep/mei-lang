@@ -181,6 +181,14 @@ mod tests {
     fn force_clear_removes_eval_cache_and_bootstraps() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app_root = temp.path();
+        let env_dir = app_root.join("env").join("WS-20260720.0");
+        fs::create_dir_all(env_dir.join("build")).expect("mkdir build");
+        fs::create_dir_all(env_dir.join("var")).expect("mkdir var");
+        let current = app_root.join("env").join("current");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260720.0", &current).expect("symlink env/current");
+        #[cfg(not(unix))]
+        fs::create_dir_all(&current).expect("mkdir env/current");
         let eval_root = resolve_app_eval_cache_root(app_root);
         fs::create_dir_all(eval_root.join("metric-response")).expect("mkdir");
         fs::write(

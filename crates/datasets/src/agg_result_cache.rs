@@ -1,10 +1,15 @@
 //! Cross-request aggregation result cache keyed by filter fingerprint.
+//!
+//! Entries are L1-projected (no `__scalar_rowset__` / oversized values). Disk may
+//! retain full packs; this cache must not keep per-metric rowset working sets.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use mei_lang_kernel::{FilterIntent, MetricContract, QueryState};
+
+use crate::l1_project::{project_metrics_map_for_l1, L1PinPolicy};
 
 const AGG_RESULT_CACHE_TTL_MS: u64 = 120_000;
 const AGG_RESULT_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
@@ -96,6 +101,10 @@ pub fn store_agg_result_cache(
     metrics_map: BTreeMap<String, MetricContract>,
     total_rows: usize,
 ) {
+    let covered: BTreeSet<String> = metrics_map.keys().cloned().collect();
+    let (projected, _, _) =
+        project_metrics_map_for_l1(&metrics_map, &covered, &L1PinPolicy::default());
+    drop(metrics_map);
     let Ok(mut guard) = agg_result_cache().lock() else {
         return;
     };
@@ -104,7 +113,7 @@ pub fn store_agg_result_cache(
         key.clone(),
         CachedAggResult {
             expires_at: Instant::now() + cache_ttl(),
-            metrics_map,
+            metrics_map: projected,
             total_rows,
         },
     );
@@ -117,6 +126,17 @@ pub fn store_agg_result_cache(
             break;
         }
     }
+}
+
+pub fn clear_agg_result_cache() -> usize {
+    let Ok(mut guard) = agg_result_cache().lock() else {
+        return 0;
+    };
+    let cleared = guard.entries.len();
+    guard.entries.clear();
+    guard.lru.clear();
+    guard.next_prune_at = None;
+    cleared
 }
 
 fn maybe_prune_agg_result_cache(state: &mut AggResultCacheState) {
@@ -136,4 +156,42 @@ fn maybe_prune_agg_result_cache(state: &mut AggResultCacheState) {
         }
     });
     state.next_prune_at = Some(now + Duration::from_millis(AGG_RESULT_CACHE_PRUNE_INTERVAL_MS));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn contract(id: &str, value: serde_json::Value) -> MetricContract {
+        MetricContract {
+            id: id.into(),
+            label: None,
+            unit: None,
+            value_format: None,
+            purpose: None,
+            shape: mei_lang_kernel::MetricShape::Scalar,
+            schema: Vec::new(),
+            dataset: None,
+            transforms: Vec::new(),
+            value,
+        }
+    }
+
+    #[test]
+    fn store_agg_result_cache_projects_out_rowsets() {
+        clear_agg_result_cache();
+        let mut map = BTreeMap::new();
+        map.insert("kpi_count".into(), contract("kpi_count", json!(12)));
+        map.insert(
+            "ds::__scalar_rowset__".into(),
+            contract("ds::__scalar_rowset__", json!([{"a": 1}, {"a": 2}])),
+        );
+        store_agg_result_cache("k1".into(), map, 2);
+        let (cached, total) = lookup_agg_result_cache("k1").expect("cached");
+        assert_eq!(total, 2);
+        assert!(cached.contains_key("kpi_count"));
+        assert!(!cached.keys().any(|id| id.contains("__scalar_rowset__")));
+        clear_agg_result_cache();
+    }
 }

@@ -4,10 +4,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use mei_host_core::{EvalSlotDescriptor, HostContext};
+use mei_lang_datasets::metric_id_is_scalar_rowset;
 use mei_lang_kernel::{
     load_cache_generation, load_mei_config_for_app, resolve_app_root, MetricContract,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::mrg::registry::MrgRegistry;
 use crate::types::MaterialState;
@@ -545,6 +547,19 @@ pub fn clear_client_bootstraps_for_stale_scopes(app_root: &Path, registry: &MrgR
         .count()
 }
 
+const BOOTSTRAP_MAX_CONTRACT_VALUE_BYTES: usize = 256 * 1024;
+
+/// Drop oversized contract.value from client bootstrap (keep shape/schema).
+fn strip_bulk_contract_value(mut contract: MetricContract) -> MetricContract {
+    let bytes = serde_json::to_vec(&contract.value)
+        .map(|payload| payload.len())
+        .unwrap_or(0);
+    if bytes > BOOTSTRAP_MAX_CONTRACT_VALUE_BYTES {
+        contract.value = Value::Null;
+    }
+    contract
+}
+
 pub fn write_client_bootstrap(
     app_root: &Path,
     app_id: &str,
@@ -576,13 +591,16 @@ pub fn write_client_bootstrap(
     let client_revision =
         compute_scope_client_revision(scope, content_hashes.as_slice(), data_generation.as_str());
     let mut manifest_metrics = Vec::new();
-    let mut included_ids = BTreeSet::new();
     for descriptor in eligible {
         let metric_id = descriptor
             .slot_key
             .rsplit("::")
             .next()
             .unwrap_or(descriptor.slot_key.as_str());
+        // Client bootstrap never embeds __scalar_rowset__ bulk payloads.
+        if metric_id_is_scalar_rowset(metric_id) {
+            continue;
+        }
         let Some(contract) = metrics.get(metric_id) else {
             continue;
         };
@@ -594,37 +612,11 @@ pub fn write_client_bootstrap(
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         });
-        included_ids.insert(metric_id.to_string());
         manifest_metrics.push(ClientBootstrapMetric {
             id: metric_id.to_string(),
             dataset_id,
             total_rows: metric_total_rows.get(metric_id).copied(),
-            contract: contract.clone(),
-        });
-    }
-    for scalar_id in included_ids.clone() {
-        if scalar_id.contains("::__scalar_rowset__") {
-            continue;
-        }
-        let rowset_id = format!("{scalar_id}::__scalar_rowset__");
-        if included_ids.contains(&rowset_id) {
-            continue;
-        }
-        let Some(contract) = metrics.get(rowset_id.as_str()) else {
-            continue;
-        };
-        let dataset_id = contract
-            .dataset
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        included_ids.insert(rowset_id.clone());
-        manifest_metrics.push(ClientBootstrapMetric {
-            id: rowset_id.clone(),
-            dataset_id,
-            total_rows: metric_total_rows.get(rowset_id.as_str()).copied(),
-            contract: contract.clone(),
+            contract: strip_bulk_contract_value(contract.clone()),
         });
     }
     if manifest_metrics.is_empty() {

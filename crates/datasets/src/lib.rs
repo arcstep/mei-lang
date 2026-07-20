@@ -17,6 +17,7 @@ mod metric_dataframe;
 mod metric_eval_inflight;
 mod metric_hydrate;
 mod metric_locate;
+mod l1_project;
 mod metric_response_cache;
 mod paginate;
 mod paths;
@@ -71,23 +72,30 @@ pub use metric_locate::{
     plan_access_metric_eval_for_ids, AccessMetricEvalPlan,
 };
 pub use metric_response_cache::{
-    cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
-    clear_metric_response_cache_for_partition, configure_metric_response_cache_ttl_ms,
-    enforce_memory_pin_limits, evict_metric_response_cache_key, mark_smart_warmup_triggered,
-    metric_response_cache_key_partitioned, metric_response_cache_scope_key,
-    metric_response_prebuild_dataset_key, metric_response_prebuild_shared_key,
-    populate_l1_from_loaded_metric_artifact, prebuild_metric_response_key_matches_dataset_query,
-    record_scope_cache_miss, should_trigger_smart_warmup, store_cached_metric_response,
-    store_cached_metric_response_aliases, take_cached_metric_response, warm_from_artifact,
-    CachedMetricResponse,
+    cached_metric_response_covers_request, clear_all_metric_caches,
+    clear_demand_metric_response_cache, clear_metric_response_cache,
+    clear_metric_response_cache_for_partition, configure_l1_pin_policy,
+    configure_metric_response_cache_ttl_ms, current_l1_pin_policy, enforce_memory_pin_limits,
+    enforce_memory_pin_limits_for_artifact, evict_metric_response_cache_key,
+    last_l1_project_stats, mark_smart_warmup_triggered, memory_pinned_bytes,
+    metric_id_is_scalar_rowset, metric_response_cache_key_partitioned,
+    metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
+    metric_response_prebuild_shared_key, populate_l1_from_loaded_metric_artifact,
+    prebuild_metric_response_key_matches_dataset_query, project_metrics_map_for_l1,
+    record_scope_cache_miss, request_needs_bulk_l1_metrics, should_trigger_smart_warmup,
+    store_cached_metric_response, store_cached_metric_response_aliases,
+    store_demand_metric_response, take_cached_metric_response, take_demand_metric_response,
+    warm_from_artifact, CachedMetricResponse, L1PinPolicy, L1ProjectStats,
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{
     default_result_artifact_scope, load_metric_dataframe_result_artifact,
-    load_metric_response_result_artifact, metric_dataframe_result_artifact_exists,
-    metric_response_result_artifact_exists, store_metric_dataframe_result_artifact,
-    store_metric_response_result_artifact, take_metric_response_index_stats,
-    LoadedMetricResponseArtifact, MetricResponseIndexStats,
+    load_metric_response_lite_artifact, load_metric_response_result_artifact,
+    metric_dataframe_result_artifact_exists, metric_response_result_artifact_exists,
+    snapshot_lite_artifact_io_stats, store_metric_dataframe_result_artifact,
+    store_metric_response_result_artifact, take_lite_artifact_io_stats,
+    take_metric_response_index_stats, LiteArtifactIoStats, LoadedMetricResponseArtifact,
+    MetricResponseIndexStats,
 };
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
@@ -120,6 +128,14 @@ pub fn clear_metric_dataframe_result_cache() -> usize {
 
 pub fn clear_dataset_rows_cache() -> usize {
     dataset_rows_cache::clear_dataset_rows_cache()
+}
+
+pub fn clear_agg_result_cache() -> usize {
+    agg_result_cache::clear_agg_result_cache()
+}
+
+pub fn clear_table_handle_cache() -> usize {
+    table_handle::clear_table_handle_cache()
 }
 
 pub fn clear_eval_artifact_store(app_root: &Path) -> usize {

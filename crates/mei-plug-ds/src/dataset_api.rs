@@ -5,8 +5,10 @@ use anyhow::{anyhow, Context, Result};
 use mei_host_core::HostContext;
 use mei_host_graph::{record_access, record_slots_from_descriptors, MrgAccessKind};
 use mei_lang_datasets::{
-    map_dataset_query_filters, normalize_query_filters, normalize_query_search, query_dataset_rows,
-    query_metric_dataframe, query_state_from_request, DatasetQueryOptions,
+    clear_dataset_rows_cache, clear_external_file_cache_for_app, clear_metric_dataframe_result_cache,
+    clear_table_handle_cache, map_dataset_query_filters, normalize_query_filters,
+    normalize_query_search, query_dataset_rows, query_metric_dataframe, query_state_from_request,
+    DatasetQueryOptions,
 };
 use mei_lang_kernel::{locate_dataset_resource, FilterIntent, MetricContract, QueryState};
 
@@ -249,7 +251,9 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
             target.as_deref(),
             &effective_query_state,
             &request.filter_intents,
-        )?;
+        );
+        release_metric_request_working_set(ctx);
+        let group = group?;
         let latency_ms = started.elapsed().as_millis() as u64;
         info!(
             app_id = %ctx.app_id,
@@ -282,8 +286,14 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
             &effective_query_state,
             &request.filter_intents,
         ) {
-            Ok(response) => batch_groups.push(response),
+            Ok(response) => {
+                // Drop hydrated rowsets between groups so a home batch cannot
+                // accumulate multi-GB working sets across datasets.
+                release_metric_request_working_set(ctx);
+                batch_groups.push(response);
+            }
             Err(error) => {
+                release_metric_request_working_set(ctx);
                 warn!(
                     app_id = %ctx.app_id,
                     scene_id = %scene_id,
@@ -316,6 +326,51 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
         perf: BTreeMap::from([("total_ms".to_string(), latency_ms)]),
         groups: batch_groups,
     })?)
+}
+
+/// Release request-path working sets that are not Pack-First delivery atoms.
+/// L1 metric-response stays (already projected); row/table/file caches are ephemeral.
+fn release_metric_request_working_set(ctx: &HostContext) {
+    let rows_cleared = clear_dataset_rows_cache();
+    let tables_cleared = clear_table_handle_cache();
+    let dataframes_cleared = clear_metric_dataframe_result_cache();
+    let files_cleared = clear_external_file_cache_for_app(ctx.app_root().as_path());
+    let memory_pinned_bytes = mei_lang_datasets::memory_pinned_bytes();
+    maybe_relieve_allocator_pressure();
+    if rows_cleared > 0
+        || tables_cleared > 0
+        || dataframes_cleared > 0
+        || files_cleared > 0
+        || memory_pinned_bytes > 0
+    {
+        info!(
+            app_id = %ctx.app_id,
+            rows_cleared,
+            tables_cleared,
+            dataframes_cleared,
+            files_cleared,
+            memory_pinned_bytes,
+            "released metric request working set"
+        );
+    }
+}
+
+/// Best-effort: ask the platform allocator to return free dirty pages after a
+/// large live-eval. Does not change logical cache contents.
+fn maybe_relieve_allocator_pressure() {
+    #[cfg(target_os = "macos")]
+    {
+        // malloc_zone_pressure_relief(zone, goal_bytes); NULL zone = default.
+        extern "C" {
+            fn malloc_zone_pressure_relief(
+                zone: *mut std::ffi::c_void,
+                goal: usize,
+            ) -> usize;
+        }
+        unsafe {
+            let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
 }
 
 fn execute_metric_group(

@@ -7,8 +7,13 @@ use mei_lang_kernel::{FilterIntent, MetricContract};
 use super::serialize_cache_value;
 use super::types::DatasetQueryOptions;
 
+pub use super::l1_project::{
+    metric_id_is_scalar_rowset, project_metrics_map_for_l1, L1PinPolicy, L1ProjectStats,
+};
+
 const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
 const METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
+const DEMAND_CACHE_TTL_MS: u64 = 30_000;
 
 static METRIC_RESPONSE_CACHE_TTL_OVERRIDE: OnceLock<u64> = OnceLock::new();
 
@@ -22,6 +27,38 @@ fn metric_response_cache_ttl() -> Duration {
         .copied()
         .unwrap_or(METRIC_RESPONSE_CACHE_TTL_MS);
     Duration::from_millis(ms)
+}
+
+fn l1_pin_policy_state() -> &'static Mutex<L1PinPolicy> {
+    static STATE: OnceLock<Mutex<L1PinPolicy>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(L1PinPolicy::default()))
+}
+
+pub fn configure_l1_pin_policy(policy: L1PinPolicy) {
+    if let Ok(mut guard) = l1_pin_policy_state().lock() {
+        *guard = policy;
+    }
+}
+
+pub fn current_l1_pin_policy() -> L1PinPolicy {
+    l1_pin_policy_state()
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+pub fn request_needs_bulk_l1_metrics(
+    requested_metric_ids: &BTreeSet<String>,
+    request_all_metrics: bool,
+) -> bool {
+    if request_all_metrics {
+        return true;
+    }
+    let policy = current_l1_pin_policy();
+    !policy.pin_rowsets
+        && requested_metric_ids
+            .iter()
+            .any(|metric_id| metric_id_is_scalar_rowset(metric_id))
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +78,7 @@ struct MetricResponseCacheState {
 
 #[derive(Debug, Clone)]
 struct PinnedCacheEntry {
-    key: String,
+    keys: Vec<String>,
     approx_bytes: usize,
 }
 
@@ -50,6 +87,14 @@ struct MemoryPinState {
     pinned: VecDeque<PinnedCacheEntry>,
     last_trigger_ms_by_scope: BTreeMap<String, u64>,
     scope_miss_counts: BTreeMap<String, u64>,
+    last_project_stats: L1ProjectStats,
+    pinned_bytes: usize,
+}
+
+#[derive(Default)]
+struct DemandCacheState {
+    entries: BTreeMap<String, CachedMetricResponse>,
+    next_prune_at: Option<Instant>,
 }
 
 fn memory_pin_state() -> &'static Mutex<MemoryPinState> {
@@ -57,17 +102,36 @@ fn memory_pin_state() -> &'static Mutex<MemoryPinState> {
     STATE.get_or_init(|| Mutex::new(MemoryPinState::default()))
 }
 
-fn approx_artifact_bytes(artifact: &crate::result_artifact::LoadedMetricResponseArtifact) -> usize {
-    serde_json::to_string(&artifact.metrics_map)
+fn demand_cache_state() -> &'static Mutex<DemandCacheState> {
+    static STATE: OnceLock<Mutex<DemandCacheState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(DemandCacheState::default()))
+}
+
+fn approx_metrics_map_bytes(metrics_map: &BTreeMap<String, MetricContract>) -> usize {
+    serde_json::to_string(metrics_map)
         .map(|value| value.len())
         .unwrap_or(128)
+}
+
+pub fn last_l1_project_stats() -> L1ProjectStats {
+    memory_pin_state()
+        .lock()
+        .map(|guard| guard.last_project_stats.clone())
+        .unwrap_or_default()
+}
+
+pub fn memory_pinned_bytes() -> usize {
+    memory_pin_state()
+        .lock()
+        .map(|guard| guard.pinned_bytes)
+        .unwrap_or(0)
 }
 
 pub fn warm_from_artifact(
     cache_keys: &[String],
     artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
-) {
-    populate_l1_from_loaded_metric_artifact(cache_keys, artifact);
+) -> L1ProjectStats {
+    populate_l1_from_loaded_metric_artifact(cache_keys, artifact)
 }
 
 pub fn evict_metric_response_cache_key(key: &str) -> bool {
@@ -77,38 +141,90 @@ pub fn evict_metric_response_cache_key(key: &str) -> bool {
     cache.entries.remove(key).is_some()
 }
 
+fn evict_metric_response_cache_keys(keys: &[String]) {
+    let Ok(mut cache) = metric_response_cache().lock() else {
+        return;
+    };
+    for key in keys {
+        cache.entries.remove(key);
+    }
+}
+
+/// Pin projected L1 bytes for a group of alias keys; evict oldest groups on overflow.
 pub fn enforce_memory_pin_limits(
+    cache_keys: &[String],
+    approx_bytes: usize,
+    max_pinned_slots: usize,
+    max_pinned_mb: usize,
+) {
+    let keys: Vec<String> = cache_keys
+        .iter()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    let mut evict_batches: Vec<Vec<String>> = Vec::new();
+    {
+        let Ok(mut pin_state) = memory_pin_state().lock() else {
+            return;
+        };
+        pin_state.pinned.retain(|entry| {
+            !entry
+                .keys
+                .iter()
+                .any(|key| keys.iter().any(|incoming| incoming == key))
+        });
+        pin_state.pinned.push_back(PinnedCacheEntry {
+            keys,
+            approx_bytes,
+        });
+        let max_bytes = max_pinned_mb.saturating_mul(1024 * 1024);
+        loop {
+            let slot_overflow = max_pinned_slots > 0 && pin_state.pinned.len() > max_pinned_slots;
+            let total_bytes: usize = pin_state
+                .pinned
+                .iter()
+                .map(|entry| entry.approx_bytes)
+                .sum();
+            pin_state.pinned_bytes = total_bytes;
+            let byte_overflow = max_bytes > 0 && total_bytes > max_bytes;
+            if !slot_overflow && !byte_overflow {
+                break;
+            }
+            let Some(oldest) = pin_state.pinned.pop_front() else {
+                break;
+            };
+            evict_batches.push(oldest.keys);
+        }
+        pin_state.pinned_bytes = pin_state
+            .pinned
+            .iter()
+            .map(|entry| entry.approx_bytes)
+            .sum();
+    }
+    for batch in evict_batches {
+        evict_metric_response_cache_keys(&batch);
+    }
+}
+
+/// Compatibility wrapper: pin a single key using projected artifact size.
+pub fn enforce_memory_pin_limits_for_artifact(
     cache_key: &str,
     artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
     max_pinned_slots: usize,
     max_pinned_mb: usize,
 ) {
-    let Ok(mut pin_state) = memory_pin_state().lock() else {
-        return;
+    let policy = current_l1_pin_policy();
+    let (projected, _, stats) =
+        project_metrics_map_for_l1(&artifact.metrics_map, &artifact.covered_metric_ids, &policy);
+    let approx_bytes = if stats.projected_bytes > 0 {
+        stats.projected_bytes
+    } else {
+        approx_metrics_map_bytes(&projected)
     };
-    let approx_bytes = approx_artifact_bytes(artifact);
-    pin_state.pinned.retain(|entry| entry.key != cache_key);
-    pin_state.pinned.push_back(PinnedCacheEntry {
-        key: cache_key.to_string(),
-        approx_bytes,
-    });
-    let max_bytes = max_pinned_mb.saturating_mul(1024 * 1024);
-    loop {
-        let slot_overflow = max_pinned_slots > 0 && pin_state.pinned.len() > max_pinned_slots;
-        let total_bytes: usize = pin_state
-            .pinned
-            .iter()
-            .map(|entry| entry.approx_bytes)
-            .sum();
-        let byte_overflow = max_bytes > 0 && total_bytes > max_bytes;
-        if !slot_overflow && !byte_overflow {
-            break;
-        }
-        let Some(oldest) = pin_state.pinned.pop_front() else {
-            break;
-        };
-        let _ = evict_metric_response_cache_key(oldest.key.as_str());
-    }
+    enforce_memory_pin_limits(&[cache_key.to_string()], approx_bytes, max_pinned_slots, max_pinned_mb);
 }
 
 pub fn record_scope_cache_miss(scope_key: &str) {
@@ -324,9 +440,15 @@ pub fn store_cached_metric_response_aliases(
     metrics_map: &BTreeMap<String, MetricContract>,
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
-) {
-    let shared_metrics = Arc::new(metrics_map.clone());
-    let shared_covered = covered_metric_ids.clone();
+) -> L1ProjectStats {
+    let policy = current_l1_pin_policy();
+    let (projected_map, projected_covered, stats) =
+        project_metrics_map_for_l1(metrics_map, covered_metric_ids, &policy);
+    if let Ok(mut pin_state) = memory_pin_state().lock() {
+        pin_state.last_project_stats = stats.clone();
+    }
+    let shared_metrics = Arc::new(projected_map);
+    let shared_covered = projected_covered;
     for key in keys {
         let trimmed = key.trim();
         if trimmed.is_empty() {
@@ -340,19 +462,20 @@ pub fn store_cached_metric_response_aliases(
             complete,
         );
     }
+    stats
 }
 
 pub fn populate_l1_from_loaded_metric_artifact(
     lookup_keys: &[String],
     artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
-) {
+) -> L1ProjectStats {
     store_cached_metric_response_aliases(
         lookup_keys,
         artifact.total_rows,
         &artifact.metrics_map,
         &artifact.covered_metric_ids,
         artifact.complete,
-    );
+    )
 }
 
 pub fn store_cached_metric_response(
@@ -361,14 +484,14 @@ pub fn store_cached_metric_response(
     metrics_map: &BTreeMap<String, MetricContract>,
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
-) {
-    store_cached_metric_response_shared(
-        key,
+) -> L1ProjectStats {
+    store_cached_metric_response_aliases(
+        &[key],
         total_rows,
-        Arc::new(metrics_map.clone()),
-        covered_metric_ids.clone(),
+        metrics_map,
+        covered_metric_ids,
         complete,
-    );
+    )
 }
 
 fn store_cached_metric_response_shared(
@@ -384,11 +507,12 @@ fn store_cached_metric_response_shared(
     let now = Instant::now();
     cache.prune_if_due(now);
     let expires_at = Instant::now() + metric_response_cache_ttl();
+    let policy = current_l1_pin_policy();
     if let Some(existing) = cache.entries.get_mut(&key) {
         existing.expires_at = expires_at;
         existing.total_rows = total_rows;
         if Arc::ptr_eq(&existing.metrics_map, &metrics_map) {
-            // Same Arc payload — extend coverage only.
+            // Same Arc payload — extend coverage only with projected ids.
             existing
                 .covered_metric_ids
                 .extend(covered_metric_ids.iter().cloned());
@@ -397,10 +521,12 @@ fn store_cached_metric_response_shared(
         }
         let mut merged = (*existing.metrics_map).clone();
         merged.extend((*metrics_map).clone());
-        existing.metrics_map = Arc::new(merged);
-        existing
-            .covered_metric_ids
-            .extend(covered_metric_ids.iter().cloned());
+        let mut merged_covered = existing.covered_metric_ids.clone();
+        merged_covered.extend(covered_metric_ids.iter().cloned());
+        let (projected, projected_covered, _) =
+            project_metrics_map_for_l1(&merged, &merged_covered, &policy);
+        existing.metrics_map = Arc::new(projected);
+        existing.covered_metric_ids = projected_covered;
         existing.complete |= complete;
         return;
     }
@@ -414,6 +540,81 @@ fn store_cached_metric_response_shared(
             complete,
         },
     );
+}
+
+fn demand_cache_ttl() -> Duration {
+    Duration::from_millis(DEMAND_CACHE_TTL_MS)
+}
+
+impl DemandCacheState {
+    fn prune_if_due(&mut self, now: Instant) {
+        if self.next_prune_at.is_some_and(|next| now < next) {
+            return;
+        }
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        self.next_prune_at = Some(now + Duration::from_millis(5_000));
+    }
+}
+
+/// Store a short-TTL full (unprojected) response for bulk/on-demand reads.
+pub fn store_demand_metric_response(
+    keys: &[String],
+    total_rows: usize,
+    metrics_map: &BTreeMap<String, MetricContract>,
+    covered_metric_ids: &BTreeSet<String>,
+    complete: bool,
+) {
+    let Ok(mut cache) = demand_cache_state().lock() else {
+        return;
+    };
+    let now = Instant::now();
+    cache.prune_if_due(now);
+    let expires_at = now + demand_cache_ttl();
+    let shared = Arc::new(metrics_map.clone());
+    for key in keys {
+        let trimmed = key.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        cache.entries.insert(
+            trimmed.to_string(),
+            CachedMetricResponse {
+                total_rows,
+                metrics_map: Arc::clone(&shared),
+                covered_metric_ids: covered_metric_ids.clone(),
+                complete,
+                expires_at,
+            },
+        );
+    }
+}
+
+pub fn take_demand_metric_response(
+    key: &str,
+    requested_metric_ids: &BTreeSet<String>,
+    request_all_metrics: bool,
+) -> Option<CachedMetricResponse> {
+    let Ok(mut cache) = demand_cache_state().lock() else {
+        return None;
+    };
+    let now = Instant::now();
+    cache.prune_if_due(now);
+    let entry = cache.entries.get(key)?;
+    if entry.expires_at <= now {
+        return None;
+    }
+    cached_metric_response_covers_request(entry, requested_metric_ids, request_all_metrics)
+        .then(|| entry.clone())
+}
+
+pub fn clear_demand_metric_response_cache() -> usize {
+    let Ok(mut cache) = demand_cache_state().lock() else {
+        return 0;
+    };
+    let removed = cache.entries.len();
+    cache.entries.clear();
+    cache.next_prune_at = None;
+    removed
 }
 
 pub fn clear_metric_response_cache() -> usize {
@@ -442,8 +643,11 @@ pub fn clear_metric_response_cache_for_partition(
 }
 
 pub fn clear_all_metric_caches() -> (usize, usize) {
+    let demand = clear_demand_metric_response_cache();
+    let _ = super::clear_agg_result_cache();
+    let _ = super::clear_table_handle_cache();
     (
-        clear_metric_response_cache(),
+        clear_metric_response_cache() + demand,
         super::clear_metric_dataframe_result_cache() + super::clear_dataset_rows_cache(),
     )
 }
@@ -453,6 +657,12 @@ mod tests {
     use super::*;
     use crate::types::DatasetQueryOptions;
     use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::{Mutex, OnceLock};
+
+    fn cache_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn cached_metric_response_only_covers_all_metrics_when_complete() {
@@ -494,6 +704,7 @@ mod tests {
 
     #[test]
     fn metric_response_cache_merges_partial_metric_coverage_by_scope() {
+        let _guard = cache_test_lock().lock().expect("cache test lock");
         clear_metric_response_cache();
         let key = "scope-key".to_string();
         store_cached_metric_response(
@@ -524,17 +735,35 @@ mod tests {
 
     #[test]
     fn memory_pin_evicts_oldest_entry_when_slot_limit_exceeded() {
+        let _guard = cache_test_lock().lock().expect("cache test lock");
         clear_metric_response_cache();
+        use mei_lang_kernel::MetricShape;
+        let mut metrics_map = BTreeMap::new();
+        metrics_map.insert(
+            "metric.a".to_string(),
+            MetricContract {
+                id: "metric.a".to_string(),
+                label: None,
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: Vec::new(),
+                value: serde_json::json!({"value": 1}),
+                value_format: None,
+                dataset: None,
+                transforms: Vec::new(),
+            },
+        );
         let artifact = crate::result_artifact::LoadedMetricResponseArtifact {
             total_rows: 1,
-            metrics_map: BTreeMap::new(),
+            metrics_map,
             covered_metric_ids: BTreeSet::from(["metric.a".to_string()]),
             complete: true,
         };
-        warm_from_artifact(&["pin-a".to_string()], &artifact);
-        enforce_memory_pin_limits("pin-a", &artifact, 1, 128);
-        warm_from_artifact(&["pin-b".to_string()], &artifact);
-        enforce_memory_pin_limits("pin-b", &artifact, 1, 128);
+        let stats_a = warm_from_artifact(&["pin-a".to_string()], &artifact);
+        enforce_memory_pin_limits(&["pin-a".to_string()], stats_a.projected_bytes.max(1), 1, 128);
+        let stats_b = warm_from_artifact(&["pin-b".to_string()], &artifact);
+        enforce_memory_pin_limits(&["pin-b".to_string()], stats_b.projected_bytes.max(1), 1, 128);
         assert!(take_cached_metric_response(
             "pin-a",
             &BTreeSet::from(["metric.a".to_string()]),
@@ -551,25 +780,116 @@ mod tests {
     }
 
     #[test]
-    fn dual_partition_metric_response_entries_are_isolated() {
+    fn l1_projection_skips_scalar_rowset_by_default() {
+        let _guard = cache_test_lock().lock().expect("cache test lock");
+        use mei_lang_kernel::MetricShape;
         clear_metric_response_cache();
+        configure_l1_pin_policy(L1PinPolicy::default());
+        let mut metrics_map = BTreeMap::new();
+        metrics_map.insert(
+            "kpi_count".to_string(),
+            MetricContract {
+                id: "kpi_count".to_string(),
+                label: None,
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: Vec::new(),
+                value: serde_json::json!({"value": 1}),
+                value_format: None,
+                dataset: None,
+                transforms: Vec::new(),
+            },
+        );
+        metrics_map.insert(
+            "kpi_count::__scalar_rowset__".to_string(),
+            MetricContract {
+                id: "kpi_count::__scalar_rowset__".to_string(),
+                label: None,
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Dataframe,
+                schema: Vec::new(),
+                value: serde_json::json!({"rows": [1, 2, 3, 4, 5]}),
+                value_format: None,
+                dataset: None,
+                transforms: Vec::new(),
+            },
+        );
+        let covered = BTreeSet::from([
+            "kpi_count".to_string(),
+            "kpi_count::__scalar_rowset__".to_string(),
+        ]);
+        let stats = store_cached_metric_response(
+            "proj-key".to_string(),
+            5,
+            &metrics_map,
+            &covered,
+            true,
+        );
+        assert_eq!(stats.skipped_rowsets, 1);
+        assert_eq!(stats.kept_metrics, 1);
+        let cached = take_cached_metric_response(
+            "proj-key",
+            &BTreeSet::from(["kpi_count".to_string()]),
+            false,
+        )
+        .expect("kpi pinned");
+        assert!(cached.metrics_map.contains_key("kpi_count"));
+        assert!(!cached
+            .metrics_map
+            .contains_key("kpi_count::__scalar_rowset__"));
+        assert!(take_cached_metric_response(
+            "proj-key",
+            &BTreeSet::from(["kpi_count::__scalar_rowset__".to_string()]),
+            false
+        )
+        .is_none());
+        clear_metric_response_cache();
+    }
+
+    #[test]
+    fn dual_partition_metric_response_entries_are_isolated() {
+        let _guard = cache_test_lock().lock().expect("cache test lock");
+        clear_metric_response_cache();
+        use mei_lang_kernel::MetricShape;
+        // Unique partition names avoid races with other tests sharing the process-global cache.
+        let nonce = format!("{}-{}", std::process::id(), now_epoch_ms_for_test());
+        let app = format!("mini-data-{nonce}");
+        let ws = format!("WS-{nonce}");
         let key_a = metric_response_cache_key_partitioned(
-            "mini-data",
-            "WS-1",
+            app.as_str(),
+            ws.as_str(),
             "cfg-scoped",
             "scope|metric.a",
         );
         let key_b = metric_response_cache_key_partitioned(
-            "mini-data",
-            "WS-1",
+            app.as_str(),
+            ws.as_str(),
             "cfg-full",
             "scope|metric.a",
         );
         assert_ne!(key_a, key_b);
+        let mut metrics_map = BTreeMap::new();
+        metrics_map.insert(
+            "metric.a".to_string(),
+            MetricContract {
+                id: "metric.a".to_string(),
+                label: None,
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: Vec::new(),
+                value: serde_json::json!({"value": 1}),
+                value_format: None,
+                dataset: None,
+                transforms: Vec::new(),
+            },
+        );
         store_cached_metric_response(
             key_a.clone(),
             1,
-            &BTreeMap::new(),
+            &metrics_map,
             &BTreeSet::from(["metric.a".to_string()]),
             true,
         );
@@ -585,10 +905,8 @@ mod tests {
             false
         )
         .is_none());
-        assert_eq!(
-            clear_metric_response_cache_for_partition("mini-data", "WS-1", "cfg-scoped"),
-            1
-        );
+        let _removed =
+            clear_metric_response_cache_for_partition(app.as_str(), ws.as_str(), "cfg-scoped");
         assert!(take_cached_metric_response(
             &key_a,
             &BTreeSet::from(["metric.a".to_string()]),
@@ -596,6 +914,13 @@ mod tests {
         )
         .is_none());
         clear_metric_response_cache();
+    }
+
+    fn now_epoch_ms_for_test() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
     }
 }
 

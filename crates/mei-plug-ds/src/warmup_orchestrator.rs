@@ -10,7 +10,11 @@ use mei_host_graph::{
     record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
     WarmupTier,
 };
-use mei_lang_datasets::{snapshot_eval_cache_io, take_eval_cache_io_delta};
+use mei_lang_datasets::{
+    clear_dataset_rows_cache, clear_external_file_cache_for_app, memory_pinned_bytes,
+    project_metrics_map_for_l1, snapshot_eval_cache_io, take_eval_cache_io_delta,
+    take_lite_artifact_io_stats, L1PinPolicy, L1ProjectStats,
+};
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
     ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
@@ -52,6 +56,14 @@ pub struct WarmupOrchestratorReport {
     pub node_pack_loads: u64,
     pub node_pack_stores: u64,
     pub node_pack_store_skipped_full_hit: u64,
+    pub memory_pinned_bytes: u64,
+    pub rowset_skipped: u64,
+    pub oversized_skipped: u64,
+    pub projected_metric_count: u64,
+    pub lite_hydrated: u64,
+    pub lite_bytes: u64,
+    pub full_artifact_loads: u64,
+    pub lite_backfill: u64,
 }
 
 pub fn run_warmup_targets_with_tier(
@@ -61,6 +73,7 @@ pub fn run_warmup_targets_with_tier(
 ) -> anyhow::Result<WarmupOrchestratorReport> {
     let phase = ProcessPhaseTimer::start();
     let _ = snapshot_eval_cache_io();
+    let _ = take_lite_artifact_io_stats();
     let started = Instant::now();
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     let memory_cfg = memory_warmup_config(&config.runtime.memory_warmup);
@@ -116,21 +129,29 @@ pub fn run_warmup_targets_with_tier(
                         primary_scope = target.scope_key.clone();
                         primary_workset = target.workset_id.clone();
                     }
+                    // Drop bulk row caches after each workset; Disk pack already persisted.
+                    let _ = clear_dataset_rows_cache();
+                    let _ = clear_external_file_cache_for_app(ctx.app_root().as_path());
                 }
                 Err(error) => {
                     failed_count += record_warmup_target_failure(ctx, target, error.to_string())?;
                 }
             }
         }
+        // In-process map for Memory/Client tiers keeps only lite projection.
+        project_warmup_metrics_map(&mut metrics_map, &memory_cfg);
         disk_tier_ms = disk_started.elapsed().as_millis() as u64;
     }
 
     let mut memory_hydrated = 0usize;
     let mut memory_tier_ms = 0u64;
+    let mut l1_project_stats = L1ProjectStats::default();
     if tier.wants_memory() && memory_cfg.enabled && !all_slots.is_empty() {
         let memory_started = Instant::now();
-        memory_hydrated = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
-        mark_descriptors_memory_ready(&mut all_slots);
+        let (hydrated, stats) = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
+        memory_hydrated = hydrated;
+        l1_project_stats = stats;
+        mark_descriptors_memory_ready(&mut all_slots, memory_cfg.pin_rowsets);
         if memory_hydrated == 0 && tier == WarmupTier::Memory {
             for target in &targets {
                 let (compiled, compile_revision) =
@@ -164,10 +185,16 @@ pub fn run_warmup_targets_with_tier(
                     all_slots.extend(outcome.descriptors);
                 }
             }
-            memory_hydrated = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
-            mark_descriptors_memory_ready(&mut all_slots);
+            project_warmup_metrics_map(&mut metrics_map, &memory_cfg);
+            let (hydrated, stats) = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
+            memory_hydrated = hydrated;
+            l1_project_stats = stats;
+            mark_descriptors_memory_ready(&mut all_slots, memory_cfg.pin_rowsets);
         }
         memory_tier_ms = memory_started.elapsed().as_millis() as u64;
+        // Disk/eval may have filled bulk row caches; L1 already holds projected KPIs.
+        let _ = clear_dataset_rows_cache();
+        let _ = clear_external_file_cache_for_app(ctx.app_root().as_path());
     }
 
     let max_client = client_cfg
@@ -261,6 +288,7 @@ pub fn run_warmup_targets_with_tier(
     let disk_bytes = warmup_disk_bytes(ctx);
     let process = phase.finish();
     let io = take_eval_cache_io_delta();
+    let lite_io = take_lite_artifact_io_stats();
     let unique_content_hash_count = all_slots
         .iter()
         .map(|slot| slot.content_hash.as_str())
@@ -296,7 +324,32 @@ pub fn run_warmup_targets_with_tier(
         node_pack_loads: io.node_pack_loads,
         node_pack_stores: io.node_pack_stores,
         node_pack_store_skipped_full_hit: io.node_pack_store_skipped_full_hit,
+        memory_pinned_bytes: memory_pinned_bytes() as u64,
+        rowset_skipped: l1_project_stats.skipped_rowsets as u64,
+        oversized_skipped: l1_project_stats.skipped_oversized as u64,
+        projected_metric_count: l1_project_stats.kept_metrics as u64,
+        lite_hydrated: lite_io.lite_hydrated,
+        lite_bytes: lite_io.lite_bytes,
+        full_artifact_loads: lite_io.full_artifact_loads,
+        lite_backfill: lite_io.lite_backfill,
     })
+}
+
+fn project_warmup_metrics_map(
+    metrics_map: &mut BTreeMap<String, MetricContract>,
+    memory_cfg: &MemoryWarmupConfig,
+) {
+    if metrics_map.is_empty() {
+        return;
+    }
+    let policy = L1PinPolicy {
+        pin_rowsets: memory_cfg.pin_rowsets,
+        max_pinned_value_bytes: memory_cfg.max_pinned_value_bytes,
+    };
+    let covered: BTreeSet<String> = metrics_map.keys().cloned().collect();
+    let (projected, _covered, _stats) =
+        project_metrics_map_for_l1(metrics_map, &covered, &policy);
+    *metrics_map = projected;
 }
 
 fn expand_targets_for_client_neighbors(
@@ -428,7 +481,8 @@ pub fn hydrate_existing_l1_slots(ctx: &HostContext, scope_key: &str) -> anyhow::
             })
         })
         .collect();
-    hydrate_slots_to_memory(ctx, &descriptors, &memory_cfg)
+    let (hydrated, _stats) = hydrate_slots_to_memory(ctx, &descriptors, &memory_cfg)?;
+    Ok(hydrated)
 }
 
 fn memory_warmup_config(config: &Option<MemoryWarmupConfig>) -> MemoryWarmupConfig {

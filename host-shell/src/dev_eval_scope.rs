@@ -51,10 +51,6 @@ impl DevEvalProfile {
         matches!(self, Self::Static)
     }
 
-    pub fn allows_rewarm(self) -> bool {
-        matches!(self, Self::Full)
-    }
-
     pub fn forces_static_ceiling(self) -> bool {
         matches!(self, Self::Static)
     }
@@ -218,22 +214,42 @@ impl DevEvalConfig {
     }
 
     pub fn allows_rewarm(&self) -> bool {
-        self.runtime_plan
-            .as_ref()
-            .map(|plan| {
-                plan.default_mode == RuntimeMode::Hot
-                    || effective_app_plan(plan, self.runtime_app_id.as_deref().unwrap_or("*"))
-                        .is_some_and(|app| {
-                            app.targets
-                                .iter()
-                                .any(|target| target.mode == RuntimeMode::Hot)
-                                || app
-                                    .metric_overrides
-                                    .values()
-                                    .any(|mode| *mode == RuntimeMode::Hot)
-                        })
-            })
-            .unwrap_or_else(|| self.profile.allows_rewarm())
+        // Pack-First disk rewarm is independent of launch hydration mode.
+        // `lazy` means "don't require Hot Memory at ACCESS READY", not "skip
+        // writing metric-response / lite packs". Only fully frozen (or static
+        // profile) should skip rewarm — otherwise the first home visit live-evals
+        // frontier rowsets and spikes process RSS into multi-GB.
+        if matches!(self.profile, DevEvalProfile::Static) {
+            return false;
+        }
+        if let Some(plan) = self.runtime_plan.as_ref() {
+            let app_id = self.runtime_app_id.as_deref().unwrap_or("*");
+            if let Some(app) = effective_app_plan(plan, app_id) {
+                let overrides_all_frozen = !app.metric_overrides.is_empty()
+                    && app
+                        .metric_overrides
+                        .values()
+                        .all(|mode| *mode == RuntimeMode::Frozen);
+                let targets_all_frozen = !app.targets.is_empty()
+                    && app
+                        .targets
+                        .iter()
+                        .all(|target| target.mode == RuntimeMode::Frozen);
+                if plan.default_mode == RuntimeMode::Frozen
+                    && (app.targets.is_empty() || targets_all_frozen)
+                    && (app.metric_overrides.is_empty() || overrides_all_frozen)
+                {
+                    return false;
+                }
+                return true;
+            }
+            return plan.default_mode != RuntimeMode::Frozen;
+        }
+        match self.profile {
+            DevEvalProfile::Full => true,
+            DevEvalProfile::Static => false,
+            DevEvalProfile::Scoped => !self.warmup_scopes.is_empty(),
+        }
     }
 
     fn runtime_mode_for_scope(&self, preview_scope: &str) -> RuntimeMode {

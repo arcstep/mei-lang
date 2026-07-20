@@ -27,6 +27,7 @@ pub use warmup::{
     collect_warmup_targets_for_scopes_with_filter, frontier_targets_from_metrics,
     WarmupScopeFilter, WarmupTarget,
 };
+pub use memory_warmup::apply_memory_warmup_pin_policy;
 pub use warmup_orchestrator::{
     hydrate_existing_l1_slots, run_warmup_targets_with_tier, WarmupOrchestratorReport,
 };

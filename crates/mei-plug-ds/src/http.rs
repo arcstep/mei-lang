@@ -255,9 +255,17 @@ mod tests {
             r#"{"schemaVersion":1,"workspace":{"id":"test","defaultApp":"data-demo"}}"#,
         )
         .expect("write workspace");
-        std::fs::create_dir_all(tmp.path().join("apps/data-demo")).expect("create app dir");
+        let app_root = tmp.path().join("apps/data-demo");
+        let env_dir = app_root.join("env").join("WS-20260720.0");
+        std::fs::create_dir_all(env_dir.join("build")).expect("create build dir");
+        std::fs::create_dir_all(env_dir.join("var")).expect("create var dir");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260720.0", app_root.join("env/current"))
+            .expect("symlink env/current");
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(app_root.join("env/current")).expect("create env/current");
         std::fs::write(
-            tmp.path().join("apps/data-demo/app.config.json"),
+            app_root.join("app.config.json"),
             r#"{"schemaVersion":1}"#,
         )
         .expect("write app config");

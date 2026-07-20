@@ -242,6 +242,16 @@ pub struct MemoryWarmupConfig {
     pub max_pinned_slots: usize,
     #[serde(default = "default_memory_pin_max_mb", rename = "maxPinnedMb")]
     pub max_pinned_mb: usize,
+    /// When false (default), `::__scalar_rowset__` payloads are not pinned into L1.
+    /// Disk packs remain complete for Pack-First; rowsets load on demand.
+    #[serde(default = "default_memory_pin_rowsets", rename = "pinRowsets")]
+    pub pin_rowsets: bool,
+    /// Drop individual metric values larger than this from L1 pin projection.
+    #[serde(
+        default = "default_memory_max_pinned_value_bytes",
+        rename = "maxPinnedValueBytes"
+    )]
+    pub max_pinned_value_bytes: usize,
 }
 
 fn default_memory_pin_max_slots() -> usize {
@@ -252,12 +262,22 @@ fn default_memory_pin_max_mb() -> usize {
     128
 }
 
+fn default_memory_pin_rowsets() -> bool {
+    false
+}
+
+fn default_memory_max_pinned_value_bytes() -> usize {
+    256 * 1024
+}
+
 impl Default for MemoryWarmupConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             max_pinned_slots: default_memory_pin_max_slots(),
             max_pinned_mb: default_memory_pin_max_mb(),
+            pin_rowsets: default_memory_pin_rowsets(),
+            max_pinned_value_bytes: default_memory_max_pinned_value_bytes(),
         }
     }
 }

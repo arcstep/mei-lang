@@ -305,56 +305,61 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             &dependency_revision_key,
         );
         if let Some((cached_metrics_map, cached_total_rows)) = lookup_agg_result_cache(&agg_key) {
-            let metrics = if request_all_metrics {
-                cached_metrics_map.values().cloned().collect()
-            } else {
-                project_requested_metrics(
+            // Agg cache is L1-shaped (no rowsets). Skip when the request needs
+            // bulk rowsets or when request_all would expect a full map.
+            let agg_covers_request = !request_all_metrics
+                && !eval_plan
+                    .request_metric_ids
+                    .iter()
+                    .any(|metric_id| super::metric_id_is_scalar_rowset(metric_id));
+            if agg_covers_request {
+                let metrics = project_requested_metrics(
                     &eval_plan.owner.id,
                     &eval_plan.request_metric_ids,
                     &owner_dataset.runtime_metric_defs,
                     &cached_metrics_map,
-                )
-            };
-            let mut query_perf = BTreeMap::new();
-            query_perf.insert("agg_cache_hit".to_string(), 1);
-            return Ok(RuntimeMetricEvalOutcome {
-                primary_resource_id: eval_plan.primary.id.clone(),
-                owner_resource_id: eval_plan.owner.id.clone(),
-                request_metric_ids: eval_plan.request_metric_ids.clone(),
-                closure_metric_ids,
-                covered_eval_metric_ids,
-                dependency_revision_key: dependency_revision_key.clone(),
-                workset_artifact_hit,
-                eval_artifact_hit: false,
-                total_rows: cached_total_rows,
-                metrics_map: cached_metrics_map,
-                metrics,
-                query_perf,
-                hydrate_perf: BTreeMap::new(),
-                base_rowset_materialize_ms: 0,
-                query_ms: 0,
-                hydrate_ms: 0,
-                eval_scope_ms: 0,
-                workset_artifact_load_ms,
-                eval_artifact_load_ms: 0,
-                eval_node_artifact_load_ms: 0,
-                eval_node_artifact_hits: 0,
-                eval_node_artifact_stores: 0,
-                metric_eval_ms: 0,
-                eval_scope: runtime_metric_eval_scope(
-                    Some(primary_dataset),
-                    &eval_plan.primary.id,
-                    scene_id,
-                    scene_path,
-                    query_state.search.as_deref(),
-                    &query_state.filters,
-                    Some(query_state),
-                    filter_intents,
-                    &dependency_revision_key,
-                    &[],
-                )?,
-                eval_report: None,
-            });
+                );
+                let mut query_perf = BTreeMap::new();
+                query_perf.insert("agg_cache_hit".to_string(), 1);
+                return Ok(RuntimeMetricEvalOutcome {
+                    primary_resource_id: eval_plan.primary.id.clone(),
+                    owner_resource_id: eval_plan.owner.id.clone(),
+                    request_metric_ids: eval_plan.request_metric_ids.clone(),
+                    closure_metric_ids,
+                    covered_eval_metric_ids,
+                    dependency_revision_key: dependency_revision_key.clone(),
+                    workset_artifact_hit,
+                    eval_artifact_hit: false,
+                    total_rows: cached_total_rows,
+                    metrics_map: cached_metrics_map,
+                    metrics,
+                    query_perf,
+                    hydrate_perf: BTreeMap::new(),
+                    base_rowset_materialize_ms: 0,
+                    query_ms: 0,
+                    hydrate_ms: 0,
+                    eval_scope_ms: 0,
+                    workset_artifact_load_ms,
+                    eval_artifact_load_ms: 0,
+                    eval_node_artifact_load_ms: 0,
+                    eval_node_artifact_hits: 0,
+                    eval_node_artifact_stores: 0,
+                    metric_eval_ms: 0,
+                    eval_scope: runtime_metric_eval_scope(
+                        Some(primary_dataset),
+                        &eval_plan.primary.id,
+                        scene_id,
+                        scene_path,
+                        query_state.search.as_deref(),
+                        &query_state.filters,
+                        Some(query_state),
+                        filter_intents,
+                        &dependency_revision_key,
+                        &[],
+                    )?,
+                    eval_report: None,
+                });
+            }
         }
     }
 

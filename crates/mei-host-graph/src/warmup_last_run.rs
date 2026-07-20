@@ -60,6 +60,22 @@ pub struct WarmupLastRunRecord {
     pub tier: String,
     #[serde(default)]
     pub memory_hydrated: usize,
+    #[serde(default)]
+    pub memory_pinned_bytes: u64,
+    #[serde(default)]
+    pub rowset_skipped: u64,
+    #[serde(default)]
+    pub oversized_skipped: u64,
+    #[serde(default)]
+    pub projected_metric_count: u64,
+    #[serde(default)]
+    pub lite_hydrated: u64,
+    #[serde(default)]
+    pub lite_bytes: u64,
+    #[serde(default)]
+    pub full_artifact_loads: u64,
+    #[serde(default)]
+    pub lite_backfill: u64,
 }
 
 pub fn write_warmup_last_run(app_root: &Path, record: &WarmupLastRunRecord) -> anyhow::Result<()> {
@@ -109,6 +125,14 @@ pub fn warmup_last_run_json(app_root: &Path) -> Value {
                 "nodePackStoreSkippedFullHit": record.node_pack_store_skipped_full_hit,
                 "tier": record.tier,
                 "memoryHydrated": record.memory_hydrated,
+                "memoryPinnedBytes": record.memory_pinned_bytes,
+                "rowsetSkipped": record.rowset_skipped,
+                "oversizedSkipped": record.oversized_skipped,
+                "projectedMetricCount": record.projected_metric_count,
+                "liteHydrated": record.lite_hydrated,
+                "liteBytes": record.lite_bytes,
+                "fullArtifactLoads": record.full_artifact_loads,
+                "liteBackfill": record.lite_backfill,
             })
         })
         .unwrap_or_else(|| json!(null))

@@ -449,9 +449,16 @@ pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
     crate::mei_config::build_store::resolve_app_var_root_following_active(app_root)
 }
 
-/// 求值物化缓存根：`apps/{appId}/var/active/eval-cache/`。
+/// 求值物化缓存根：`apps/{appId}/var/active/eval-cache/`（可跟随 instance var overlay）。
 pub fn resolve_app_eval_cache_root(app_root: &Path) -> PathBuf {
     resolve_app_var_root(app_root).join("eval-cache")
+}
+
+/// Prebuild Pack 真源上的 eval-cache（不跟随 `MEI_APP_RUNTIME_VAR_ROOT`）。
+/// Runtime hydrate / demand load 在 instance overlay 未播种时回退到此路径。
+pub fn resolve_app_build_eval_cache_root(app_root: &Path) -> PathBuf {
+    crate::mei_config::build_store::resolve_app_build_var_root_following_active(app_root)
+        .join("eval-cache")
 }
 
 /// xlsx parquet 快照根：`apps/{appId}/env/{ver}/var/data-snapshots/`（只读构建产物，不经 instance var）。

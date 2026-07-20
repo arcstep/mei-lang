@@ -5,10 +5,14 @@ use mei_host_core::{CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{default_metric_response_descriptor, record_slot_failed};
 use mei_lang_datasets::{
     collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics,
-    load_metric_response_result_artifact, metric_request_revision_fingerprint_for_compiled,
+    load_metric_response_lite_artifact, load_metric_response_result_artifact,
+    metric_id_is_scalar_rowset, metric_request_revision_fingerprint_for_compiled,
     metric_response_cache_scope_key, populate_l1_from_loaded_metric_artifact,
-    project_requested_metrics, store_cached_metric_response, store_cached_metric_response_aliases,
-    store_metric_response_result_artifact, take_cached_metric_response, RuntimeMetricEvalMode,
+    project_metrics_map_for_l1, project_requested_metrics, request_needs_bulk_l1_metrics,
+    store_cached_metric_response, store_cached_metric_response_aliases,
+    store_demand_metric_response, store_metric_response_result_artifact,
+    take_cached_metric_response, take_demand_metric_response, L1PinPolicy,
+    LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
 
@@ -93,11 +97,13 @@ pub fn eval_metrics_with_slots(
     let result_artifact_candidate =
         default_result_artifact_scope(&request.query_state, &request.filter_intents);
 
+    let needs_bulk = request_needs_bulk_l1_metrics(&requested, request_all_metrics);
+
     for lookup_cache_key in &lookup_cache_keys {
         if let Some(cached) =
             take_cached_metric_response(lookup_cache_key.as_str(), &requested, request_all_metrics)
         {
-            store_cached_metric_response_aliases(
+            let _ = store_cached_metric_response_aliases(
                 &lookup_cache_keys,
                 cached.total_rows,
                 &cached.metrics_map,
@@ -118,7 +124,102 @@ pub fn eval_metrics_with_slots(
         }
     }
 
+    if needs_bulk {
+        for lookup_cache_key in &lookup_cache_keys {
+            if let Some(cached) = take_demand_metric_response(
+                lookup_cache_key.as_str(),
+                &requested,
+                request_all_metrics,
+            ) {
+                let _ = populate_l1_from_loaded_metric_artifact(
+                    &lookup_cache_keys,
+                    &LoadedMetricResponseArtifact {
+                        total_rows: cached.total_rows,
+                        metrics_map: (*cached.metrics_map).clone(),
+                        covered_metric_ids: cached.covered_metric_ids.clone(),
+                        complete: cached.complete,
+                    },
+                );
+                return Ok(build_outcome_from_cached(
+                    request,
+                    dependency_revision_key.as_str(),
+                    lookup_cache_key.as_str(),
+                    started,
+                    cached.total_rows,
+                    &cached.metrics_map,
+                    "demand",
+                    true,
+                    false,
+                ));
+            }
+        }
+    }
+
     if result_artifact_candidate {
+        // Non-bulk: prefer lite sibling (avoids deserializing multi-MB full packs into RSS).
+        if !needs_bulk {
+            for lookup_cache_key in &lookup_cache_keys {
+                let Some((artifact, artifact_load_ms, _stats)) =
+                    load_metric_response_lite_artifact(
+                        app_root.as_path(),
+                        lookup_cache_key.as_str(),
+                    )?
+                else {
+                    continue;
+                };
+                let artifact_covers_request = if request_all_metrics {
+                    artifact.complete
+                        && requested.iter().all(|metric_id| {
+                            artifact.covered_metric_ids.contains(metric_id)
+                                || artifact.metrics_map.contains_key(metric_id)
+                        })
+                } else {
+                    requested.iter().all(|metric_id| {
+                        artifact.covered_metric_ids.contains(metric_id)
+                            || artifact.metrics_map.contains_key(metric_id)
+                    })
+                };
+                if artifact_covers_request {
+                    let _ = populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
+                    let query_perf = BTreeMap::from([(
+                        "result_artifact_lite_load_ms".to_string(),
+                        artifact_load_ms,
+                    )]);
+                    let metrics = project_requested_metrics(
+                        request.owner_resource_id.as_str(),
+                        &request.metric_ids,
+                        &BTreeMap::new(),
+                        &artifact.metrics_map,
+                    );
+                    let descriptors = build_descriptors_for_metrics(
+                        request,
+                        dependency_revision_key.as_str(),
+                        lookup_cache_key.as_str(),
+                        artifact_load_ms,
+                        true,
+                        "disk",
+                        CacheLayersReady {
+                            disk: true,
+                            memory: true,
+                            client: false,
+                        },
+                    );
+                    return Ok(EvalPipelineOutcome {
+                        descriptors,
+                        cache_key: lookup_cache_key.clone(),
+                        artifact_hit: true,
+                        cache_layer: "disk".to_string(),
+                        result_artifact_hit: true,
+                        wall_ms: started.elapsed().as_millis() as u64,
+                        metrics,
+                        total_rows: artifact.total_rows,
+                        query_perf,
+                    });
+                }
+            }
+        }
+
+        // Bulk (or lite miss): full pack load; pin only via projection / demand TTL.
         for lookup_cache_key in &lookup_cache_keys {
             let Some((artifact, artifact_load_ms)) = load_metric_response_result_artifact(
                 app_root.as_path(),
@@ -135,7 +236,25 @@ pub fn eval_metrics_with_slots(
                     .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
             };
             if artifact_covers_request {
-                populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
+                // Never pin full bulk into L1; projection path drops rowsets.
+                let _ = populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
+                if needs_bulk {
+                    let demand_map: BTreeMap<String, MetricContract> = artifact
+                        .metrics_map
+                        .iter()
+                        .filter(|(metric_id, _)| {
+                            request_all_metrics || requested.contains(*metric_id)
+                        })
+                        .map(|(metric_id, contract)| (metric_id.clone(), contract.clone()))
+                        .collect();
+                    store_demand_metric_response(
+                        &lookup_cache_keys,
+                        artifact.total_rows,
+                        &demand_map,
+                        &requested,
+                        artifact.complete,
+                    );
+                }
                 let query_perf =
                     BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
                 let metrics = project_requested_metrics(
@@ -144,6 +263,7 @@ pub fn eval_metrics_with_slots(
                     &BTreeMap::new(),
                     &artifact.metrics_map,
                 );
+                let memory_ready = !needs_bulk;
                 let descriptors = build_descriptors_for_metrics(
                     request,
                     dependency_revision_key.as_str(),
@@ -153,7 +273,7 @@ pub fn eval_metrics_with_slots(
                     "disk",
                     CacheLayersReady {
                         disk: true,
-                        memory: true,
+                        memory: memory_ready,
                         client: false,
                     },
                 );
@@ -172,7 +292,7 @@ pub fn eval_metrics_with_slots(
         }
     }
 
-    let eval = match evaluate_runtime_metrics(
+    let mut eval = match evaluate_runtime_metrics(
         compiled,
         app_root.as_path(),
         request.owner_resource_id.as_str(),
@@ -194,15 +314,55 @@ pub fn eval_metrics_with_slots(
             return Err(error);
         }
     };
-    store_metric_response_result_artifact(
-        app_root.as_path(),
-        cache_key.as_str(),
-        eval.total_rows,
-        &eval.metrics_map,
-        &requested,
-        requested.len() == request.metric_ids.len(),
-    )?;
-    store_cached_metric_response(
+    // Persist Disk full packs only when the eval map still carries rowsets (live
+    // compute) or no artifact exists yet. Agg-cache hits return L1-projected maps
+    // and must not clobber an existing full pack.
+    let map_has_rowsets = eval
+        .metrics_map
+        .keys()
+        .any(|metric_id| metric_id_is_scalar_rowset(metric_id));
+    if map_has_rowsets
+        || needs_bulk
+        || !mei_lang_datasets::metric_response_result_artifact_exists(
+            app_root.as_path(),
+            cache_key.as_str(),
+        )
+    {
+        store_metric_response_result_artifact(
+            app_root.as_path(),
+            cache_key.as_str(),
+            eval.total_rows,
+            &eval.metrics_map,
+            &requested,
+            requested.len() == request.metric_ids.len(),
+        )?;
+    }
+    if needs_bulk {
+        // Demand cache may hold rowsets, but only the requested subset — never the
+        // full frontier-expanded metrics_map working set.
+        let demand_map: BTreeMap<String, MetricContract> = eval
+            .metrics_map
+            .iter()
+            .filter(|(metric_id, _)| requested.contains(*metric_id))
+            .map(|(metric_id, contract)| (metric_id.clone(), contract.clone()))
+            .collect();
+        store_demand_metric_response(
+            &lookup_cache_keys,
+            eval.total_rows,
+            &demand_map,
+            &requested,
+            requested.len() == request.metric_ids.len(),
+        );
+    }
+    // After Disk dual-write, collapse the in-process map to L1 shape so KPI
+    // request paths do not keep frontier rowsets as residents.
+    if !needs_bulk {
+        let covered: BTreeSet<String> = eval.metrics_map.keys().cloned().collect();
+        let (projected, _, _) =
+            project_metrics_map_for_l1(&eval.metrics_map, &covered, &L1PinPolicy::default());
+        eval.metrics_map = projected;
+    }
+    let _ = store_cached_metric_response(
         cache_key.clone(),
         eval.total_rows,
         &eval.metrics_map,
@@ -210,6 +370,9 @@ pub fn eval_metrics_with_slots(
         requested.len() == request.metric_ids.len(),
     );
     let wall_ms = started.elapsed().as_millis() as u64;
+    let memory_ready = request.metric_ids.iter().all(|metric_id| {
+        !metric_id_is_scalar_rowset(metric_id)
+    }) && !request_all_metrics;
     let descriptors = build_descriptors_for_metrics(
         request,
         dependency_revision_key.as_str(),
@@ -219,7 +382,7 @@ pub fn eval_metrics_with_slots(
         "compute",
         CacheLayersReady {
             disk: true,
-            memory: true,
+            memory: memory_ready,
             client: false,
         },
     );

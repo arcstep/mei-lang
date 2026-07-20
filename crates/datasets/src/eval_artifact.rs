@@ -502,11 +502,25 @@ mod tests {
     }
 
     fn temp_app_root(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
+        let app_root = std::env::temp_dir().join(format!(
             "mei-eval-artifact-{name}-{}-{}",
             std::process::id(),
             now_epoch_ms()
-        ))
+        ));
+        let _ = fs::remove_dir_all(&app_root);
+        let env_dir = app_root.join("env").join("WS-20260720.0");
+        let _ = fs::create_dir_all(env_dir.join("build"));
+        let _ = fs::create_dir_all(env_dir.join("var"));
+        let current = app_root.join("env").join("current");
+        #[cfg(unix)]
+        {
+            let _ = std::os::unix::fs::symlink("WS-20260720.0", &current);
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = fs::create_dir_all(&current);
+        }
+        app_root
     }
 
     fn workset_artifact_file(app_root: &Path) -> PathBuf {
@@ -521,7 +535,6 @@ mod tests {
     #[test]
     fn corrupt_workset_artifact_is_rebuilt_without_error() {
         let app_root = temp_app_root("corrupt");
-        let _ = fs::remove_dir_all(&app_root);
         let dataset = minimal_dataset();
         let owner = "owner::metrics";
         let metrics = vec!["metric-a".to_string()];
@@ -546,7 +559,6 @@ mod tests {
     #[test]
     fn legacy_v1_workset_artifact_is_rebuilt_without_error() {
         let app_root = temp_app_root("legacy-v1");
-        let _ = fs::remove_dir_all(&app_root);
         let dataset = minimal_dataset();
         let owner = "owner::metrics";
         let metrics = vec!["metric-a".to_string()];
