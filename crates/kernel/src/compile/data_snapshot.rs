@@ -16,7 +16,9 @@ use parquet::file::properties::WriterProperties;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::loaders::{load_csv_table_snapshot, load_xlsx_table_snapshot, XlsxTableSnapshot};
+use super::loaders::{
+    load_csv_table_snapshot, load_json_table_snapshot, load_xlsx_table_snapshot, XlsxTableSnapshot,
+};
 use super::scene_payload_cache::file_mtime_ms;
 use crate::{resolve_versioned_source_identifier, resolve_versioned_source_path};
 
@@ -345,8 +347,15 @@ pub fn write_xlsx_parquet_snapshot(
             .extension()
             .and_then(|value| value.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("csv"));
+    let is_json = source_path.to_ascii_lowercase().ends_with(".json")
+        || absolute
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
     let snapshot = if is_csv {
         load_csv_table_snapshot(absolute.as_path(), header_row.max(1), None)?
+    } else if is_json {
+        load_json_table_snapshot(absolute.as_path(), None)?
     } else {
         load_xlsx_table_snapshot(
             absolute.as_path(),

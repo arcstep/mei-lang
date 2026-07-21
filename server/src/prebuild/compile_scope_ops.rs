@@ -688,7 +688,7 @@ pub(crate) fn collect_required_xlsx_sources<'a>(
             let Some(dataset) = resource.dataset.as_ref() else {
                 continue;
             };
-            if !matches!(dataset.source.kind.trim(), "xlsx" | "xls" | "csv") {
+            if !matches!(dataset.source.kind.trim(), "xlsx" | "xls" | "csv" | "json") {
                 continue;
             }
             out.insert((

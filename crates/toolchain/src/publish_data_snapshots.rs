@@ -79,6 +79,7 @@ fn discover_xlsx_sources(app_root: &Path) -> Vec<String> {
         if !ext.eq_ignore_ascii_case("xlsx")
             && !ext.eq_ignore_ascii_case("xls")
             && !ext.eq_ignore_ascii_case("csv")
+            && !ext.eq_ignore_ascii_case("json")
         {
             continue;
         }

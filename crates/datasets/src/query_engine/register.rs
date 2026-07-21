@@ -11,7 +11,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use mei_lang_kernel::{
     data_snapshot_store_root, parse_geojson_rows, parquet_snapshot_path,
-    resolve_data_snapshot_import_entry, ColumnSchema, DatasetView,
+    resolve_data_snapshot_import_entry, write_xlsx_parquet_snapshot, ColumnSchema, DatasetView,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
@@ -39,12 +39,44 @@ pub fn resolve_parquet_for_dataset_view(
         return resolve_or_materialize_geojson_attr_parquet(app_root, view.source.path.as_str());
     }
     let header = view.source.header_row.unwrap_or(1).max(1) as usize;
-    Ok(resolve_parquet_file_for_source(
+    if let Some(path) = resolve_parquet_file_for_source(
         app_root,
         view.source.path.as_str(),
         view.source.sheet.as_deref(),
         header,
-    ))
+    ) {
+        return Ok(Some(path));
+    }
+    // Demand-load materialize for tabular file sources when prebuild snapshot is missing.
+    let kind = view.source.kind.trim().to_ascii_lowercase();
+    if !matches!(kind.as_str(), "csv" | "json" | "xlsx" | "xls" | "file" | "") {
+        return Ok(None);
+    }
+    let path = view.source.path.as_str();
+    let lower = path.to_ascii_lowercase();
+    if !(lower.ends_with(".csv")
+        || lower.ends_with(".json")
+        || lower.ends_with(".xlsx")
+        || lower.ends_with(".xls"))
+    {
+        return Ok(None);
+    }
+    match write_xlsx_parquet_snapshot(
+        app_root,
+        path,
+        view.source.sheet.as_deref(),
+        header,
+    ) {
+        Ok(written) => Ok(Some(written)),
+        Err(err) => {
+            tracing::debug!(
+                error = %err,
+                source = path,
+                "demand-load parquet snapshot failed"
+            );
+            Ok(None)
+        }
+    }
 }
 
 /// Materialize GeoJSON feature properties (no coordinates) into a cached parquet

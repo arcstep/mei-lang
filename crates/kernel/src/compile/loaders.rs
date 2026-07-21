@@ -354,6 +354,55 @@ pub fn load_csv_table_snapshot(
     })
 }
 
+/// 从 JSON 数组表读取快照（顶层必须是 object 数组；嵌套值序列化为字符串）。
+pub fn load_json_table_snapshot(
+    path: &Path,
+    max_rows: Option<usize>,
+) -> Result<XlsxTableSnapshot> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("failed to read json {}", path.display()))?;
+    let json: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("invalid json {}", path.display()))?;
+    let rows_in = json
+        .as_array()
+        .cloned()
+        .with_context(|| format!("json root must be an array: {}", path.display()))?;
+    let mut columns: Vec<String> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for row in &rows_in {
+        let Some(obj) = row.as_object() else {
+            continue;
+        };
+        for key in obj.keys() {
+            if seen.insert(key.clone()) {
+                columns.push(key.clone());
+            }
+        }
+    }
+    let columns = materialize_xlsx_column_headers(&columns);
+    let mut out = Vec::new();
+    for row in rows_in {
+        if max_rows.is_some_and(|cap| out.len() >= cap) {
+            break;
+        }
+        let Some(obj) = row.as_object() else {
+            continue;
+        };
+        let mut mapped = Map::new();
+        for col in &columns {
+            let cell = obj.get(col).cloned().unwrap_or(Value::Null);
+            mapped.insert(col.clone(), cell);
+        }
+        if mapped.values().any(|value| !value.is_null()) {
+            out.push(Value::Object(mapped));
+        }
+    }
+    Ok(XlsxTableSnapshot {
+        columns,
+        rows: out,
+    })
+}
+
 /// 从 `.xlsx` 或 OLE 容器内的 `.xls` 读取完整表快照（表头行号从 1 计数，与 `ds.xlsx(..., header_row = n)` 一致）。
 pub fn load_xlsx_table_snapshot(
     path: &Path,
