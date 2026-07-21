@@ -4,9 +4,10 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::ColumnSchema;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
-use super::connection::with_app_connection;
+use super::arrow_json::{batches_to_json_rows, first_scalar_f64, first_scalar_i64};
+use super::connection::{block_on, with_app_session};
 use super::register::ensure_parquet_view;
 use super::sql::{build_where_clause, quote_ident};
 use super::{record_duckdb_query_ms, record_rows_materialized};
@@ -68,19 +69,24 @@ pub fn query_parquet_page(app_root: &Path, req: DuckdbPageQuery<'_>) -> Result<D
         page.saturating_sub(1).saturating_mul(page_size)
     };
 
-    let (total, rows) = with_app_connection(app_root, |conn| {
+    let (total, rows) = with_app_session(app_root, |ctx| {
         let count_sql = format!("SELECT COUNT(*) FROM {view_ident}{where_sql}");
-        let total: i64 = conn
-            .query_row(&count_sql, [], |row| row.get(0))
-            .with_context(|| format!("duckdb count: {count_sql}"))?;
+        let total = block_on(async {
+            let batches = ctx
+                .sql(&count_sql)
+                .await
+                .with_context(|| format!("query engine count: {count_sql}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect count: {count_sql}"))?;
+            first_scalar_i64(&batches)
+        })?;
 
         let limit_sql = if collect_all {
             String::new()
         } else {
-            // Fetch one extra row to compute has_more without a second COUNT round-trip on page.
             format!(" LIMIT {} OFFSET {offset}", page_size.saturating_add(1))
         };
-        // Project view columns by name (avoid Statement::column_name before execute).
         let select_list = columns_for_select
             .iter()
             .map(|c| quote_ident(c))
@@ -91,24 +97,20 @@ pub fn query_parquet_page(app_root: &Path, req: DuckdbPageQuery<'_>) -> Result<D
         } else {
             format!("SELECT {select_list} FROM {view_ident}{where_sql}{limit_sql}")
         };
-        let mut stmt = conn
-            .prepare(&select_sql)
-            .with_context(|| format!("prepare page query: {select_sql}"))?;
-        let col_names = columns_for_select;
-        let mut rows = Vec::new();
-        let mut rows_iter = stmt.query([])?;
-        while let Some(row) = rows_iter.next()? {
-            let mut map = Map::new();
-            for (idx, name) in col_names.iter().enumerate() {
-                let value = duck_value_to_json(row, idx)?;
-                let out_name = req
-                    .normalize
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| name.clone());
-                map.insert(out_name, value);
-            }
-            rows.push(Value::Object(map));
+        let batches = block_on(async {
+            ctx.sql(&select_sql)
+                .await
+                .with_context(|| format!("prepare page query: {select_sql}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect page query: {select_sql}"))
+        })?;
+        let mut rows = batches_to_json_rows(&batches)?;
+        if !req.normalize.is_empty() {
+            rows = rows
+                .into_iter()
+                .map(|row| rename_row(row, req.normalize))
+                .collect();
         }
         Ok((total.max(0) as usize, rows))
     })?;
@@ -152,14 +154,23 @@ pub fn query_parquet_scalar_i64(
     parquet_path: &Path,
     schema: &[ColumnSchema],
     sql_agg: &str,
+    where_sql: &str,
 ) -> Result<i64> {
     let started = Instant::now();
     let (view, _) = ensure_parquet_view(app_root, parquet_path, schema, None)?;
     let view_ident = quote_ident(&view)?;
-    let sql = format!("SELECT ({sql_agg}) FROM {view_ident}");
-    let value = with_app_connection(app_root, |conn| {
-        conn.query_row(&sql, [], |row| row.get::<_, i64>(0))
-            .with_context(|| format!("duckdb scalar i64: {sql}"))
+    let sql = format!("SELECT ({sql_agg}) FROM {view_ident}{where_sql}");
+    let value = with_app_session(app_root, |ctx| {
+        block_on(async {
+            let batches = ctx
+                .sql(&sql)
+                .await
+                .with_context(|| format!("query engine scalar i64: {sql}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect scalar i64: {sql}"))?;
+            first_scalar_i64(&batches)
+        })
     })?;
     record_duckdb_query_ms(elapsed_ms(started));
     record_rows_materialized(0);
@@ -171,14 +182,23 @@ pub fn query_parquet_scalar_f64(
     parquet_path: &Path,
     schema: &[ColumnSchema],
     sql_agg: &str,
+    where_sql: &str,
 ) -> Result<f64> {
     let started = Instant::now();
     let (view, _) = ensure_parquet_view(app_root, parquet_path, schema, None)?;
     let view_ident = quote_ident(&view)?;
-    let sql = format!("SELECT ({sql_agg}) FROM {view_ident}");
-    let value = with_app_connection(app_root, |conn| {
-        conn.query_row(&sql, [], |row| row.get::<_, f64>(0))
-            .with_context(|| format!("duckdb scalar f64: {sql}"))
+    let sql = format!("SELECT ({sql_agg}) FROM {view_ident}{where_sql}");
+    let value = with_app_session(app_root, |ctx| {
+        block_on(async {
+            let batches = ctx
+                .sql(&sql)
+                .await
+                .with_context(|| format!("query engine scalar f64: {sql}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect scalar f64: {sql}"))?;
+            first_scalar_f64(&batches)
+        })
     })?;
     record_duckdb_query_ms(elapsed_ms(started));
     record_rows_materialized(0);
@@ -198,31 +218,14 @@ fn apply_normalize_columns(
         .collect()
 }
 
-fn duck_value_to_json(row: &duckdb::Row<'_>, idx: usize) -> Result<Value> {
-    // Prefer text then numeric then null — keeps JSON shape stable for UI.
-    if let Ok(v) = row.get::<_, Option<String>>(idx) {
-        return Ok(match v {
-            Some(s) => Value::String(s),
-            None => Value::Null,
-        });
+fn rename_row(row: Value, normalize: &BTreeMap<String, String>) -> Value {
+    let Value::Object(map) = row else {
+        return row;
+    };
+    let mut out = Map::new();
+    for (k, v) in map {
+        let name = normalize.get(&k).cloned().unwrap_or(k);
+        out.insert(name, v);
     }
-    if let Ok(v) = row.get::<_, Option<i64>>(idx) {
-        return Ok(match v {
-            Some(n) => json!(n),
-            None => Value::Null,
-        });
-    }
-    if let Ok(v) = row.get::<_, Option<f64>>(idx) {
-        return Ok(match v {
-            Some(n) => json!(n),
-            None => Value::Null,
-        });
-    }
-    if let Ok(v) = row.get::<_, Option<bool>>(idx) {
-        return Ok(match v {
-            Some(b) => Value::Bool(b),
-            None => Value::Null,
-        });
-    }
-    Ok(Value::Null)
+    Value::Object(out)
 }

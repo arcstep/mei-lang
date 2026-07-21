@@ -7,6 +7,7 @@ use anyhow::{bail, Result};
 use mei_lang_kernel::DatasetView;
 use serde_json::Value;
 
+use super::super::connection::{block_on, with_app_session};
 use super::super::register::{ensure_parquet_view, resolve_parquet_file_for_source};
 use super::super::sql::{quote_ident, quote_string};
 use super::date_sql::sql_parse_date_expr;
@@ -25,6 +26,33 @@ struct Rel {
     sql: String,
     /// Known output column names (best-effort).
     columns: Vec<String>,
+}
+
+
+fn probe_ending_month(app_root: &Path, inner_sql: &str, date_expr: &str) -> Result<Option<u32>> {
+    let sql = format!(
+        "SELECT CAST(date_part('month', max({date_expr})) AS INT) FROM ({inner_sql}) AS _probe WHERE {date_expr} IS NOT NULL"
+    );
+    with_app_session(app_root, |ctx| {
+        block_on(async {
+            let batches = ctx.sql(&sql).await?.collect().await?;
+            let Some(batch) = batches.first() else { return Ok(None); };
+            if batch.num_rows() == 0 || batch.num_columns() == 0 {
+                return Ok(None);
+            }
+            use datafusion::arrow::array::{Array, Int64Array};
+            let col = batch.column(0);
+            if let Some(arr) = col.as_any().downcast_ref::<Int64Array>() {
+                if arr.is_null(0) { return Ok(None); }
+                return Ok(Some(arr.value(0).clamp(1, 12) as u32));
+            }
+            if let Some(arr) = col.as_any().downcast_ref::<datafusion::arrow::array::Int32Array>() {
+                if arr.is_null(0) { return Ok(None); }
+                return Ok(Some(arr.value(0).clamp(1, 12) as u32));
+            }
+            Ok(None)
+        })
+    })
 }
 
 pub fn try_lower_expr(
@@ -222,7 +250,7 @@ fn predicate_to_sql(predicate: &Value) -> Result<Option<String>> {
                 .get("value")
                 .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|n| n as f64)))
                 .unwrap_or(0.0);
-            Ok(Some(format!("TRY_CAST({col} AS DOUBLE) {op} {value}")))
+            Ok(Some(format!("try_cast({col} AS DOUBLE) {op} {value}")))
         }
         "field_gt" | "field_gte" | "field_lt" | "field_lte" => {
             let op = match object.get("type").and_then(Value::as_str).unwrap_or("") {
@@ -239,7 +267,7 @@ fn predicate_to_sql(predicate: &Value) -> Result<Option<String>> {
             let l = quote_ident(left)?;
             let r = quote_ident(right)?;
             Ok(Some(format!(
-                "TRY_CAST({l} AS DOUBLE) {op} TRY_CAST({r} AS DOUBLE)"
+                "try_cast({l} AS DOUBLE) {op} try_cast({r} AS DOUBLE)"
             )))
         }
         "not_empty" => {
@@ -332,7 +360,7 @@ fn lower_sort_by(
     };
     Ok(Some(Rel {
         sql: format!(
-            "SELECT * FROM ({}) AS _s ORDER BY TRY_CAST({col} AS DOUBLE) {dir}, CAST({col} AS VARCHAR) {dir}",
+            "SELECT * FROM ({}) AS _s ORDER BY try_cast({col} AS DOUBLE) {dir}, CAST({col} AS VARCHAR) {dir}",
             inner.sql
         ),
         columns: inner.columns,
@@ -352,14 +380,21 @@ fn lower_limit(
     let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
         return Ok(None);
     };
+    // DataFusion may drop ORDER BY from a subquery unless LIMIT is on the same
+    // SELECT. When the child already ends with ORDER BY, append LIMIT in-place.
     let n = object
         .get("n")
         .or_else(|| object.get("limit"))
         .and_then(Value::as_u64)
         .unwrap_or(10)
         .min(MAX_PIPELINE_SQL_ROWS as u64);
+    let sql = if inner.sql.contains(" ORDER BY ") {
+        format!("{} LIMIT {n}", inner.sql.trim_end_matches(';'))
+    } else {
+        format!("SELECT * FROM ({}) AS _l LIMIT {n}", inner.sql)
+    };
     Ok(Some(Rel {
-        sql: format!("SELECT * FROM ({}) AS _l LIMIT {n}", inner.sql),
+        sql,
         columns: inner.columns,
     }))
 }
@@ -521,17 +556,22 @@ fn lower_trend_year_compare(
     let agg_expr = match (agg, value_field) {
         ("sum", Some(field)) => {
             let c = quote_ident(field)?;
-            format!("COALESCE(SUM(TRY_CAST({c} AS DOUBLE)), 0)")
+            format!("COALESCE(SUM(try_cast({c} AS DOUBLE)), 0)")
         }
         ("avg", Some(field)) => {
             let c = quote_ident(field)?;
-            format!("COALESCE(AVG(TRY_CAST({c} AS DOUBLE)), 0)")
+            format!("COALESCE(AVG(try_cast({c} AS DOUBLE)), 0)")
         }
-        _ => "COUNT(*)::DOUBLE".to_string(),
+        _ => "CAST(COUNT(*) AS DOUBLE)".to_string(),
     };
     let years_list = years
         .iter()
         .map(|y| y.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let years_values = years
+        .iter()
+        .map(|y| format!("({y})"))
         .collect::<Vec<_>>()
         .join(", ");
     let month_label_sql = quote_ident(month_label)?;
@@ -539,21 +579,22 @@ fn lower_trend_year_compare(
 
     // Rolling months must match kernel `latest_month_window`: emit month numbers
     // for the last N months ending at max(date), even when some months have no rows.
+    // DataFusion cannot multiply Interval by a column, so resolve ending month in Rust.
     let month_source = if window_mode.eq_ignore_ascii_case("calendar") {
-        "(SELECT UNNEST(range(1, 13)) AS m)".to_string()
+        "(SELECT m FROM generate_series(1, 12) AS t(m))".to_string()
     } else {
-        format!(
-            "(\
-               SELECT month(\
-                 date_trunc('month', (\
-                   SELECT max({date_expr}) FROM ({inner}) AS _a WHERE {date_expr} IS NOT NULL\
-                 )) - (INTERVAL 1 MONTH * i)\
-               ) AS m \
-               FROM range(0, {months}) AS t(i)\
-             )",
-            inner = inner.sql,
-            months = months
-        )
+        let ending_month = probe_ending_month(app_root, &inner.sql, &date_expr)?.unwrap_or(12);
+        let values = (0..months)
+            .map(|i| {
+                let mut m = ending_month as i32 - i as i32;
+                while m <= 0 {
+                    m += 12;
+                }
+                format!("({m})")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("(SELECT m FROM (VALUES {values}) AS t(m))")
     };
 
     let sql = format!(
@@ -561,15 +602,15 @@ fn lower_trend_year_compare(
            SELECT {date_expr} AS d, t.* FROM ({inner}) AS t\
          ), \
          months AS {month_source}, \
-         years AS (SELECT UNNEST([{years_list}]) AS y), \
+         years AS (SELECT y FROM (VALUES {years_values}) AS t(y)), \
          grid AS (\
            SELECT m.m AS month_num, y.y AS year_num \
            FROM months m CROSS JOIN years y\
          ), \
          agg AS (\
-           SELECT year(d) AS year_num, month(d) AS month_num, {agg_expr} AS value \
+           SELECT CAST(date_part('year', d) AS INT) AS year_num, CAST(date_part('month', d) AS INT) AS month_num, {agg_expr} AS value \
            FROM parsed \
-           WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+           WHERE d IS NOT NULL AND CAST(date_part('year', d) AS INT) IN ({years_list}) \
            GROUP BY 1, 2\
          ) \
          SELECT \
@@ -580,6 +621,13 @@ fn lower_trend_year_compare(
          LEFT JOIN agg a ON a.month_num = g.month_num AND a.year_num = g.year_num \
          ORDER BY g.month_num, g.year_num",
         inner = inner.sql,
+        month_source = month_source,
+        years_values = years_values,
+        years_list = years_list,
+        agg_expr = agg_expr,
+        date_expr = date_expr,
+        month_label_sql = month_label_sql,
+        year_label_sql = year_label_sql,
     );
 
     Ok(Some(Rel {
@@ -637,11 +685,12 @@ fn lower_party_year_aggregate(
         let count_alias = format!("处罚次数_{year}");
         let sum_q = quote_ident(&sum_alias)?;
         let count_q = quote_ident(&count_alias)?;
+        // DataFusion SQL parser does not accept FILTER (WHERE …) aggregates; use CASE.
         select_sql_parts.push(format!(
-            "COALESCE(SUM(TRY_CAST({value} AS DOUBLE)) FILTER (WHERE year(d) = {year}), 0) AS {sum_q}"
+            "COALESCE(SUM(CASE WHEN CAST(date_part('year', d) AS INT) = {year} THEN try_cast({value} AS DOUBLE) END), 0) AS {sum_q}"
         ));
         select_sql_parts.push(format!(
-            "COALESCE(COUNT(*) FILTER (WHERE year(d) = {year}), 0)::DOUBLE AS {count_q}"
+            "CAST(COUNT(CASE WHEN CAST(date_part('year', d) AS INT) = {year} THEN 1 END) AS DOUBLE) AS {count_q}"
         ));
         select_cols.push(sum_alias);
         select_cols.push(count_alias);
@@ -660,7 +709,7 @@ fn lower_party_year_aggregate(
              FROM (\
                SELECT {} \
                FROM (SELECT {date_expr} AS d, t.* FROM ({}) AS t) AS src \
-               WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+               WHERE d IS NOT NULL AND CAST(date_part('year', d) AS INT) IN ({years_list}) \
                  AND {party} IS NOT NULL AND TRIM(CAST({party} AS VARCHAR)) <> '' \
                GROUP BY {party}\
              ) AS inner_agg",
@@ -677,7 +726,7 @@ fn lower_party_year_aggregate(
     let sql = format!(
         "SELECT {} \
          FROM (SELECT {date_expr} AS d, t.* FROM ({}) AS t) AS src \
-         WHERE d IS NOT NULL AND year(d) IN ({years_list}) \
+         WHERE d IS NOT NULL AND CAST(date_part('year', d) AS INT) IN ({years_list}) \
            AND {party} IS NOT NULL AND TRIM(CAST({party} AS VARCHAR)) <> '' \
          GROUP BY {party}",
         select_sql_parts.join(", "),
@@ -734,7 +783,7 @@ fn lower_unpivot_columns(
         let field_q = quote_ident(field)?;
         let year_lit = quote_string(year);
         unions.push(format!(
-            "SELECT {id_q} AS {id_q}, {year_lit} AS {year_q}, COALESCE(TRY_CAST({field_q} AS DOUBLE), 0) AS {value_q} \
+            "SELECT {id_q} AS {id_q}, {year_lit} AS {year_q}, COALESCE(try_cast({field_q} AS DOUBLE), 0) AS {value_q} \
              FROM ({}) AS _u",
             inner.sql
         ));

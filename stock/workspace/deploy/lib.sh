@@ -686,6 +686,12 @@ run_workspace_serve() {
 
   apply_runtime_env_from_flags
   export MEI_PROFILE="${PROFILE}" MEI_SOURCE="${SOURCE}" MEI_RUNTIME="${RUNTIME}"
+  # Always export package root so /app-assets and /app-bundles resolve
+  # (release bins / odd bake paths must not fall back to a missing CARGO_MANIFEST_DIR tree).
+  local mei_lang_root
+  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
+  export MEI_LANG_ROOT="${MEI_LANG_ROOT:-${mei_lang_root}}"
+  export MEI_PACKAGE_ROOT="${MEI_PACKAGE_ROOT:-${MEI_LANG_ROOT}}"
   # GIS 默认：由 mei-host-shell 托管 Martin（stock/gis/tiles + 随机端口）。
   # Docker / 外部 Martin：MEI_GIS_USE_DOCKER_MARTIN=1 或自行设置 MEI_GIS_PROXY_UPSTREAM。
   if [[ "${MEI_GIS_USE_DOCKER_MARTIN:-0}" == "1" ]]; then
@@ -822,6 +828,8 @@ run_workspace_serve() {
       PROFILE='${PROFILE}'
       SOURCE='${SOURCE}'
       apply_runtime_env_from_flags
+      export MEI_LANG_ROOT='${MEI_LANG_ROOT}'
+      export MEI_PACKAGE_ROOT='${MEI_PACKAGE_ROOT}'
       export MEI_APP='${app}'
       export MEI_DEV_EVAL_PROFILE='${MEI_DEV_EVAL_PROFILE:-}'
       export MEI_EVAL_SCOPE='${MEI_EVAL_SCOPE:-}'

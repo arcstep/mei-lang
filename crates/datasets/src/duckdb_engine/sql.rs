@@ -17,12 +17,8 @@ pub fn quote_string(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-pub fn quote_path(path: &str) -> String {
-    quote_string(path)
-}
-
-/// Map MeiLang column type_name to DuckDB cast type.
-pub fn duck_cast_type(type_name: &str) -> &'static str {
+/// Map MeiLang column type_name to DataFusion / Arrow SQL cast type.
+pub fn sql_cast_type(type_name: &str) -> &'static str {
     match type_name.trim().to_ascii_lowercase().as_str() {
         "int" | "integer" | "i64" | "i32" | "long" => "BIGINT",
         "float" | "double" | "number" | "f64" | "f32" => "DOUBLE",
@@ -31,6 +27,33 @@ pub fn duck_cast_type(type_name: &str) -> &'static str {
         "datetime" | "timestamp" => "TIMESTAMP",
         _ => "VARCHAR",
     }
+}
+
+/// Historical name used by pipeline_sql lowerers.
+#[allow(dead_code)]
+pub fn duck_cast_type(type_name: &str) -> &'static str {
+    sql_cast_type(type_name)
+}
+
+/// Normalize a column that may be DATE / ISO text / Excel serial into DATE.
+///
+/// DataFusion cannot `try_cast(Date32 AS DOUBLE)` (planning fails even inside
+/// `CASE`). Excel-serial decoding therefore goes through `CAST(... AS VARCHAR)`
+/// first; native DATE columns still resolve via the leading `try_cast(... AS DATE)`.
+pub fn sql_parse_date_expr(column: &str) -> Result<String> {
+    let col = quote_ident(column)?;
+    Ok(format!(
+        "COALESCE(\
+           try_cast({col} AS DATE), \
+           CASE \
+             WHEN try_cast(CAST({col} AS VARCHAR) AS DOUBLE) IS NOT NULL \
+              AND try_cast(CAST({col} AS VARCHAR) AS DOUBLE) > 0 \
+              AND try_cast(CAST({col} AS VARCHAR) AS DOUBLE) < 2958465 \
+             THEN CAST(to_timestamp((try_cast(CAST({col} AS VARCHAR) AS DOUBLE) - 25569.0) * 86400.0) AS DATE) \
+             ELSE NULL \
+           END\
+         )"
+    ))
 }
 
 pub fn build_where_clause(
@@ -45,26 +68,24 @@ pub fn build_where_clause(
             continue;
         }
         let col = quote_ident(key)?;
-        // Keep parity with simple equality / text contains used by most cockpit filters.
-        // Advanced filter specs (gte:/in:) fall back to CAST-as-text equality / LIKE.
         if let Some(rest) = expected.strip_prefix("gte:") {
             parts.push(format!(
-                "TRY_CAST({col} AS DOUBLE) >= {}",
+                "try_cast({col} AS DOUBLE) >= {}",
                 rest.trim().parse::<f64>().unwrap_or(0.0)
             ));
         } else if let Some(rest) = expected.strip_prefix("lte:") {
             parts.push(format!(
-                "TRY_CAST({col} AS DOUBLE) <= {}",
+                "try_cast({col} AS DOUBLE) <= {}",
                 rest.trim().parse::<f64>().unwrap_or(0.0)
             ));
         } else if let Some(rest) = expected.strip_prefix("gt:") {
             parts.push(format!(
-                "TRY_CAST({col} AS DOUBLE) > {}",
+                "try_cast({col} AS DOUBLE) > {}",
                 rest.trim().parse::<f64>().unwrap_or(0.0)
             ));
         } else if let Some(rest) = expected.strip_prefix("lt:") {
             parts.push(format!(
-                "TRY_CAST({col} AS DOUBLE) < {}",
+                "try_cast({col} AS DOUBLE) < {}",
                 rest.trim().parse::<f64>().unwrap_or(0.0)
             ));
         } else if let Some(rest) = expected.strip_prefix("between:") {
@@ -76,14 +97,7 @@ pub fn build_where_clause(
             if lower.is_empty() || upper.is_empty() {
                 continue;
             }
-            let date_expr = format!(
-                "COALESCE(TRY_CAST({col} AS DATE), \
-                 CASE WHEN TRY_CAST({col} AS DOUBLE) IS NOT NULL \
-                   AND TRY_CAST({col} AS DOUBLE) > 0 \
-                   AND TRY_CAST({col} AS DOUBLE) < 2958465 \
-                 THEN DATE '1899-12-30' + CAST(FLOOR(TRY_CAST({col} AS DOUBLE)) AS INTEGER) \
-                 ELSE NULL END)"
-            );
+            let date_expr = sql_parse_date_expr(key)?;
             parts.push(format!(
                 "{date_expr} BETWEEN CAST({} AS DATE) AND CAST({} AS DATE)",
                 quote_string(lower),

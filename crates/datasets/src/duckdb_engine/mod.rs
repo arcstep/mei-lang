@@ -1,6 +1,7 @@
-//! Embedded DuckDB query engine: register parquet as views; page/scalar SQL only.
+//! Embedded query engine (DataFusion): register parquet as views; page/scalar SQL.
 //! See `docs/mei-lang-v2/05-host/0528-duckdb-query-engine.md`.
 
+mod arrow_json;
 mod connection;
 mod metric_sql;
 mod pipeline_sql;

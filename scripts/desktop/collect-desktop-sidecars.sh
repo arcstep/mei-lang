@@ -16,9 +16,10 @@ Usage: collect-desktop-sidecars.sh [--debug|--release] [--out DIR] [--skip-build
 
 Copies:
   mei-host-shell, mei-app-runtime, mei-plug-ds, mei-snapshot, mei-compiler
-  martin (official MapLibre release binary via fetch-martin-sidecar.sh)
+  martin (Rust sidecar: source build when MEI_MARTIN_FROM_SOURCE=1, else fetch cache)
   app/assets/ (via npm run assets:build unless --skip-assets)
 into OUT (default: mei-lang/desktop/sidecars/).
+Query engine is DataFusion inside mei bins (no libduckdb).
 
 Also runs cargo target hygiene (same as scripts/build/build.sh) before compile.
 Skips cargo when binaries are newer than Cargo.lock unless MEI_DESKTOP_FORCE_BUILD=1.
@@ -45,6 +46,7 @@ source "${SCRIPT_DIR}/../build/build-env.sh"
 TARGET_DIR="$(mei_cargo_target_dir "${MEI_LANG_ROOT}")"
 export CARGO_TARGET_DIR="${TARGET_DIR}"
 mei_export_build_identity "${MEI_LANG_ROOT}"
+mei_export_duckdb_prebuilt "${MEI_LANG_ROOT}"
 BIN_DIR="${TARGET_DIR}/${PROFILE}"
 
 EXT=""
@@ -138,12 +140,20 @@ copy_bin mei-plug-ds
 copy_bin mei-snapshot
 copy_bin mei-compiler
 
-echo "==> fetching Martin sidecar binary"
-"${SCRIPT_DIR}/fetch-martin-sidecar.sh" --dest "${OUT_DIR}/bin"
+echo "==> resolving Martin sidecar binary"
+if [[ "${MEI_MARTIN_FROM_SOURCE:-0}" == "1" ]]; then
+  "${SCRIPT_DIR}/build-martin-from-source.sh" --dest "${OUT_DIR}/bin"
+else
+  "${SCRIPT_DIR}/fetch-martin-sidecar.sh" --dest "${OUT_DIR}/bin" \
+    || "${SCRIPT_DIR}/build-martin-from-source.sh" --dest "${OUT_DIR}/bin"
+fi
 if [[ ! -f "${OUT_DIR}/bin/martin" && ! -f "${OUT_DIR}/bin/martin.exe" ]]; then
-  echo "error: martin binary missing after fetch-martin-sidecar.sh" >&2
+  echo "error: martin binary missing after fetch/build" >&2
   exit 1
 fi
+
+# Drop stale libduckdb from older sidecar trees (query engine is DataFusion).
+mei_install_libduckdb_beside "${OUT_DIR}/bin"
 
 # Mirror a directory tree. Prefer rsync; fall back for Windows runners without it.
 sync_tree() {

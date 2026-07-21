@@ -44,7 +44,7 @@ pub fn snapshot_pipeline_sql_stats() -> (u64, u64) {
     )
 }
 
-/// Try to evaluate a lowered analysis_expr rowset via DuckDB SQL.
+/// Try to evaluate a lowered analysis_expr rowset via DataFusion SQL.
 pub fn try_eval_analysis_expr_via_sql(
     app_root: &Path,
     datasets: &BTreeMap<String, DatasetView>,
@@ -55,7 +55,14 @@ pub fn try_eval_analysis_expr_via_sql(
         record_pipeline_sql_fallback();
         return Ok(None);
     };
-    let rows = exec::execute_sql_plan(app_root, &plan)?;
+    let rows = match exec::execute_sql_plan(app_root, &plan) {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::debug!(error = %err, "pipeline_sql DataFusion exec fallback");
+            record_pipeline_sql_fallback();
+            return Ok(None);
+        }
+    };
     if rows.len() > MAX_PIPELINE_SQL_ROWS {
         record_pipeline_sql_fallback();
         return Ok(None);

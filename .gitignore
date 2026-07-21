@@ -47,3 +47,6 @@ __pycache__/
 /desktop/sidecars/MANIFEST.json
 /desktop/dist/
 /dist/
+target-centos7-glibc217/
+# Official DuckDB prebuilt libs (scripts/desktop/fetch-libduckdb.sh)
+/third_party/libduckdb/

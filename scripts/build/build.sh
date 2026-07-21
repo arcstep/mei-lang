@@ -11,6 +11,8 @@ source "${SCRIPT_DIR}/build-env.sh"
 TARGET_DIR="$(mei_cargo_target_dir "${MEI_LANG_ROOT}")"
 export CARGO_TARGET_DIR="${TARGET_DIR}"
 mei_export_build_identity "${MEI_LANG_ROOT}"
+# DataFusion is linked into mei bins; no libduckdb fetch.
+mei_export_duckdb_prebuilt "${MEI_LANG_ROOT}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

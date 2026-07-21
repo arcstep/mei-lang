@@ -51,15 +51,13 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
-arrow-array = "53"
-arrow-schema = "53"
-parquet = "53"
+arrow-array = "54"
+arrow-schema = "54"
+parquet = "54"
 chumsky = "0.9"
 zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
-duckdb = { version = "1.10504.0", features = ["bundled"] }
-
 [profile.dev]
 # Line tables retain useful source locations while avoiding macOS' very large
 # full-DWARF development artifacts.

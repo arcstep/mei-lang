@@ -7,7 +7,7 @@ WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 # shellcheck source=lib.sh
 source "${DEPLOY_DIR}/lib.sh"
 
-APP="${MEI_APP:-zhifa}"
+APP=""
 PROFILE="debug"
 FROM="lang"
 RELEASE_TAG="${MEI_RELEASE_TAG:-darwin-arm64-local}"
@@ -54,11 +54,12 @@ if [[ -x "${BIN_DIR}/mei-host-shell" ]]; then
 fi
 
 install_from_lang() {
-  local mei_lang_root target_dir subdir build_script
+  local mei_lang_root target_dir subdir build_script build_env
   mei_lang_root="$(resolve_mei_lang_root "${WORKSPACE_ROOT}")"
   target_dir="$(cargo_target_dir "${WORKSPACE_ROOT}")"
   subdir="$(profile_target_subdir)"
   build_script="${mei_lang_root}/scripts/build/build.sh"
+  build_env="${mei_lang_root}/scripts/build/build-env.sh"
 
   echo "==> building from mei-lang (profile=${PROFILE}, root=${mei_lang_root})"
   if [[ -f "${build_script}" ]]; then
@@ -70,6 +71,9 @@ install_from_lang() {
   else
     # shellcheck source=/dev/null
     source "${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
+    # shellcheck source=/dev/null
+    source "${build_env}"
+    mei_export_duckdb_prebuilt "${mei_lang_root}"
     maybe_cargo_target_hygiene "${mei_lang_root}"
     local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
       -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
@@ -88,6 +92,12 @@ install_from_lang() {
     fi
     ln -sfn "${src}" "${BIN_DIR}/${name}"
   done
+
+  # Query engine is DataFusion (in-process). Drop any stale libduckdb beside bins.
+  # shellcheck source=/dev/null
+  source "${build_env}"
+  mei_install_libduckdb_beside "${target_dir}/${subdir}"
+  mei_install_libduckdb_beside "${BIN_DIR}"
 
   write_runtime_json "${WORKSPACE_ROOT}" "lang"
 }
@@ -140,6 +150,9 @@ install_from_release() {
     ln -sfn "${src}" "${BIN_DIR}/${name}"
   done
 
+  # Stale libduckdb from older bundles must not ship beside DataFusion bins.
+  rm -f "${BIN_DIR}/libduckdb.so" "${BIN_DIR}/libduckdb.dylib" "${BIN_DIR}/duckdb.dll" 2>/dev/null || true
+
   mkdir -p "${WORKSPACE_ROOT}/deploy"
   cat >"$(runtime_json_path "${WORKSPACE_ROOT}")" <<EOF
 {
@@ -174,6 +187,8 @@ apply_runtime_env_from_flags
 
 if [[ -n "${old_version}" && -n "${new_version}" && "${old_version}" != "${new_version}" ]]; then
   echo "==> mei-lang version changed; aligning workspace env generation"
+  apply_workspace_deploy_env "${WORKSPACE_ROOT}"
+  APP="$(resolve_default_app "${WORKSPACE_ROOT}")"
   ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"
 fi
 

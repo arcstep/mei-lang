@@ -3,16 +3,39 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
-use duckdb::Connection;
+use datafusion::prelude::SessionContext;
 
 struct AppConn {
     _app_root: PathBuf,
-    conn: Connection,
+    ctx: SessionContext,
 }
 
 fn pool() -> &'static Mutex<HashMap<String, AppConn>> {
     static POOL: OnceLock<Mutex<HashMap<String, AppConn>>> = OnceLock::new();
     POOL.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("mei-query-engine")
+            .build()
+            .expect("query engine tokio runtime")
+    })
+}
+
+/// Block on a DataFusion async future.
+///
+/// When already inside a Tokio runtime (host/app warmup paths), use
+/// `block_in_place` + the current handle — never nest `Runtime::block_on`.
+pub fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(fut)),
+        Err(_) => runtime().block_on(fut),
+    }
 }
 
 fn app_key(app_root: &Path) -> String {
@@ -23,29 +46,28 @@ fn app_key(app_root: &Path) -> String {
         .into_owned()
 }
 
-pub fn with_app_connection<T>(
+pub fn with_app_session<T>(
     app_root: &Path,
-    f: impl FnOnce(&Connection) -> Result<T>,
+    f: impl FnOnce(&SessionContext) -> Result<T>,
 ) -> Result<T> {
     let key = app_key(app_root);
     let mut guard = pool()
         .lock()
-        .map_err(|_| anyhow::anyhow!("duckdb connection pool poisoned"))?;
+        .map_err(|_| anyhow::anyhow!("query engine session pool poisoned"))?;
     if !guard.contains_key(&key) {
-        let conn = Connection::open_in_memory().context("open in-memory DuckDB")?;
-        let _ = conn.execute_batch("SET threads TO 2; SET memory_limit='512MB';");
+        let ctx = SessionContext::new();
         guard.insert(
             key.clone(),
             AppConn {
                 _app_root: app_root.to_path_buf(),
-                conn,
+                ctx,
             },
         );
     }
     let entry = guard
         .get(&key)
-        .ok_or_else(|| anyhow::anyhow!("duckdb connection missing after insert"))?;
-    f(&entry.conn)
+        .ok_or_else(|| anyhow::anyhow!("query engine session missing after insert"))?;
+    f(&entry.ctx)
 }
 
 pub fn clear_duckdb_connections() -> usize {
@@ -57,7 +79,7 @@ pub fn clear_duckdb_connections() -> usize {
     n
 }
 
-/// Ensure an in-memory DuckDB connection exists for `app_root` (warm / probe).
+/// Ensure an in-memory DataFusion session exists for `app_root` (warm / probe).
 pub fn ensure_duckdb_connection(app_root: &Path) -> Result<()> {
-    with_app_connection(app_root, |_| Ok(()))
+    with_app_session(app_root, |_| Ok(())).context("ensure query engine session")
 }

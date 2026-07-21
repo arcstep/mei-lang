@@ -40,3 +40,17 @@ mei_export_build_identity() {
     export MEI_BUILD_TIMESTAMP_UTC="${value:-unknown}"
   fi
 }
+
+# Historical no-ops: query engine is DataFusion (pure Rust). libduckdb is not delivered.
+mei_export_duckdb_prebuilt() {
+  echo "==> query engine: DataFusion (no libduckdb)" >&2
+  return 0
+}
+
+mei_install_libduckdb_beside() {
+  local dest_dir="${1:?dest dir required}"
+  mkdir -p "${dest_dir}"
+  # Remove stale libduckdb copies from older installs beside bins.
+  rm -f "${dest_dir}/libduckdb.dylib" "${dest_dir}/libduckdb.so" "${dest_dir}/duckdb.dll" 2>/dev/null || true
+  return 0
+}

@@ -460,19 +460,12 @@ fn count_dataset(
         return Ok(None);
     };
     let where_sql = build_where_clause(filters, search, &view.columns)?;
-    let sql_agg = if where_sql.is_empty() {
-        "COUNT(*)".to_string()
-    } else {
-        format!(
-            "COUNT(*) FILTER (WHERE {})",
-            where_sql.trim_start_matches(" WHERE ")
-        )
-    };
     Ok(Some(query_parquet_scalar_i64(
         app_root,
         parquet.as_path(),
         &view.schema,
-        &sql_agg,
+        &format!("COUNT(*)"),
+        where_sql.as_str(),
     )?))
 }
 
@@ -489,19 +482,12 @@ fn agg_dataset_f64(
     };
     let col = quote_ident(field)?;
     let where_sql = build_where_clause(filters, search, &view.columns)?;
-    let sql_agg = if where_sql.is_empty() {
-        format!("COALESCE({agg}(TRY_CAST({col} AS DOUBLE)), 0)")
-    } else {
-        format!(
-            "COALESCE({agg}(TRY_CAST({col} AS DOUBLE)) FILTER (WHERE {}), 0)",
-            where_sql.trim_start_matches(" WHERE ")
-        )
-    };
     Ok(Some(query_parquet_scalar_f64(
         app_root,
         parquet.as_path(),
         &view.schema,
-        &sql_agg,
+        &format!("COALESCE({agg}(try_cast({col} AS DOUBLE)), 0)"),
+        where_sql.as_str(),
     )?))
 }
 
@@ -589,6 +575,10 @@ mod tests {
         let where_sql = build_where_clause(&filters, None, &["检查日期".into()]).unwrap();
         assert!(where_sql.contains("BETWEEN"));
         assert!(where_sql.contains("2024-01-01"));
+        // Excel-serial branch must not try_cast the raw column to DOUBLE
+        // (DataFusion rejects Date32 → Float64).
+        assert!(where_sql.contains("CAST(\"检查日期\" AS VARCHAR)"));
+        assert!(!where_sql.contains("try_cast(\"检查日期\" AS DOUBLE)"));
     }
 
     #[test]
