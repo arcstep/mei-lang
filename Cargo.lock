@@ -2615,7 +2615,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mei-app-runtime"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -2639,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "mei-bundle"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "mei-graph",
  "serde",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -2669,7 +2669,7 @@ dependencies = [
 
 [[package]]
 name = "mei-compiler-tests"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "mei-bundle",
  "mei-graph",
@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "mei-graph"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-auth"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2716,7 +2716,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-core"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2733,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-graph"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "mei-bundle",
@@ -2753,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "mei-host-shell"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-app"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "csv",
  "leptos",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-datasets"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2819,7 +2819,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-kernel"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2844,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-lsp"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-server"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-toolchain"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2912,7 +2912,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lower"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "mei-graph",
  "mei-surface",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "mei-plug-ds"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "mei-snapshot"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2959,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "mei-surface"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "mei-syntax",
  "serde",
@@ -2969,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "mei-syntax"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "chumsky",
  "serde",
@@ -2980,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "mei-test-support"
-version = "2.7.2"
+version = "2.7.3"
 dependencies = [
  "anyhow",
  "mei-bundle",

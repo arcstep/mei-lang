@@ -9182,6 +9182,12 @@
     } else {
       refreshComposeMaps(root);
     }
+    // After slides DOM exists, re-bind Stage Surface (early boot may have defaulted to cockpit).
+    try {
+      if (typeof boot.stageSurface?.syncFromLocation === "function") {
+        boot.stageSurface.syncFromLocation();
+      }
+    } catch (_) {}
   }
 
   function normalizeScreenHeaderBrandBlocks(root) {
@@ -10125,7 +10131,13 @@
       global.__mei.t2_overlay_defaults = doc.overlay_defaults;
       global.__mei.page_overlay_defaults = doc.overlay_defaults;
     }
-    if (Array.isArray(doc.component_assets) && doc.component_assets.length) {
+    if (doc.presentation_map != null) {
+      try {
+        if (typeof boot.stageSurface?.syncFromLocation === "function") {
+          boot.stageSurface.syncFromLocation();
+        }
+      } catch (_) {}
+    }    if (Array.isArray(doc.component_assets) && doc.component_assets.length) {
       global.__mei.component_assets = doc.component_assets;
       // Thin-shell HTML may have been primed from an older meibundle that lacked
       // cockpit.data-table. Runtime.plans still lists the full set — load any
@@ -10183,6 +10195,11 @@
       if (!map) return;
       global.__mei = global.__mei || {};
       global.__mei.presentation_map = map;
+      try {
+        if (typeof boot.stageSurface?.syncFromLocation === "function") {
+          boot.stageSurface.syncFromLocation();
+        }
+      } catch (_) {}
     } catch (error) {
       console.warn("[preview-materializer] ensurePresentationMap skipped", error);
     }

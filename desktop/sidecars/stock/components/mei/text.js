@@ -468,6 +468,213 @@ function fontSizeVar(props) {
   return "var(--mei-panel-head-font-size, inherit)";
 }
 
+/** Slides: detect deck context + semantic slot leaf (hero/claim/…) for typography. */
+function resolveSlidesPresentationContext(hostEl) {
+  if (typeof document === "undefined") return null;
+  const bodyProfile = String(document.body?.getAttribute?.("data-mei-stage-profile") || "");
+  const compose = document.getElementById("mei-compose-root");
+  const composeProfile = String(compose?.getAttribute?.("data-mei-stage-profile") || "");
+  const underSlide = Boolean(hostEl?.closest?.('[data-mei-ui-role="slide"]'));
+  const map = typeof window !== "undefined" ? window.__mei?.presentation_map : null;
+  const deckSlides = map?.deck?.slides || map?.presentation_deck?.slides;
+  const hasDeck = Array.isArray(deckSlides) && deckSlides.length > 0;
+  const slides =
+    bodyProfile === "slides" ||
+    composeProfile === "slides" ||
+    underSlide ||
+    hasDeck;
+  if (!slides) return null;
+
+  const SLOT_LEAVES = new Set([
+    "hero",
+    "claim",
+    "explain",
+    "evidence",
+    "action",
+    "title",
+    "steps",
+    "visual",
+    "col_a",
+    "col_b",
+    "col_c",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+  ]);
+
+  const scopeEl = hostEl?.closest?.("[data-preview-scope]");
+  const scope = String(scopeEl?.getAttribute?.("data-preview-scope") || "");
+  const scopeParts = scope.split("/").filter(Boolean);
+  let panel = "";
+  for (let i = scopeParts.length - 1; i >= 0; i -= 1) {
+    const part = String(scopeParts[i] || "")
+      .trim()
+      .toLowerCase();
+    if (SLOT_LEAVES.has(part)) {
+      panel = part;
+      break;
+    }
+  }
+  if (!panel) {
+    const named = hostEl?.closest?.("[data-mei-panel-name]");
+    const raw = String(named?.getAttribute?.("data-mei-panel-name") || "")
+      .trim()
+      .toLowerCase();
+    if (SLOT_LEAVES.has(raw)) panel = raw;
+  }
+  return { panel: panel || "body" };
+}
+
+/**
+ * Shadow-DOM presentation typography for deck slots (does not affect cockpit metrics).
+ */
+function slidesPresentationCss(panel) {
+  const role = String(panel || "").trim().toLowerCase();
+  let tier = "body";
+  if (role === "hero") tier = "hero";
+  else if (role === "claim" || role === "title") tier = "claim";
+  else if (role === "action") tier = "action";
+  else if (
+    role === "col_a" ||
+    role === "col_b" ||
+    role === "col_c" ||
+    role === "q1" ||
+    role === "q2" ||
+    role === "q3" ||
+    role === "q4"
+  ) {
+    tier = "column";
+  }
+
+  const sizeMap = {
+    hero: {
+      first: "clamp(2.8rem, 5vw, 4.25rem)",
+      rest: "clamp(1.2rem, 2vw, 1.55rem)",
+      weight: "700",
+      align: "center",
+      lh: "1.18",
+      mutedSize: "clamp(1.15rem, 1.7vw, 1.4rem)",
+    },
+    claim: {
+      first: "clamp(2.1rem, 3.4vw, 3.1rem)",
+      rest: "clamp(1.1rem, 1.6vw, 1.35rem)",
+      weight: "700",
+      align: "left",
+      lh: "1.22",
+      mutedSize: "clamp(1.05rem, 1.4vw, 1.25rem)",
+    },
+    action: {
+      first: "clamp(1.45rem, 2.1vw, 1.85rem)",
+      rest: "clamp(1.35rem, 1.9vw, 1.65rem)",
+      weight: "650",
+      align: "left",
+      lh: "1.4",
+      mutedSize: "clamp(1.25rem, 1.7vw, 1.5rem)",
+    },
+    column: {
+      first: "clamp(1.55rem, 2.3vw, 2rem)",
+      rest: "clamp(1.3rem, 1.8vw, 1.55rem)",
+      weight: "650",
+      align: "left",
+      lh: "1.4",
+      mutedSize: "clamp(1.25rem, 1.7vw, 1.45rem)",
+    },
+    body: {
+      first: "clamp(1.45rem, 2.1vw, 1.85rem)",
+      rest: "clamp(1.35rem, 1.9vw, 1.65rem)",
+      weight: "550",
+      align: "left",
+      lh: "1.5",
+      mutedSize: "clamp(1.3rem, 1.8vw, 1.55rem)",
+    },
+  };
+  const s = sizeMap[tier] || sizeMap.body;
+  const hostLayout =
+    tier === "hero"
+      ? `display: flex; align-items: center; justify-content: center; width: 100%; height: auto; max-height: 100%; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden; color: var(--mei-slide-claim, #f8fafc);`
+      : `display: block; width: 100%; height: auto; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden; color: var(--mei-slide-claim, #f8fafc);`;
+
+  return `
+        :host {
+          ${hostLayout}
+        }
+        .mei-text-body,
+        .mei-text-preview {
+          font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+            "Noto Sans SC", system-ui, sans-serif;
+          font-size: ${s.rest};
+          font-weight: 450;
+          line-height: ${s.lh};
+          letter-spacing: 0.01em;
+          color: var(--mei-slide-claim, #f8fafc);
+          text-align: ${s.align};
+          word-break: normal;
+          overflow-wrap: break-word;
+        }
+        .mei-text-body > :first-child,
+        .mei-text-preview > :first-child {
+          font-size: ${s.first};
+          font-weight: ${s.weight};
+          line-height: ${s.lh};
+          letter-spacing: 0.005em;
+          color: var(--mei-slide-claim, #f8fafc);
+          margin: 0 0 0.55em;
+        }
+        .mei-text-body > :first-child:is(ul, ol),
+        .mei-text-preview > :first-child:is(ul, ol) {
+          font-size: ${s.rest};
+          font-weight: 450;
+          color: var(--mei-slide-claim, #e2e8f0);
+        }
+        .mei-text-body > :first-child:last-child,
+        .mei-text-preview > :first-child:last-child {
+          margin-bottom: 0;
+        }
+        .mei-text-body > :not(:first-child),
+        .mei-text-preview > :not(:first-child) {
+          font-size: ${s.mutedSize};
+          font-weight: 400;
+          color: var(--mei-slide-muted, #cbd5e1);
+        }
+        .mei-text-body :where(ul, ol),
+        .mei-text-preview :where(ul, ol) {
+          margin: 0.35em 0 0;
+          padding-left: 1.35em;
+          color: var(--mei-slide-claim, #e2e8f0);
+        }
+        .mei-text-body :where(li),
+        .mei-text-preview :where(li) {
+          margin: 0.35em 0;
+          font-size: ${s.rest};
+          font-weight: 450;
+          color: var(--mei-slide-claim, #e2e8f0);
+        }
+        .mei-text-body :where(code),
+        .mei-text-preview :where(code) {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 0.92em;
+          color: var(--mei-slide-accent, #7dd3fc);
+          background: rgba(125, 211, 252, 0.1);
+          padding: 0.08em 0.35em;
+          border-radius: 4px;
+        }
+        .mei-text-body :where(strong),
+        .mei-text-preview :where(strong) {
+          color: var(--mei-slide-claim, #f8fafc);
+          font-weight: 650;
+        }
+        .mei-text-body :where(p, h1, h2, h3, ul, ol),
+        .mei-text-preview :where(p, h1, h2, h3, ul, ol) {
+          margin: 0 0 0.45em;
+        }
+        .mei-text-body :where(p:last-child, h1:last-child, h2:last-child, h3:last-child, ul:last-child, ol:last-child),
+        .mei-text-preview :where(p:last-child, h1:last-child, h2:last-child, h3:last-child, ul:last-child, ol:last-child) {
+          margin-bottom: 0;
+        }
+  `;
+}
+
 function metricDescShellBox(shell) {
   if (!shell || typeof shell !== "object") {
     return null;
@@ -979,9 +1186,13 @@ class MeiText extends HTMLElement {
         }${plainBorder && fillChip ? ` border: ${plainBorder};` : ""}${
           plainRadius && fillChip ? ` border-radius: ${plainRadius};` : ""
         }`;
+    const slidesCtx = !metricRole ? resolveSlidesPresentationContext(this) : null;
+    const slidesCss = slidesCtx ? slidesPresentationCss(slidesCtx.panel) : "";
     const baseTypography = metricRole
       ? typography
-      : `
+      : slidesCss
+        ? ""
+        : `
           line-height: ${effectiveLineHeight};
           font-size: ${fontSize};
           color: ${plainColor || "var(--mei-color-text-primary, #e2e8f0)"};
@@ -997,8 +1208,16 @@ class MeiText extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>
+        ${slidesCss}
         :host {
-          ${metricRole ? hostLayout : plainHostLayout || "display: block; width: 100%; height: 100%; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden;"}
+          ${
+            slidesCss
+              ? ""
+              : metricRole
+                ? hostLayout
+                : plainHostLayout ||
+                  "display: block; width: 100%; height: 100%; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden;"
+          }
         }
         :host([data-mei-drilldown-active="true"]:focus-visible) {
           outline: 1px solid rgba(125, 211, 252, 0.9);

@@ -5527,6 +5527,508 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   display: none !important;
 }
 
+/* ------------------------------------------------------------------ */
+/* Slides dark-stage visual system (mei-tutorial / presentation theme) */
+/* Profile-scoped so cockpit panel chrome is not polluted.             */
+/* ------------------------------------------------------------------ */
+body[data-mei-stage-profile="slides"],
+#mei-compose-root[data-mei-stage-profile="slides"] {
+  --mei-slide-stage-bg: radial-gradient(
+      95% 75% at 50% -5%,
+      rgba(56, 140, 210, 0.28),
+      transparent 55%
+    ),
+    radial-gradient(70% 55% at 85% 105%, rgba(14, 165, 233, 0.14), transparent 52%),
+    radial-gradient(55% 45% at 12% 80%, rgba(99, 102, 241, 0.1), transparent 50%),
+    linear-gradient(180deg, #0c1424 0%, #070b14 48%, #05080f 100%);
+  --mei-slide-claim: #f8fafc;
+  --mei-slide-muted: #94a3b8;
+  --mei-slide-accent: #7dd3fc;
+  --mei-slide-card-bg: rgba(16, 24, 40, 0.72);
+  --mei-slide-card-border: rgba(148, 163, 184, 0.18);
+  --mei-slide-card-radius: 18px;
+}
+
+body[data-mei-stage-profile="slides"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-compose-scene-root,
+body[data-mei-stage-surface="paged"] .mei-compose-scene-root,
+#mei-compose-root[data-mei-stage-surface="paged"] .mei-compose-scene-root {
+  background: var(--mei-slide-stage-bg);
+}
+
+body[data-mei-stage-profile="slides"] .mei-compose-plane[data-mei-plane="p"] > .mei-compose-slide,
+body[data-mei-stage-profile="slides"] .mei-compose-plane[data-mei-plane="P"] > .mei-compose-slide,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-plane[data-mei-plane="p"]
+  > .mei-compose-slide,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-plane[data-mei-plane="P"]
+  > .mei-compose-slide {
+  background: transparent;
+  color: var(--mei-slide-claim);
+  box-sizing: border-box;
+  /* Reserve room for fixed SlideTransport (viewport chrome) so action/footer text is not covered. */
+  padding-bottom: 112px;
+}
+
+/* Short-copy slots: do not stretch empty tall cards; keep text packed to the top of the area. */
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card {
+  height: auto !important;
+  max-height: 100%;
+  align-self: start;
+}
+
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  .component-host,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  .component-host,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  .component-host,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  .component-host {
+  height: auto !important;
+  min-height: 0;
+}
+
+/* Strip cockpit metric-panel glow; slots become stage surfaces. */
+body[data-mei-stage-profile="slides"] .mei-compose-slide .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-compose-slide .preview-card {
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+body[data-mei-stage-profile="slides"] .mei-compose-slide [data-mei-ui-role="slot"],
+body[data-mei-stage-profile="slides"] .mei-compose-slide [data-mei-ui-role="section"],
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-compose-slide [data-mei-ui-role="slot"],
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-ui-role="section"] {
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Semantic slot cards — weight by panel leaf name / preview-scope area. */
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="claim"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="explain"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="evidence"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="action"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="steps"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="visual"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_a"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_b"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_c"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q1"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q2"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q3"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q4"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/claim"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/visual"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_a"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_b"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_c"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q1"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q2"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q3"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q4"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="claim"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="explain"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="evidence"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="action"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="steps"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="visual"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_a"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_b"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="col_c"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q1"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q2"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q3"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="q4"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/claim"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/explain"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/evidence"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/steps"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/visual"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_a"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_b"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/col_c"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q1"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q2"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q3"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/q4"]
+  > .preview-card {
+  background: var(--mei-slide-card-bg) !important;
+  border: 1px solid var(--mei-slide-card-border) !important;
+  border-radius: var(--mei-slide-card-radius) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  padding: 22px 26px !important;
+  box-sizing: border-box;
+}
+
+/* Claim / title / hero: emphasis without heavy card chrome. */
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="claim"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="title"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/claim"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/title"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="claim"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="title"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/claim"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/title"]
+  > .preview-card {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"],
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"],
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"],
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"] {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 0;
+}
+
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"]
+  > .preview-card {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: min(88%, 1480px);
+  height: 100% !important;
+  max-height: 100%;
+  text-align: center;
+}
+
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"]
+  .component-host,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="hero"]
+  .component-host,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/hero"]
+  .component-host {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0;
+}
+
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="action"]
+  > .preview-card,
+body[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-mei-panel-name="action"]
+  > .preview-card,
+#mei-compose-root[data-mei-stage-profile="slides"]
+  .mei-compose-slide
+  [data-preview-scope$="/action"]
+  > .preview-card {
+  border-color: rgba(125, 211, 252, 0.35) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(14, 165, 233, 0.16) 0%,
+    rgba(16, 24, 40, 0.7) 100%
+  ) !important;
+}
+
+/* Transport: sit on charcoal stage with softer glass capsule. */
+body[data-mei-stage-profile="slides"] .mei-slide-transport__controls,
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-slide-transport__controls {
+  background: rgba(8, 12, 22, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+}
+body[data-mei-stage-profile="slides"] .mei-slide-transport__hint,
+#mei-compose-root[data-mei-stage-profile="slides"] .mei-slide-transport__hint {
+  color: rgba(148, 163, 184, 0.9);
+}
+
 /* SlideTransport chrome (0409) — native to slides surface; not FAB. */
 .mei-slide-transport {
   position: fixed;

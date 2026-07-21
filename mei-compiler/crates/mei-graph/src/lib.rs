@@ -14,7 +14,7 @@ pub use app_skeleton::synthesize_app_skeleton;
 pub use artifact_expand::{
     collect_template_imports, expand_artifact_value, json_to_expr, try_expand_artifact_macro_call,
 };
-pub use deck::{deck_to_v2, DeckBuildError};
+pub use deck::{deck_to_v2, deck_to_v2_with_dir, DeckBuildError};
 pub use expand::{expand_artifact_expr, expand_v2_file, ExpandError};
 pub use lower::{lower_v2_file, GraphBlock, GraphOutcome, LowerGraphError};
 pub use registry::{MacroRegistry, TemplateRoots};

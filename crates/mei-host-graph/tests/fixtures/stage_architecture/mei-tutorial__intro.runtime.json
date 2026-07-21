@@ -17,9 +17,9 @@
       "structure_excludes_caption_notes_timing": true
     },
     "narration_cue_count": 0,
-    "narration_digest": "30406ea523c53def",
-    "profile_layout_policy": "slides:inline=constrained/block=constrained/fill=paged_aperture",
-    "public_slot_count": 33,
+    "narration_digest": "a20a830a3644ef3e",
+    "profile_layout_policy": "slides:inline=constrained/block=constrained/fill=paged_aperture/scroll=paged",
+    "public_slot_count": 19,
     "public_slot_ids": [
       "slide-01-cover-content",
       "slide-02-why-content",
@@ -36,29 +36,15 @@
       "vp_content_claim",
       "vp_content_evidence",
       "vp_cover_hero",
-      "vp_graph_claim",
-      "vp_graph_evidence",
-      "vp_matrix_q1",
-      "vp_matrix_q2",
-      "vp_matrix_q3",
-      "vp_matrix_q4",
-      "vp_matrix_title",
       "vp_next_hero",
-      "vp_planes_steps",
-      "vp_planes_title",
-      "vp_planes_visual",
       "vp_stages_fab",
       "vp_stages_pres",
-      "vp_stages_scene",
-      "vp_why_action",
-      "vp_why_claim",
-      "vp_why_evidence",
-      "vp_why_explain"
+      "vp_stages_scene"
     ],
     "slot_module_id": "scene:intro",
     "stage_mdx_source": null,
     "stage_surface": "paged",
-    "structure_digest": "278499c63a57c264",
+    "structure_digest": "71bc6194ce569846",
     "world_capability_count": 0,
     "world_is_content": true
   },
@@ -79,17 +65,17 @@
     }
   },
   "mcg": {
-    "node_count": 40,
+    "node_count": 48,
     "nodes_by_kind": {
       "app_skeleton": 1,
-      "content_panel": 9,
+      "content_panel": 10,
       "navigation": 1,
-      "semantic_graph": 29
+      "semantic_graph": 36
     },
     "schemaVersion": "mei-mcg-registry-v2"
   },
   "mrg": {
-    "schemaVersion": "mei-mrg-registry-v3",
+    "schemaVersion": "mei-mrg-registry-v4",
     "slot_count_compared": false
   },
   "panel_ids": [
@@ -115,7 +101,7 @@
     "slide-09-next-content"
   ],
   "presentation_map": {
-    "default_script_step_count": 10,
+    "default_script_step_count": 9,
     "schemaVersion": "mei-presentation-map-v1",
     "slide_count": 9,
     "slide_ids": [
@@ -129,7 +115,7 @@
       "slide-08-matrix",
       "slide-09-next"
     ],
-    "viewpoint_count": 24,
+    "viewpoint_count": 10,
     "viewpoint_ids": [
       "vp_build_steps",
       "vp_build_title",
@@ -137,24 +123,10 @@
       "vp_content_claim",
       "vp_content_evidence",
       "vp_cover_hero",
-      "vp_graph_claim",
-      "vp_graph_evidence",
-      "vp_matrix_q1",
-      "vp_matrix_q2",
-      "vp_matrix_q3",
-      "vp_matrix_q4",
-      "vp_matrix_title",
       "vp_next_hero",
-      "vp_planes_steps",
-      "vp_planes_title",
-      "vp_planes_visual",
       "vp_stages_fab",
       "vp_stages_pres",
-      "vp_stages_scene",
-      "vp_why_action",
-      "vp_why_claim",
-      "vp_why_evidence",
-      "vp_why_explain"
+      "vp_stages_scene"
     ]
   },
   "scene_id": "intro",
@@ -178,7 +150,7 @@
     "mrg_registry_host_graph": "mei-mrg-registry-v3",
     "mrg_registry_server_note": "mei-mrg-registry-v2 (server/src/graph/mrg/registry.rs) forks from host-graph v3",
     "presentation_map": "mei-presentation-map-v1",
-    "runtime_plans": "runtime-plans-v2",
+    "runtime_plans": "runtime-plans-v3",
     "scene_view_manifest": "scene-view-manifest-v1",
     "shell_layer": "shell-v1",
     "structure_full": "structure-full-v1"

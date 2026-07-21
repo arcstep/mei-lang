@@ -109,8 +109,14 @@
         host.classList.add("access-drilldown-shell-host");
         host.dataset.drilldownZoneHost = zone.id;
         if (fillLock) {
+          // list / detail / 行级详情卡（预警详情、典型案例等 preview）需在 host 内滚动；
+          // 勿对 row_preview 写 overflow:hidden，否则会盖过 CSS 的 overflow:auto 导致内容截断。
           const scrollable =
-            zone.id === "detail" || zone.id === "list" || zone.role === "list";
+            zone.id === "detail" ||
+            zone.id === "list" ||
+            zone.id === "preview" ||
+            zone.role === "list" ||
+            zone.role === "row_preview";
           lockStructuredShellFill(host, { scrollable });
           if (zone.role === "filter") {
             host.style.overflow = "visible";

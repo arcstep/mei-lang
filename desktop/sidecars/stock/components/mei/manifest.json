@@ -3,6 +3,14 @@
     "mei.text": {
       "tag": "mei-text",
       "script": "text.js"
+    },
+    "mei.slide-callout": {
+      "tag": "mei-slide-callout",
+      "script": "slide-callout.js"
+    },
+    "mei.slide-stat-row": {
+      "tag": "mei-slide-stat-row",
+      "script": "slide-stat-row.js"
     }
   }
 }

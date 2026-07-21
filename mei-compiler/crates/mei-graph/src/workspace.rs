@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
 
-use crate::deck::{deck_to_v2, DeckBuildError};
+use crate::deck::{deck_to_v2_with_dir, DeckBuildError};
 use crate::expand::expand_v2_file;
 use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
 use crate::registry::{MacroRegistry, TemplateRoots};
@@ -220,14 +220,19 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         let rel = source_relative_path(&src_root, path);
         let deck =
             parse_deck_source_file(path).map_err(|error| CompileAppError::DeckParse { error })?;
-        let parsed =
-            deck_to_v2(app_id, &rel, &deck).map_err(|DeckBuildError { line, message }| {
-                CompileAppError::DeckBuild {
-                    path: path.clone(),
-                    line,
-                    message,
-                }
-            })?;
+        let parsed = deck_to_v2_with_dir(
+            app_id,
+            &rel,
+            &deck,
+            path.parent(),
+        )
+        .map_err(|DeckBuildError { line, message }| {
+            CompileAppError::DeckBuild {
+                path: path.clone(),
+                line,
+                message,
+            }
+        })?;
         let expanded = expand_v2_file(&parsed, &registry, &roots).map_err(|error| {
             CompileAppError::Expand {
                 path: path.clone(),

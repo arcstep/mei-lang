@@ -60,7 +60,10 @@ pub struct DeckStep {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeckSource {
+    /// Safe relative path under the presentation stage, e.g. `custom/demo.mei`.
     pub path: String,
+    /// Template name inside that file (`#fragment`).
+    pub fragment: String,
     pub line: usize,
 }
 
@@ -406,10 +409,11 @@ impl DeckParser<'_> {
                 continue;
             }
             if let Some(value) = parse_directive_arg(trimmed, "@source") {
-                validate_source_path(self.path, current_line, value)?;
+                let (path, fragment) = parse_source_ref(self.path, current_line, value)?;
                 if source
                     .replace(DeckSource {
-                        path: value.to_string(),
+                        path,
+                        fragment,
                         line: current_line,
                     })
                     .is_some()
@@ -494,21 +498,37 @@ impl DeckParser<'_> {
                 ));
             }
         }
-        let missing: Vec<&str> = expected
-            .iter()
-            .copied()
-            .filter(|name| !actual.contains(name))
-            .collect();
-        if !missing.is_empty() {
-            return Err(DeckParseError::new(
-                self.path,
-                pattern_line,
-                1,
-                format!(
-                    "slide `{id}` is missing required slot(s) for pattern `{pattern}`: {}",
-                    missing.join(", ")
-                ),
-            ));
+        if let Some(source) = &source {
+            for slot in &slots {
+                if !slot.content.markdown.trim().is_empty() {
+                    return Err(DeckParseError::new(
+                        self.path,
+                        slot.line,
+                        1,
+                        format!(
+                            "[deck_source_mixed_content] `@source({})` cannot mix Markdown slot body; leave H2 slots empty or remove them",
+                            source_display(source)
+                        ),
+                    ));
+                }
+            }
+        } else {
+            let missing: Vec<&str> = expected
+                .iter()
+                .copied()
+                .filter(|name| !actual.contains(name))
+                .collect();
+            if !missing.is_empty() {
+                return Err(DeckParseError::new(
+                    self.path,
+                    pattern_line,
+                    1,
+                    format!(
+                        "slide `{id}` is missing required slot(s) for pattern `{pattern}`: {}",
+                        missing.join(", ")
+                    ),
+                ));
+            }
         }
         Ok(DeckSlide {
             id,
@@ -585,29 +605,55 @@ fn validate_slot_name(path: Option<&Path>, line: usize, name: &str) -> Result<()
     }
 }
 
-fn validate_source_path(
+fn source_display(source: &DeckSource) -> String {
+    format!("{}#{}", source.path, source.fragment)
+}
+
+fn parse_source_ref(
     path: Option<&Path>,
     line: usize,
-    source: &str,
-) -> Result<(), DeckParseError> {
-    let normalized = source.replace('\\', "/");
-    let valid = normalized.starts_with("custom/")
-        && normalized.ends_with(".mei")
-        && !normalized.contains("//")
-        && !normalized
+    raw: &str,
+) -> Result<(String, String), DeckParseError> {
+    let normalized = unquote(raw.trim()).replace('\\', "/");
+    let Some((file_path, fragment)) = normalized.split_once('#') else {
+        return Err(DeckParseError::new(
+            path,
+            line,
+            1,
+            format!(
+                "invalid `@source` path `{raw}`; expected `custom/*.mei#fragment`"
+            ),
+        ));
+    };
+    let file_path = file_path.trim();
+    let fragment = fragment.trim();
+    let path_ok = file_path.starts_with("custom/")
+        && file_path.ends_with(".mei")
+        && !file_path.contains("//")
+        && !file_path
             .split('/')
             .any(|segment| matches!(segment, "." | ".."))
-        && normalized
+        && file_path
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '_' | '-' | '.'));
-    if valid {
-        Ok(())
+    let fragment_ok = !fragment.is_empty()
+        && fragment
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && fragment
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+    if path_ok && fragment_ok {
+        Ok((file_path.to_string(), fragment.to_string()))
     } else {
         Err(DeckParseError::new(
             path,
             line,
             1,
-            format!("invalid `@source` path `{source}`; expected a safe `custom/*.mei` path"),
+            format!(
+                "invalid `@source` path `{raw}`; expected a safe `custom/*.mei#fragment` (fragment must be an identifier)"
+            ),
         ))
     }
 }
@@ -835,19 +881,42 @@ default_for_stage: true
     }
 
     #[test]
-    fn parses_reserved_custom_source_into_ast() {
+    fn parses_custom_source_with_fragment_into_ast() {
+        let source = VALID_DECK.replace(
+            "@chapter(动机)",
+            "@chapter(动机)\n@source(custom/customer-slide.mei#customer_slide)",
+        );
+        // Clear slot bodies — @source forbids mixed Markdown content.
+        let source = source
+            .replace(
+                "## claim {#vp_claim}\n驾驶舱与演说使用 *同一套* 结构语言。\n\n- scene\n- presentation\n\n",
+                "## claim {#vp_claim}\n\n",
+            )
+            .replace("## evidence {#vp_evidence}\n1. graph\n2. runtime\n", "## evidence {#vp_evidence}\n");
+        let deck = parse_deck_source(&source).expect("source with fragment");
+        let src = deck.slides[0].source.as_ref().expect("source");
+        assert_eq!(src.path, "custom/customer-slide.mei");
+        assert_eq!(src.fragment, "customer_slide");
+    }
+
+    #[test]
+    fn rejects_source_without_fragment() {
         let source = VALID_DECK.replace(
             "@chapter(动机)",
             "@chapter(动机)\n@source(custom/customer-slide.mei)",
         );
-        let deck = parse_deck_source(&source).expect("source is syntactically reserved");
-        assert_eq!(
-            deck.slides[0]
-                .source
-                .as_ref()
-                .map(|source| source.path.as_str()),
-            Some("custom/customer-slide.mei")
+        let error = parse_deck_source(&source).expect_err("fragment required");
+        assert!(error.to_string().contains("custom/*.mei#fragment"));
+    }
+
+    #[test]
+    fn rejects_source_mixed_with_markdown_slots() {
+        let source = VALID_DECK.replace(
+            "@chapter(动机)",
+            "@chapter(动机)\n@source(custom/customer-slide.mei#customer_slide)",
         );
+        let error = parse_deck_source(&source).expect_err("mixed content");
+        assert!(error.to_string().contains("deck_source_mixed_content"));
     }
 
     #[test]

@@ -251,16 +251,109 @@ fn rejects_second_deck_in_same_stage() {
 }
 
 #[test]
-fn reports_reserved_custom_source_as_unsupported() {
-    let fixture = Fixture::new(&VALID_DECK.replace(
-        "@chapter(Opening)",
-        "@chapter(Opening)\n@source(custom/customer.mei)",
-    ));
-    let error = compile_app(&fixture.root, "demo").expect_err("custom source unsupported");
+fn compiles_custom_source_fragment_into_non_text_blocks() {
+    let fixture = Fixture::new(
+        r#"---
+id: intro
+title: Intro Deck
+theme: presentation
+canvas: 16:9
+summary: Compiler fixture
+default_for_stage: true
+---
+
+# Graph page {#slide-01}
+@template(claim_evidence)
+@chapter(Opening)
+@source(custom/graph.mei#graph_page)
+"#,
+    );
+    let custom_dir = fixture.stage.join("custom");
+    fs::create_dir_all(&custom_dir).expect("custom");
+    fs::write(
+        custom_dir.join("graph.mei"),
+        r#"
+template graph_page():
+    [
+        component(
+            "mei.text",
+            id = "claim",
+            area = "claim",
+            props = {"content": "Graph claim", "format": "html"},
+        ),
+        component(
+            "chart.column",
+            id = "evidence-chart",
+            area = "evidence",
+            props = {
+                "title": "Bundle layers",
+                "chartHeight": 220,
+                "data": {
+                    "rows": [
+                        {"layer": "layer_plan", "count": 1},
+                        {"layer": "presentation_map", "count": 1},
+                        {"layer": "registry", "count": 1},
+                    ],
+                },
+                "mapping": {
+                    "x": [{"field": "layer", "name": "layer"}],
+                    "y": [{"field": "count", "name": "count"}],
+                },
+            },
+        ),
+    ]
+"#,
+    )
+    .expect("custom source");
+    let outcome = compile_app(&fixture.root, "demo").expect("compile with @source");
+    let panels: Vec<_> = outcome
+        .blocks
+        .iter()
+        .filter(|block| block.kind == "content_panel")
+        .collect();
+    assert_eq!(panels.len(), 1);
+    let blocks = panels[0]
+        .payload
+        .get("blocks")
+        .and_then(|value| value.as_array())
+        .expect("panel blocks");
+    assert_eq!(blocks.len(), 2);
+    let use_keys: Vec<&str> = blocks
+        .iter()
+        .filter_map(|block| {
+            block
+                .pointer("/__args/arg0")
+                .and_then(|value| value.as_str())
+                .or_else(|| block.get("use_key").and_then(|value| value.as_str()))
+        })
+        .collect();
+    assert!(
+        use_keys.iter().any(|key| *key == "chart.column"),
+        "expected chart.column use_key in blocks, got {blocks:?}"
+    );
+}
+
+#[test]
+fn rejects_custom_source_missing_fragment_file() {
+    let fixture = Fixture::new(
+        r#"---
+id: intro
+title: Intro Deck
+theme: presentation
+canvas: 16:9
+summary: Compiler fixture
+default_for_stage: true
+---
+
+# Graph page {#slide-01}
+@template(full_bleed)
+@source(custom/missing.mei#hero_blocks)
+"#,
+    );
+    let error = compile_app(&fixture.root, "demo").expect_err("missing source");
     let message = error.to_string();
     assert!(message.contains(fixture.deck.to_string_lossy().as_ref()));
-    assert!(message.contains("@source(custom/customer.mei)"));
-    assert!(message.contains("not supported yet"));
+    assert!(message.contains("deck_source_missing") || message.contains("not found"));
 }
 
 fn assert_kind_count(blocks: &[mei_graph::GraphBlock], kind: &str, expected: usize) {
