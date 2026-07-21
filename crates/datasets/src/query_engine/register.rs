@@ -1,17 +1,130 @@
 use std::collections::hash_map::DefaultHasher;
-use std::fs::File;
+use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use datafusion::arrow::array::{ArrayRef, StringArray};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use mei_lang_kernel::{
-    parquet_snapshot_path, resolve_data_snapshot_import_entry, ColumnSchema,
+    data_snapshot_store_root, parse_geojson_rows, parquet_snapshot_path,
+    resolve_data_snapshot_import_entry, ColumnSchema, DatasetView,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::ArrowWriter;
+use serde_json::Value;
 
 use super::connection::{block_on, with_app_session};
-use super::sql::{sql_cast_type, quote_ident};
+use super::sql::{quote_ident, sql_cast_type};
+use crate::paths::resolve_source_path;
+
+const GEOJSON_ATTR_COLUMNS: &[&str] = &["id", "name", "type", "geometry-type"];
+
+/// True when the dataset is a GeoJSON / FeatureCollection source.
+pub fn is_geojson_source(view: &DatasetView) -> bool {
+    let kind = view.source.kind.trim().to_ascii_lowercase();
+    let path = view.source.path.as_str();
+    kind == "geojson" || path.ends_with(".geojson")
+}
+
+/// Resolve parquet for SQL: tabular snapshots, or materialized GeoJSON attribute tables.
+pub fn resolve_parquet_for_dataset_view(
+    app_root: &Path,
+    view: &DatasetView,
+) -> Result<Option<PathBuf>> {
+    if is_geojson_source(view) {
+        return resolve_or_materialize_geojson_attr_parquet(app_root, view.source.path.as_str());
+    }
+    let header = view.source.header_row.unwrap_or(1).max(1) as usize;
+    Ok(resolve_parquet_file_for_source(
+        app_root,
+        view.source.path.as_str(),
+        view.source.sheet.as_deref(),
+        header,
+    ))
+}
+
+/// Materialize GeoJSON feature properties (no coordinates) into a cached parquet
+/// under the app data-snapshot store, for DataFusion SQL joins / counts.
+pub fn resolve_or_materialize_geojson_attr_parquet(
+    app_root: &Path,
+    source_path: &str,
+) -> Result<Option<PathBuf>> {
+    let abs = resolve_source_path(app_root, source_path);
+    if !abs.is_file() {
+        return Ok(None);
+    }
+    let meta = fs::metadata(&abs)
+        .with_context(|| format!("stat geojson {}", abs.display()))?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut hasher = DefaultHasher::new();
+    source_path.hash(&mut hasher);
+    mtime_ms.hash(&mut hasher);
+    meta.len().hash(&mut hasher);
+    let out = data_snapshot_store_root(app_root).join(format!(
+        "geojson-attr-{:016x}.parquet",
+        hasher.finish()
+    ));
+    if out.is_file() {
+        return Ok(Some(out));
+    }
+    let raw = fs::read_to_string(&abs)
+        .with_context(|| format!("read geojson {}", abs.display()))?;
+    let rows = parse_geojson_rows(&raw)
+        .with_context(|| format!("parse geojson {}", abs.display()))?;
+    fs::create_dir_all(out.parent().unwrap_or(app_root))
+        .with_context(|| format!("mkdir {}", out.parent().unwrap_or(app_root).display()))?;
+    write_geojson_attr_parquet(&out, &rows)
+        .with_context(|| format!("write geojson attr parquet {}", out.display()))?;
+    Ok(Some(out))
+}
+
+fn write_geojson_attr_parquet(path: &Path, rows: &[Value]) -> Result<()> {
+    let mut columns: Vec<ArrayRef> = Vec::with_capacity(GEOJSON_ATTR_COLUMNS.len());
+    for name in GEOJSON_ATTR_COLUMNS {
+        let values: Vec<Option<String>> = rows
+            .iter()
+            .map(|row| {
+                row.as_object()
+                    .and_then(|map| map.get(*name))
+                    .and_then(json_cell_to_string)
+            })
+            .collect();
+        columns.push(Arc::new(StringArray::from(values)) as ArrayRef);
+    }
+    let schema = Arc::new(Schema::new(
+        GEOJSON_ATTR_COLUMNS
+            .iter()
+            .map(|name| Field::new(*name, DataType::Utf8, true))
+            .collect::<Vec<_>>(),
+    ));
+    let batch = RecordBatch::try_new(schema.clone(), columns)
+        .context("geojson attr RecordBatch")?;
+    let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None)
+        .context("geojson attr ArrowWriter")?;
+    writer.write(&batch).context("write geojson attr batch")?;
+    writer.close().context("close geojson attr parquet")?;
+    Ok(())
+}
+
+fn json_cell_to_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        other => Some(other.to_string()),
+    }
+}
 
 /// Resolve on-disk parquet for an xlsx/csv-backed source when import snapshot exists.
 pub fn resolve_parquet_file_for_source(
@@ -148,6 +261,7 @@ fn register_parquet_table(ctx: &SessionContext, table: &str, path: &str) -> Resu
 }
 
 fn is_parquet_metadata_column(name: &str) -> bool {
+    // Skip Arrow/engine metadata columns if present in older snapshots.
     matches!(name, "arrow_schema" | "duckdb_schema")
 }
 
@@ -164,7 +278,10 @@ fn discover_parquet_columns(path: &Path) -> Result<Vec<String>> {
         }
     }
     if columns.is_empty() {
-        bail!("parquet schema returned no data columns for {}", path.display());
+        bail!(
+            "parquet schema returned no data columns for {}",
+            path.display()
+        );
     }
     Ok(columns)
 }

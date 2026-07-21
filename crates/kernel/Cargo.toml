@@ -14,6 +14,7 @@ calamine.workspace = true
 arrow-array.workspace = true
 arrow-schema.workspace = true
 parquet.workspace = true
+moka.workspace = true
 csv.workspace = true
 regex.workspace = true
 rusqlite = { version = "0.39.0", features = ["bundled"] }

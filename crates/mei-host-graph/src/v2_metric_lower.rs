@@ -984,7 +984,7 @@ fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option
                         ae(
                             "matches",
                             vec![
-                                ("field".to_string(), json!("序号")),
+                                ("field".to_string(), json!(prefix_field)),
                                 ("pattern".to_string(), json!("^\\s*\\d+(?:-.*)?\\s*$")),
                             ],
                         ),
@@ -1002,7 +1002,7 @@ fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option
                                 "extract_number",
                                 vec![
                                     ("source".to_string(), filtered),
-                                    ("field".to_string(), json!("序号")),
+                                    ("field".to_string(), json!(prefix_field)),
                                     ("pattern".to_string(), json!("^\\s*(\\d+)")),
                                 ],
                             )
@@ -1018,7 +1018,8 @@ fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option
                         "first_by",
                         vec![
                             ("rowset".to_string(), mutated),
-                            ("field".to_string(), json!(prefix_field)),
+                            // Distinct by extracted numeric prefix, not the raw serial cell.
+                            ("field".to_string(), json!("序号前缀")),
                         ],
                     ),
                 )],
@@ -1326,6 +1327,38 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                 &[
                     ("rowset", lower_rowset(arg0(&args), ctx)),
                     ("predicate", lower_predicate(arg1(&args))),
+                ],
+            ),
+            "latest_days" => aek(
+                "latest_days",
+                &[
+                    ("rowset", lower_rowset(arg0(&args), ctx)),
+                    (
+                        "field",
+                        json!(kw_or_arg(&args, "field", 1)
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            .unwrap_or_default()),
+                    ),
+                    (
+                        "days",
+                        kw_or_arg(&args, "days", 2).unwrap_or(json!(7)),
+                    ),
+                ],
+            ),
+            "latest_months" => aek(
+                "latest_months",
+                &[
+                    ("rowset", lower_rowset(arg0(&args), ctx)),
+                    (
+                        "field",
+                        json!(kw_or_arg(&args, "field", 1)
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            .unwrap_or_default()),
+                    ),
+                    (
+                        "months",
+                        kw_or_arg(&args, "months", 2).unwrap_or(json!(6)),
+                    ),
                 ],
             ),
             "first_by" => aek(
@@ -2127,6 +2160,58 @@ mod tests {
                 .pointer("/values/value/numerator/rowset/rowset")
                 .is_some_and(|v| !v.is_null()),
             "predicate-only where must bind metric base_rowset, got {lowered}"
+        );
+    }
+
+    #[test]
+    fn lower_latest_days_dataset_view_inlines_into_scalar_count() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "inspections",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "inspections"}},
+                },
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "inspection_week_rows",
+                    "from": "inspections",
+                    "rowset": {
+                        "__call": "latest_days",
+                        "__args": {
+                            "arg0": {"__call": "data_ref", "__args": {"arg0": "inspections"}},
+                            "arg1": "检查日期",
+                            "arg2": 7
+                        }
+                    }
+                }
+            }
+        ]);
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "inspections_week_count",
+                "rowset": {"__call": "data_ref", "__args": {"arg0": "inspection_week_rows"}},
+                "agg": {"__call": "count", "__args": {}}
+            }
+        });
+        let lowered = lower_v2_metric("inspections_week_count", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered
+                .pointer("/values/value/rowset/type")
+                .and_then(Value::as_str),
+            Some("latest_days"),
+            "week dataset_view must inline latest_days, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/rowset/days")
+                .and_then(Value::as_u64),
+            Some(7)
         );
     }
 }

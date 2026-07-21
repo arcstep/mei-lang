@@ -24,7 +24,7 @@ impl Default for L1PinPolicy {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct L1ProjectStats {
     pub kept_metrics: usize,
     pub skipped_rowsets: usize,
@@ -37,10 +37,32 @@ pub fn metric_id_is_scalar_rowset(metric_id: &str) -> bool {
     trimmed == SCALAR_ROWSET_SUFFIX || trimmed.ends_with(&format!("::{SCALAR_ROWSET_SUFFIX}"))
 }
 
+/// MetricEval ids that may be indexed in DAG node-pack (excludes `__scalar_rowset__`).
+pub fn metric_id_eligible_for_node_pack(metric_id: &str) -> bool {
+    !metric_id_is_scalar_rowset(metric_id)
+}
+
 fn approx_metric_contract_bytes(contract: &MetricContract) -> usize {
     serde_json::to_string(contract)
         .map(|value| value.len())
         .unwrap_or(64)
+}
+
+/// Whether a contract may be persisted/loaded in eval metric node-pack.
+/// Aligns with L1/lite pin policy: no whole-table rowsets, no oversized values.
+pub fn metric_contract_eligible_for_node_pack(
+    metric_id: &str,
+    contract: &MetricContract,
+    policy: &L1PinPolicy,
+) -> bool {
+    if !policy.pin_rowsets && metric_id_is_scalar_rowset(metric_id) {
+        return false;
+    }
+    let bytes = approx_metric_contract_bytes(contract);
+    if policy.max_pinned_value_bytes > 0 && bytes > policy.max_pinned_value_bytes {
+        return false;
+    }
+    true
 }
 
 /// Project a metrics map for pinned L1 / lite disk: drop rowsets (unless allowed) and oversized values.

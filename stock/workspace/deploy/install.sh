@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install mei-compiler + mei-plug-ds + mei-host-shell + mei-app-runtime into deploy/bin/.
+# Install mei-compiler + mei-host-shell + mei-app-runtime into deploy/bin/.
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,15 +76,15 @@ install_from_lang() {
     mei_export_duckdb_prebuilt "${mei_lang_root}"
     maybe_cargo_target_hygiene "${mei_lang_root}"
     local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+      -p mei-compiler -p mei-host-shell -p mei-app-runtime)
     if [[ "${PROFILE}" == "release" ]]; then
       cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
-        -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+        -p mei-compiler -p mei-host-shell -p mei-app-runtime)
     fi
     CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
   fi
 
-  for name in mei-compiler mei-plug-ds mei-host-shell mei-app-runtime; do
+  for name in mei-compiler mei-host-shell mei-app-runtime; do
     local src="${target_dir}/${subdir}/${name}"
     if [[ ! -x "${src}" ]]; then
       echo "error: binary missing after build: ${src}" >&2
@@ -141,7 +141,7 @@ install_from_release() {
   echo "==> installing from mei-release (tag=${RELEASE_TAG}, version=${RELEASE_VERSION})"
   echo "    bundle=${bundle_root}"
 
-  for name in mei-compiler mei-plug-ds mei-host-shell mei-app-runtime; do
+  for name in mei-compiler mei-host-shell mei-app-runtime; do
     if ! src="$(find_release_binary "${bundle_root}" "${name}")"; then
       echo "error: ${name} not found under ${bundle_root}" >&2
       echo "hint: mei-release v2 bundle layout: targets/<tag>/<version>/v2/bin/{mei-host-shell,...}" >&2

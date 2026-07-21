@@ -27,11 +27,12 @@ pub(crate) fn preview_view(
     let mut live_config_loaded = MeiConfig::default();
     let scene_live_config =
         theme::scene_live_config_for_compiled(compiled, None, &mut live_config_loaded);
-    let workspace_loaded: Option<WorkspaceConfig> = (!compiled.app_root.trim().is_empty()).then(|| {
-        let app_root = Path::new(compiled.app_root.as_str());
-        let root = resolve_workspace_source_root_from_app_root(app_root);
-        load_workspace_config(root.as_path())
-    });
+    let workspace_loaded: Option<WorkspaceConfig> =
+        (!compiled.app_root.trim().is_empty()).then(|| {
+            let app_root = Path::new(compiled.app_root.as_str());
+            let root = resolve_workspace_source_root_from_app_root(app_root);
+            load_workspace_config(root.as_path())
+        });
     let workspace_ref = workspace_loaded.as_ref();
     let runtime_ctx = build_preview_runtime_context(
         compiled,

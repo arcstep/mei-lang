@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build mei-compiler + mei-plug-ds + mei-host-shell + mei-app-runtime from mei-lang source.
+# Build mei-compiler + mei-host-shell + mei-app-runtime from mei-lang source.
+# (mei-plug-ds is a library embedded by mei-app-runtime; no standalone product bin.)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,15 +25,15 @@ done
 
 CARGO_ARGS=(build --message-format=json-render-diagnostics \
   --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
-  -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+  -p mei-compiler -p mei-host-shell -p mei-app-runtime)
 if [[ "${PROFILE}" == "release" ]]; then
   CARGO_ARGS=(build --release --message-format=json-render-diagnostics \
     --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
-    -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+    -p mei-compiler -p mei-host-shell -p mei-app-runtime)
 fi
 
 export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell,mei-app-runtime}"
+export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-host-shell,mei-app-runtime}"
 
 # shellcheck source=../ops/cargo-target-gc.sh
 source "${SCRIPT_DIR}/../ops/cargo-target-gc.sh"
@@ -67,4 +68,4 @@ if [[ "${before_kb}" =~ ^[0-9]+$ && "${after_kb}" =~ ^[0-9]+$ ]]; then
   awk -v before="${before_kb}" -v after="${after_kb}" -v delta="${delta_kb}" \
     'BEGIN { printf "==> target size: %.2fGiB -> %.2fGiB (%+.1fMiB)\n", before / 1048576, after / 1048576, delta / 1024 }'
 fi
-echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,plug-ds,app-runtime}"
+echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,app-runtime}"

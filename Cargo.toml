@@ -43,6 +43,8 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+redb = "4.1.0"
+moka = { version = "0.12.15", features = ["sync"] }
 toml = "0.8"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "signal", "time"] }

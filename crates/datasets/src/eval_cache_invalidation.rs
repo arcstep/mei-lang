@@ -49,15 +49,41 @@ pub fn invalidate_stale_eval_artifacts(
     let eval_root = resolve_app_eval_cache_root(app_root);
     if plan.force_clear {
         report.force_cleared = true;
-        if eval_root.exists() {
-            report.removed_artifact_files = count_files_recursively(&eval_root);
-            report.removed_bytes = dir_tree_bytes(&eval_root);
-            fs::remove_dir_all(&eval_root)
-                .with_context(|| format!("remove eval-cache root {}", eval_root.display()))?;
-        }
         clear_all_client_bootstraps(app_root, &mut report)?;
+        report.removed_artifact_files += crate::clear_small_artifacts(app_root)?;
+        if eval_root.exists() {
+            for entry in fs::read_dir(&eval_root)
+                .with_context(|| format!("read eval-cache root {}", eval_root.display()))?
+            {
+                let path = entry?.path();
+                if path == crate::small_artifact_store_path(app_root) {
+                    continue;
+                }
+                report.removed_artifact_files += if path.is_dir() {
+                    count_files_recursively(&path)
+                } else {
+                    1
+                };
+                report.removed_bytes += if path.is_dir() {
+                    dir_tree_bytes(&path)
+                } else {
+                    path.metadata().map(|metadata| metadata.len()).unwrap_or(0)
+                };
+                if path.is_dir() {
+                    fs::remove_dir_all(path)?;
+                } else {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
         return Ok(report);
     }
+
+    report.removed_artifact_files += crate::retain_small_artifact_keys(
+        app_root,
+        "metric-response-lite",
+        &plan.allowed_response_cache_keys,
+    )?;
 
     let metric_response_root = eval_root.join("metric-response");
     if metric_response_root.is_dir() {
@@ -92,11 +118,15 @@ pub fn invalidate_stale_eval_artifacts(
     }
 
     for scope in &plan.stale_bootstrap_scopes {
-        let path = mei_lang_kernel::resolve_app_var_root(app_root)
-            .join("client-bootstrap")
-            .join(format!("{scope}.json"));
-        if path.is_file() {
-            fs::remove_file(&path)?;
+        let removed_manifest =
+            crate::remove_small_artifact(app_root, "client-bootstrap", scope.as_str())?;
+        let scene_prefix = format!("{scope}|");
+        let removed_scene = crate::remove_small_artifacts_with_prefix(
+            app_root,
+            "scene-bootstrap",
+            scene_prefix.as_str(),
+        )?;
+        if removed_manifest || removed_scene > 0 {
             report.cleared_bootstrap_scopes += 1;
         }
     }
@@ -108,19 +138,12 @@ fn clear_all_client_bootstraps(
     app_root: &Path,
     report: &mut EvalCacheInvalidationReport,
 ) -> Result<()> {
-    let bootstrap_root = mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap");
-    if !bootstrap_root.is_dir() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(&bootstrap_root)
-        .with_context(|| format!("read client-bootstrap dir {}", bootstrap_root.display()))?
-    {
-        let entry = entry?;
-        if entry.path().is_file() {
-            report.cleared_bootstrap_scopes += 1;
-            fs::remove_file(entry.path())?;
-        }
-    }
+    let empty = BTreeSet::new();
+    let manifests = crate::retain_small_artifact_keys(app_root, "client-bootstrap", &empty)?;
+    let scenes = crate::retain_small_artifact_keys(app_root, "scene-bootstrap", &empty)?;
+    report.cleared_bootstrap_scopes = report
+        .cleared_bootstrap_scopes
+        .saturating_add(manifests.saturating_add(scenes));
     Ok(())
 }
 
@@ -196,10 +219,8 @@ mod tests {
             r#"{"response_cache_key":"k1","schema_version":"mei-metric-response-result-artifact-v1"}"#,
         )
         .expect("write");
-        let bootstrap_root =
-            mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap");
-        fs::create_dir_all(&bootstrap_root).expect("mkdir bootstrap");
-        fs::write(bootstrap_root.join("home.json"), "{}").expect("write bootstrap");
+        crate::store_small_artifact(app_root, "client-bootstrap", "home", &serde_json::json!({}))
+            .expect("write bootstrap");
         let report = invalidate_stale_eval_artifacts(
             app_root,
             &EvalCacheInvalidationPlan {
@@ -211,6 +232,13 @@ mod tests {
         assert!(report.force_cleared);
         assert!(report.removed_artifact_files >= 1);
         assert!(report.cleared_bootstrap_scopes >= 1);
-        assert!(!eval_root.exists());
+        assert!(!eval_root.join("metric-response").exists());
+        assert!(crate::load_small_artifact::<serde_json::Value>(
+            app_root,
+            "client-bootstrap",
+            "home"
+        )
+        .expect("load")
+        .is_none());
     }
 }

@@ -1,4 +1,4 @@
-//! Lower simple MeiLang analysis scalars (count/sum/avg + eq/where) to DuckDB SQL.
+//! Lower simple MeiLang analysis scalars (count/sum/avg + eq/where) to DataFusion SQL.
 //! Complex compositions fall back to the row-eval path.
 
 use std::collections::BTreeMap;
@@ -9,7 +9,7 @@ use mei_lang_kernel::{ColumnSchema, DatasetView, MetricContract, MetricShape};
 use serde_json::{json, Map, Value};
 
 use super::query::{query_parquet_scalar_f64, query_parquet_scalar_i64};
-use super::register::resolve_parquet_file_for_source;
+use super::register::resolve_parquet_for_dataset_view;
 use super::sql::{build_where_clause, quote_ident};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct SqlMetricEvalInput<'a> {
     pub search: Option<&'a str>,
 }
 
-/// Try to evaluate requested (non-rowset) metrics entirely via DuckDB.
+/// Try to evaluate requested (non-rowset) metrics entirely via the query engine (DataFusion).
 /// Returns `None` when any metric cannot be lowered — caller must use row path.
 pub fn try_eval_metrics_via_sql(
     input: SqlMetricEvalInput<'_>,
@@ -140,15 +140,25 @@ fn try_eval_scalar_expr(
     match analysis_type {
         "count" => {
             let rowset = object.get("rowset").unwrap_or(&Value::Null);
-            let Some((dataset_id, mut filters)) = lower_rowset_to_filters(rowset)? else {
+            if let Some((dataset_id, mut filters)) = lower_rowset_to_filters(rowset)? {
+                merge_filters(&mut filters, global_filters);
+                let Some(view) = lookup_dataset(datasets, &dataset_id) else {
+                    return Ok(None);
+                };
+                // GeoJSON / non-snapshot sources have no parquet — fall back to row eval.
+                let Some(count) = count_dataset(app_root, view, &filters, search)? else {
+                    return Ok(None);
+                };
+                return Ok(Some(json!(count)));
+            }
+            // Complex rowsets (latest_days / where+lookup / …): COUNT via pipeline SQL.
+            // Skip when request-level filters/search must be applied (not lowered here).
+            if !global_filters.is_empty() || search.is_some() {
                 return Ok(None);
-            };
-            merge_filters(&mut filters, global_filters);
-            let Some(view) = lookup_dataset(datasets, &dataset_id) else {
-                return Ok(None);
-            };
-            // GeoJSON / non-snapshot sources have no parquet — fall back to row eval.
-            let Some(count) = count_dataset(app_root, view, &filters, search)? else {
+            }
+            let Some(count) =
+                super::pipeline_sql::try_count_analysis_expr_via_sql(app_root, datasets, rowset)?
+            else {
                 return Ok(None);
             };
             Ok(Some(json!(count)))
@@ -157,20 +167,51 @@ fn try_eval_scalar_expr(
             let Some(value_expr) = object.get("value") else {
                 return Ok(None);
             };
-            let Some((dataset_id, field, mut filters)) = lower_number_source(value_expr)? else {
-                return Ok(None);
-            };
-            merge_filters(&mut filters, global_filters);
-            let Some(view) = lookup_dataset(datasets, &dataset_id) else {
-                return Ok(None);
-            };
             let agg = match analysis_type {
                 "sum" => "SUM",
                 "avg" => "AVG",
                 "min" => "MIN",
                 _ => "MAX",
             };
-            let Some(n) = agg_dataset_f64(app_root, view, field.as_str(), agg, &filters, search)?
+            if let Some((dataset_id, field, mut filters)) = lower_number_source(value_expr)? {
+                merge_filters(&mut filters, global_filters);
+                let Some(view) = lookup_dataset(datasets, &dataset_id) else {
+                    return Ok(None);
+                };
+                let Some(n) =
+                    agg_dataset_f64(app_root, view, field.as_str(), agg, &filters, search)?
+                else {
+                    return Ok(None);
+                };
+                return Ok(Some(json!(n)));
+            }
+            // Complex source rowsets (first_by / in_values / …): agg via pipeline SQL.
+            if !global_filters.is_empty() || search.is_some() {
+                return Ok(None);
+            }
+            let Some(value_obj) = value_expr.as_object() else {
+                return Ok(None);
+            };
+            if value_obj.get("__kind").and_then(Value::as_str) != Some("analysis_expr")
+                || value_obj.get("type").and_then(Value::as_str) != Some("number")
+            {
+                return Ok(None);
+            }
+            let field = value_obj
+                .get("field")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let Some(field) = field else {
+                return Ok(None);
+            };
+            let source = value_obj
+                .get("source")
+                .or_else(|| value_obj.get("rowset"))
+                .unwrap_or(&Value::Null);
+            let Some(n) = super::pipeline_sql::try_agg_analysis_expr_via_sql(
+                app_root, datasets, source, field, agg,
+            )?
             else {
                 return Ok(None);
             };
@@ -197,14 +238,39 @@ fn try_eval_scalar_expr(
             else {
                 return Ok(None);
             };
-            let n = num.as_f64().or_else(|| num.as_i64().map(|v| v as f64)).unwrap_or(0.0);
-            let d = den.as_f64().or_else(|| den.as_i64().map(|v| v as f64)).unwrap_or(0.0);
-            let ratio = if d.abs() < f64::EPSILON {
-                0.0
-            } else {
-                n / d
-            };
+            let n = num
+                .as_f64()
+                .or_else(|| num.as_i64().map(|v| v as f64))
+                .unwrap_or(0.0);
+            let d = den
+                .as_f64()
+                .or_else(|| den.as_i64().map(|v| v as f64))
+                .unwrap_or(0.0);
+            let ratio = if d.abs() < f64::EPSILON { 0.0 } else { n / d };
             Ok(Some(json!(ratio)))
+        }
+        "sum_rowset_counts" => {
+            if !global_filters.is_empty() || search.is_some() {
+                return Ok(None);
+            }
+            let Some(rowsets) = object.get("rowsets").and_then(Value::as_array) else {
+                return Ok(None);
+            };
+            let mut total = 0i64;
+            for rowset in rowsets {
+                let Some(n) = super::pipeline_sql::try_count_analysis_expr_via_sql(
+                    app_root, datasets, rowset,
+                )?
+                else {
+                    return Ok(None);
+                };
+                total = total.saturating_add(n);
+            }
+            let fallback = object
+                .get("fallback")
+                .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|n| n as f64)))
+                .unwrap_or(0.0);
+            Ok(Some(json!(total as f64 + fallback)))
         }
         "change_rate" => {
             let Some(current) = try_eval_scalar_expr(
@@ -242,7 +308,12 @@ fn try_eval_scalar_expr(
             let scale = object
                 .get("scale")
                 .and_then(Value::as_f64)
-                .or_else(|| object.get("scale").and_then(Value::as_i64).map(|v| v as f64))
+                .or_else(|| {
+                    object
+                        .get("scale")
+                        .and_then(Value::as_i64)
+                        .map(|v| v as f64)
+                })
                 .unwrap_or(100.0);
             let delta = if mode.eq_ignore_ascii_case("reduction") {
                 base - current
@@ -309,9 +380,7 @@ fn lower_rowset_to_filters(expr: &Value) -> Result<Option<(String, BTreeMap<Stri
     }
 }
 
-fn lower_number_source(
-    expr: &Value,
-) -> Result<Option<(String, String, BTreeMap<String, String>)>> {
+fn lower_number_source(expr: &Value) -> Result<Option<(String, String, BTreeMap<String, String>)>> {
     let Some(object) = expr.as_object() else {
         return Ok(None);
     };
@@ -422,32 +491,10 @@ fn lookup_dataset<'a>(
     })
 }
 
-/// Whether this dataset may participate in the DuckDB SQL compute path.
-///
-/// GeoJSON / geometry FeatureCollections stay on the ds row path
-/// (`geojson_dataset` + kernel `parse_geojson_rows`). Missing parquet must never
-/// hard-fail a metric batch — callers treat `None` as "fall back to row eval".
-fn sql_snapshot_eligible(view: &DatasetView) -> bool {
-    let kind = view.source.kind.trim().to_ascii_lowercase();
-    let path = view.source.path.as_str();
-    if kind == "geojson" || path.ends_with(".geojson") {
-        return false;
-    }
-    true
-}
-
 fn parquet_for_view(app_root: &Path, view: &DatasetView) -> Option<std::path::PathBuf> {
-    if !sql_snapshot_eligible(view) {
-        return None;
-    }
-    let header = view.source.header_row.unwrap_or(1).max(1) as usize;
-    // Tabular uploads/imports: resolve parquet snapshot if present; else None → row fallback.
-    resolve_parquet_file_for_source(
-        app_root,
-        view.source.path.as_str(),
-        view.source.sheet.as_deref(),
-        header,
-    )
+    // Tabular parquet or materialized GeoJSON attribute parquet.
+    // Missing snapshot → None (caller fail-fast / uncovered); never silent JSON hydrate.
+    resolve_parquet_for_dataset_view(app_root, view).ok().flatten()
 }
 
 fn count_dataset(
@@ -520,10 +567,7 @@ mod tests {
             }
         });
         let lowered = lower_rowset_to_filters(expr.get("rowset").unwrap()).unwrap();
-        assert_eq!(
-            lowered.unwrap().0,
-            "enforcement_units"
-        );
+        assert_eq!(lowered.unwrap().0, "enforcement_units");
     }
 
     #[test]
@@ -545,7 +589,10 @@ mod tests {
         });
         let (id, filters) = lower_rowset_to_filters(&rowset).unwrap().unwrap();
         assert_eq!(id, "inspection");
-        assert_eq!(filters.get("检查结果").map(String::as_str), Some("无违规项"));
+        assert_eq!(
+            filters.get("检查结果").map(String::as_str),
+            Some("无违规项")
+        );
     }
 
     #[test]

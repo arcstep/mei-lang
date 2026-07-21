@@ -1,5 +1,5 @@
-//! Compile lowered `analysis_expr` trees to controlled DuckDB SQL (0549).
-//! Unsupported ops return `Ok(None)` so callers fall back to the row interpreter.
+//! Compile lowered `analysis_expr` trees to controlled DataFusion SQL (0549).
+//! Unsupported ops return `Ok(None)` so callers **fail-fast** (no whole-table JSON hydrate).
 
 mod date_sql;
 mod exec;
@@ -9,11 +9,11 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use mei_lang_kernel::{DatasetView, MetricContract, MetricShape};
 use serde_json::Value;
 
-use super::{record_duckdb_query_ms, record_rows_materialized};
+use super::{record_query_engine_ms, record_rows_materialized};
 use crate::util::elapsed_ms;
 use std::time::Instant;
 
@@ -65,18 +65,72 @@ pub fn try_eval_analysis_expr_via_sql(
     };
     if rows.len() > MAX_PIPELINE_SQL_ROWS {
         record_pipeline_sql_fallback();
-        return Ok(None);
+        bail!(
+            "pipeline_sql_row_limit: result has {} rows (max {}); whole-table JSON hydrate is disabled",
+            rows.len(),
+            MAX_PIPELINE_SQL_ROWS
+        );
     }
     record_pipeline_sql_hit();
-    record_duckdb_query_ms(elapsed_ms(started));
+    record_query_engine_ms(elapsed_ms(started));
     record_rows_materialized(rows.len());
     Ok(Some(rows))
+}
+
+/// Count rows for a lowered analysis_expr without materializing the rowset.
+pub fn try_count_analysis_expr_via_sql(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    expr: &Value,
+) -> Result<Option<i64>> {
+    let started = Instant::now();
+    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
+        record_pipeline_sql_fallback();
+        return Ok(None);
+    };
+    let count = match exec::execute_sql_plan_count(app_root, &plan) {
+        Ok(n) => n,
+        Err(err) => {
+            tracing::debug!(error = %err, "pipeline_sql DataFusion count fallback");
+            record_pipeline_sql_fallback();
+            return Ok(None);
+        }
+    };
+    record_pipeline_sql_hit();
+    record_query_engine_ms(elapsed_ms(started));
+    Ok(Some(count))
+}
+
+/// Aggregate a numeric field over a lowered analysis_expr rowset.
+pub fn try_agg_analysis_expr_via_sql(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    expr: &Value,
+    field: &str,
+    agg: &str,
+) -> Result<Option<f64>> {
+    let started = Instant::now();
+    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
+        record_pipeline_sql_fallback();
+        return Ok(None);
+    };
+    let value = match exec::execute_sql_plan_agg_f64(app_root, &plan, field, agg) {
+        Ok(n) => n,
+        Err(err) => {
+            tracing::debug!(error = %err, "pipeline_sql DataFusion agg fallback");
+            record_pipeline_sql_fallback();
+            return Ok(None);
+        }
+    };
+    record_pipeline_sql_hit();
+    record_query_engine_ms(elapsed_ms(started));
+    Ok(Some(value))
 }
 
 /// Evaluate dataframe/series metric defs via SQL.
 ///
 /// Best-effort: each metric is attempted independently. Unsupported ops are
-/// skipped (caller falls back to the row interpreter for those ids only).
+/// skipped (caller must fail-fast — no whole-table JSON hydrate).
 pub fn try_eval_dataframe_metrics_via_sql(
     app_root: &Path,
     datasets: &BTreeMap<String, DatasetView>,
@@ -113,7 +167,10 @@ fn try_eval_one_dataframe_metric(
     let Some(map) = raw.as_object() else {
         return Ok(None);
     };
-    let shape_name = map.get("shape").and_then(Value::as_str).unwrap_or("dataframe");
+    let shape_name = map
+        .get("shape")
+        .and_then(Value::as_str)
+        .unwrap_or("dataframe");
     if matches!(shape_name, "scalar_map" | "scalar") {
         return Ok(None);
     }
@@ -174,16 +231,13 @@ pub fn try_eval_metrics_via_sql_partial(
         let Some(raw) = metric_defs.get(id) else {
             continue;
         };
-        let shape = raw
-            .get("shape")
-            .and_then(Value::as_str)
-            .unwrap_or_else(|| {
-                if raw.get("values").is_some() {
-                    "scalar_map"
-                } else {
-                    "dataframe"
-                }
-            });
+        let shape = raw.get("shape").and_then(Value::as_str).unwrap_or_else(|| {
+            if raw.get("values").is_some() {
+                "scalar_map"
+            } else {
+                "dataframe"
+            }
+        });
         if matches!(shape, "scalar_map" | "scalar") {
             if let Some(scalars) = try_eval_metrics_via_sql(SqlMetricEvalInput {
                 app_root,
@@ -195,9 +249,12 @@ pub fn try_eval_metrics_via_sql_partial(
             })? {
                 out.extend(scalars);
             }
-        } else if let Some(frames) =
-            try_eval_dataframe_metrics_via_sql(app_root, datasets, metric_defs, std::slice::from_ref(id))?
-        {
+        } else if let Some(frames) = try_eval_dataframe_metrics_via_sql(
+            app_root,
+            datasets,
+            metric_defs,
+            std::slice::from_ref(id),
+        )? {
             out.extend(frames);
         }
     }

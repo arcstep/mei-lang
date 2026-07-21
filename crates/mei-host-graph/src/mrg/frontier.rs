@@ -27,10 +27,13 @@ pub fn collect_eval_frontier(
         assemble_scope_from_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope_key)?
             .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
     let metrics = collect_metrics_from_compiled(scope_key, &outcome.compiled);
+    // Do not auto-append `__scalar_rowset__` for warmup: whole-table JSON in
+    // node-pack / bulk metric-response was the GB RSS peak. Drilldown uses
+    // `/api/datasets/query` pagination against parquet/DataFusion instead.
     if !metrics.is_empty() {
-        return augment_scalar_rowset_frontier_metrics(metrics);
+        return Ok(metrics);
     }
-    augment_scalar_rowset_frontier_metrics(collect_metrics_from_page_instance(ctx, scope_key)?)
+    collect_metrics_from_page_instance(ctx, scope_key)
 }
 
 pub fn collect_eval_frontier_with_hops(
@@ -434,28 +437,6 @@ pub fn record_navigation_edges_for_scope(
         crate::mrg::registry::MrgRegistryWriter::save(ctx.workspace_root.as_path(), &registry)?;
     }
     Ok(added)
-}
-
-fn augment_scalar_rowset_frontier_metrics(
-    metrics: Vec<FrontierMetric>,
-) -> anyhow::Result<Vec<FrontierMetric>> {
-    let mut out = metrics;
-    for metric in out.clone() {
-        if metric.metric_id.contains("::__scalar_rowset__") {
-            continue;
-        }
-        let rowset_id = format!("{}::__scalar_rowset__", metric.metric_id);
-        if out.iter().any(|entry| entry.metric_id == rowset_id) {
-            continue;
-        }
-        out.push(FrontierMetric {
-            scope_key: metric.scope_key.clone(),
-            metric_id: rowset_id,
-            owner_resource_id: metric.owner_resource_id.clone(),
-            bundle_key: metric.bundle_key.clone(),
-        });
-    }
-    dedupe_frontier(out)
 }
 
 fn dedupe_frontier(metrics: Vec<FrontierMetric>) -> anyhow::Result<Vec<FrontierMetric>> {

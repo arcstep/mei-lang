@@ -51,7 +51,7 @@ fn push_xlsx_source(
     source: &mei_lang_kernel::SourceDecl,
 ) {
     let kind = source.kind.trim().to_ascii_lowercase();
-    if !matches!(kind.as_str(), "xlsx" | "xls") {
+    if !matches!(kind.as_str(), "xlsx" | "xls" | "csv") {
         return;
     }
     let path = source.path.trim();

@@ -16,7 +16,7 @@ use parquet::file::properties::WriterProperties;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
+use super::loaders::{load_csv_table_snapshot, load_xlsx_table_snapshot, XlsxTableSnapshot};
 use super::scene_payload_cache::file_mtime_ms;
 use crate::{resolve_versioned_source_identifier, resolve_versioned_source_path};
 
@@ -340,13 +340,22 @@ pub fn write_xlsx_parquet_snapshot(
     let source_path = source_path.trim();
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
     let absolute = resolve_versioned_source_path(app_root, source_path);
-    let snapshot = load_xlsx_table_snapshot(
-        absolute.as_path(),
-        source_path,
-        sheet,
-        header_row.max(1),
-        None,
-    )?;
+    let is_csv = source_path.to_ascii_lowercase().ends_with(".csv")
+        || absolute
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("csv"));
+    let snapshot = if is_csv {
+        load_csv_table_snapshot(absolute.as_path(), header_row.max(1), None)?
+    } else {
+        load_xlsx_table_snapshot(
+            absolute.as_path(),
+            source_path,
+            sheet,
+            header_row.max(1),
+            None,
+        )?
+    };
     let out_path = parquet_snapshot_path(app_root, source_path, sheet, header_row)
         .context("resolve parquet snapshot path")?;
     if let Some(parent) = out_path.parent() {

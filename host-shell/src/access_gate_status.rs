@@ -94,10 +94,7 @@ pub fn resolve_access_gate_status(
         .as_ref()
         .is_some_and(crate::build_ops::OpsJobState::is_running)
     {
-        return AccessGateStatus::waiting(
-            "应用载入中",
-            "正在编译/准备产物，通常数秒后自动进入。",
-        );
+        return AccessGateStatus::waiting("应用载入中", "正在编译/准备产物，通常数秒后自动进入。");
     }
 
     let route = shell.launch_manifest.routes.get(app_label);
@@ -115,38 +112,25 @@ pub fn resolve_access_gate_status(
                 .map(|inst| inst.desired_state)
         });
         return match desired {
-            Some(DesiredState::Standby) => AccessGateStatus::waiting(
-                "应用载入中",
-                "运行时正在切换，就绪后将自动进入。",
-            ),
-            _ => AccessGateStatus::waiting(
-                "应用载入中",
-                "正在拉起运行时，通常数秒后自动进入。",
-            ),
+            Some(DesiredState::Standby) => {
+                AccessGateStatus::waiting("应用载入中", "运行时正在切换，就绪后将自动进入。")
+            }
+            _ => AccessGateStatus::waiting("应用载入中", "正在拉起运行时，通常数秒后自动进入。"),
         };
     }
 
     match readiness_reason {
-        "importing" => AccessGateStatus::waiting(
-            "应用载入中",
-            "正在装载应用数据，就绪后将自动进入。",
-        ),
-        "warming" | "assembling" => AccessGateStatus::waiting(
-            "应用载入中",
-            "访问面准备中，通常数秒后自动进入。",
-        ),
-        "plug_ds" => AccessGateStatus::waiting(
-            "应用载入中",
-            "数据侧车即将就绪，请稍候。",
-        ),
-        "runtime_starting" => AccessGateStatus::waiting(
-            "应用载入中",
-            "运行时正在启动，就绪后将自动进入。",
-        ),
-        _ => AccessGateStatus::waiting(
-            "应用载入中",
-            "即将就绪，请稍候。",
-        ),
+        "importing" => {
+            AccessGateStatus::waiting("应用载入中", "正在装载应用数据，就绪后将自动进入。")
+        }
+        "warming" | "assembling" => {
+            AccessGateStatus::waiting("应用载入中", "访问面准备中，通常数秒后自动进入。")
+        }
+        "plug_ds" => AccessGateStatus::waiting("应用载入中", "数据侧车即将就绪，请稍候。"),
+        "runtime_starting" => {
+            AccessGateStatus::waiting("应用载入中", "运行时正在启动，就绪后将自动进入。")
+        }
+        _ => AccessGateStatus::waiting("应用载入中", "即将就绪，请稍候。"),
     }
 }
 
@@ -201,7 +185,11 @@ mod tests {
         let status = resolve_access_gate_status(&shell, None, "zhifa", "warming");
         assert_eq!(status.title, "应用载入中");
         assert_eq!(status.kind, AccessGateKind::Waiting);
-        assert!(status.hint.contains("数秒") || status.hint.contains("稍候") || status.hint.contains("自动进入"));
+        assert!(
+            status.hint.contains("数秒")
+                || status.hint.contains("稍候")
+                || status.hint.contains("自动进入")
+        );
     }
 
     #[test]

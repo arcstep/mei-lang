@@ -384,7 +384,9 @@ mod tests {
         let theme =
             resolve_assembled_scene_theme(Some(&workspace), &app, "cockpit").expect("theme");
         assert_eq!(
-            theme.pointer("/tokens/color/surface_bg").and_then(Value::as_str),
+            theme
+                .pointer("/tokens/color/surface_bg")
+                .and_then(Value::as_str),
             Some("rgb(1,2,3)")
         );
         assert_eq!(
@@ -404,10 +406,7 @@ mod tests {
     #[test]
     fn catalog_exposes_labels() {
         let mut scene_themes = BTreeMap::new();
-        scene_themes.insert(
-            "tech-bright".to_string(),
-            json!({"label": "亮色科技蓝"}),
-        );
+        scene_themes.insert("tech-bright".to_string(), json!({"label": "亮色科技蓝"}));
         let workspace = sample_workspace(scene_themes);
         let catalog = list_workspace_scene_theme_catalog(&workspace);
         assert_eq!(catalog.len(), 1);

@@ -32,8 +32,8 @@ pub use http::{
 pub use landing::{access_landing_location, filter_apps_for_principal, v2_index_landing_location};
 pub use runtime::{load_auth_runtime, normalize_id, SESSION_REFRESH_LEAD_SECONDS};
 pub use shell_chrome::{
-    host_shell_body_theme_style, host_starting_html_response, html_escape, render_auth_card_page,
-    render_access_gate_main_html, render_host_shell_footer_for_source_root,
+    host_shell_body_theme_style, host_starting_html_response, html_escape,
+    render_access_gate_main_html, render_auth_card_page, render_host_shell_footer_for_source_root,
     render_startup_warming_main_html, startup_failed_html_response, startup_warming_html_response,
     startup_warming_poll_script,
 };

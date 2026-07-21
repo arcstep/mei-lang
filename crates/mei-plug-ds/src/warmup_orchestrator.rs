@@ -16,8 +16,8 @@ use mei_lang_datasets::{
     take_lite_artifact_io_stats, L1PinPolicy, L1ProjectStats,
 };
 use mei_lang_kernel::{
-    load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
-    ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
+    load_mei_config_for_app, resolve_app_eval_cache_root, ClientBootstrapConfig,
+    MemoryWarmupConfig, MetricContract,
 };
 
 use crate::eval::{eval_metric_ids, load_compiled_for_warmup};
@@ -129,9 +129,12 @@ pub fn run_warmup_targets_with_tier(
                         primary_scope = target.scope_key.clone();
                         primary_workset = target.workset_id.clone();
                     }
-                    // Drop bulk row caches after each workset; Disk pack already persisted.
+                    // Drop bulk row caches + query-engine session after each workset;
+                    // Disk pack already persisted (pack-first).
                     let _ = clear_dataset_rows_cache();
                     let _ = clear_external_file_cache_for_app(ctx.app_root().as_path());
+                    let _ = mei_lang_datasets::clear_table_handle_cache();
+                    let _ = mei_lang_datasets::clear_query_engine_sessions();
                 }
                 Err(error) => {
                     failed_count += record_warmup_target_failure(ctx, target, error.to_string())?;
@@ -152,7 +155,10 @@ pub fn run_warmup_targets_with_tier(
         memory_hydrated = hydrated;
         l1_project_stats = stats;
         mark_descriptors_memory_ready(&mut all_slots, memory_cfg.pin_rowsets);
-        if memory_hydrated == 0 && tier == WarmupTier::Memory {
+        // Pack-first: if Disk already populated descriptors, do not re-run full
+        // eval_metric_ids just because L1 hydrate kept 0 (e.g. pin_rowsets=false).
+        // Only compute when Memory tier still has no slots at all.
+        if memory_hydrated == 0 && tier == WarmupTier::Memory && all_slots.is_empty() {
             for target in &targets {
                 let (compiled, compile_revision) =
                     load_compiled_for_warmup(ctx, target.scope_key.as_str())?;
@@ -190,11 +196,17 @@ pub fn run_warmup_targets_with_tier(
             memory_hydrated = hydrated;
             l1_project_stats = stats;
             mark_descriptors_memory_ready(&mut all_slots, memory_cfg.pin_rowsets);
+            let _ = clear_dataset_rows_cache();
+            let _ = clear_external_file_cache_for_app(ctx.app_root().as_path());
+            let _ = mei_lang_datasets::clear_table_handle_cache();
+            let _ = mei_lang_datasets::clear_query_engine_sessions();
         }
         memory_tier_ms = memory_started.elapsed().as_millis() as u64;
         // Disk/eval may have filled bulk row caches; L1 already holds projected KPIs.
         let _ = clear_dataset_rows_cache();
         let _ = clear_external_file_cache_for_app(ctx.app_root().as_path());
+        let _ = mei_lang_datasets::clear_table_handle_cache();
+        let _ = mei_lang_datasets::clear_query_engine_sessions();
     }
 
     let max_client = client_cfg
@@ -347,8 +359,7 @@ fn project_warmup_metrics_map(
         max_pinned_value_bytes: memory_cfg.max_pinned_value_bytes,
     };
     let covered: BTreeSet<String> = metrics_map.keys().cloned().collect();
-    let (projected, _covered, _stats) =
-        project_metrics_map_for_l1(metrics_map, &covered, &policy);
+    let (projected, _covered, _stats) = project_metrics_map_for_l1(metrics_map, &covered, &policy);
     *metrics_map = projected;
 }
 
@@ -492,8 +503,7 @@ fn memory_warmup_config(config: &Option<MemoryWarmupConfig>) -> MemoryWarmupConf
 fn warmup_disk_bytes(ctx: &HostContext) -> u64 {
     let app_root = ctx.app_root();
     let eval_cache = resolve_app_eval_cache_root(app_root.as_path());
-    let client_bootstrap = resolve_app_var_root(app_root.as_path()).join("client-bootstrap");
-    dir_tree_bytes(eval_cache.as_path()) + dir_tree_bytes(client_bootstrap.as_path())
+    dir_tree_bytes(eval_cache.as_path())
 }
 
 fn record_warmup_target_failure(

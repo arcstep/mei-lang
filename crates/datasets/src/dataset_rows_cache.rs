@@ -1,9 +1,9 @@
-//! 跨请求 dataset 行集物化缓存：同一外部源 + 筛选条件下复用内存行集，避免重复扫盘/扫表。
+//! Request-only dataset row materialization helpers.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use mei_lang_kernel::{
     resolve_data_snapshot_import_entry, resolve_versioned_source_identifier,
@@ -17,33 +17,39 @@ use crate::serialize_cache_value;
 use crate::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use crate::util::elapsed_ms;
 
-const DATASET_ROWS_CACHE_TTL_MS: u64 = 300_000;
-const DATASET_ROWS_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
-const MAX_DATASET_ROWS_CACHE_ENTRIES: usize = 48;
-const MIN_ROWS_TO_CACHE: usize = 1;
+static FALLBACK_MATERIALIZATION_PEAK_BYTES: AtomicU64 = AtomicU64::new(0);
+
+fn approximate_value_bytes(value: &Value) -> usize {
+    match value {
+        Value::Null | Value::Bool(_) => 1,
+        Value::Number(_) => 8,
+        Value::String(text) => text.len(),
+        Value::Array(values) => values.iter().map(approximate_value_bytes).sum(),
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, value)| key.len().saturating_add(approximate_value_bytes(value)))
+            .sum(),
+    }
+}
+
+pub(crate) fn record_fallback_materialization_rows(rows: &[Value]) {
+    let bytes = rows
+        .iter()
+        .map(approximate_value_bytes)
+        .sum::<usize>()
+        .min(u64::MAX as usize) as u64;
+    FALLBACK_MATERIALIZATION_PEAK_BYTES.fetch_max(bytes, Ordering::Relaxed);
+}
+
+pub fn fallback_materialization_peak_bytes() -> u64 {
+    FALLBACK_MATERIALIZATION_PEAK_BYTES.load(Ordering::Relaxed)
+}
 
 #[derive(Clone)]
 pub(crate) struct MaterializedDatasetRows {
-    expires_at: Instant,
     columns: Vec<String>,
     rows: Vec<Value>,
     lazy: bool,
-}
-
-#[derive(Default)]
-struct DatasetRowsCacheState {
-    entries: BTreeMap<String, MaterializedDatasetRows>,
-    lru: VecDeque<String>,
-    next_prune_at: Option<Instant>,
-}
-
-fn dataset_rows_cache() -> &'static Mutex<DatasetRowsCacheState> {
-    static CACHE: OnceLock<Mutex<DatasetRowsCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(DatasetRowsCacheState::default()))
-}
-
-fn cache_ttl() -> Duration {
-    Duration::from_millis(DATASET_ROWS_CACHE_TTL_MS)
 }
 
 fn source_data_stamp(app_root: &Path, dataset: &DatasetView) -> Option<String> {
@@ -99,77 +105,17 @@ pub(crate) fn dataset_rows_scope_cache_key(
     ))
 }
 
-fn prune_if_due(state: &mut DatasetRowsCacheState, now: Instant) {
-    if state.next_prune_at.is_some_and(|next| now < next) {
-        return;
-    }
-    state.entries.retain(|_, entry| entry.expires_at > now);
-    state.lru.retain(|key| state.entries.contains_key(key));
-    state.next_prune_at = Some(now + Duration::from_millis(DATASET_ROWS_CACHE_PRUNE_INTERVAL_MS));
-}
-
-fn touch_lru(state: &mut DatasetRowsCacheState, key: &str) {
-    state.lru.retain(|value| value != key);
-    state.lru.push_front(key.to_string());
-}
-
-fn evict_if_needed(state: &mut DatasetRowsCacheState) {
-    while state.entries.len() > MAX_DATASET_ROWS_CACHE_ENTRIES {
-        let Some(oldest) = state.lru.pop_back() else {
-            break;
-        };
-        state.entries.remove(&oldest);
-    }
-}
-
-pub(crate) fn take_materialized_dataset_rows(key: &str) -> Option<MaterializedDatasetRows> {
-    let Ok(mut cache) = dataset_rows_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    prune_if_due(&mut cache, now);
-    if !cache.entries.contains_key(key) {
-        return None;
-    }
-    if cache
-        .entries
-        .get(key)
-        .is_some_and(|entry| entry.expires_at <= now)
-    {
-        cache.entries.remove(key);
-        cache.lru.retain(|value| value != key);
-        return None;
-    }
-    touch_lru(&mut cache, key);
-    cache.entries.get(key).cloned()
+pub(crate) fn take_materialized_dataset_rows(_key: &str) -> Option<MaterializedDatasetRows> {
+    None
 }
 
 pub(crate) fn store_materialized_dataset_rows(
-    key: String,
-    columns: Vec<String>,
-    rows: Vec<Value>,
-    lazy: bool,
+    _key: String,
+    _columns: Vec<String>,
+    _rows: Vec<Value>,
+    _lazy: bool,
 ) {
-    if rows.len() < MIN_ROWS_TO_CACHE {
-        return;
-    }
-    let Ok(mut cache) = dataset_rows_cache().lock() else {
-        return;
-    };
-    let now = Instant::now();
-    prune_if_due(&mut cache, now);
-    cache.lru.retain(|value| value != &key);
-    cache.entries.insert(
-        key.clone(),
-        MaterializedDatasetRows {
-            expires_at: now + cache_ttl(),
-            columns,
-            rows,
-            lazy,
-        },
-    );
-    touch_lru(&mut cache, key.as_str());
-    evict_if_needed(&mut cache);
+    // Full JSON rowsets are never retained across requests.
 }
 
 pub(crate) fn paginate_materialized_dataset_rows(
@@ -203,28 +149,12 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn dataset_rows_cache_reuses_materialized_scope() {
+    fn dataset_rows_cache_does_not_retain_materialized_scope() {
         clear_dataset_rows_cache();
         let key = "test-scope-key".to_string();
-        let options = DatasetQueryOptions {
-            page: 2,
-            page_size: 2,
-            collect_all: false,
-            ..Default::default()
-        };
         let rows = (1..=150).map(|id| json!({"id": id})).collect::<Vec<_>>();
         store_materialized_dataset_rows(key.clone(), vec!["id".to_string()], rows, true);
-        let materialized = take_materialized_dataset_rows(&key).expect("cached rows");
-        let result = paginate_materialized_dataset_rows(
-            &materialized,
-            &BTreeMap::new(),
-            &options,
-            Instant::now(),
-        );
-        assert_eq!(result.page, 2);
-        assert_eq!(result.rows.len(), 2);
-        assert_eq!(result.rows[0].get("id").and_then(|v| v.as_i64()), Some(3));
-        assert_eq!(result.perf.get("dataset_rows_cache_hit"), Some(&1));
+        assert!(take_materialized_dataset_rows(&key).is_none());
     }
 
     #[test]
@@ -245,38 +175,15 @@ mod tests {
         );
         assert_eq!(page.rows.len(), 20);
         assert_eq!(page.total, 200);
-        let (_, matched) = materialized.expect("materialized rows");
-        assert_eq!(matched.len(), 200);
+        assert!(materialized.is_none());
     }
 }
 
 pub(crate) fn clear_dataset_rows_cache() -> usize {
-    let Ok(mut cache) = dataset_rows_cache().lock() else {
-        return 0;
-    };
-    let removed = cache.entries.len();
-    cache.entries.clear();
-    cache.lru.clear();
-    cache.next_prune_at = None;
-    removed
+    0
 }
 
-pub(crate) fn dataset_rows_scope_options(options: &DatasetQueryOptions) -> DatasetQueryOptions {
-    DatasetQueryOptions {
-        page: 1,
-        page_size: 0,
-        search: options.search.clone(),
-        filters: options.filters.clone(),
-        group: options.group.clone(),
-        time_range: options.time_range.clone(),
-        collect_all: true,
-        sort: Vec::new(),
-        column_state: None,
-        summary: false,
-    }
-}
-
-/// 单次扫描：收集全部匹配行并分页返回，供写入物化缓存。
+/// 单次扫描并分页；不返回跨请求物化副本。
 pub(crate) fn paginate_rows_eager_materialize(
     rows: Vec<Value>,
     columns_hint: &[String],
@@ -284,31 +191,9 @@ pub(crate) fn paginate_rows_eager_materialize(
     options: &DatasetQueryOptions,
     lazy: bool,
 ) -> (DatasetQueryResult, Option<(Vec<String>, Vec<Value>)>) {
-    if !options.sort.is_empty() {
-        let result = paginate_rows(rows, columns_hint, normalize, options, lazy);
-        return (result, None);
-    }
-    let scope_options = dataset_rows_scope_options(options);
-    let materialized = paginate_rows(rows, columns_hint, normalize, &scope_options, lazy);
-    if materialized.rows.len() < MIN_ROWS_TO_CACHE {
-        let result = paginate_rows(
-            materialized.rows.clone(),
-            &materialized.columns,
-            normalize,
-            options,
-            lazy,
-        );
-        return (result, None);
-    }
-    let result = paginate_rows(
-        materialized.rows.clone(),
-        &materialized.columns,
-        normalize,
-        options,
-        lazy,
-    );
+    record_fallback_materialization_rows(&rows);
     (
-        result,
-        Some((materialized.columns.clone(), materialized.rows)),
+        paginate_rows(rows, columns_hint, normalize, options, lazy),
+        None,
     )
 }

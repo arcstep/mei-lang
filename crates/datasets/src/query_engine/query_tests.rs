@@ -11,7 +11,7 @@ use mei_lang_kernel::ColumnSchema;
 use parquet::arrow::ArrowWriter;
 use serde_json::json;
 
-use super::query::{query_parquet_page, DuckdbPageQuery};
+use super::query::{query_parquet_page, ParquetPageQuery};
 use crate::types::DatasetQueryOptions;
 
 fn write_sample_parquet(app_root: &std::path::Path) -> PathBuf {
@@ -66,7 +66,7 @@ fn query_parquet_page_pushdown_limits_rows() {
     };
     let page = query_parquet_page(
         app_root,
-        DuckdbPageQuery {
+        ParquetPageQuery {
             parquet_path: parquet.as_path(),
             schema: &schema,
             physical_columns: None,
@@ -105,7 +105,7 @@ fn query_parquet_page_filter_eq() {
     };
     let page = query_parquet_page(
         app_root,
-        DuckdbPageQuery {
+        ParquetPageQuery {
             parquet_path: parquet.as_path(),
             schema: &schema,
             physical_columns: None,
@@ -191,7 +191,7 @@ fn query_parquet_page_between_on_date32_column() {
     };
     let page = query_parquet_page(
         app_root,
-        DuckdbPageQuery {
+        ParquetPageQuery {
             parquet_path: parquet.as_path(),
             schema: &schema,
             physical_columns: None,

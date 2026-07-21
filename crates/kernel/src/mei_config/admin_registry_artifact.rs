@@ -82,8 +82,8 @@ pub fn write_admin_registry_artifact(
         page_structure_digest: projection.page_structure_digest.clone(),
         projection: projection.clone(),
     };
-    let raw = serde_json::to_string_pretty(&artifact)
-        .context("serialize admin registry artifact")?;
+    let raw =
+        serde_json::to_string_pretty(&artifact).context("serialize admin registry artifact")?;
     write_string_atomically(&path, raw.as_str())
         .with_context(|| format!("write admin registry artifact {}", path.display()))?;
     Ok(path)
@@ -94,7 +94,10 @@ pub fn write_admin_registry_artifact_for_app(
     app_id: &str,
     projection: &AdminRegistryProjection,
 ) -> Result<PathBuf> {
-    write_admin_registry_artifact(resolve_app_root(workspace_root, app_id).as_path(), projection)
+    write_admin_registry_artifact(
+        resolve_app_root(workspace_root, app_id).as_path(),
+        projection,
+    )
 }
 
 #[cfg(test)]

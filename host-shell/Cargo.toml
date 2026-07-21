@@ -18,6 +18,7 @@ mei-host-auth = { path = "../crates/mei-host-auth" }
 mei-host-core = { path = "../crates/mei-host-core" }
 mei-host-graph = { path = "../crates/mei-host-graph" }
 mei-lang-app = { path = "app" }
+mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-snapshot = { path = "../crates/mei-snapshot" }
 reqwest.workspace = true

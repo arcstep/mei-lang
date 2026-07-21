@@ -1,9 +1,10 @@
 mod agg_result_cache;
+mod artifact_kv;
 mod cache_partition;
 mod csv_dataset;
 mod dataset_rows_cache;
-mod duckdb_engine;
 mod db_dataset;
+mod query_engine;
 mod eval_artifact;
 mod eval_cache_invalidation;
 mod eval_cache_io_stats;
@@ -12,13 +13,14 @@ mod file_cache;
 mod geojson_dataset;
 mod idempotency_key;
 mod json_dataset;
+mod l1_project;
 mod metric_access;
 mod metric_cache_key;
 mod metric_dataframe;
 mod metric_eval_inflight;
 mod metric_hydrate;
 mod metric_locate;
-mod l1_project;
+mod metric_pack_resolve;
 mod metric_response_cache;
 mod paginate;
 mod paths;
@@ -42,7 +44,15 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
+pub use artifact_kv::{
+    clear_small_artifacts, load_small_artifact, remove_small_artifact,
+    remove_small_artifacts_with_prefix, retain_small_artifact_keys,
+    small_artifact_build_store_path, small_artifact_store_path,
+    snapshot_small_artifact_store_stats, store_small_artifact, store_small_artifact_batch,
+    SmallArtifactStoreStats,
+};
 pub use cache_partition::{partition_cache_key, partition_matches_key, partition_prefix};
+pub use dataset_rows_cache::fallback_materialization_peak_bytes;
 pub use eval_cache_invalidation::{
     invalidate_stale_eval_artifacts, metric_eval_artifact_reusable, EvalCacheInvalidationPlan,
     EvalCacheInvalidationReport,
@@ -58,8 +68,8 @@ pub use idempotency_key::{
 };
 pub use metric_access::{
     build_compiled_datasets_map, collect_all_query_options, evaluate_runtime_metrics,
-    evaluate_runtime_metrics_from_plan, runtime_metric_scope_requested, RuntimeMetricEvalMode,
-    RuntimeMetricEvalOutcome,
+    evaluate_runtime_metrics_from_plan, materialize_query_options, runtime_metric_scope_requested,
+    RuntimeMetricEvalMode, RuntimeMetricEvalOutcome,
 };
 pub use metric_dataframe::metric_dataframe_result_cache_key;
 pub use metric_eval_inflight::{
@@ -72,21 +82,23 @@ pub use metric_locate::{
     locate_runtime_metric_resource, metric_ids_visible_for_dataset,
     plan_access_metric_eval_for_ids, AccessMetricEvalPlan,
 };
+pub use metric_pack_resolve::{try_load_disk_metric_response, DiskMetricResponseHit};
 pub use metric_response_cache::{
     cached_metric_response_covers_request, clear_all_metric_caches,
     clear_demand_metric_response_cache, clear_metric_response_cache,
     clear_metric_response_cache_for_partition, configure_l1_pin_policy,
     configure_metric_response_cache_ttl_ms, current_l1_pin_policy, enforce_memory_pin_limits,
-    enforce_memory_pin_limits_for_artifact, evict_metric_response_cache_key,
-    last_l1_project_stats, mark_smart_warmup_triggered, memory_pinned_bytes,
-    metric_id_is_scalar_rowset, metric_response_cache_key_partitioned,
-    metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
-    metric_response_prebuild_shared_key, populate_l1_from_loaded_metric_artifact,
-    prebuild_metric_response_key_matches_dataset_query, project_metrics_map_for_l1,
-    record_scope_cache_miss, request_needs_bulk_l1_metrics, should_trigger_smart_warmup,
-    store_cached_metric_response, store_cached_metric_response_aliases,
-    store_demand_metric_response, take_cached_metric_response, take_demand_metric_response,
-    warm_from_artifact, CachedMetricResponse, L1PinPolicy, L1ProjectStats,
+    enforce_memory_pin_limits_for_artifact, evict_metric_response_cache_key, last_l1_project_stats,
+    mark_smart_warmup_triggered, memory_pinned_bytes, metric_contract_eligible_for_node_pack,
+    metric_id_eligible_for_node_pack, metric_id_is_scalar_rowset,
+    metric_response_cache_key_partitioned, metric_response_cache_scope_key,
+    metric_response_prebuild_dataset_key, metric_response_prebuild_shared_key,
+    populate_l1_from_loaded_metric_artifact, prebuild_metric_response_key_matches_dataset_query,
+    project_metrics_map_for_l1, record_scope_cache_miss, request_needs_bulk_l1_metrics,
+    should_trigger_smart_warmup, snapshot_moka_l1_stats, store_cached_metric_response,
+    store_cached_metric_response_aliases, store_demand_metric_response,
+    take_cached_metric_response, take_demand_metric_response, warm_from_artifact,
+    CachedMetricResponse, L1PinPolicy, L1ProjectStats, MokaL1Stats,
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{
@@ -131,6 +143,65 @@ pub fn clear_dataset_rows_cache() -> usize {
     dataset_rows_cache::clear_dataset_rows_cache()
 }
 
+/// Clear `DatasetView.rows` JSON working sets (not the LRU row cache).
+pub fn clear_dataset_view_rows(datasets: &mut BTreeMap<String, DatasetView>) -> usize {
+    datasets
+        .values_mut()
+        .map(DatasetView::release_row_working_set)
+        .sum()
+}
+
+/// Pack-First demand/warmup teardown: drop ephemeral row/table/file working sets.
+///
+/// Does **not** clear the per-app DataFusion session: concurrent metric requests
+/// share registered `mei_pq_*` views, and dropping the session mid-flight causes
+/// `table ... not found` planning errors. Session clear stays on full cache flush
+/// (`clear_query_engine_sessions`) / app unload.
+/// Does not clear L1 metric-response pins (already projected lite KPIs).
+pub fn release_eval_working_set(app_root: &Path) -> ReleaseEvalWorkingSetReport {
+    let report = ReleaseEvalWorkingSetReport {
+        rows_cache: clear_dataset_rows_cache(),
+        table_handles: table_handle::clear_table_handle_cache_for_app(app_root),
+        dataframes: clear_metric_dataframe_result_cache(),
+        external_files: clear_external_file_cache_for_app(app_root),
+        df_sessions: 0,
+        eval_nodes: mei_lang_kernel::clear_runtime_eval_node_cache(),
+    };
+    if report.touched() {
+        tracing::debug!(
+            rows_cache = report.rows_cache,
+            table_handles = report.table_handles,
+            dataframes = report.dataframes,
+            external_files = report.external_files,
+            df_sessions = report.df_sessions,
+            eval_nodes = report.eval_nodes,
+            "released eval working set"
+        );
+    }
+    report
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReleaseEvalWorkingSetReport {
+    pub rows_cache: usize,
+    pub table_handles: usize,
+    pub dataframes: usize,
+    pub external_files: usize,
+    pub df_sessions: usize,
+    pub eval_nodes: usize,
+}
+
+impl ReleaseEvalWorkingSetReport {
+    pub fn touched(self) -> bool {
+        self.rows_cache > 0
+            || self.table_handles > 0
+            || self.dataframes > 0
+            || self.external_files > 0
+            || self.df_sessions > 0
+            || self.eval_nodes > 0
+    }
+}
+
 pub fn clear_agg_result_cache() -> usize {
     agg_result_cache::clear_agg_result_cache()
 }
@@ -139,17 +210,21 @@ pub fn clear_table_handle_cache() -> usize {
     table_handle::clear_table_handle_cache()
 }
 
-pub fn clear_duckdb_connections() -> usize {
-    duckdb_engine::clear_duckdb_connections()
+pub fn clear_query_engine_sessions() -> usize {
+    query_engine::clear_query_engine_sessions()
 }
 
-pub fn ensure_duckdb_connection(app_root: &Path) -> Result<()> {
-    duckdb_engine::ensure_duckdb_connection(app_root)
+pub fn clear_query_engine_session_for_app(app_root: &Path) -> usize {
+    query_engine::clear_query_engine_session_for_app(app_root)
 }
 
-pub use duckdb_engine::{
-    resolve_parquet_file_for_source, snapshot_duckdb_io_stats, snapshot_pipeline_sql_stats,
-    take_duckdb_io_stats, take_pipeline_sql_stats,
+pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
+    query_engine::ensure_query_engine_session(app_root)
+}
+
+pub use query_engine::{
+    resolve_parquet_file_for_source, snapshot_query_engine_io_stats, snapshot_pipeline_sql_stats,
+    take_query_engine_io_stats, take_pipeline_sql_stats,
 };
 
 pub fn clear_eval_artifact_store(app_root: &Path) -> usize {

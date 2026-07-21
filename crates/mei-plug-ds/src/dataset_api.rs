@@ -5,10 +5,8 @@ use anyhow::{anyhow, Context, Result};
 use mei_host_core::HostContext;
 use mei_host_graph::{record_access, record_slots_from_descriptors, MrgAccessKind};
 use mei_lang_datasets::{
-    clear_dataset_rows_cache, clear_external_file_cache_for_app, clear_metric_dataframe_result_cache,
-    clear_table_handle_cache, map_dataset_query_filters, normalize_query_filters,
-    normalize_query_search, query_dataset_rows, query_metric_dataframe, query_state_from_request,
-    DatasetQueryOptions,
+    map_dataset_query_filters, normalize_query_filters, normalize_query_search, query_dataset_rows,
+    query_metric_dataframe, query_state_from_request, DatasetQueryOptions,
 };
 use mei_lang_kernel::{locate_dataset_resource, FilterIntent, MetricContract, QueryState};
 
@@ -329,26 +327,19 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
 }
 
 /// Release request-path working sets that are not Pack-First delivery atoms.
-/// L1 metric-response stays (already projected); row/table/file caches are ephemeral.
+/// L1 metric-response stays (already projected); row/table/file/DF caches are ephemeral.
 fn release_metric_request_working_set(ctx: &HostContext) {
-    let rows_cleared = clear_dataset_rows_cache();
-    let tables_cleared = clear_table_handle_cache();
-    let dataframes_cleared = clear_metric_dataframe_result_cache();
-    let files_cleared = clear_external_file_cache_for_app(ctx.app_root().as_path());
+    let report = mei_lang_datasets::release_eval_working_set(ctx.app_root().as_path());
     let memory_pinned_bytes = mei_lang_datasets::memory_pinned_bytes();
     maybe_relieve_allocator_pressure();
-    if rows_cleared > 0
-        || tables_cleared > 0
-        || dataframes_cleared > 0
-        || files_cleared > 0
-        || memory_pinned_bytes > 0
-    {
+    if report.touched() || memory_pinned_bytes > 0 {
         info!(
             app_id = %ctx.app_id,
-            rows_cleared,
-            tables_cleared,
-            dataframes_cleared,
-            files_cleared,
+            rows_cleared = report.rows_cache,
+            tables_cleared = report.table_handles,
+            dataframes_cleared = report.dataframes,
+            files_cleared = report.external_files,
+            df_sessions = report.df_sessions,
             memory_pinned_bytes,
             "released metric request working set"
         );
@@ -362,10 +353,7 @@ fn maybe_relieve_allocator_pressure() {
     {
         // malloc_zone_pressure_relief(zone, goal_bytes); NULL zone = default.
         extern "C" {
-            fn malloc_zone_pressure_relief(
-                zone: *mut std::ffi::c_void,
-                goal: usize,
-            ) -> usize;
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
         }
         unsafe {
             let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);

@@ -232,7 +232,11 @@ pub fn render_access_gate_main_html(title: &str, hint: &str, gate_kind: &str) ->
     let busy = if kind == "waiting" { "true" } else { "false" };
     let progress_hidden = if kind == "blocked" { " hidden" } else { "" };
     let actions_hidden = if kind == "blocked" { "" } else { " hidden" };
-    let hint_hidden = if hint.trim().is_empty() { " hidden" } else { "" };
+    let hint_hidden = if hint.trim().is_empty() {
+        " hidden"
+    } else {
+        ""
+    };
     format!(
         r#"<section class="mei-host-shell__warming-panel" data-access-gate data-gate-kind="{kind}" role="status" aria-live="polite" aria-busy="{busy}">
   <div class="mei-host-shell__card mei-host-shell__card--starting" data-access-gate-card data-gate-kind="{kind}">

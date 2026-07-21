@@ -10,11 +10,6 @@ pub fn resolve_mei_compiler(workspace: Option<&Path>) -> anyhow::Result<PathBuf>
     resolve_tool_binary("mei-compiler", "MEI_COMPILER_BIN", workspace)
 }
 
-/// Resolve `mei-plug-ds` binary.
-pub fn resolve_mei_plug_ds(workspace: Option<&Path>) -> anyhow::Result<PathBuf> {
-    resolve_tool_binary("mei-plug-ds", "MEI_PLUG_DS_BIN", workspace)
-}
-
 /// Resolve `mei-app-runtime` binary.
 ///
 /// Order: `MEI_APP_RUNTIME_BIN` → sibling of current exe → `deploy/bin` under workspace → PATH.
@@ -203,11 +198,12 @@ pub fn run_mei_plug_ds_warmup_with_plan(
     config_path: Option<&Path>,
     runtime_plan: Option<&RuntimePlan>,
 ) -> anyhow::Result<()> {
-    let plug_ds = resolve_mei_plug_ds(Some(workspace))?;
+    // Warmup CLI moved to mei-app-runtime (standalone mei-plug-ds bin retired).
+    let runtime = resolve_mei_app_runtime(Some(workspace))?;
     let workspace = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
-    let mut command = Command::new(&plug_ds);
+    let mut command = Command::new(&runtime);
     command
         .arg("warmup")
         .arg("--workspace")
@@ -228,12 +224,12 @@ pub fn run_mei_plug_ds_warmup_with_plan(
     }
     let status = command
         .status()
-        .map_err(|e| anyhow::anyhow!("spawn {}: {e}", plug_ds.display()))?;
+        .map_err(|e| anyhow::anyhow!("spawn {}: {e}", runtime.display()))?;
     if status.success() {
         Ok(())
     } else {
         anyhow::bail!(
-            "mei-plug-ds warmup failed (exit={})",
+            "mei-app-runtime warmup failed (exit={})",
             status.code().unwrap_or(-1)
         )
     }

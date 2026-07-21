@@ -45,8 +45,10 @@ fn run_admin_registry(command: AdminRegistryCommand) -> anyhow::Result<()> {
 fn run_admin_registry_materialize(args: AdminRegistryMaterializeArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app = resolve_app_id(workspace.as_path(), Some(args.app.as_str()))?;
-    let path =
-        crate::admin_registry::materialize_admin_registry_for_app(workspace.as_path(), app.as_str())?;
+    let path = crate::admin_registry::materialize_admin_registry_for_app(
+        workspace.as_path(),
+        app.as_str(),
+    )?;
     println!("{}", path.display());
     Ok(())
 }
@@ -960,11 +962,13 @@ async fn run_serve_control_plane(
     let (enabled_count, loaded_count) = {
         let guard = state.shell.read().expect("state lock");
         let enabled_count = guard.enabled_apps.len();
-        let loaded_count = crate::shell_chrome::active_running_app_ids(&guard.launch_manifest).len();
+        let loaded_count =
+            crate::shell_chrome::active_running_app_ids(&guard.launch_manifest).len();
         (enabled_count, loaded_count)
     };
-    let apps_ready_line =
-        format!("apps enabled: {enabled_count}/{total_count}; loaded: {loaded_count} (ready {ready_count})");
+    let apps_ready_line = format!(
+        "apps enabled: {enabled_count}/{total_count}; loaded: {loaded_count} (ready {ready_count})"
+    );
     let access_detail = if enabled_count == 0 {
         "no app enabled yet — enable from /runtime (hot loads now; lazy on first Access)"
     } else if loaded_count == 0 {
@@ -1488,10 +1492,7 @@ fn resolve_package_root() -> anyhow::Result<std::path::PathBuf> {
         }
     }
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let candidate = manifest_dir
-        .parent()
-        .unwrap_or(&manifest_dir)
-        .to_path_buf();
+    let candidate = manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf();
     if mei_host_core::resolve_app_assets_dir(&candidate).is_dir() {
         return Ok(candidate);
     }

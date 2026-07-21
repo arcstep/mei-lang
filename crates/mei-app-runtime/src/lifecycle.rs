@@ -19,13 +19,7 @@ pub fn bootstrap_runtime(state: &AppRuntimeServeState) -> anyhow::Result<()> {
 
     let app_config = load_mei_config_for_app(state.host.app_root().as_path(), None);
     configure_metric_response_cache_ttl_ms(app_config.runtime.server_eval_cache.ttl_ms);
-    apply_memory_warmup_pin_policy(
-        &app_config
-            .runtime
-            .memory_warmup
-            .clone()
-            .unwrap_or_default(),
-    );
+    apply_memory_warmup_pin_policy(&app_config.runtime.memory_warmup.clone().unwrap_or_default());
 
     state.set_phase(InstancePhase::Importing);
     ensure_registry_materialized(&state.host)?;
@@ -110,13 +104,17 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
         memory_hydrated += hydrate_existing_l1_slots(ctx, scope)?;
     }
 
-    // If Host prebuild left disk packs but this process has an empty L1, Memory
-    // tier reuses disk and hydrates without repeating full client bootstrap.
-    if memory_hydrated == 0 {
+    // Pack-first: if prebuild already left MRG slots + disk packs for hot scenes,
+    // never re-run Disk compute just because this process L1 is empty. Optionally
+    // lite→L1 already happened above; client bootstrap stays on disk.
+    let disk_packs_ready =
+        validate_required_dataset_readiness(ctx, &scenes, &required_datasets)?.is_empty();
+
+    if memory_hydrated == 0 && !disk_packs_ready {
         tracing::warn!(
             app_id = %ctx.app_id,
             targets = targets.len(),
-            "runtime L1 empty after hydrate; running Memory tier (disk+l1) for required targets"
+            "runtime L1 empty and disk packs incomplete; running Memory tier (disk+l1)"
         );
         let report = run_warmup_targets_with_tier(ctx, &targets, WarmupTier::Memory)?;
         memory_hydrated = report.memory_hydrated;
@@ -162,6 +160,18 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
             },
         );
     } else {
+        let tier_label = if memory_hydrated > 0 {
+            "memory-hydrate"
+        } else {
+            "pack-first-skip-disk"
+        };
+        if memory_hydrated == 0 {
+            tracing::info!(
+                app_id = %ctx.app_id,
+                targets = targets.len(),
+                "disk packs ready for hot scenes; skipping Disk recompute (pack-first)"
+            );
+        }
         let lite_io = mei_lang_datasets::take_lite_artifact_io_stats();
         let _ = mei_host_graph::write_warmup_last_run(
             app_root.as_path(),
@@ -170,11 +180,11 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
                 at_ms: mei_host_graph::warmup_last_run_time_ms(),
                 eval_compute: 0,
                 cache_hit: 0,
-                disk_hit: memory_hydrated,
+                disk_hit: memory_hydrated.max(if disk_packs_ready { targets.len() } else { 0 }),
                 l1_hit: memory_hydrated,
                 slot_count: memory_hydrated,
                 elapsed_ms: started.elapsed().as_millis() as u64,
-                tier: "memory-hydrate".to_string(),
+                tier: tier_label.to_string(),
                 memory_hydrated,
                 target_count: targets.len(),
                 memory_pinned_bytes: mei_lang_datasets::memory_pinned_bytes() as u64,

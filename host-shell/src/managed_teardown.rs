@@ -18,12 +18,7 @@ pub async fn teardown_managed_children(
 ) {
     match tokio::time::timeout(
         TEARDOWN_TIMEOUT,
-        teardown_managed_children_inner(
-            runtime_actor,
-            managed_plug,
-            managed_martin,
-            app_runtime,
-        ),
+        teardown_managed_children_inner(runtime_actor, managed_plug, managed_martin, app_runtime),
     )
     .await
     {

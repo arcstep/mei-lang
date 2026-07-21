@@ -25,8 +25,7 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     let data_gen =
         mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).data_generation;
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
-    let themes =
-        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
+    let themes = mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
     format!("{data_gen}|{themes}")
 }
 

@@ -110,7 +110,7 @@ _cargo_target_sweep_stale_bytes() {
     dry_run_args+=(--dry-run)
   fi
 
-  keep_pkgs="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell}"
+  keep_pkgs="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-host-shell}"
   active_profile="${MEI_CARGO_BUILD_PROFILE:-debug}"
   max_age_days="${MEI_CARGO_TARGET_MAX_AGE_DAYS:-30}"
   incremental_age_days="${MEI_CARGO_INCREMENTAL_MAX_AGE_DAYS:-14}"
@@ -383,7 +383,7 @@ cargo_target_emit_startup_panel() {
   local banner_lines=("${lines[@]}" "hygiene: ${hygiene_line}" "build: ${build_line}")
 
   if [[ "${build_plan}" == "skip" && -n "${workspace_root}" ]] && declare -F resolve_bin_path >/dev/null 2>&1; then
-    for bin_name in mei-host-shell mei-compiler mei-plug-ds; do
+    for bin_name in mei-host-shell mei-compiler; do
       bin_path="$(resolve_bin_path "${workspace_root}" "${bin_name}")"
       if [[ -x "${bin_path}" ]]; then
         banner_lines+=("${bin_name}: ${bin_path}")

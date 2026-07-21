@@ -264,11 +264,8 @@ mod tests {
             .expect("symlink env/current");
         #[cfg(not(unix))]
         std::fs::create_dir_all(app_root.join("env/current")).expect("create env/current");
-        std::fs::write(
-            app_root.join("app.config.json"),
-            r#"{"schemaVersion":1}"#,
-        )
-        .expect("write app config");
+        std::fs::write(app_root.join("app.config.json"), r#"{"schemaVersion":1}"#)
+            .expect("write app config");
         let app = test_router(tmp.path().to_path_buf(), "data-demo");
         let response = app
             .oneshot(

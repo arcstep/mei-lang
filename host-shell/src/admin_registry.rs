@@ -290,7 +290,10 @@ fn warm_admin_scene_manifests(
 }
 
 /// Fill `artifact_refs` / page digests using MCG assemble (shared by AOT + fallback).
-pub fn enrich_projection_artifacts(workspace_root: &Path, projection: &mut AdminRegistryProjection) {
+pub fn enrich_projection_artifacts(
+    workspace_root: &Path,
+    projection: &mut AdminRegistryProjection,
+) {
     let app_root = resolve_app_root(workspace_root, &projection.app_id);
     if !app_root.join("env/current").is_dir() {
         return;

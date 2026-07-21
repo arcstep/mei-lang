@@ -3,47 +3,13 @@
  * E11: penalty_total_analytics_page manifest 存在；seed 后 dataset cache 命中。
  */
 import { chromium } from "@playwright/test";
-import fs from "node:fs";
-import path from "node:path";
 
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 const appUrl = `${base}/apps/zhifa/view?surface=app`;
 const scope = "penalty_total_analytics_page";
 
-function resolveManifestPath(scopeId) {
-  const roots = [
-    path.join(
-      process.cwd(),
-      "../workspaces/ws-demo-v2/apps/zhifa/env/current/var/client-bootstrap",
-      `${scopeId}.json`,
-    ),
-    path.join(
-      process.cwd(),
-      "../workspaces/ws-demo-v2/apps/zhifa/var/active/client-bootstrap",
-      `${scopeId}.json`,
-    ),
-    path.join(
-      process.cwd(),
-      "../workspaces/ws-demo-v2/apps/zhifa/var/client-bootstrap",
-      `${scopeId}.json`,
-    ),
-  ];
-  for (const candidate of roots) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return roots[0];
-}
-
 async function main() {
   const failures = [];
-  const manifestPath = resolveManifestPath(scope);
-  if (!fs.existsSync(manifestPath)) {
-    failures.push(
-      `missing client-bootstrap manifest for ${scope} (checked env/current/var and var/active)`,
-    );
-  }
 
   let bootstrapScopesFromApi = [];
   try {
@@ -58,14 +24,13 @@ async function main() {
             String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim(),
           )
         : [];
+    } else {
+      failures.push(`scene-bootstrap HTTP ${response.status}`);
     }
-  } catch (_) {
-    /* host may be down; manifest path check still applies */
+  } catch (error) {
+    failures.push(`scene-bootstrap unavailable: ${String(error)}`);
   }
-  if (
-    bootstrapScopesFromApi.length > 0 &&
-    !bootstrapScopesFromApi.includes(scope)
-  ) {
+  if (!bootstrapScopesFromApi.includes(scope)) {
     failures.push(
       `scene-bootstrap missing ${scope} in bootstrapScopes: ${bootstrapScopesFromApi.join(", ")}`,
     );

@@ -242,7 +242,7 @@ resolve_bin_path() {
 ensure_local_bins() {
   local workspace_root="$1"
   local bin_dir="${workspace_root}/deploy/bin"
-  if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-plug-ds" && -x "${bin_dir}/mei-app-runtime" ]]; then
+  if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-app-runtime" ]]; then
     return 0
   fi
   echo "==> local binaries missing; running install.sh"
@@ -252,7 +252,7 @@ ensure_local_bins() {
 cargo_runtime_bins_ready() {
   local workspace_root="$1"
   local bin_name
-  for bin_name in mei-host-shell mei-compiler mei-plug-ds mei-app-runtime; do
+  for bin_name in mei-host-shell mei-compiler mei-app-runtime; do
     if [[ ! -x "$(resolve_bin_path "${workspace_root}" "${bin_name}")" ]]; then
       return 1
     fi
@@ -287,10 +287,10 @@ run_cargo_runtime_build() {
     maybe_cargo_target_hygiene "${mei_lang_root}"
   fi
   local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
-    -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+    -p mei-compiler -p mei-host-shell -p mei-app-runtime)
   if [[ "${PROFILE}" == "release" ]]; then
     cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -p mei-plug-ds -p mei-host-shell -p mei-app-runtime)
+      -p mei-compiler -p mei-host-shell -p mei-app-runtime)
   fi
   CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
 }
@@ -363,8 +363,16 @@ ensure_cargo_runtime_binaries() {
 run_mei_plug_ds() {
   local workspace_root="$1"
   shift
+  echo "error: standalone mei-plug-ds is retired; use mei-app-runtime (embedded DS)" >&2
+  echo "error: workspace=${workspace_root} args=$*" >&2
+  return 1
+}
+
+run_mei_app_runtime() {
+  local workspace_root="$1"
+  shift
   ensure_runtime_binaries "${workspace_root}"
-  "$(resolve_bin_path "${workspace_root}" "mei-plug-ds")" "$@"
+  "$(resolve_bin_path "${workspace_root}" "mei-app-runtime")" "$@"
 }
 
 wait_for_plug_ds_health() {

@@ -886,6 +886,8 @@ fn scan_eval(app_root: &Path) -> Value {
     let dataframe_dir = eval_root.join("metric-dataframe");
     let (metric_response_files, metric_response_bytes) = dir_stats(response_dir.as_path());
     let (metric_dataframe_files, metric_dataframe_bytes) = dir_stats(dataframe_dir.as_path());
+    let redb = mei_lang_datasets::snapshot_small_artifact_store_stats(app_root);
+    let moka = mei_lang_datasets::snapshot_moka_l1_stats();
     json!({
         "metricResponseFiles": metric_response_files,
         "metricResponseBytes": metric_response_bytes,
@@ -893,6 +895,12 @@ fn scan_eval(app_root: &Path) -> Value {
         "metricDataframeBytes": metric_dataframe_bytes,
         "evalTotalFiles": eval_total_files,
         "evalTotalBytes": eval_total_bytes,
+        "smallArtifactRedb": redb,
+        "mokaL1": moka,
+        "l1Admission": mei_lang_datasets::last_l1_project_stats(),
+        "globalRowsetCacheBytes": 0u64,
+        "fallbackMaterializationPeakBytes":
+            mei_lang_datasets::fallback_materialization_peak_bytes(),
     })
 }
 

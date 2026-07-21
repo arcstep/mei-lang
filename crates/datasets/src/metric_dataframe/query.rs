@@ -80,26 +80,6 @@ pub fn query_metric_dataframe(
             &filter_intents,
         )
     });
-    let materialized_cache_key = metric_dataframe_scope_cache_key(
-        app_root,
-        scene_id,
-        target,
-        owner_resource.id.as_str(),
-        &metric_scope_cache_key(&effective_metric_ids),
-        &options,
-        compile_revision,
-        &metric_request_revision_fingerprint_for_compiled(
-            app_root,
-            compiled,
-            owner_resource.id.as_str(),
-            if owner_dataset.runtime_metric_defs.is_empty() {
-                &defs_for_hydrate
-            } else {
-                &owner_dataset.runtime_metric_defs
-            },
-        ),
-        &filter_intents,
-    );
     let response_cache_lookup_started = Instant::now();
     let result_artifact_candidate =
         default_result_artifact_scope(&effective_query_state, &filter_intents);
@@ -169,55 +149,51 @@ pub fn query_metric_dataframe(
     }
 
     let meta = parse_source_meta(primary_dataset.source.content.as_deref());
-    if let Some(materialized) = take_cached_metric_dataframe_materialized(&materialized_cache_key) {
-        if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
-            let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
-            let result = paginate_materialized_metric_dataframe(
-                &materialized,
-                &meta,
-                &metric_output_pagination_options(&options),
-                &response_cache_key,
-                response_cache_lookup_ms,
-                true,
-                Some(0),
-            );
-            store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
-            return Ok(result);
-        }
-    }
-
     let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
     let metric_defs_for_sql = if owner_dataset.runtime_metric_defs.is_empty() {
         &defs_for_hydrate
     } else {
         &owner_dataset.runtime_metric_defs
     };
-    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
-        app_root,
-        compiled,
-        owner_resource.id.as_str(),
-        metric_defs_for_sql,
-    );
     let eval_started = Instant::now();
 
-    // 0549: compile dataframe/series pipeline to DuckDB SQL before whole-table hydrate.
-    if synthetic_parent.is_none() {
-        let sql_datasets = build_compiled_datasets_map(
-            compiled,
-            &primary_resource.id,
-            primary_dataset.clone(),
-            &referenced_dataset_ids,
-        );
-        let sql_ids = vec![workset_metric_id.clone()];
-        if let Ok(Some(metrics_map)) = crate::duckdb_engine::try_eval_dataframe_metrics_via_sql(
-            app_root,
-            &sql_datasets,
-            metric_defs_for_sql,
-            &sql_ids,
-        ) {
+    // DataFusion pipeline SQL only — never silent whole-table JSON hydrate (RSS P0).
+    let sql_datasets = build_compiled_datasets_map(
+        compiled,
+        &primary_resource.id,
+        primary_dataset.clone(),
+        &referenced_dataset_ids,
+    );
+    let sql_ids = vec![workset_metric_id.clone()];
+    match crate::query_engine::try_eval_dataframe_metrics_via_sql(
+        app_root,
+        &sql_datasets,
+        metric_defs_for_sql,
+        &sql_ids,
+    ) {
+        Ok(Some(metrics_map)) => {
             if let Some(metric) = metrics_map.get(workset_metric_id.as_str()) {
-                let (mut columns, rows) = if metric.shape == MetricShape::Scalar {
+                let (mut columns, rows) = if synthetic_parent.is_some() {
+                    if metric.shape == MetricShape::Dataframe {
+                        let columns = metric
+                            .schema
+                            .iter()
+                            .map(|column| column.name.clone())
+                            .collect::<Vec<_>>();
+                        (columns, extract_dataframe_rows(&metric.value))
+                    } else {
+                        scalar_metric_to_rowset(metric)
+                    }
+                } else if metric.shape == MetricShape::Scalar {
                     scalar_metric_to_rowset(metric)
+                } else if metric.shape != MetricShape::Dataframe
+                    && metric.shape != MetricShape::Series
+                    && metric.shape != MetricShape::Table
+                {
+                    return Err(anyhow!(
+                        "metric `{metric_id}` shape is {:?}, expected dataframe",
+                        metric.shape
+                    ));
                 } else {
                     let columns = metric
                         .schema
@@ -229,7 +205,8 @@ pub fn query_metric_dataframe(
                 if columns.is_empty() && !rows.is_empty() {
                     columns = infer_columns(&rows);
                 }
-                let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &sql_datasets);
+                let (row_schema, rows) =
+                    format_rows_with_dataset_schema(&columns, rows, &sql_datasets);
                 if !row_schema.is_empty()
                     && columns.iter().any(|name| {
                         row_schema.iter().any(|col| {
@@ -243,8 +220,8 @@ pub fn query_metric_dataframe(
                     columns = row_schema.iter().map(|col| col.name.clone()).collect();
                 }
                 let metric_eval_ms = elapsed_ms(eval_started);
+                crate::dataset_rows_cache::record_fallback_materialization_rows(&rows);
                 let materialized = MaterializedMetricDataframe {
-                    expires_at: Instant::now() + metric_dataframe_materialized_cache_ttl(),
                     columns,
                     rows,
                     row_schema,
@@ -253,7 +230,7 @@ pub fn query_metric_dataframe(
                         ("base_query_ms".to_string(), 0),
                         ("base_rowset_materialize_ms".to_string(), 0),
                         ("metric_eval_ms".to_string(), metric_eval_ms),
-                        ("duckdb_pipeline_sql".to_string(), 1),
+                        ("query_engine_pipeline_sql".to_string(), 1),
                         (
                             "workset_artifact_load_ms".to_string(),
                             workset_artifact_load_ms,
@@ -264,12 +241,6 @@ pub fn query_metric_dataframe(
                         ),
                     ]),
                 };
-                if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
-                    store_cached_metric_dataframe_materialized(
-                        materialized_cache_key,
-                        materialized.clone(),
-                    );
-                }
                 let result = paginate_materialized_metric_dataframe(
                     &materialized,
                     &meta,
@@ -290,300 +261,21 @@ pub fn query_metric_dataframe(
                 return Ok(result);
             }
         }
-    }
-
-    let primary_filters =
-        resolve_dataset_query_bindings_from_state(&effective_query_state, primary_dataset)
-            .mapped_filters;
-    let base_query = DatasetQueryOptions {
-        page: 1,
-        page_size: 0,
-        search: options.search.clone(),
-        filters: primary_filters,
-        group: options.group.clone(),
-        time_range: options.time_range.clone(),
-        collect_all: true,
-        sort: Vec::new(),
-        column_state: None,
-        summary: false,
-    };
-    let base_started = Instant::now();
-    let filtered_rows = query_dataset_rows(app_root, primary_dataset, base_query.clone())?;
-    let base_query_ms = elapsed_ms(base_started);
-    let base_rowset_materialize_ms = base_query_ms;
-
-    let mut runtime_dataset = primary_dataset.clone();
-    runtime_dataset.rows = filtered_rows.rows.clone();
-    if !filtered_rows.columns.is_empty() {
-        runtime_dataset.columns = filtered_rows.columns.clone();
-    }
-
-    let mut datasets = build_compiled_datasets_map(
-        compiled,
-        &primary_resource.id,
-        runtime_dataset.clone(),
-        &referenced_dataset_ids,
-    );
-
-    hydrate_file_backed_datasets_for_metric_defs(
-        app_root,
-        &mut datasets,
-        &defs_for_hydrate,
-        &base_query,
-    )
-    .with_context(|| {
-        format!(
-            "metric_hydrate_binding_failed(dataframe): dataset={} metric={}",
-            owner_resource.id, resolved_metric_id
-        )
-    })?;
-
-    let binding_datasets = unique_dataset_views(primary_dataset, datasets.values());
-    let supplementary_binding_datasets: Vec<&DatasetView> = binding_datasets
-        .into_iter()
-        .filter(|view| view.id != primary_dataset.id)
-        .collect();
-    let metric_started = Instant::now();
-    let eval_scope = runtime_metric_eval_scope(
-        Some(primary_dataset),
-        &primary_resource.id,
-        scene_id.unwrap_or(""),
-        target,
-        effective_query_state.search.as_deref(),
-        &effective_query_state.filters,
-        Some(&effective_query_state),
-        &filter_intents,
-        &dependency_revision_key,
-        &supplementary_binding_datasets,
-    )
-    .with_context(|| {
-        format!(
-            "metric_scope_binding_failed(dataframe): dataset={} metric={}",
-            owner_resource.id, resolved_metric_id
-        )
-    })?;
-    let eval_execution = execute_runtime_eval_plan_artifacts(
-        app_root,
-        &owner_resource.id,
-        &effective_metric_ids,
-        &owner_dataset.runtime_metric_defs,
-        &datasets,
-        &runtime_dataset.rows,
-        &eval_scope,
-        default_result_artifact_scope(&effective_query_state, &filter_intents),
-    )
-    .with_context(|| {
-        format!(
-            "metric_eval_recursion_guard_tripped(dataframe): dataset={} metric={}",
-            owner_resource.id, resolved_metric_id
-        )
-    })?;
-    let metrics_map = eval_execution.metrics_map;
-    let eval_report = eval_execution.eval_report;
-    let eval_artifact_load_ms = eval_execution.eval_artifact_load_ms;
-    let eval_artifact_hit = eval_execution.eval_artifact_hit;
-    let metric_eval_ms = elapsed_ms(metric_started);
-    let dag_metrics = &eval_report.request_dag_metrics;
-    let eval_plan = &eval_report.eval_plan;
-    let eval_scope_key = format!(
-        "{}|{}|{}",
-        eval_scope.base_dataset_id,
-        eval_scope.query_state.group_identity_key(),
-        eval_scope.query_state.time_range_identity_key()
-    );
-
-    let metric_source_id = synthetic_parent
-        .as_deref()
-        .unwrap_or(resolved_metric_id.as_str());
-    let metric = metrics_map
-        .get(metric_source_id)
-        .ok_or_else(|| anyhow!("metric `{metric_id}` evaluation returned nothing"))?;
-    let (mut columns, rows) = if synthetic_parent.is_some() {
-        if metric.shape == MetricShape::Dataframe {
-            let columns = metric
-                .schema
-                .iter()
-                .map(|column| column.name.clone())
-                .collect::<Vec<_>>();
-            (columns, extract_dataframe_rows(&metric.value))
-        } else {
-            scalar_metric_to_rowset(metric)
+        Ok(None) => {}
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!(
+                    "pipeline_sql_fallback: metric_id={} dataset={} reason=sql_exec_or_row_limit",
+                    resolved_metric_id, owner_resource.id
+                )
+            });
         }
-    } else if metric.shape == MetricShape::Scalar {
-        // Tables/charts may request scalar metrics via /query without `::__scalar_rowset__`.
-        scalar_metric_to_rowset(metric)
-    } else if metric.shape != MetricShape::Dataframe {
-        return Err(anyhow!(
-            "metric `{metric_id}` shape is {:?}, expected dataframe",
-            metric.shape
-        ));
-    } else {
-        let columns = metric
-            .schema
-            .iter()
-            .map(|column| column.name.clone())
-            .collect::<Vec<_>>();
-        (columns, extract_dataframe_rows(&metric.value))
-    };
-    if columns.is_empty() && !rows.is_empty() {
-        columns = infer_columns(&rows);
-    }
-    let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &datasets);
-    // 若请求/推断列仍是源键（`__EMPTY`），同步为 schema 逻辑名（`序号`）。
-    if !row_schema.is_empty()
-        && columns.iter().any(|name| {
-            row_schema.iter().any(|col| {
-                col.source
-                    .as_deref()
-                    .map(str::trim)
-                    .is_some_and(|source| source == name.as_str())
-            })
-        })
-    {
-        columns = row_schema.iter().map(|col| col.name.clone()).collect();
     }
 
-    let closure_set = effective_metric_ids
-        .iter()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    let closure_edges = owner_dataset
-        .runtime_analysis_graph
-        .edges
-        .iter()
-        .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
-        .count() as u64;
-
-    let materialized = MaterializedMetricDataframe {
-        expires_at: Instant::now() + metric_dataframe_materialized_cache_ttl(),
-        columns,
-        rows,
-        row_schema,
-        normalize: meta.normalize.clone(),
-        base_perf: BTreeMap::from([
-            ("base_query_ms".to_string(), base_query_ms),
-            (
-                "base_rowset_materialize_ms".to_string(),
-                base_rowset_materialize_ms,
-            ),
-            ("metric_eval_ms".to_string(), metric_eval_ms),
-            ("eval_artifact_load_ms".to_string(), eval_artifact_load_ms),
-            (
-                "eval_artifact_hit".to_string(),
-                u64::from(eval_artifact_hit),
-            ),
-            (
-                "eval_node_artifact_load_ms".to_string(),
-                eval_execution.eval_node_artifact_load_ms,
-            ),
-            (
-                "eval_node_artifact_hits".to_string(),
-                eval_execution.eval_node_artifact_hits,
-            ),
-            (
-                "eval_node_artifact_stores".to_string(),
-                eval_execution.eval_node_artifact_stores,
-            ),
-            (
-                "workset_artifact_load_ms".to_string(),
-                workset_artifact_load_ms,
-            ),
-            (
-                "workset_artifact_hit".to_string(),
-                u64::from(workset_artifact_hit),
-            ),
-            (
-                "eval_plan_targets".to_string(),
-                eval_plan.targets.len() as u64,
-            ),
-            ("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64),
-            ("eval_plan_edges".to_string(), eval_plan.edges.len() as u64),
-            (
-                "eval_plan_metric_nodes".to_string(),
-                eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
-            ),
-            (
-                "eval_plan_rowset_nodes".to_string(),
-                eval_plan.node_count_by_kind(EvalPlanNodeKind::Rowset) as u64,
-            ),
-            (
-                "eval_plan_scalar_nodes".to_string(),
-                eval_plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr) as u64,
-            ),
-            (
-                "eval_plan_hydrate_nodes".to_string(),
-                eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
-            ),
-            (
-                "eval_scope_key_hash".to_string(),
-                hash_fingerprint(&eval_scope_key),
-            ),
-            (
-                "eval_scope_group_key_hash".to_string(),
-                hash_fingerprint(&eval_scope.query_state.group_identity_key()),
-            ),
-            (
-                "eval_scope_time_range_key_hash".to_string(),
-                hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
-            ),
-            (
-                "eval_scope_group_dimensions".to_string(),
-                eval_scope.query_state.group.len() as u64,
-            ),
-            ("request_dag_nodes".to_string(), dag_metrics.nodes as u64),
-            ("request_dag_edges".to_string(), dag_metrics.edges as u64),
-            ("request_dag_hits".to_string(), dag_metrics.hits),
-            ("request_dag_misses".to_string(), dag_metrics.misses),
-            ("request_dag_observed".to_string(), 1),
-            (
-                "request_dag_request_cache_hits".to_string(),
-                dag_metrics.request_cache_hits,
-            ),
-            (
-                "request_dag_eval_node_cache_hits".to_string(),
-                dag_metrics.eval_node_cache_hits,
-            ),
-            (
-                "request_dag_eval_node_cache_misses".to_string(),
-                dag_metrics.eval_node_cache_misses,
-            ),
-            ("eval_memo_hits".to_string(), dag_metrics.request_cache_hits),
-            (
-                "eval_memo_eval_node_cache_hits".to_string(),
-                dag_metrics.eval_node_cache_hits,
-            ),
-            (
-                "eval_memo_eval_node_cache_misses".to_string(),
-                dag_metrics.eval_node_cache_misses,
-            ),
-            (
-                "analysis_closure_nodes".to_string(),
-                effective_metric_ids.len() as u64,
-            ),
-            ("analysis_closure_edges".to_string(), closure_edges),
-            (
-                "eval_node_cache_enabled".to_string(),
-                u64::from(runtime_eval_node_cache_enabled()),
-            ),
-        ]),
-    };
-    store_cached_metric_dataframe_materialized(materialized_cache_key, materialized.clone());
-
-    let metric_dataframe_eval_ms = elapsed_ms(eval_started);
-    let mut result = paginate_materialized_metric_dataframe(
-        &materialized,
-        &meta,
-        &metric_output_pagination_options(&options),
-        &response_cache_key,
-        response_cache_lookup_ms,
-        false,
-        Some(metric_dataframe_eval_ms),
-    );
-    result.perf.extend(filtered_rows.perf);
-    store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
-    if result_artifact_candidate {
-        store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
-    }
-    Ok(result)
+    Err(anyhow!(
+        "pipeline_sql_fallback: metric_id={} dataset={} reason=uncovered_pipeline — whole-table JSON hydrate is disabled",
+        resolved_metric_id,
+        owner_resource.id
+    ))
 }
 

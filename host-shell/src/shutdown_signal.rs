@@ -50,16 +50,15 @@ async fn wait_for_shutdown_signal() {
 
     #[cfg(unix)]
     {
-        let mut sigterm = match tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate(),
-        ) {
-            Ok(signal) => signal,
-            Err(error) => {
-                tracing::warn!(%error, "failed to install SIGTERM handler");
-                ctrl_c.await;
-                return;
-            }
-        };
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(signal) => signal,
+                Err(error) => {
+                    tracing::warn!(%error, "failed to install SIGTERM handler");
+                    ctrl_c.await;
+                    return;
+                }
+            };
         tokio::select! {
             _ = ctrl_c => {}
             _ = sigterm.recv() => {}

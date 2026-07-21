@@ -1,19 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use mei_lang_kernel::{FilterIntent, MetricContract};
+use moka::sync::Cache;
 
 use super::serialize_cache_value;
 use super::types::DatasetQueryOptions;
 
 pub use super::l1_project::{
+    metric_contract_eligible_for_node_pack, metric_id_eligible_for_node_pack,
     metric_id_is_scalar_rowset, project_metrics_map_for_l1, L1PinPolicy, L1ProjectStats,
 };
 
 const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
-const METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
 const DEMAND_CACHE_TTL_MS: u64 = 30_000;
+static MOKA_EVICTIONS: AtomicU64 = AtomicU64::new(0);
+static ROWSET_ADMISSION_REJECTS: AtomicU64 = AtomicU64::new(0);
+static OVERSIZE_ADMISSION_REJECTS: AtomicU64 = AtomicU64::new(0);
 
 static METRIC_RESPONSE_CACHE_TTL_OVERRIDE: OnceLock<u64> = OnceLock::new();
 
@@ -70,10 +75,29 @@ pub struct CachedMetricResponse {
     expires_at: Instant,
 }
 
-#[derive(Default)]
-struct MetricResponseCacheState {
-    entries: BTreeMap<String, CachedMetricResponse>,
-    next_prune_at: Option<Instant>,
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct MokaL1Stats {
+    pub metric_entries: u64,
+    pub metric_weighted_bytes: u64,
+    pub demand_entries: u64,
+    pub demand_weighted_bytes: u64,
+    pub evictions: u64,
+    pub rowset_admission_rejects: u64,
+    pub oversize_admission_rejects: u64,
+}
+
+pub fn snapshot_moka_l1_stats() -> MokaL1Stats {
+    let metric = metric_response_cache();
+    let demand = demand_cache();
+    MokaL1Stats {
+        metric_entries: metric.entry_count(),
+        metric_weighted_bytes: metric.weighted_size(),
+        demand_entries: demand.entry_count(),
+        demand_weighted_bytes: demand.weighted_size(),
+        evictions: MOKA_EVICTIONS.load(Ordering::Relaxed),
+        rowset_admission_rejects: ROWSET_ADMISSION_REJECTS.load(Ordering::Relaxed),
+        oversize_admission_rejects: OVERSIZE_ADMISSION_REJECTS.load(Ordering::Relaxed),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,20 +115,49 @@ struct MemoryPinState {
     pinned_bytes: usize,
 }
 
-#[derive(Default)]
-struct DemandCacheState {
-    entries: BTreeMap<String, CachedMetricResponse>,
-    next_prune_at: Option<Instant>,
-}
-
 fn memory_pin_state() -> &'static Mutex<MemoryPinState> {
     static STATE: OnceLock<Mutex<MemoryPinState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(MemoryPinState::default()))
 }
 
-fn demand_cache_state() -> &'static Mutex<DemandCacheState> {
-    static STATE: OnceLock<Mutex<DemandCacheState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(DemandCacheState::default()))
+fn configured_l1_capacity_bytes() -> u64 {
+    std::env::var("MEI_MOKA_L1_MAX_BYTES")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(64 * 1024 * 1024)
+}
+
+fn cache_entry_weight(_key: &String, entry: &Arc<CachedMetricResponse>) -> u32 {
+    approx_metrics_map_bytes(entry.metrics_map.as_ref())
+        .saturating_add(
+            entry
+                .covered_metric_ids
+                .iter()
+                .map(String::len)
+                .sum::<usize>(),
+        )
+        .clamp(1, u32::MAX as usize) as u32
+}
+
+fn demand_cache() -> &'static Cache<String, Arc<CachedMetricResponse>> {
+    static CACHE: OnceLock<Cache<String, Arc<CachedMetricResponse>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity((configured_l1_capacity_bytes() / 4).max(1))
+            .weigher(cache_entry_weight)
+            .time_to_live(Duration::from_millis(DEMAND_CACHE_TTL_MS))
+            .eviction_listener(|_, _, cause| {
+                if matches!(
+                    cause,
+                    moka::notification::RemovalCause::Size
+                        | moka::notification::RemovalCause::Expired
+                ) {
+                    MOKA_EVICTIONS.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+            .build()
+    })
 }
 
 fn approx_metrics_map_bytes(metrics_map: &BTreeMap<String, MetricContract>) -> usize {
@@ -135,18 +188,16 @@ pub fn warm_from_artifact(
 }
 
 pub fn evict_metric_response_cache_key(key: &str) -> bool {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return false;
-    };
-    cache.entries.remove(key).is_some()
+    let cache = metric_response_cache();
+    let existed = cache.contains_key(key);
+    cache.invalidate(key);
+    existed
 }
 
 fn evict_metric_response_cache_keys(keys: &[String]) {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return;
-    };
+    let cache = metric_response_cache();
     for key in keys {
-        cache.entries.remove(key);
+        cache.invalidate(key);
     }
 }
 
@@ -176,10 +227,9 @@ pub fn enforce_memory_pin_limits(
                 .iter()
                 .any(|key| keys.iter().any(|incoming| incoming == key))
         });
-        pin_state.pinned.push_back(PinnedCacheEntry {
-            keys,
-            approx_bytes,
-        });
+        pin_state
+            .pinned
+            .push_back(PinnedCacheEntry { keys, approx_bytes });
         let max_bytes = max_pinned_mb.saturating_mul(1024 * 1024);
         loop {
             let slot_overflow = max_pinned_slots > 0 && pin_state.pinned.len() > max_pinned_slots;
@@ -224,7 +274,12 @@ pub fn enforce_memory_pin_limits_for_artifact(
     } else {
         approx_metrics_map_bytes(&projected)
     };
-    enforce_memory_pin_limits(&[cache_key.to_string()], approx_bytes, max_pinned_slots, max_pinned_mb);
+    enforce_memory_pin_limits(
+        &[cache_key.to_string()],
+        approx_bytes,
+        max_pinned_slots,
+        max_pinned_mb,
+    );
 }
 
 pub fn record_scope_cache_miss(scope_key: &str) {
@@ -275,20 +330,24 @@ pub fn mark_smart_warmup_triggered(scope_key: &str) {
     pin_state.scope_miss_counts.insert(scope_key.to_string(), 0);
 }
 
-impl MetricResponseCacheState {
-    fn prune_if_due(&mut self, now: Instant) {
-        if self.next_prune_at.is_some_and(|next| now < next) {
-            return;
-        }
-        self.entries.retain(|_, entry| entry.expires_at > now);
-        self.next_prune_at =
-            Some(now + Duration::from_millis(METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS));
-    }
-}
-
-fn metric_response_cache() -> &'static Mutex<MetricResponseCacheState> {
-    static CACHE: OnceLock<Mutex<MetricResponseCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(MetricResponseCacheState::default()))
+fn metric_response_cache() -> &'static Cache<String, Arc<CachedMetricResponse>> {
+    static CACHE: OnceLock<Cache<String, Arc<CachedMetricResponse>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(configured_l1_capacity_bytes())
+            .weigher(cache_entry_weight)
+            .time_to_live(metric_response_cache_ttl())
+            .eviction_listener(|_, _, cause| {
+                if matches!(
+                    cause,
+                    moka::notification::RemovalCause::Size
+                        | moka::notification::RemovalCause::Expired
+                ) {
+                    MOKA_EVICTIONS.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+            .build()
+    })
 }
 
 pub fn metric_response_prebuild_query_tail(query: &DatasetQueryOptions) -> String {
@@ -424,14 +483,9 @@ pub fn take_cached_metric_response(
     requested_metric_ids: &BTreeSet<String>,
     request_all_metrics: bool,
 ) -> Option<CachedMetricResponse> {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
-    let entry = cache.entries.get(key)?;
-    cached_metric_response_covers_request(entry, requested_metric_ids, request_all_metrics)
-        .then(|| entry.clone())
+    let entry = metric_response_cache().get(key)?;
+    cached_metric_response_covers_request(entry.as_ref(), requested_metric_ids, request_all_metrics)
+        .then(|| entry.as_ref().clone())
 }
 
 pub fn store_cached_metric_response_aliases(
@@ -444,9 +498,12 @@ pub fn store_cached_metric_response_aliases(
     let policy = current_l1_pin_policy();
     let (projected_map, projected_covered, stats) =
         project_metrics_map_for_l1(metrics_map, covered_metric_ids, &policy);
+    ROWSET_ADMISSION_REJECTS.fetch_add(stats.skipped_rowsets as u64, Ordering::Relaxed);
+    OVERSIZE_ADMISSION_REJECTS.fetch_add(stats.skipped_oversized as u64, Ordering::Relaxed);
     if let Ok(mut pin_state) = memory_pin_state().lock() {
         pin_state.last_project_stats = stats.clone();
     }
+    let projected_complete = complete && stats.skipped_rowsets == 0 && stats.skipped_oversized == 0;
     let shared_metrics = Arc::new(projected_map);
     let shared_covered = projected_covered;
     for key in keys {
@@ -459,7 +516,7 @@ pub fn store_cached_metric_response_aliases(
             total_rows,
             Arc::clone(&shared_metrics),
             shared_covered.clone(),
-            complete,
+            projected_complete,
         );
     }
     stats
@@ -501,62 +558,49 @@ fn store_cached_metric_response_shared(
     covered_metric_ids: BTreeSet<String>,
     complete: bool,
 ) {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
     let expires_at = Instant::now() + metric_response_cache_ttl();
     let policy = current_l1_pin_policy();
-    if let Some(existing) = cache.entries.get_mut(&key) {
-        existing.expires_at = expires_at;
-        existing.total_rows = total_rows;
+    let cache = metric_response_cache();
+    if let Some(existing) = cache.get(&key) {
+        let mut updated = existing.as_ref().clone();
+        updated.expires_at = expires_at;
+        updated.total_rows = total_rows;
         if Arc::ptr_eq(&existing.metrics_map, &metrics_map) {
             // Same Arc payload — extend coverage only with projected ids.
-            existing
+            updated
                 .covered_metric_ids
                 .extend(covered_metric_ids.iter().cloned());
-            existing.complete |= complete;
+            updated.complete |= complete;
+            cache.insert(key, Arc::new(updated));
             return;
         }
-        let mut merged = (*existing.metrics_map).clone();
+        let mut merged = (*updated.metrics_map).clone();
         merged.extend((*metrics_map).clone());
-        let mut merged_covered = existing.covered_metric_ids.clone();
+        let mut merged_covered = updated.covered_metric_ids.clone();
         merged_covered.extend(covered_metric_ids.iter().cloned());
         let (projected, projected_covered, _) =
             project_metrics_map_for_l1(&merged, &merged_covered, &policy);
-        existing.metrics_map = Arc::new(projected);
-        existing.covered_metric_ids = projected_covered;
-        existing.complete |= complete;
+        updated.metrics_map = Arc::new(projected);
+        updated.covered_metric_ids = projected_covered;
+        updated.complete |= complete;
+        cache.insert(key, Arc::new(updated));
         return;
     }
-    cache.entries.insert(
+    cache.insert(
         key,
-        CachedMetricResponse {
+        Arc::new(CachedMetricResponse {
             expires_at,
             total_rows,
             metrics_map,
             covered_metric_ids,
             complete,
-        },
+        }),
     );
 }
 
-fn demand_cache_ttl() -> Duration {
-    Duration::from_millis(DEMAND_CACHE_TTL_MS)
-}
-
-impl DemandCacheState {
-    fn prune_if_due(&mut self, now: Instant) {
-        if self.next_prune_at.is_some_and(|next| now < next) {
-            return;
-        }
-        self.entries.retain(|_, entry| entry.expires_at > now);
-        self.next_prune_at = Some(now + Duration::from_millis(5_000));
-    }
-}
-
-/// Store a short-TTL full (unprojected) response for bulk/on-demand reads.
+/// Store a short-TTL projected response for on-demand reads.
+///
+/// Whole-table rowsets are request working sets, never cross-request L1 values.
 pub fn store_demand_metric_response(
     keys: &[String],
     total_rows: usize,
@@ -564,27 +608,32 @@ pub fn store_demand_metric_response(
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
 ) {
-    let Ok(mut cache) = demand_cache_state().lock() else {
+    let policy = current_l1_pin_policy();
+    let (projected, projected_covered, stats) =
+        project_metrics_map_for_l1(metrics_map, covered_metric_ids, &policy);
+    ROWSET_ADMISSION_REJECTS.fetch_add(stats.skipped_rowsets as u64, Ordering::Relaxed);
+    OVERSIZE_ADMISSION_REJECTS.fetch_add(stats.skipped_oversized as u64, Ordering::Relaxed);
+    if projected.is_empty() {
         return;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
-    let expires_at = now + demand_cache_ttl();
-    let shared = Arc::new(metrics_map.clone());
+    }
+    let expires_at = Instant::now() + Duration::from_millis(DEMAND_CACHE_TTL_MS);
+    let shared = Arc::new(projected);
+    let projected_complete = complete && stats.skipped_rowsets == 0 && stats.skipped_oversized == 0;
+    let cache = demand_cache();
     for key in keys {
         let trimmed = key.trim();
         if trimmed.is_empty() {
             continue;
         }
-        cache.entries.insert(
+        cache.insert(
             trimmed.to_string(),
-            CachedMetricResponse {
+            Arc::new(CachedMetricResponse {
                 total_rows,
                 metrics_map: Arc::clone(&shared),
-                covered_metric_ids: covered_metric_ids.clone(),
-                complete,
+                covered_metric_ids: projected_covered.clone(),
+                complete: projected_complete,
                 expires_at,
-            },
+            }),
         );
     }
 }
@@ -594,36 +643,24 @@ pub fn take_demand_metric_response(
     requested_metric_ids: &BTreeSet<String>,
     request_all_metrics: bool,
 ) -> Option<CachedMetricResponse> {
-    let Ok(mut cache) = demand_cache_state().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
-    let entry = cache.entries.get(key)?;
-    if entry.expires_at <= now {
-        return None;
-    }
-    cached_metric_response_covers_request(entry, requested_metric_ids, request_all_metrics)
-        .then(|| entry.clone())
+    let entry = demand_cache().get(key)?;
+    cached_metric_response_covers_request(entry.as_ref(), requested_metric_ids, request_all_metrics)
+        .then(|| entry.as_ref().clone())
 }
 
 pub fn clear_demand_metric_response_cache() -> usize {
-    let Ok(mut cache) = demand_cache_state().lock() else {
-        return 0;
-    };
-    let removed = cache.entries.len();
-    cache.entries.clear();
-    cache.next_prune_at = None;
+    let cache = demand_cache();
+    let removed = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     removed
 }
 
 pub fn clear_metric_response_cache() -> usize {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return 0;
-    };
-    let removed = cache.entries.len();
-    cache.entries.clear();
-    cache.next_prune_at = None;
+    let cache = metric_response_cache();
+    let removed = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     removed
 }
 
@@ -632,21 +669,31 @@ pub fn clear_metric_response_cache_for_partition(
     generation: &str,
     config_digest: &str,
 ) -> usize {
-    let Ok(mut cache) = metric_response_cache().lock() else {
-        return 0;
-    };
-    let before = cache.entries.len();
-    cache.entries.retain(|key, _| {
-        !crate::cache_partition::partition_matches_key(app_id, generation, config_digest, key)
-    });
-    before.saturating_sub(cache.entries.len())
+    let cache = metric_response_cache();
+    let keys: Vec<String> = cache
+        .iter()
+        .filter_map(|(key, _)| {
+            crate::cache_partition::partition_matches_key(
+                app_id,
+                generation,
+                config_digest,
+                key.as_str(),
+            )
+            .then(|| key.as_ref().clone())
+        })
+        .collect();
+    for key in &keys {
+        cache.invalidate(key);
+    }
+    cache.run_pending_tasks();
+    keys.len()
 }
 
 pub fn clear_all_metric_caches() -> (usize, usize) {
     let demand = clear_demand_metric_response_cache();
     let _ = super::clear_agg_result_cache();
     let _ = super::clear_table_handle_cache();
-    let _ = super::clear_duckdb_connections();
+    let _ = super::clear_query_engine_sessions();
     (
         clear_metric_response_cache() + demand,
         super::clear_metric_dataframe_result_cache() + super::clear_dataset_rows_cache(),
@@ -762,9 +809,19 @@ mod tests {
             complete: true,
         };
         let stats_a = warm_from_artifact(&["pin-a".to_string()], &artifact);
-        enforce_memory_pin_limits(&["pin-a".to_string()], stats_a.projected_bytes.max(1), 1, 128);
+        enforce_memory_pin_limits(
+            &["pin-a".to_string()],
+            stats_a.projected_bytes.max(1),
+            1,
+            128,
+        );
         let stats_b = warm_from_artifact(&["pin-b".to_string()], &artifact);
-        enforce_memory_pin_limits(&["pin-b".to_string()], stats_b.projected_bytes.max(1), 1, 128);
+        enforce_memory_pin_limits(
+            &["pin-b".to_string()],
+            stats_b.projected_bytes.max(1),
+            1,
+            128,
+        );
         assert!(take_cached_metric_response(
             "pin-a",
             &BTreeSet::from(["metric.a".to_string()]),
@@ -821,13 +878,8 @@ mod tests {
             "kpi_count".to_string(),
             "kpi_count::__scalar_rowset__".to_string(),
         ]);
-        let stats = store_cached_metric_response(
-            "proj-key".to_string(),
-            5,
-            &metrics_map,
-            &covered,
-            true,
-        );
+        let stats =
+            store_cached_metric_response("proj-key".to_string(), 5, &metrics_map, &covered, true);
         assert_eq!(stats.skipped_rowsets, 1);
         assert_eq!(stats.kept_metrics, 1);
         let cached = take_cached_metric_response(

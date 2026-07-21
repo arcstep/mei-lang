@@ -61,14 +61,13 @@ elif [[ "${TARGET_DIR}" != "${MEI_LANG_ROOT}/target" ]]; then
 fi
 BIN_DIR="${TARGET_DIR}/release"
 
-RUNTIME_BINS=(mei-host-shell mei-compiler mei-app-runtime mei-plug-ds)
+RUNTIME_BINS=(mei-host-shell mei-compiler mei-app-runtime)
 TOOLCHAIN_BINS=(
   mei-toolchain
   mei-compiler
   mei-lsp
   mei-host-shell
   mei-app-runtime
-  mei-plug-ds
   mei-snapshot
 )
 # External GIS tile server (not built from this workspace).
@@ -81,7 +80,6 @@ if [[ "${SKIP_BUILD}" != "1" ]]; then
     -p mei-host-shell \
     -p mei-compiler \
     -p mei-app-runtime \
-    -p mei-plug-ds \
     -p mei-snapshot \
     -p mei-lang-lsp \
     -p mei-lang-server

@@ -10,12 +10,12 @@ use super::arrow_json::{batches_to_json_rows, first_scalar_f64, first_scalar_i64
 use super::connection::{block_on, with_app_session};
 use super::register::ensure_parquet_view;
 use super::sql::{build_where_clause, quote_ident};
-use super::{record_duckdb_query_ms, record_rows_materialized};
+use super::{record_query_engine_ms, record_rows_materialized};
 use crate::types::DatasetQueryOptions;
 use crate::util::elapsed_ms;
 
 #[derive(Debug, Clone)]
-pub struct DuckdbPageQuery<'a> {
+pub struct ParquetPageQuery<'a> {
     pub parquet_path: &'a Path,
     pub schema: &'a [ColumnSchema],
     pub physical_columns: Option<&'a [String]>,
@@ -24,25 +24,21 @@ pub struct DuckdbPageQuery<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct DuckdbPageResult {
+pub struct ParquetPageResult {
     pub page: usize,
     pub page_size: usize,
     pub total: usize,
     pub has_more: bool,
     pub columns: Vec<String>,
     pub rows: Vec<Value>,
-    pub duckdb_query_ms: u64,
+    pub query_engine_ms: u64,
     pub rows_materialized: usize,
 }
 
-pub fn query_parquet_page(app_root: &Path, req: DuckdbPageQuery<'_>) -> Result<DuckdbPageResult> {
+pub fn query_parquet_page(app_root: &Path, req: ParquetPageQuery<'_>) -> Result<ParquetPageResult> {
     let started = Instant::now();
-    let (view, columns) = ensure_parquet_view(
-        app_root,
-        req.parquet_path,
-        req.schema,
-        req.physical_columns,
-    )?;
+    let (view, columns) =
+        ensure_parquet_view(app_root, req.parquet_path, req.schema, req.physical_columns)?;
     let logical_columns = apply_normalize_columns(&columns, req.normalize);
     let where_sql = build_where_clause(
         &req.options.filters,
@@ -126,16 +122,12 @@ pub fn query_parquet_page(app_root: &Path, req: DuckdbPageQuery<'_>) -> Result<D
     };
     let materialized = page_rows.len();
     let ms = elapsed_ms(started);
-    record_duckdb_query_ms(ms);
+    record_query_engine_ms(ms);
     record_rows_materialized(materialized);
 
-    Ok(DuckdbPageResult {
+    Ok(ParquetPageResult {
         page,
-        page_size: if collect_all {
-            materialized
-        } else {
-            page_size
-        },
+        page_size: if collect_all { materialized } else { page_size },
         total,
         has_more: if collect_all {
             false
@@ -144,7 +136,7 @@ pub fn query_parquet_page(app_root: &Path, req: DuckdbPageQuery<'_>) -> Result<D
         },
         columns: logical_columns,
         rows: page_rows,
-        duckdb_query_ms: ms,
+        query_engine_ms: ms,
         rows_materialized: materialized,
     })
 }
@@ -172,7 +164,7 @@ pub fn query_parquet_scalar_i64(
             first_scalar_i64(&batches)
         })
     })?;
-    record_duckdb_query_ms(elapsed_ms(started));
+    record_query_engine_ms(elapsed_ms(started));
     record_rows_materialized(0);
     Ok(value)
 }
@@ -200,7 +192,7 @@ pub fn query_parquet_scalar_f64(
             first_scalar_f64(&batches)
         })
     })?;
-    record_duckdb_query_ms(elapsed_ms(started));
+    record_query_engine_ms(elapsed_ms(started));
     record_rows_materialized(0);
     Ok(value)
 }

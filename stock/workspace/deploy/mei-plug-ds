@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
-# shellcheck source=lib.sh
-source "${DEPLOY_DIR}/lib.sh"
-ensure_local_bins "${WORKSPACE_ROOT}"
-exec "${WORKSPACE_ROOT}/deploy/bin/mei-plug-ds" "$@"
+# Retired: standalone mei-plug-ds. Data plane is embedded in mei-app-runtime.
+echo "error: standalone mei-plug-ds is retired; use mei-app-runtime" >&2
+exit 1

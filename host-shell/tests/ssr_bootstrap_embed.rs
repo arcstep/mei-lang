@@ -195,11 +195,8 @@ fn bootstrap_embed_status_reports_revision_mismatch() {
         .expect("record mrg slot");
     let mut stale_manifest = manifest.clone();
     stale_manifest.client_revision = "stale-revision".to_string();
-    std::fs::write(
-        mei_host_graph::client_bootstrap_path(app_root.as_path(), "home"),
-        serde_json::to_string_pretty(&stale_manifest).expect("json"),
-    )
-    .expect("write stale manifest");
+    mei_host_graph::store_client_bootstrap_manifest(app_root.as_path(), "home", &stale_manifest)
+        .expect("write stale manifest");
     let status = bootstrap_embed_status(workspace, "demo", "home");
     assert!(!status.allowed);
     assert_eq!(status.reason, "revision_mismatch");

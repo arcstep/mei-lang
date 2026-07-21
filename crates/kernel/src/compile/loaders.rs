@@ -297,6 +297,63 @@ where
     })
 }
 
+/// 从 `.csv` 读取完整表快照（`header_row` 从 1 计数：该行作为表头，之前行跳过）。
+pub fn load_csv_table_snapshot(
+    path: &Path,
+    header_row: usize,
+    max_rows: Option<usize>,
+) -> Result<XlsxTableSnapshot> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_path(path)
+        .with_context(|| format!("failed to open csv {}", path.display()))?;
+    let header_row = header_row.max(1);
+    let mut records = reader.records();
+    for _ in 1..header_row {
+        let _ = records
+            .next()
+            .transpose()
+            .with_context(|| format!("failed to skip csv rows before header in {}", path.display()))?;
+    }
+    let header_record = records
+        .next()
+        .transpose()
+        .with_context(|| format!("failed to read csv header in {}", path.display()))?
+        .with_context(|| format!("csv missing header row in {}", path.display()))?;
+    let raw_headers = header_record
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let headers = materialize_xlsx_column_headers(&raw_headers);
+    let mut out = Vec::new();
+    for record in records {
+        if max_rows.is_some_and(|cap| out.len() >= cap) {
+            break;
+        }
+        let record = record.with_context(|| format!("failed to read csv row in {}", path.display()))?;
+        let mut obj = Map::new();
+        for (index, header) in headers.iter().enumerate() {
+            let cell = record
+                .get(index)
+                .map(|value| Value::String(value.to_string()))
+                .unwrap_or(Value::Null);
+            obj.insert(header.clone(), cell);
+        }
+        if obj.values().any(|value| match value {
+            Value::Null => false,
+            Value::String(s) => !s.is_empty(),
+            _ => true,
+        }) {
+            out.push(Value::Object(obj));
+        }
+    }
+    Ok(XlsxTableSnapshot {
+        columns: headers,
+        rows: out,
+    })
+}
+
 /// 从 `.xlsx` 或 OLE 容器内的 `.xls` 读取完整表快照（表头行号从 1 计数，与 `ds.xlsx(..., header_row = n)` 一致）。
 pub fn load_xlsx_table_snapshot(
     path: &Path,

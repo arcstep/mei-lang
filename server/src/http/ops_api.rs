@@ -215,8 +215,7 @@ pub async fn ops_theme_style_get(
     let source_root = state.source_root.as_path();
     let config = load_mei_config_for_app(&app_root, Some(source_root));
     let workspace = mei_lang_kernel::load_workspace_config(source_root);
-    let revision =
-        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &config);
+    let revision = mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &config);
     let theme_revision_header = revision.clone();
     let scene_id = query
         .scene

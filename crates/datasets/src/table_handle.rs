@@ -1,55 +1,50 @@
-//! Lazy table handle: DuckDB view over parquet (no whole-table Vec JSON resident).
+//! Lazy table handle: DataFusion view over parquet (no whole-table Vec JSON resident).
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
     resolve_data_snapshot_import_entry, resolve_versioned_source_identifier,
     source_file_content_signature, ColumnSchema,
 };
+use moka::sync::Cache;
 use serde_json::Value;
 
-use crate::duckdb_engine::{
-    ensure_parquet_view, query_parquet_page, resolve_parquet_file_for_source, DuckdbPageQuery,
+use crate::query_engine::{
+    ensure_parquet_view, query_parquet_page, resolve_parquet_file_for_source, ParquetPageQuery,
 };
 use crate::types::DatasetQueryOptions;
 
 const TABLE_HANDLE_CACHE_TTL_MS: u64 = 300_000;
-const TABLE_HANDLE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
-const MAX_TABLE_HANDLE_CACHE_ENTRIES: usize = 64;
+const TABLE_HANDLE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct TableHandle {
     pub columns: Vec<String>,
-    /// Registered DuckDB view name (keyed by parquet path hash).
+    /// Registered DataFusion view name (keyed by parquet path hash).
     pub view_name: String,
     pub parquet_path: PathBuf,
     app_root: PathBuf,
 }
 
-#[derive(Clone)]
-struct CachedTableHandle {
-    expires_at: Instant,
-    handle: Arc<TableHandle>,
-}
-
-#[derive(Default)]
-struct TableHandleCacheState {
-    entries: BTreeMap<String, CachedTableHandle>,
-    lru: VecDeque<String>,
-    next_prune_at: Option<Instant>,
-}
-
-fn table_handle_cache() -> &'static Mutex<TableHandleCacheState> {
-    static CACHE: OnceLock<Mutex<TableHandleCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(TableHandleCacheState::default()))
-}
-
-fn cache_ttl() -> Duration {
-    Duration::from_millis(TABLE_HANDLE_CACHE_TTL_MS)
+fn table_handle_cache() -> &'static Cache<String, Arc<TableHandle>> {
+    static CACHE: OnceLock<Cache<String, Arc<TableHandle>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(TABLE_HANDLE_CACHE_MAX_BYTES)
+            .weigher(|key: &String, handle: &Arc<TableHandle>| {
+                key.len()
+                    .saturating_add(handle.view_name.len())
+                    .saturating_add(handle.parquet_path.to_string_lossy().len())
+                    .saturating_add(handle.columns.iter().map(String::len).sum::<usize>())
+                    .clamp(1, u32::MAX as usize) as u32
+            })
+            .time_to_live(Duration::from_millis(TABLE_HANDLE_CACHE_TTL_MS))
+            .build()
+    })
 }
 
 pub fn table_handle_cache_key(
@@ -95,9 +90,10 @@ pub fn load_table_handle(
                 sheet
             )
         })?;
-    let physical_columns = resolve_data_snapshot_import_entry(app_root, source_path, sheet, header_row)
-        .map(|e| e.columns)
-        .filter(|c| !c.is_empty());
+    let physical_columns =
+        resolve_data_snapshot_import_entry(app_root, source_path, sheet, header_row)
+            .map(|e| e.columns)
+            .filter(|c| !c.is_empty());
     let (view_name, columns) = ensure_parquet_view(
         app_root,
         parquet.as_path(),
@@ -114,7 +110,7 @@ pub fn load_table_handle(
     Ok((handle, false))
 }
 
-/// Materialize rows via DuckDB (prefer paginated options). Avoids keeping a full Vec on the handle.
+/// Materialize rows via the query engine (DataFusion) (prefer paginated options). Avoids keeping a full Vec on the handle.
 pub fn materialize_rows_from_handle(
     handle: &TableHandle,
     schema: &[ColumnSchema],
@@ -127,7 +123,7 @@ pub fn materialize_rows_from_handle(
     };
     let page = query_parquet_page(
         handle.app_root.as_path(),
-        DuckdbPageQuery {
+        ParquetPageQuery {
             parquet_path: handle.parquet_path.as_path(),
             schema,
             physical_columns: Some(handle.columns.as_slice()),
@@ -137,7 +133,7 @@ pub fn materialize_rows_from_handle(
     )
     .with_context(|| {
         format!(
-            "materialize rows from duckdb view `{}` ({})",
+            "materialize rows from query-engine view `{}` ({})",
             handle.view_name,
             handle.parquet_path.display()
         )
@@ -146,71 +142,39 @@ pub fn materialize_rows_from_handle(
 }
 
 fn take_cached_table_handle(key: &str) -> Option<Arc<TableHandle>> {
-    let mut guard = table_handle_cache().lock().ok()?;
-    maybe_prune_table_handle_cache(&mut guard);
-    let cached = guard.entries.get(key)?;
-    if cached.expires_at <= Instant::now() {
-        guard.entries.remove(key);
-        guard.lru.retain(|value| value != key);
-        return None;
-    }
-    let handle = cached.handle.clone();
-    if let Some(pos) = guard.lru.iter().position(|value| value == key) {
-        guard.lru.remove(pos);
-    }
-    guard.lru.push_back(key.to_string());
-    Some(handle)
+    table_handle_cache().get(key)
 }
 
 fn store_cached_table_handle(key: String, handle: Arc<TableHandle>) {
-    let Ok(mut guard) = table_handle_cache().lock() else {
-        return;
-    };
-    maybe_prune_table_handle_cache(&mut guard);
-    guard.entries.insert(
-        key.clone(),
-        CachedTableHandle {
-            expires_at: Instant::now() + cache_ttl(),
-            handle,
-        },
-    );
-    guard.lru.retain(|value| value != &key);
-    guard.lru.push_back(key);
-    while guard.entries.len() > MAX_TABLE_HANDLE_CACHE_ENTRIES {
-        if let Some(oldest) = guard.lru.pop_front() {
-            guard.entries.remove(&oldest);
-        } else {
-            break;
-        }
-    }
-}
-
-fn maybe_prune_table_handle_cache(state: &mut TableHandleCacheState) {
-    let now = Instant::now();
-    if state
-        .next_prune_at
-        .is_some_and(|next| now < next && state.entries.len() <= MAX_TABLE_HANDLE_CACHE_ENTRIES)
-    {
-        return;
-    }
-    state.entries.retain(|key, entry| {
-        if entry.expires_at <= now {
-            state.lru.retain(|value| value != key);
-            false
-        } else {
-            true
-        }
-    });
-    state.next_prune_at = Some(now + Duration::from_millis(TABLE_HANDLE_CACHE_PRUNE_INTERVAL_MS));
+    table_handle_cache().insert(key, handle);
 }
 
 pub(crate) fn clear_table_handle_cache() -> usize {
-    let Ok(mut guard) = table_handle_cache().lock() else {
-        return 0;
-    };
-    let cleared = guard.entries.len();
-    guard.entries.clear();
-    guard.lru.clear();
-    guard.next_prune_at = None;
+    let cache = table_handle_cache();
+    let cleared = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     cleared
+}
+
+pub(crate) fn clear_table_handle_cache_for_app(app_root: &Path) -> usize {
+    let canonical = app_root
+        .canonicalize()
+        .unwrap_or_else(|_| app_root.to_path_buf());
+    let cache = table_handle_cache();
+    let keys = cache
+        .iter()
+        .filter_map(|(key, handle)| {
+            let entry_root = handle
+                .app_root
+                .canonicalize()
+                .unwrap_or_else(|_| handle.app_root.clone());
+            (entry_root == canonical).then(|| key.as_ref().clone())
+        })
+        .collect::<Vec<_>>();
+    for key in &keys {
+        cache.invalidate(key);
+    }
+    cache.run_pending_tasks();
+    keys.len()
 }

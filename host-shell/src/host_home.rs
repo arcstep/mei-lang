@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use axum::{
@@ -13,15 +14,14 @@ use mei_lang_kernel::WorkspaceAppMeta;
 use crate::host_page_pack::{
     home_page_pack, render_home_page_body, render_native_recovery_html, HostPagePack,
 };
-use crate::landing::app_has_prebuilt_access_entry;
-use crate::shell_chrome::apps_for_topbar;
+use crate::shell_chrome::{active_running_app_ids, apps_for_topbar};
 use crate::state::SharedState;
 use crate::workspace_page::render_workspace_shell_page;
 
 fn render_host_home_slots(
     workspace_root: &Path,
-    running_apps: &[WorkspaceAppMeta],
-    data_plane_enabled: bool,
+    enabled_apps: &[WorkspaceAppMeta],
+    loaded_app_ids: &BTreeSet<String>,
     workspace_share_visible: bool,
 ) -> (String, String) {
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
@@ -49,7 +49,7 @@ fn render_host_home_slots(
         )
     };
 
-    let app_section = if running_apps.is_empty() {
+    let app_section = if enabled_apps.is_empty() {
         r#"<section class="mei-host-shell__home-empty" aria-labelledby="mei-home-empty-title">
   <h2 id="mei-home-empty-title" class="mei-host-shell__home-empty-title">还没有已启用的应用</h2>
   <p class="mei-host-shell__home-empty-body">顶栏与首页按启用清单展示应用。到应用中心启用后，入口会出现在这里（lazy 应用可在首次访问时自动载入）。</p>
@@ -57,19 +57,19 @@ fn render_host_home_slots(
 </section>"#
             .to_string()
     } else {
-        let count = running_apps.len();
-        let cards = running_apps
+        let count = enabled_apps.len();
+        let cards = enabled_apps
             .iter()
             .map(|app| {
-                let access_ready = data_plane_enabled
-                    && app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
+                // Align with /runtime: loaded = LaunchManifest active route → Running.
+                let loaded = loaded_app_ids.contains(app.id.as_str());
                 let access_href =
                     crate::shell_chrome::app_access_href(workspace_root, app.id.as_str());
-                let status = if access_ready { "ready" } else { "starting" };
-                let status_label = if access_ready {
+                let status = if loaded { "ready" } else { "starting" };
+                let status_label = if loaded {
                     "已载入"
                 } else {
-                    "已启用 · 待载入"
+                    "已启用 · 未载入"
                 };
                 format!(
                     r#"<article class="mei-host-shell__app-card" data-status="{status}">
@@ -89,7 +89,7 @@ fn render_host_home_slots(
                     access_action = format!(
                         r#"<a class="mei-host-shell__btn mei-host-shell__btn--primary" href="{}">{}</a>"#,
                         html_escape(access_href.as_str()),
-                        if access_ready {
+                        if loaded {
                             "进入应用"
                         } else {
                             "进入（将载入）"
@@ -138,8 +138,8 @@ fn render_host_home_slots(
 fn render_host_home_document_with_pack(
     pack: Option<&HostPagePack>,
     workspace_root: &Path,
-    running_apps: &[WorkspaceAppMeta],
-    data_plane_enabled: bool,
+    enabled_apps: &[WorkspaceAppMeta],
+    loaded_app_ids: &BTreeSet<String>,
     topbar_menu: &TopbarMenuContext,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
@@ -148,8 +148,8 @@ fn render_host_home_document_with_pack(
         || account_view.is_some_and(|account| account.capabilities.workspace_share_view);
     let (workspace_line, app_cards) = render_host_home_slots(
         workspace_root,
-        running_apps,
-        data_plane_enabled,
+        enabled_apps,
+        loaded_app_ids,
         workspace_share_visible,
     );
     let body_html = match render_home_page_body(pack, workspace_line.as_str(), app_cards.as_str()) {
@@ -158,7 +158,7 @@ fn render_host_home_document_with_pack(
     };
     render_workspace_shell_page(
         workspace_root,
-        running_apps,
+        enabled_apps,
         topbar_menu,
         WorkspaceShellNav::Home,
         "MeiLang 工作区",
@@ -176,15 +176,16 @@ pub async fn host_home_page(
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
     let topbar_menu = load_topbar_menu_context(workspace_root);
-    // 0537: home chrome + cards only list LaunchManifest active apps.
-    let running = apps_for_topbar(&guard);
+    // 0537: home lists enabled apps; load labels match /runtime (LaunchManifest Running).
+    let enabled = apps_for_topbar(&guard);
+    let loaded = active_running_app_ids(&guard.launch_manifest);
     let auth_enabled = auth.auth_enforcement == mei_host_auth::AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
     let html = render_host_home_document_with_pack(
         Some(home_page_pack()),
         workspace_root,
-        running.as_slice(),
-        guard.data_plane_enabled,
+        enabled.as_slice(),
+        &loaded,
         &topbar_menu,
         auth_enabled,
         account_view.as_ref(),
@@ -207,16 +208,17 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).expect("create temp root");
         let topbar_menu = mei_lang_app::load_topbar_menu_context(root.as_path());
+        let loaded = BTreeSet::new();
         let html = render_host_home_document_with_pack(
             Some(home_page_pack()),
             root.as_path(),
             &[],
-            false,
+            &loaded,
             &topbar_menu,
             false,
             None,
         );
-        assert!(html.contains("还没有运行中的应用") || html.contains("MeiLang 工作区"));
+        assert!(html.contains("还没有已启用的应用") || html.contains("MeiLang 工作区"));
         assert!(html.contains("mei-host-shell__home-hero"));
         assert!(html.contains("/runtime"));
         assert!(html.contains("topbar-shell"));
@@ -224,6 +226,55 @@ mod tests {
         assert!(html.contains(r#"data-mei-pagepack-digest="sha256:"#));
         assert!(html.contains(r#"data-mei-page-surface="document""#));
         assert!(!html.contains("app-tab") || !html.contains("data-mei-app-id"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn host_home_load_labels_match_runtime_running_set() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-host-home-load-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        let apps = vec![
+            WorkspaceAppMeta {
+                id: "zhifa".to_string(),
+                title: "Zhifa".to_string(),
+                short_title: None,
+                root: "apps/zhifa".to_string(),
+            },
+            WorkspaceAppMeta {
+                id: "thunder".to_string(),
+                title: "Thunder".to_string(),
+                short_title: None,
+                root: "apps/thunder".to_string(),
+            },
+        ];
+        let loaded = BTreeSet::from(["zhifa".to_string()]);
+        let (_hero, cards) =
+            render_host_home_slots(root.as_path(), apps.as_slice(), &loaded, false);
+        let zhifa_card = cards
+            .split("<article")
+            .find(|chunk| chunk.contains(">zhifa<") || chunk.contains(">zhifa</"))
+            .or_else(|| {
+                cards
+                    .split("<article")
+                    .find(|chunk| chunk.contains("zhifa"))
+            })
+            .expect("zhifa card");
+        let thunder_card = cards
+            .split("<article")
+            .find(|chunk| chunk.contains("thunder"))
+            .expect("thunder card");
+        assert!(zhifa_card.contains("已载入"));
+        assert!(zhifa_card.contains("进入应用"));
+        assert!(!zhifa_card.contains("已启用 · 未载入"));
+        assert!(thunder_card.contains("已启用 · 未载入"));
+        assert!(thunder_card.contains("进入（将载入）"));
+        assert!(!thunder_card.contains("已载入"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -238,11 +289,12 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).expect("create temp root");
         let topbar_menu = mei_lang_app::load_topbar_menu_context(root.as_path());
+        let loaded = BTreeSet::new();
         let missing = render_host_home_document_with_pack(
             None,
             root.as_path(),
             &[],
-            false,
+            &loaded,
             &topbar_menu,
             false,
             None,
@@ -253,7 +305,7 @@ mod tests {
             Some(&invalid_pack),
             root.as_path(),
             &[],
-            false,
+            &loaded,
             &topbar_menu,
             false,
             None,

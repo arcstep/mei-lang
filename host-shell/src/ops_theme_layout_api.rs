@@ -57,8 +57,11 @@ pub async fn api_ops_theme_layout_overlay_get(
         load_mei_config_for_app(app_ctx.app_root().as_path(), Some(workspace_root.as_path()));
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root.as_path());
     let theme_id = resolve_scene_theme_id(Some(&workspace), &config);
-    let assembled =
-        mei_lang_kernel::resolve_assembled_scene_theme(Some(&workspace), &config, theme_id.as_str());
+    let assembled = mei_lang_kernel::resolve_assembled_scene_theme(
+        Some(&workspace),
+        &config,
+        theme_id.as_str(),
+    );
     let persisted_layout = assembled
         .as_ref()
         .and_then(|theme| theme.get("layout"))
@@ -133,13 +136,7 @@ pub async fn api_ops_theme_layout_apply_post(
         .themes
         .get(theme_id.as_str())
         .cloned()
-        .or_else(|| {
-            config
-                .ops
-                .themes
-                .get("_layout")
-                .cloned()
-        })
+        .or_else(|| config.ops.themes.get("_layout").cloned())
         .unwrap_or_else(|| {
             config
                 .ops

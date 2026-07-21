@@ -84,23 +84,27 @@ fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
         "home manifest should cover critical metrics, got {}",
         manifest.metrics.len()
     );
-    let manifest_path = ctx.app_root().join("var/active/client-bootstrap/home.json");
+    let manifest_path = mei_lang_datasets::small_artifact_store_path(ctx.app_root().as_path());
     assert!(
         manifest_path.is_file(),
-        "client-bootstrap manifest file should exist at {}",
+        "redb small-artifact store should exist at {}",
         manifest_path.display()
     );
-    let bootstrap_dir = ctx.app_root().join("var/active/client-bootstrap");
-    let bootstrap_files = std::fs::read_dir(&bootstrap_dir)
-        .expect("read bootstrap dir")
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+    let bootstrap_scopes = targets
+        .iter()
+        .filter(|target| {
+            mei_host_graph::read_client_bootstrap(
+                workspace.as_path(),
+                "data-demo",
+                target.scope_key.as_str(),
+            )
+            .is_some()
+        })
         .count();
     assert!(
-        bootstrap_files >= 2,
-        "multi-scope warmup should emit neighbor bootstrap manifests, got {} in {}",
-        bootstrap_files,
-        bootstrap_dir.display()
+        bootstrap_scopes >= 2,
+        "multi-scope warmup should persist neighbor bootstrap manifests in redb, got {}",
+        bootstrap_scopes,
     );
 
     let target = &targets[0];

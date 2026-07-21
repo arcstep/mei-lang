@@ -24,7 +24,7 @@ pub(crate) fn eval_rowset_with_ctx(
     ctx: &mut EvalContext,
 ) -> Result<Vec<Value>> {
     if let Some(rows) = ctx.cached_rowset(expr) {
-        return Ok(rows);
+        return Ok(rows.as_ref().clone());
     }
     if let Some(node_key) = ctx.rowset_key(expr) {
         let rows = ctx.with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {
@@ -92,7 +92,7 @@ fn resolve_metric_ref_rowset(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow!("metric_ref missing id"))?;
     if let Some(rows) = ctx.resolved_metric_rowset(metric_id) {
-        return Ok(rows);
+        return Ok(rows.as_ref().clone());
     }
     let node_key = format!("metric_ref:{metric_id}");
     ctx.with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {

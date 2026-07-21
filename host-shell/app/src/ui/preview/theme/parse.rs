@@ -68,7 +68,8 @@ pub(crate) fn resolve_theme(
     }
     if let Some(config) = live_config {
         theme_id = resolve_active_scene_theme_id(workspace, config, Some(theme_id.as_str()));
-        if let Some(live_theme) = resolve_assembled_scene_theme(workspace, config, theme_id.as_str())
+        if let Some(live_theme) =
+            resolve_assembled_scene_theme(workspace, config, theme_id.as_str())
         {
             theme = deep_merge_value(&theme, &live_theme);
         }

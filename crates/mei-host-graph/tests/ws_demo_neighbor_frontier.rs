@@ -111,38 +111,17 @@ fn ws_demo_home_bootstrap_payload_includes_t2_neighbor_scopes() {
         eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
         return;
     };
-    let manifest_dir = workspace.join("apps/data-demo/env/current/var/client-bootstrap");
-    if !manifest_dir.is_dir() {
-        eprintln!("skip: run data-demo prebuild to populate client-bootstrap manifests");
-        return;
-    }
-    let mut scope_ids = Vec::new();
-    for entry in std::fs::read_dir(&manifest_dir).expect("read client-bootstrap dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-            continue;
-        }
-        let stem = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if !stem.is_empty() {
-            scope_ids.push(stem);
-        }
-    }
-    scope_ids.sort();
-    if scope_ids.len() < 3 {
-        eprintln!(
-            "skip: expected >=3 client-bootstrap manifests after prebuild, got {scope_ids:?}"
-        );
+    if mei_host_graph::read_client_bootstrap(workspace.as_path(), "data-demo", "home").is_none() {
+        eprintln!("skip: run data-demo prebuild to populate redb client-bootstrap artifacts");
         return;
     }
     assert!(
-        scope_ids
-            .iter()
-            .any(|scope| scope == "penalty_total_analytics_page"),
-        "expected penalty_total_analytics_page manifest on disk, got {scope_ids:?}"
+        mei_host_graph::read_client_bootstrap(
+            workspace.as_path(),
+            "data-demo",
+            "penalty_total_analytics_page",
+        )
+        .is_some(),
+        "expected penalty_total_analytics_page manifest in redb"
     );
 }

@@ -118,8 +118,7 @@ fn layout_policy_revision(workspace_root: &Path, app_id: &str) -> String {
     // sectionRows 等 layout theme 会进 runtime.plans / layout_budget；必须纳入 revision，
     // 否则只改 app.toml themes.*.layout 时热重载仍命中旧 plan（养老/校服高度不同即此坑）。
     let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
-    let themes =
-        mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
+    let themes = mei_lang_kernel::ops_active_theme_revision_digest(Some(&workspace), &mei_config);
     format!("{data_gen}|{policy}|{themes}")
 }
 

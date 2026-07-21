@@ -56,6 +56,18 @@ impl DatasetView {
     pub fn uses_compiled_metric_snapshot_only(&self) -> bool {
         self.runtime_metric_defs.is_empty() && !self.metrics.is_empty()
     }
+
+    /// Drop in-memory JSON row working set after Disk/runtime eval (pack-first).
+    /// Does not touch schema/columns/source; packs and parquet remain on disk.
+    pub fn release_row_working_set(&mut self) -> usize {
+        let n = self.rows.len();
+        if n == 0 {
+            return 0;
+        }
+        self.rows.clear();
+        self.rows.shrink_to_fit();
+        n
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

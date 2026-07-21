@@ -12,6 +12,9 @@ use super::eval_artifact::{
     eval_plan_semantic_revision_key, load_eval_metric_node_pack, load_or_build_eval_plan_artifact,
     store_eval_metric_node_pack,
 };
+use super::l1_project::{
+    metric_contract_eligible_for_node_pack, metric_id_eligible_for_node_pack, L1PinPolicy,
+};
 
 pub(crate) struct EvalPlanExecutionOutcome {
     pub metrics_map: BTreeMap<String, MetricContract>,
@@ -47,13 +50,20 @@ pub(crate) fn execute_runtime_eval_plan_artifacts(
     let mut cached_metrics = BTreeMap::new();
     let mut eval_node_artifact_load_ms = 0u64;
     let mut eval_node_artifact_hits = 0u64;
-    let mut expected_metric_nodes = 0usize;
+    // Node-pack only caches L1-shaped nodes (no __scalar_rowset__ / oversized).
+    let cacheable_metric_ids: Vec<String> = if enable_node_artifact_cache {
+        persisted_eval_plan
+            .nodes
+            .values()
+            .filter(|node| node.kind == EvalPlanNodeKind::MetricEval)
+            .filter_map(|node| node.metric_id.clone())
+            .filter(|metric_id| metric_id_eligible_for_node_pack(metric_id.as_str()))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let expected_metric_nodes = cacheable_metric_ids.len();
     if enable_node_artifact_cache {
-        for node in persisted_eval_plan.nodes.values() {
-            if node.kind == EvalPlanNodeKind::MetricEval && node.metric_id.is_some() {
-                expected_metric_nodes += 1;
-            }
-        }
         let (pack_metrics, load_ms, hit_count) = load_eval_metric_node_pack(
             app_root,
             owner_resource_id,
@@ -75,13 +85,10 @@ pub(crate) fn execute_runtime_eval_plan_artifacts(
     eval_report.eval_plan = persisted_eval_plan.clone();
     let mut eval_node_artifact_stores = 0u64;
     if enable_node_artifact_cache {
+        let pin_policy = L1PinPolicy::default();
         let full_hit = expected_metric_nodes > 0
-            && cached_metrics.len() >= expected_metric_nodes
-            && persisted_eval_plan
-                .nodes
-                .values()
-                .filter(|node| node.kind == EvalPlanNodeKind::MetricEval)
-                .filter_map(|node| node.metric_id.as_deref())
+            && cacheable_metric_ids
+                .iter()
                 .all(|metric_id| cached_metrics.contains_key(metric_id));
         let mut to_store = BTreeMap::new();
         if !full_hit {
@@ -98,6 +105,9 @@ pub(crate) fn execute_runtime_eval_plan_artifacts(
                 let Some(metric) = metrics_map.get(metric_id) else {
                     continue;
                 };
+                if !metric_contract_eligible_for_node_pack(metric_id, metric, &pin_policy) {
+                    continue;
+                }
                 to_store.insert(node.id.clone(), (metric_id.to_string(), metric.clone()));
             }
         }

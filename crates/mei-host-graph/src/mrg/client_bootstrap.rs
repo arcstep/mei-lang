@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use mei_host_core::{EvalSlotDescriptor, HostContext};
@@ -13,6 +12,13 @@ use serde_json::Value;
 
 use crate::mrg::registry::MrgRegistry;
 use crate::types::MaterialState;
+
+const CLIENT_BOOTSTRAP_KIND: &str = "client-bootstrap";
+const SCENE_BOOTSTRAP_KIND: &str = "scene-bootstrap";
+
+fn scene_bootstrap_store_key(scope: &str, client_revision: &str) -> String {
+    format!("{}|{}", scope.trim(), client_revision.trim())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientBootstrapMetric {
@@ -139,26 +145,6 @@ pub fn empty_client_bootstrap_payload(
     }
 }
 
-pub fn client_bootstrap_root(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap")
-}
-
-pub fn client_bootstrap_path(app_root: &Path, scope: &str) -> PathBuf {
-    client_bootstrap_root(app_root).join(format!("{scope}.json"))
-}
-
-pub fn scene_bootstrap_artifact_root(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_var_root(app_root).join("scene-bootstrap")
-}
-
-pub fn scene_bootstrap_artifact_path(
-    app_root: &Path,
-    scope: &str,
-    client_revision: &str,
-) -> PathBuf {
-    scene_bootstrap_artifact_root(app_root).join(format!("{scope}.{client_revision}.json"))
-}
-
 pub fn scene_bootstrap_artifact_public_url(
     app_id: &str,
     scope: &str,
@@ -178,16 +164,25 @@ pub fn write_scene_bootstrap_artifact(
         return None;
     }
     let app_root = resolve_app_root(workspace_root, app_id);
-    let path = scene_bootstrap_artifact_path(app_root.as_path(), scope, revision);
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+    let has_instance_overlay = std::env::var("MEI_APP_RUNTIME_APP_ID")
+        .ok()
+        .is_some_and(|runtime_app| runtime_app.trim() == app_id)
+        && std::env::var_os("MEI_APP_RUNTIME_VAR_ROOT").is_some();
+    let is_prebuild = mei_lang_kernel::snapshot_prebuild_build_root_override().is_some();
+    if !has_instance_overlay && !is_prebuild {
+        // Host-shell must not become a second writer for the immutable build
+        // seed while an app runtime may have it open read-only.
+        return None;
     }
-    let written = fs::write(path.as_path(), serde_json::to_string_pretty(payload).ok()?).is_ok();
-    if written {
-        Some(path)
-    } else {
-        None
-    }
+    let key = scene_bootstrap_store_key(scope, revision);
+    let written = mei_lang_datasets::store_small_artifact(
+        app_root.as_path(),
+        SCENE_BOOTSTRAP_KIND,
+        key.as_str(),
+        payload,
+    )
+    .ok()?;
+    (written > 0).then(|| mei_lang_datasets::small_artifact_store_path(app_root.as_path()))
 }
 
 pub fn read_scene_bootstrap_artifact(
@@ -197,9 +192,10 @@ pub fn read_scene_bootstrap_artifact(
     client_revision: &str,
 ) -> Option<ClientBootstrapPayload> {
     let app_root = resolve_app_root(workspace_root, app_id);
-    let path = scene_bootstrap_artifact_path(app_root.as_path(), scope, client_revision);
-    let raw = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
+    let key = scene_bootstrap_store_key(scope, client_revision);
+    mei_lang_datasets::load_small_artifact(app_root.as_path(), SCENE_BOOTSTRAP_KIND, key.as_str())
+        .ok()
+        .flatten()
 }
 
 pub fn compute_scope_client_revision(
@@ -526,12 +522,19 @@ fn layout_budget_manifest_for_pilot(
 }
 
 pub fn clear_client_bootstrap_for_scope(app_root: &Path, scope: &str) -> bool {
-    let path = client_bootstrap_path(app_root, scope);
-    if path.is_file() {
-        fs::remove_file(&path).is_ok()
-    } else {
-        false
-    }
+    mei_lang_datasets::remove_small_artifact(app_root, CLIENT_BOOTSTRAP_KIND, scope)
+        .unwrap_or(false)
+}
+
+pub fn store_client_bootstrap_manifest(
+    app_root: &Path,
+    scope: &str,
+    manifest: &ClientBootstrapManifest,
+) -> anyhow::Result<bool> {
+    Ok(
+        mei_lang_datasets::store_small_artifact(app_root, CLIENT_BOOTSTRAP_KIND, scope, manifest)?
+            > 0,
+    )
 }
 
 pub fn clear_client_bootstraps_for_stale_scopes(app_root: &Path, registry: &MrgRegistry) -> usize {
@@ -629,11 +632,9 @@ pub fn write_client_bootstrap(
         workset_id: workset_id.to_string(),
         metrics: manifest_metrics,
     };
-    let path = client_bootstrap_path(app_root, scope);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    if !store_client_bootstrap_manifest(app_root, scope, &manifest)? {
+        return Ok(None);
     }
-    fs::write(path, serde_json::to_string_pretty(&manifest)?)?;
     Ok(Some(manifest))
 }
 
@@ -643,9 +644,9 @@ pub fn read_client_bootstrap(
     scope: &str,
 ) -> Option<ClientBootstrapManifest> {
     let app_root = resolve_app_root(source_root, app_id);
-    let path = client_bootstrap_path(app_root.as_path(), scope);
-    let raw = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
+    mei_lang_datasets::load_small_artifact(app_root.as_path(), CLIENT_BOOTSTRAP_KIND, scope)
+        .ok()
+        .flatten()
 }
 
 pub fn client_bootstrap_eval_seed_json(

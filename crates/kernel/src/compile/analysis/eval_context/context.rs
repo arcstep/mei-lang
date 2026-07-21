@@ -5,6 +5,7 @@ use super::cache::{
 use super::scope::{EvalNodeKind, RequestDag, RequestDagMetrics, RuntimeMetricEvalScope};
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -37,11 +38,11 @@ impl EvalContext {
     pub(crate) fn store_resolved_metric_rowset(&mut self, metric_id: &str, rows: &[Value]) {
         if !metric_id.trim().is_empty() {
             self.resolved_metric_rowsets
-                .insert(metric_id.to_string(), rows.to_vec());
+                .insert(metric_id.to_string(), Arc::new(rows.to_vec()));
         }
     }
 
-    pub(crate) fn resolved_metric_rowset(&self, metric_id: &str) -> Option<Vec<Value>> {
+    pub(crate) fn resolved_metric_rowset(&self, metric_id: &str) -> Option<Arc<Vec<Value>>> {
         self.resolved_metric_rowsets.get(metric_id).cloned()
     }
 
@@ -127,17 +128,14 @@ impl EvalContext {
         }
     }
 
-    pub(crate) fn rowset(&self, expr: &Value) -> Option<Vec<Value>> {
+    pub(crate) fn rowset(&self, expr: &Value) -> Option<Arc<Vec<Value>>> {
         let key = expr_cache_key("rowset", &self.scope, expr)?;
         self.rowset_cache.get(&key).cloned()
     }
 
     pub(crate) fn store_rowset(&mut self, expr: &Value, rows: &[Value]) {
         if let Some(key) = expr_cache_key("rowset", &self.scope, expr) {
-            self.rowset_cache.insert(key.clone(), rows.to_vec());
-            if eval_node_cache_enabled() {
-                store_cached_eval_node(&key, CachedEvalValue::Rowset(rows.to_vec()));
-            }
+            self.rowset_cache.insert(key, Arc::new(rows.to_vec()));
         }
     }
 
@@ -155,24 +153,16 @@ impl EvalContext {
         }
     }
 
-    pub(crate) fn cached_rowset(&mut self, expr: &Value) -> Option<Vec<Value>> {
+    pub(crate) fn cached_rowset(&mut self, expr: &Value) -> Option<Arc<Vec<Value>>> {
         let key = self.rowset_key(expr)?;
         if let Some(rows) = self.rowset(expr) {
             self.request_cache_hits += 1;
             self.register_node_access(&key, true);
             return Some(rows);
         }
-        if !eval_node_cache_enabled() {
-            return None;
-        }
-        let Some(CachedEvalValue::Rowset(rows)) = take_cached_eval_node(&key) else {
-            self.eval_node_cache_misses += 1;
-            return None;
-        };
-        self.rowset_cache.insert(key.clone(), rows.clone());
-        self.eval_node_cache_hits += 1;
-        self.register_node_access(&key, true);
-        Some(rows)
+        // Rowsets are request working sets and are never retained globally.
+        self.eval_node_cache_misses += u64::from(eval_node_cache_enabled());
+        None
     }
 
     pub(crate) fn cached_scalar(&mut self, expr: &Value) -> Option<Value> {

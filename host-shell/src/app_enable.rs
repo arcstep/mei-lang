@@ -5,8 +5,8 @@
 //! - **demand load**: Access hit on enabled+unloaded → spawn
 
 use mei_host_core::{
-    effective_runtime_plan, read_host_control_state, read_runtime_overlay, write_host_control_state,
-    HostControlState,
+    effective_runtime_plan, read_host_control_state, read_runtime_overlay,
+    write_host_control_state, HostControlState,
 };
 use mei_lang_kernel::RuntimeMode;
 use serde_json::{json, Value};

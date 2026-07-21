@@ -3,39 +3,37 @@
 //! Entries are L1-projected (no `__scalar_rowset__` / oversized values). Disk may
 //! retain full packs; this cache must not keep per-metric rowset working sets.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use mei_lang_kernel::{FilterIntent, MetricContract, QueryState};
+use moka::sync::Cache;
 
 use crate::l1_project::{project_metrics_map_for_l1, L1PinPolicy};
 
 const AGG_RESULT_CACHE_TTL_MS: u64 = 120_000;
-const AGG_RESULT_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
-const MAX_AGG_RESULT_CACHE_ENTRIES: usize = 256;
+const AGG_RESULT_CACHE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone)]
 struct CachedAggResult {
-    expires_at: Instant,
     metrics_map: BTreeMap<String, MetricContract>,
     total_rows: usize,
 }
 
-#[derive(Default)]
-struct AggResultCacheState {
-    entries: BTreeMap<String, CachedAggResult>,
-    lru: VecDeque<String>,
-    next_prune_at: Option<Instant>,
-}
-
-fn agg_result_cache() -> &'static Mutex<AggResultCacheState> {
-    static CACHE: OnceLock<Mutex<AggResultCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(AggResultCacheState::default()))
-}
-
-fn cache_ttl() -> Duration {
-    Duration::from_millis(AGG_RESULT_CACHE_TTL_MS)
+fn agg_result_cache() -> &'static Cache<String, Arc<CachedAggResult>> {
+    static CACHE: OnceLock<Cache<String, Arc<CachedAggResult>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(AGG_RESULT_CACHE_MAX_BYTES)
+            .weigher(|_key: &String, value: &Arc<CachedAggResult>| {
+                serde_json::to_vec(&value.metrics_map)
+                    .map(|bytes| bytes.len().clamp(1, u32::MAX as usize) as u32)
+                    .unwrap_or(128)
+            })
+            .time_to_live(Duration::from_millis(AGG_RESULT_CACHE_TTL_MS))
+            .build()
+    })
 }
 
 pub fn filters_fingerprint(query_state: &QueryState, filter_intents: &[FilterIntent]) -> String {
@@ -79,21 +77,8 @@ pub fn agg_result_cache_key(
 }
 
 pub fn lookup_agg_result_cache(key: &str) -> Option<(BTreeMap<String, MetricContract>, usize)> {
-    let mut guard = agg_result_cache().lock().ok()?;
-    maybe_prune_agg_result_cache(&mut guard);
-    let Some(cached) = guard.entries.get(key).cloned() else {
-        return None;
-    };
-    if cached.expires_at <= Instant::now() {
-        guard.entries.remove(key);
-        guard.lru.retain(|value| value != key);
-        return None;
-    }
-    if let Some(pos) = guard.lru.iter().position(|value| value == key) {
-        guard.lru.remove(pos);
-    }
-    guard.lru.push_back(key.to_string());
-    Some((cached.metrics_map, cached.total_rows))
+    let cached = agg_result_cache().get(key)?;
+    Some((cached.metrics_map.clone(), cached.total_rows))
 }
 
 pub fn store_agg_result_cache(
@@ -105,57 +90,21 @@ pub fn store_agg_result_cache(
     let (projected, _, _) =
         project_metrics_map_for_l1(&metrics_map, &covered, &L1PinPolicy::default());
     drop(metrics_map);
-    let Ok(mut guard) = agg_result_cache().lock() else {
-        return;
-    };
-    maybe_prune_agg_result_cache(&mut guard);
-    guard.entries.insert(
+    agg_result_cache().insert(
         key.clone(),
-        CachedAggResult {
-            expires_at: Instant::now() + cache_ttl(),
+        Arc::new(CachedAggResult {
             metrics_map: projected,
             total_rows,
-        },
+        }),
     );
-    guard.lru.retain(|value| value != &key);
-    guard.lru.push_back(key);
-    while guard.entries.len() > MAX_AGG_RESULT_CACHE_ENTRIES {
-        if let Some(oldest) = guard.lru.pop_front() {
-            guard.entries.remove(&oldest);
-        } else {
-            break;
-        }
-    }
 }
 
 pub fn clear_agg_result_cache() -> usize {
-    let Ok(mut guard) = agg_result_cache().lock() else {
-        return 0;
-    };
-    let cleared = guard.entries.len();
-    guard.entries.clear();
-    guard.lru.clear();
-    guard.next_prune_at = None;
+    let cache = agg_result_cache();
+    let cleared = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     cleared
-}
-
-fn maybe_prune_agg_result_cache(state: &mut AggResultCacheState) {
-    let now = Instant::now();
-    if state
-        .next_prune_at
-        .is_some_and(|next| now < next && state.entries.len() <= MAX_AGG_RESULT_CACHE_ENTRIES)
-    {
-        return;
-    }
-    state.entries.retain(|key, entry| {
-        if entry.expires_at <= now {
-            state.lru.retain(|value| value != key);
-            false
-        } else {
-            true
-        }
-    });
-    state.next_prune_at = Some(now + Duration::from_millis(AGG_RESULT_CACHE_PRUNE_INTERVAL_MS));
 }
 
 #[cfg(test)]

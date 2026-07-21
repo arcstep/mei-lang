@@ -4,9 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# Optional diagnostics CLI only — not part of product distribution.
+# DS HTTP is embedded via mei-app-runtime (`mei_plug_ds::http_router`).
 [[bin]]
 name = "mei-plug-ds"
 path = "src/bin/main.rs"
+required-features = ["standalone-bin"]
+
+[features]
+default = []
+standalone-bin = []
 
 [dependencies]
 anyhow.workspace = true

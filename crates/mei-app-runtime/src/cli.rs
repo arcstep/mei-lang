@@ -18,6 +18,8 @@ pub struct Cli {
 pub enum Command {
     Version(VersionArgs),
     Serve(ServeArgs),
+    /// Offline warmup (disk/memory/client tiers). Replaces retired `mei-plug-ds warmup`.
+    Warmup(mei_plug_ds::WarmupArgs),
 }
 
 #[derive(Args, Debug)]

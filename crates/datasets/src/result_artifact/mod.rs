@@ -88,8 +88,7 @@ mod lite_artifact_tests {
             app_root,
             "cache-key-lite"
         ));
-        let lite_path = metric_response_lite_artifact_path(app_root, "cache-key-lite");
-        assert!(lite_path.is_file());
+        assert!(crate::small_artifact_store_path(app_root).is_file());
         let loaded = load_metric_response_lite_artifact(app_root, "cache-key-lite")
             .expect("load")
             .expect("present");
@@ -129,8 +128,7 @@ mod lite_artifact_tests {
             app_root,
             "cache-key-1"
         ));
-        let lite_path = metric_response_lite_artifact_path(app_root, "cache-key-1");
-        assert!(lite_path.is_file());
+        assert!(crate::small_artifact_store_path(app_root).is_file());
 
         let before = take_lite_artifact_io_stats();
         let _ = before;
@@ -176,7 +174,9 @@ mod lite_artifact_tests {
             .expect("backfill")
             .expect("lite");
         assert!(loaded.0.metrics_map.contains_key("kpi_only"));
-        assert!(metric_response_lite_artifact_path(app_root, "legacy-key").is_file());
+        assert!(load_metric_response_lite_artifact(app_root, "legacy-key")
+            .expect("load backfill")
+            .is_some());
         let stats = take_lite_artifact_io_stats();
         // Counters are process-global; parallel tests may add noise — assert minima.
         assert!(stats.lite_backfill >= 1);

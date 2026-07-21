@@ -73,9 +73,7 @@ fn redirect_access_app_not_running(
         };
         let body = mei_host_auth::render_access_gate_main_html(
             "应用未启用",
-            &format!(
-                "应用 `{app_id}` 不在启用清单中，不会自动载入。请到应用中心启用后再访问。"
-            ),
+            &format!("应用 `{app_id}` 不在启用清单中，不会自动载入。请到应用中心启用后再访问。"),
             "blocked",
         );
         let topbar_menu = load_topbar_menu_context(workspace.as_path());
@@ -1405,8 +1403,12 @@ pub async fn api_host_access_readiness(
         } else {
             readiness.reason
         };
-        let gate =
-            crate::access_gate_status::resolve_access_gate_status(&guard, None, app_id, gate_reason);
+        let gate = crate::access_gate_status::resolve_access_gate_status(
+            &guard,
+            None,
+            app_id,
+            gate_reason,
+        );
         (
             gate_ready,
             gate_reason,
@@ -2407,8 +2409,7 @@ mod inject_scene_manifest_tests {
         assert!(html.contains("mei-host-statusbar-slot"));
         assert!(html.contains(r#"data-mei-copilot-fab="1""#));
         assert!(html.contains("access-chat-fab"));
-        let html_no_fab =
-            thin_access_shell_document("demo", "home", "演示", "首页", "page", false);
+        let html_no_fab = thin_access_shell_document("demo", "home", "演示", "首页", "page", false);
         assert!(html_no_fab.contains(r#"data-mei-copilot-fab="0""#));
         assert!(!html_no_fab.contains("access-chat-fab"));
     }

@@ -20,7 +20,10 @@ pub fn batches_to_json_rows(batches: &[RecordBatch]) -> Result<Vec<Value>> {
         for row_idx in 0..batch.num_rows() {
             let mut map = Map::new();
             for (col_idx, name) in names.iter().enumerate() {
-                map.insert(name.clone(), array_value_to_json(batch.column(col_idx), row_idx)?);
+                map.insert(
+                    name.clone(),
+                    array_value_to_json(batch.column(col_idx), row_idx)?,
+                );
             }
             rows.push(Value::Object(map));
         }

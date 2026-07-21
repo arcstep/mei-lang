@@ -12,12 +12,13 @@ use mei_lang_datasets::{
     collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan,
     load_metric_response_result_artifact, metric_response_artifact_lookup_cache_keys,
     metric_response_cache_scope_key, plan_access_metric_eval_for_ids,
-    populate_l1_from_loaded_metric_artifact, project_requested_metrics,
-    run_metric_response_artifact_load_singleflight, run_whole_eval_singleflight,
-    runtime_metric_workset, snapshot_metric_eval_singleflight_stats,
+    populate_l1_from_loaded_metric_artifact, project_requested_metrics, release_eval_working_set,
+    request_needs_bulk_l1_metrics, run_metric_response_artifact_load_singleflight,
+    run_whole_eval_singleflight, runtime_metric_workset, snapshot_metric_eval_singleflight_stats,
     store_cached_metric_response_aliases, store_metric_response_result_artifact,
-    take_cached_metric_response, RuntimeMetricEvalMode,
+    take_cached_metric_response, try_load_disk_metric_response, RuntimeMetricEvalMode,
 };
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 pub(super) fn execute_metric_query_group(
@@ -234,29 +235,17 @@ pub(super) fn execute_metric_query_group(
         }
     }
     if result_artifact_candidate {
-        let mut loaded_artifact = None;
-        for cache_key in &lookup_cache_keys {
-            if let Some((artifact, artifact_load_ms)) =
-                load_metric_response_result_artifact(ctx.app_root, cache_key)?
-            {
-                let artifact_covers_request = if request_all_metrics {
-                    artifact.complete
-                } else {
-                    requested_eval_metric_ids
-                        .iter()
-                        .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
-                };
-                if artifact_covers_request {
-                    loaded_artifact = Some((cache_key.clone(), artifact, artifact_load_ms));
-                    break;
-                }
-            }
-        }
-        if loaded_artifact.is_none() {
-            // Strict AOT: no index/dataset fallback; MRG slot + direct artifact load only.
-        }
-        if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
-            populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
+        let requested_set: BTreeSet<String> = requested_eval_metric_ids.iter().cloned().collect();
+        let needs_bulk = request_needs_bulk_l1_metrics(&requested_set, request_all_metrics);
+        // Align with plug-ds: lite (non-bulk) then full — avoid hydrate on pack hit.
+        if let Some(hit) = try_load_disk_metric_response(
+            ctx.app_root,
+            &lookup_cache_keys,
+            &requested_set,
+            request_all_metrics,
+            !needs_bulk,
+        )? {
+            populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &hit.artifact);
             let mut perf = BTreeMap::new();
             ctx.compile_observation.write_perf(&mut perf);
             perf.insert(
@@ -268,9 +257,14 @@ pub(super) fn execute_metric_query_group(
             perf.insert("response_cache_hit".to_string(), 0);
             perf.insert("response_cache_populated".to_string(), 1);
             perf.insert("result_artifact_hit".to_string(), 1);
-            perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
+            let load_key = if hit.source == "lite" {
+                "result_artifact_lite_load_ms"
+            } else {
+                "result_artifact_load_ms"
+            };
+            perf.insert(load_key.to_string(), hit.load_ms);
             let mut eval_observation = EvalObservation::new(false)
-                .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
+                .with_response_cache_key_hash(hash_metric_response_cache_key(&hit.cache_key));
             eval_observation.insert_counter("request_dag_observed", 0);
             eval_observation.insert_counter("eval_memo_hits", 0);
             eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
@@ -281,11 +275,11 @@ pub(super) fn execute_metric_query_group(
             );
             eval_observation.insert_counter(
                 "response_cache_metric_coverage".to_string(),
-                artifact.covered_metric_ids.len() as u64,
+                hit.artifact.covered_metric_ids.len() as u64,
             );
             eval_observation.insert_counter(
                 "response_cache_complete".to_string(),
-                u64::from(artifact.complete),
+                u64::from(hit.artifact.complete),
             );
             perf.insert("total_ms".to_string(), elapsed_ms(request_started));
             eval_observation.write_perf(&mut perf);
@@ -293,11 +287,11 @@ pub(super) fn execute_metric_query_group(
                 &access_plan.owner.id,
                 &access_plan.request_metric_ids,
                 &owner_dataset.runtime_metric_defs,
-                &artifact.metrics_map,
+                &hit.artifact.metrics_map,
             );
             return Ok(MetricQueryGroupResponse {
                 dataset_id: resource.id.clone(),
-                total_rows: artifact.total_rows,
+                total_rows: hit.artifact.total_rows,
                 metrics,
                 perf,
             });
@@ -490,6 +484,7 @@ pub(super) fn execute_metric_query_group(
             );
         }
     }
+    let _ = release_eval_working_set(ctx.app_root);
     Ok(MetricQueryGroupResponse {
         dataset_id: resource.id.clone(),
         total_rows: eval_outcome.total_rows,

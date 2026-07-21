@@ -25,6 +25,7 @@ async fn main() -> anyhow::Result<()> {
     match command {
         Command::Version(args) => print_version(args.json),
         Command::Serve(args) => run_serve(args).await,
+        Command::Warmup(args) => mei_plug_ds::run_warmup(args).await,
     }
 }
 

@@ -40,8 +40,8 @@ fn access_ai_external_deserializes_from_features() {
 fn copilot_fab_feature_defaults_enabled_and_can_disable() {
     let enabled: MeiConfig = serde_json::from_str(r#"{"features":{}}"#).expect("empty features");
     assert!(enabled.features.copilot_fab_enabled());
-    let disabled: MeiConfig = serde_json::from_str(r#"{"features":{"copilotFab":false}}"#)
-        .expect("copilotFab false");
+    let disabled: MeiConfig =
+        serde_json::from_str(r#"{"features":{"copilotFab":false}}"#).expect("copilotFab false");
     assert!(!disabled.features.copilot_fab_enabled());
     assert_eq!(disabled.features.copilot_fab, Some(false));
 }

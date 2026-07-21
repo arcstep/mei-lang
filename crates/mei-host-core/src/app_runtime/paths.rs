@@ -44,9 +44,11 @@ pub fn instance_eval_cache_dir(workspace: &Path, app_id: &str, instance_id: &str
     instance_var_dir(workspace, app_id, instance_id).join("eval-cache")
 }
 
-/// `{instance_root}/var/client-bootstrap/`
+/// Compatibility alias for the redb bootstrap container parent.
+///
+/// Bootstrap values no longer use a dedicated JSON directory.
 pub fn instance_bootstrap_dir(workspace: &Path, app_id: &str, instance_id: &str) -> PathBuf {
-    instance_var_dir(workspace, app_id, instance_id).join("client-bootstrap")
+    instance_eval_cache_dir(workspace, app_id, instance_id)
 }
 
 /// `{instance_root}/var/mrg/memory/`
@@ -115,7 +117,7 @@ mod tests {
         );
         assert_eq!(
             instance_bootstrap_dir(&ws, "mini-data", "inst-a"),
-            root.join("var/client-bootstrap")
+            root.join("var/eval-cache")
         );
         assert_eq!(
             instance_var_dir(&ws, "mini-data", "inst-a"),

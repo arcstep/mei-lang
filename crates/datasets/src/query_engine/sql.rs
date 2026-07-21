@@ -111,10 +111,7 @@ pub fn build_where_clause(
                 .map(quote_string)
                 .collect();
             if !values.is_empty() {
-                parts.push(format!(
-                    "CAST({col} AS VARCHAR) IN ({})",
-                    values.join(", ")
-                ));
+                parts.push(format!("CAST({col} AS VARCHAR) IN ({})", values.join(", ")));
             }
         } else if let Some(rest) = expected.strip_prefix("not:in:") {
             let values: Vec<String> = rest

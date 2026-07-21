@@ -15,7 +15,7 @@ usage() {
 Usage: collect-desktop-sidecars.sh [--debug|--release] [--out DIR] [--skip-build] [--skip-assets]
 
 Copies:
-  mei-host-shell, mei-app-runtime, mei-plug-ds, mei-snapshot, mei-compiler
+  mei-host-shell, mei-app-runtime, mei-snapshot, mei-compiler
   martin (Rust sidecar: source build when MEI_MARTIN_FROM_SOURCE=1, else fetch cache)
   app/assets/ (via npm run assets:build unless --skip-assets)
 into OUT (default: mei-lang/desktop/sidecars/).
@@ -56,7 +56,7 @@ esac
 
 # Same target hygiene as mei-lang/scripts/build/build.sh (sweep stale → budget → optional clean).
 export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-host-shell,mei-app-runtime,mei-plug-ds,mei-snapshot,mei-compiler}"
+export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-host-shell,mei-app-runtime,mei-snapshot,mei-compiler}"
 # shellcheck source=cargo-target-gc.sh
 source "${SCRIPT_DIR}/../ops/cargo-target-gc.sh"
 if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
@@ -66,7 +66,7 @@ fi
 
 sidecar_bins_fresh() {
   local name src
-  for name in mei-host-shell mei-app-runtime mei-plug-ds mei-snapshot mei-compiler; do
+  for name in mei-host-shell mei-app-runtime mei-snapshot mei-compiler; do
     src="${BIN_DIR}/${name}${EXT}"
     if [[ ! -f "${src}" ]]; then
       return 1
@@ -87,10 +87,10 @@ if [[ "${SKIP_BUILD}" != "1" ]]; then
   else
     echo "==> building Viewer sidecars (profile=${PROFILE})"
     CARGO_ARGS=(build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
-      -p mei-host-shell -p mei-app-runtime -p mei-plug-ds -p mei-snapshot -p mei-compiler)
+      -p mei-host-shell -p mei-app-runtime -p mei-snapshot -p mei-compiler)
     if [[ "${PROFILE}" == "release" ]]; then
       CARGO_ARGS=(build --release --manifest-path "${MEI_LANG_ROOT}/Cargo.toml"
-        -p mei-host-shell -p mei-app-runtime -p mei-plug-ds -p mei-snapshot -p mei-compiler)
+        -p mei-host-shell -p mei-app-runtime -p mei-snapshot -p mei-compiler)
     fi
     CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
   fi
@@ -136,7 +136,7 @@ copy_bin() {
 echo "==> collecting into ${OUT_DIR}"
 copy_bin mei-host-shell
 copy_bin mei-app-runtime
-copy_bin mei-plug-ds
+# copy_bin mei-plug-ds  # retired standalone bin
 copy_bin mei-snapshot
 copy_bin mei-compiler
 
@@ -219,7 +219,7 @@ doc = {
     "format": "mei-desktop-sidecars",
     "formatVersion": 1,
     "profile": os.environ["PROFILE"],
-    "bins": ["mei-host-shell", "mei-app-runtime", "mei-plug-ds", "mei-snapshot", "mei-compiler", "martin"],
+    "bins": ["mei-host-shell", "mei-app-runtime", "mei-snapshot", "mei-compiler", "martin"],
     "files": files,
 }
 (root / "MANIFEST.json").write_text(json.dumps(doc, indent=2) + "\n")

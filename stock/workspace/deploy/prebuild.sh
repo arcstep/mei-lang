@@ -81,7 +81,7 @@ for app_id in "${APP_IDS[@]}"; do
   fi
 
   echo "==> warmup app=${app_id} policy=${APP_POLICY}"
-  run_mei_plug_ds "${WORKSPACE_ROOT}" \
+  run_mei_app_runtime "${WORKSPACE_ROOT}" \
     warmup --workspace "${WORKSPACE_ROOT}" --app "${app_id}" \
     --policy "${APP_POLICY}" --tier all "${DEPLOY_CLI_ARGS[@]}"
 

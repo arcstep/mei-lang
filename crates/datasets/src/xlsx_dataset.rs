@@ -9,7 +9,7 @@ use mei_lang_kernel::{
 use super::dataset_rows_cache::{
     dataset_rows_scope_cache_key, paginate_rows_eager_materialize, store_materialized_dataset_rows,
 };
-use super::duckdb_engine::{query_parquet_page, resolve_parquet_file_for_source, DuckdbPageQuery};
+use super::query_engine::{query_parquet_page, resolve_parquet_file_for_source, ParquetPageQuery};
 use super::file_cache::ExternalFileCacheSettings;
 use super::table_handle::{load_table_handle, materialize_rows_from_handle};
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
@@ -27,22 +27,18 @@ pub(crate) fn query_xlsx_rows(
     let sheet = meta.sheet.as_deref();
     let header_row = meta.header_row.unwrap_or(1).max(1) as usize;
 
-    // Prefer DuckDB over parquet snapshot (no whole-table JSON materialization).
+    // Prefer DataFusion SQL over whole-table JSON (no whole-table JSON materialization).
     if let Some(parquet) =
         resolve_parquet_file_for_source(app_root, source.path.as_str(), sheet, header_row)
     {
-        let physical = resolve_data_snapshot_import_entry(
-            app_root,
-            source.path.as_str(),
-            sheet,
-            header_row,
-        )
-        .map(|e| e.columns)
-        .filter(|c| !c.is_empty());
+        let physical =
+            resolve_data_snapshot_import_entry(app_root, source.path.as_str(), sheet, header_row)
+                .map(|e| e.columns)
+                .filter(|c| !c.is_empty());
         let started = Instant::now();
         let page = query_parquet_page(
             app_root,
-            DuckdbPageQuery {
+            ParquetPageQuery {
                 parquet_path: parquet.as_path(),
                 schema,
                 physical_columns: physical.as_deref(),
@@ -59,17 +55,14 @@ pub(crate) fn query_xlsx_rows(
             rows: page.rows,
             lazy: true,
             perf: BTreeMap::from([
-                ("duckdb_query_ms".to_string(), page.duckdb_query_ms),
+                ("query_engine_ms".to_string(), page.query_engine_ms),
                 (
                     "rows_materialized".to_string(),
                     page.rows_materialized as u64,
                 ),
                 ("dataset_import_artifact_hit".to_string(), 1),
                 ("table_handle_hit".to_string(), 0),
-                (
-                    "file_cache_load_ms".to_string(),
-                    elapsed_ms(started),
-                ),
+                ("file_cache_load_ms".to_string(), elapsed_ms(started)),
             ]),
             column_meta: Vec::new(),
             summary: None,

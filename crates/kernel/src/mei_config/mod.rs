@@ -42,12 +42,6 @@ pub use admin_discover::{
     ADMIN_MODULE_ID_DUPLICATE, ADMIN_SCENE_ROOT_DUPLICATE, ADMIN_SCENE_ROOT_UNKNOWN,
     ADMIN_SOURCE_PATH_INVALID,
 };
-pub use admin_registry_artifact::{
-    admin_registry_artifact_path, admin_registry_artifact_path_for_app,
-    load_admin_registry_artifact, load_admin_registry_artifact_for_app,
-    write_admin_registry_artifact, write_admin_registry_artifact_for_app, AdminRegistryArtifact,
-    ADMIN_REGISTRY_ARTIFACT_FILENAME, ADMIN_REGISTRY_SCHEMA_VERSION,
-};
 pub use admin_record::{
     append_admin_audit, get_config_record, put_config_record, AdminAuditEntry, AdminRecordError,
     ConfigRecordFile, ADMIN_AUDIT_REL_PATH,
@@ -56,6 +50,12 @@ pub use admin_registry::{
     AdminApplyPolicy, AdminArtifactRef, AdminArtifactRefs, AdminDangerLevel, AdminNavigation,
     AdminRegistryEntry, ProviderBinding, ProviderPayloadType, ProviderValidator,
     ADMIN_RESOURCE_API_VERSION,
+};
+pub use admin_registry_artifact::{
+    admin_registry_artifact_path, admin_registry_artifact_path_for_app,
+    load_admin_registry_artifact, load_admin_registry_artifact_for_app,
+    write_admin_registry_artifact, write_admin_registry_artifact_for_app, AdminRegistryArtifact,
+    ADMIN_REGISTRY_ARTIFACT_FILENAME, ADMIN_REGISTRY_SCHEMA_VERSION,
 };
 pub use app_manifest::{
     load_app_manifest, load_app_manifest_from_json_pair, load_app_manifest_from_toml,
@@ -152,12 +152,11 @@ pub use workspace_paths::{
     app_mei_config_path, app_source_rel_path_lookup_keys, app_toml_path,
     canonical_app_source_rel_path, default_scene_assembly_key, is_app_mei_source_rel,
     is_plane_structure_mei_path, is_region_structure_mei_path, is_section_structure_mei_path,
-    is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
-    resolve_app_build_eval_cache_root, resolve_app_data_snapshot_root,
-    resolve_app_eval_cache_root, resolve_app_id,
-    resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_registry_root,
-    resolve_app_root, resolve_app_src_root, resolve_app_var_root, resolve_apps_root,
-    resolve_authoring_root, resolve_components_root, resolve_deploy_root,
+    is_v2_app_root, resolve_app_build_eval_cache_root, resolve_app_build_root,
+    resolve_app_build_store_root, resolve_app_data_snapshot_root, resolve_app_eval_cache_root,
+    resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root,
+    resolve_app_registry_root, resolve_app_root, resolve_app_src_root, resolve_app_var_root,
+    resolve_apps_root, resolve_authoring_root, resolve_components_root, resolve_deploy_root,
     resolve_scene_assembly_rel, resolve_stock_root, resolve_templates_root, resolve_toolchain_root,
     resolve_workspace_cache_root, resolve_workspace_graph_root, resolve_workspace_logs_root,
     resolve_workspace_path, resolve_workspace_platform_root, resolve_workspace_runtime_root,

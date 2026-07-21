@@ -76,7 +76,10 @@ fn discover_xlsx_sources(app_root: &Path) -> Vec<String> {
         let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
             continue;
         };
-        if !ext.eq_ignore_ascii_case("xlsx") && !ext.eq_ignore_ascii_case("xls") {
+        if !ext.eq_ignore_ascii_case("xlsx")
+            && !ext.eq_ignore_ascii_case("xls")
+            && !ext.eq_ignore_ascii_case("csv")
+        {
             continue;
         }
         let Ok(rel) = path.strip_prefix(app_root) else {

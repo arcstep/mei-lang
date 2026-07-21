@@ -29,11 +29,14 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 
 /// Block on a DataFusion async future.
 ///
-/// When already inside a Tokio runtime (host/app warmup paths), use
-/// `block_in_place` + the current handle — never nest `Runtime::block_on`.
+/// Must not nest `Runtime::block_on` / `Handle::block_on` on a thread that is
+/// already driving a Tokio runtime (plug-ds / host `#[tokio::main]`). Those
+/// paths call `enter_runtime` and panic with "Cannot start a runtime from
+/// within a runtime". Drive the future with `futures::executor` inside
+/// `block_in_place` so the current runtime exits its enter flag first.
 pub fn block_on<F: std::future::Future>(fut: F) -> F::Output {
     match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(fut)),
+        Ok(_handle) => tokio::task::block_in_place(|| futures_executor::block_on(fut)),
         Err(_) => runtime().block_on(fut),
     }
 }
@@ -70,7 +73,7 @@ pub fn with_app_session<T>(
     f(&entry.ctx)
 }
 
-pub fn clear_duckdb_connections() -> usize {
+pub fn clear_query_engine_sessions() -> usize {
     let Ok(mut guard) = pool().lock() else {
         return 0;
     };
@@ -79,7 +82,14 @@ pub fn clear_duckdb_connections() -> usize {
     n
 }
 
+pub fn clear_query_engine_session_for_app(app_root: &Path) -> usize {
+    let Ok(mut guard) = pool().lock() else {
+        return 0;
+    };
+    usize::from(guard.remove(&app_key(app_root)).is_some())
+}
+
 /// Ensure an in-memory DataFusion session exists for `app_root` (warm / probe).
-pub fn ensure_duckdb_connection(app_root: &Path) -> Result<()> {
+pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
     with_app_session(app_root, |_| Ok(())).context("ensure query engine session")
 }

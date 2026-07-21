@@ -1,19 +1,16 @@
-fn metric_dataframe_result_cache() -> &'static Mutex<MetricDataframeCacheState> {
-    static CACHE: OnceLock<Mutex<MetricDataframeCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(MetricDataframeCacheState::default()))
-}
-
-fn metric_dataframe_materialized_cache() -> &'static Mutex<MetricDataframeMaterializedCacheState> {
-    static CACHE: OnceLock<Mutex<MetricDataframeMaterializedCacheState>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(MetricDataframeMaterializedCacheState::default()))
-}
-
-fn metric_dataframe_cache_ttl() -> Duration {
-    Duration::from_millis(METRIC_DATAFRAME_CACHE_TTL_MS)
-}
-
-fn metric_dataframe_materialized_cache_ttl() -> Duration {
-    Duration::from_millis(METRIC_DATAFRAME_MATERIALIZED_CACHE_TTL_MS)
+fn metric_dataframe_result_cache() -> &'static Cache<String, Arc<DatasetQueryResult>> {
+    static CACHE: OnceLock<Cache<String, Arc<DatasetQueryResult>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(METRIC_DATAFRAME_CACHE_MAX_BYTES)
+            .weigher(|_key: &String, result: &Arc<DatasetQueryResult>| {
+                serde_json::to_vec(result.as_ref())
+                    .map(|bytes| bytes.len().clamp(1, u32::MAX as usize) as u32)
+                    .unwrap_or(128)
+            })
+            .time_to_live(Duration::from_millis(METRIC_DATAFRAME_CACHE_TTL_MS))
+            .build()
+    })
 }
 
 /// 作用域过滤已在 base rowset 物化阶段应用；metric 输出列（如 pivot 的 month/2024/2025）
@@ -104,85 +101,30 @@ pub fn metric_dataframe_result_cache_key(
     )
 }
 
-impl MetricDataframeMaterializedCacheState {
-    fn prune_if_due(&mut self, now: Instant) {
-        if self.next_prune_at.is_some_and(|next| now < next) {
-            return;
-        }
-        self.entries.retain(|_, entry| entry.expires_at > now);
-        self.next_prune_at =
-            Some(now + Duration::from_millis(METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS));
-    }
-}
-
-fn take_cached_metric_dataframe_materialized(key: &str) -> Option<MaterializedMetricDataframe> {
-    let Ok(mut cache) = metric_dataframe_materialized_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
-    cache.entries.get(key).cloned()
-}
-
-fn store_cached_metric_dataframe_materialized(
-    key: String,
-    materialized: MaterializedMetricDataframe,
-) {
-    if materialized.rows.len() < MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
-        return;
-    }
-    let Ok(mut cache) = metric_dataframe_materialized_cache().lock() else {
-        return;
-    };
-    cache.prune_if_due(Instant::now());
-    if cache.entries.len() >= MAX_METRIC_DATAFRAME_MATERIALIZED_ENTRIES {
-        cache.entries.clear();
-    }
-    cache.entries.insert(key, materialized);
-}
-
 fn take_cached_metric_dataframe_result(key: &str) -> Option<DatasetQueryResult> {
-    let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.prune_if_due(now);
-    cache.entries.get(key).map(|entry| entry.result.clone())
+    metric_dataframe_result_cache()
+        .get(key)
+        .map(|result| result.as_ref().clone())
 }
 
 fn store_cached_metric_dataframe_result(key: String, result: &DatasetQueryResult) {
-    if result.rows.is_empty() && result.total == 0 {
+    if (result.rows.is_empty() && result.total == 0) || key.contains("|full=true|") {
         return;
     }
-    let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
+    let bytes = serde_json::to_vec(result)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if bytes > METRIC_DATAFRAME_MAX_VALUE_BYTES {
         return;
     };
-    cache.prune_if_due(Instant::now());
-    cache.entries.insert(
-        key,
-        CachedMetricDataframeResult {
-            expires_at: Instant::now() + metric_dataframe_cache_ttl(),
-            result: result.clone(),
-        },
-    );
+    metric_dataframe_result_cache().insert(key, Arc::new(result.clone()));
 }
 
 pub(crate) fn clear_metric_dataframe_result_cache() -> usize {
-    let mut removed = metric_dataframe_result_cache()
-        .lock()
-        .ok()
-        .map(|mut cache| {
-            let count = cache.entries.len();
-            cache.entries.clear();
-            cache.next_prune_at = None;
-            count
-        })
-        .unwrap_or(0);
-    if let Ok(mut materialized) = metric_dataframe_materialized_cache().lock() {
-        removed = removed.saturating_add(materialized.entries.len());
-        materialized.entries.clear();
-        materialized.next_prune_at = None;
-    }
+    let cache = metric_dataframe_result_cache();
+    let removed = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     removed
 }
 

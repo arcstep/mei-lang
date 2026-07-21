@@ -207,9 +207,10 @@ fn finalize_access_html(
         app_id,
         scene_id,
     );
-    let copilot_fab = mei_lang_kernel::load_mei_config_for_app(state.host.app_root().as_path(), None)
-        .features
-        .copilot_fab_enabled();
+    let copilot_fab =
+        mei_lang_kernel::load_mei_config_for_app(state.host.app_root().as_path(), None)
+            .features
+            .copilot_fab_enabled();
     let html = thin_access_shell_document(app_id, scene_id, document_title.as_str(), copilot_fab);
     let html = fill_runtime_page_theme(html, workspace_root);
     let dev_eval = mei_lang_kernel::RuntimeDevEvalGate::from_runtime_plan(

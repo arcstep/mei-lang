@@ -1,34 +1,35 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
+use moka::sync::Cache;
 use serde_json::Value;
 
 use super::scope::{RequestDag, RuntimeMetricEvalScope};
 
 #[derive(Debug, Clone)]
 pub(super) enum CachedEvalValue {
-    Rowset(Vec<Value>),
     Scalar(Value),
 }
 
-#[derive(Debug, Clone)]
-struct CachedEvalNode {
-    expires_at: Instant,
-    value: CachedEvalValue,
-}
-
 const EVAL_NODE_CACHE_TTL_MS: u64 = 15_000;
-const MAX_EVAL_NODE_CACHE_ENTRIES: usize = 1024;
+const EVAL_NODE_CACHE_MAX_BYTES: u64 = 8 * 1024 * 1024;
+const EVAL_NODE_MAX_VALUE_BYTES: usize = 256 * 1024;
 
-fn eval_node_cache() -> &'static Mutex<BTreeMap<String, CachedEvalNode>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedEvalNode>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
-fn eval_node_cache_ttl() -> Duration {
-    Duration::from_millis(EVAL_NODE_CACHE_TTL_MS)
+fn eval_node_cache() -> &'static Cache<String, Value> {
+    static CACHE: OnceLock<Cache<String, Value>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(EVAL_NODE_CACHE_MAX_BYTES)
+            .weigher(|_key: &String, value: &Value| {
+                serde_json::to_vec(value)
+                    .map(|bytes| bytes.len().clamp(1, u32::MAX as usize) as u32)
+                    .unwrap_or(128)
+            })
+            .time_to_live(Duration::from_millis(EVAL_NODE_CACHE_TTL_MS))
+            .build()
+    })
 }
 
 pub(crate) fn eval_node_cache_enabled() -> bool {
@@ -50,37 +51,25 @@ pub fn runtime_eval_node_cache_enabled() -> bool {
 }
 
 pub(crate) fn take_cached_eval_node(key: &str) -> Option<CachedEvalValue> {
-    let Ok(mut cache) = eval_node_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).map(|entry| entry.value.clone())
+    eval_node_cache().get(key).map(CachedEvalValue::Scalar)
 }
 
 pub(crate) fn store_cached_eval_node(key: &str, value: CachedEvalValue) {
-    let Ok(mut cache) = eval_node_cache().lock() else {
+    let CachedEvalValue::Scalar(value) = value;
+    let bytes = serde_json::to_vec(&value)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if bytes > EVAL_NODE_MAX_VALUE_BYTES {
         return;
-    };
-    cache.retain(|_, entry| entry.expires_at > Instant::now());
-    if cache.len() >= MAX_EVAL_NODE_CACHE_ENTRIES {
-        cache.clear();
     }
-    cache.insert(
-        key.to_string(),
-        CachedEvalNode {
-            expires_at: Instant::now() + eval_node_cache_ttl(),
-            value,
-        },
-    );
+    eval_node_cache().insert(key.to_string(), value);
 }
 
 pub(crate) fn clear_eval_node_cache() -> usize {
-    let Ok(mut cache) = eval_node_cache().lock() else {
-        return 0;
-    };
-    let removed = cache.len();
-    cache.clear();
+    let cache = eval_node_cache();
+    let removed = cache.entry_count() as usize;
+    cache.invalidate_all();
+    cache.run_pending_tasks();
     removed
 }
 
@@ -90,8 +79,8 @@ pub(crate) struct EvalContext {
     /// Runtime metric defs available for `{"__ref":"metric"}` rowset resolution.
     pub(crate) metric_defs: BTreeMap<String, Value>,
     /// Rowsets materialized by metric id during this request pass.
-    pub(crate) resolved_metric_rowsets: BTreeMap<String, Vec<Value>>,
-    pub(crate) rowset_cache: BTreeMap<String, Vec<Value>>,
+    pub(crate) resolved_metric_rowsets: BTreeMap<String, Arc<Vec<Value>>>,
+    pub(crate) rowset_cache: BTreeMap<String, Arc<Vec<Value>>>,
     pub(crate) scalar_cache: BTreeMap<String, Value>,
     // This records the request-scoped execution DAG. It must not be confused
     // with `AnalysisGraph`, which is semantic and compile-derived.

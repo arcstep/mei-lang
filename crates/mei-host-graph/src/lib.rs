@@ -100,12 +100,13 @@ pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
     clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
-    client_bootstrap_eval_seed_json, client_bootstrap_pack_candidate_scopes, client_bootstrap_path,
+    client_bootstrap_eval_seed_json, client_bootstrap_pack_candidate_scopes,
     client_bootstrap_scope_allowed, delivery_class_counts_for_scope,
     empty_client_bootstrap_payload, read_client_bootstrap, read_scene_bootstrap_artifact,
-    scene_bootstrap_artifact_public_url, scene_requires_client_bootstrap, write_client_bootstrap,
-    write_scene_bootstrap_artifact, BootstrapEmbedStatus, ClientBootstrapManifest,
-    ClientBootstrapPayload, ClientBootstrapScopePayload, NO_CLIENT_BOOTSTRAP_REVISION,
+    scene_bootstrap_artifact_public_url, scene_requires_client_bootstrap,
+    store_client_bootstrap_manifest, write_client_bootstrap, write_scene_bootstrap_artifact,
+    BootstrapEmbedStatus, ClientBootstrapManifest, ClientBootstrapPayload,
+    ClientBootstrapScopePayload, NO_CLIENT_BOOTSTRAP_REVISION,
 };
 pub use mrg::eval_cache_plan::{
     build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,

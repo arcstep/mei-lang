@@ -5,14 +5,13 @@ use mei_host_core::{CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{default_metric_response_descriptor, record_slot_failed};
 use mei_lang_datasets::{
     collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics,
-    load_metric_response_lite_artifact, load_metric_response_result_artifact,
     metric_id_is_scalar_rowset, metric_request_revision_fingerprint_for_compiled,
     metric_response_cache_scope_key, populate_l1_from_loaded_metric_artifact,
     project_metrics_map_for_l1, project_requested_metrics, request_needs_bulk_l1_metrics,
     store_cached_metric_response, store_cached_metric_response_aliases,
     store_demand_metric_response, store_metric_response_lite_only,
     store_metric_response_result_artifact, take_cached_metric_response,
-    take_demand_metric_response, L1PinPolicy,
+    take_demand_metric_response, try_load_disk_metric_response, L1PinPolicy,
     LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
@@ -157,139 +156,68 @@ pub fn eval_metrics_with_slots(
     }
 
     if result_artifact_candidate {
-        // Non-bulk: prefer lite sibling (avoids deserializing multi-MB full packs into RSS).
-        if !needs_bulk {
-            for lookup_cache_key in &lookup_cache_keys {
-                let Some((artifact, artifact_load_ms, _stats)) =
-                    load_metric_response_lite_artifact(
-                        app_root.as_path(),
-                        lookup_cache_key.as_str(),
-                    )?
-                else {
-                    continue;
-                };
-                let artifact_covers_request = if request_all_metrics {
-                    artifact.complete
-                        && requested.iter().all(|metric_id| {
-                            artifact.covered_metric_ids.contains(metric_id)
-                                || artifact.metrics_map.contains_key(metric_id)
-                        })
-                } else {
-                    requested.iter().all(|metric_id| {
-                        artifact.covered_metric_ids.contains(metric_id)
-                            || artifact.metrics_map.contains_key(metric_id)
-                    })
-                };
-                if artifact_covers_request {
-                    let _ = populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
-                    let query_perf = BTreeMap::from([(
-                        "result_artifact_lite_load_ms".to_string(),
-                        artifact_load_ms,
-                    )]);
-                    let metrics = project_requested_metrics(
-                        request.owner_resource_id.as_str(),
-                        &request.metric_ids,
-                        &BTreeMap::new(),
-                        &artifact.metrics_map,
-                    );
-                    let descriptors = build_descriptors_for_metrics(
-                        request,
-                        dependency_revision_key.as_str(),
-                        lookup_cache_key.as_str(),
-                        artifact_load_ms,
-                        true,
-                        "disk",
-                        CacheLayersReady {
-                            disk: true,
-                            memory: true,
-                            client: false,
-                        },
-                    );
-                    return Ok(EvalPipelineOutcome {
-                        descriptors,
-                        cache_key: lookup_cache_key.clone(),
-                        artifact_hit: true,
-                        cache_layer: "disk".to_string(),
-                        result_artifact_hit: true,
-                        wall_ms: started.elapsed().as_millis() as u64,
-                        metrics,
-                        total_rows: artifact.total_rows,
-                        query_perf,
-                    });
-                }
-            }
-        }
-
-        // Bulk (or lite miss): full pack load; pin only via projection / demand TTL.
-        for lookup_cache_key in &lookup_cache_keys {
-            let Some((artifact, artifact_load_ms)) = load_metric_response_result_artifact(
-                app_root.as_path(),
-                lookup_cache_key.as_str(),
-            )?
-            else {
-                continue;
-            };
-            let artifact_covers_request = if request_all_metrics {
-                artifact.complete
-            } else {
-                requested
+        // Shared Pack-First resolver: lite (non-bulk) then full — never hydrate on hit.
+        if let Some(hit) = try_load_disk_metric_response(
+            app_root.as_path(),
+            &lookup_cache_keys,
+            &requested,
+            request_all_metrics,
+            !needs_bulk,
+        )? {
+            let _ = populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &hit.artifact);
+            if needs_bulk {
+                let demand_map: BTreeMap<String, MetricContract> = hit
+                    .artifact
+                    .metrics_map
                     .iter()
-                    .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
-            };
-            if artifact_covers_request {
-                // Never pin full bulk into L1; projection path drops rowsets.
-                let _ = populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
-                if needs_bulk {
-                    let demand_map: BTreeMap<String, MetricContract> = artifact
-                        .metrics_map
-                        .iter()
-                        .filter(|(metric_id, _)| {
-                            request_all_metrics || requested.contains(*metric_id)
-                        })
-                        .map(|(metric_id, contract)| (metric_id.clone(), contract.clone()))
-                        .collect();
-                    store_demand_metric_response(
-                        &lookup_cache_keys,
-                        artifact.total_rows,
-                        &demand_map,
-                        &requested,
-                        artifact.complete,
-                    );
-                }
-                let query_perf =
-                    BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
-                let metrics = project_requested_metrics(
-                    request.owner_resource_id.as_str(),
-                    &request.metric_ids,
-                    &BTreeMap::new(),
-                    &artifact.metrics_map,
+                    .filter(|(metric_id, _)| request_all_metrics || requested.contains(*metric_id))
+                    .map(|(metric_id, contract)| (metric_id.clone(), contract.clone()))
+                    .collect();
+                store_demand_metric_response(
+                    &lookup_cache_keys,
+                    hit.artifact.total_rows,
+                    &demand_map,
+                    &requested,
+                    hit.artifact.complete,
                 );
-                let memory_ready = !needs_bulk;
-                let descriptors = build_descriptors_for_metrics(
-                    request,
-                    dependency_revision_key.as_str(),
-                    lookup_cache_key.as_str(),
-                    artifact_load_ms,
-                    true,
-                    "disk",
-                    CacheLayersReady {
-                        disk: true,
-                        memory: memory_ready,
-                        client: false,
-                    },
-                );
-                return Ok(EvalPipelineOutcome {
-                    descriptors,
-                    cache_key: lookup_cache_key.clone(),
-                    artifact_hit: true,
-                    cache_layer: "disk".to_string(),
-                    result_artifact_hit: true,
-                    wall_ms: started.elapsed().as_millis() as u64,
-                    metrics,
-                    total_rows: artifact.total_rows,
-                    query_perf,
-                });
             }
+            let perf_key = if hit.source == "lite" {
+                "result_artifact_lite_load_ms"
+            } else {
+                "result_artifact_load_ms"
+            };
+            let query_perf = BTreeMap::from([(perf_key.to_string(), hit.load_ms)]);
+            let metrics = project_requested_metrics(
+                request.owner_resource_id.as_str(),
+                &request.metric_ids,
+                &BTreeMap::new(),
+                &hit.artifact.metrics_map,
+            );
+            let memory_ready = !needs_bulk;
+            let descriptors = build_descriptors_for_metrics(
+                request,
+                dependency_revision_key.as_str(),
+                hit.cache_key.as_str(),
+                hit.load_ms,
+                true,
+                "disk",
+                CacheLayersReady {
+                    disk: true,
+                    memory: memory_ready,
+                    client: false,
+                },
+            );
+            return Ok(EvalPipelineOutcome {
+                descriptors,
+                cache_key: hit.cache_key,
+                artifact_hit: true,
+                cache_layer: "disk".to_string(),
+                result_artifact_hit: true,
+                wall_ms: started.elapsed().as_millis() as u64,
+                metrics,
+                total_rows: hit.artifact.total_rows,
+                query_perf,
+            });
         }
     }
 
@@ -373,9 +301,11 @@ pub fn eval_metrics_with_slots(
         requested.len() == request.metric_ids.len(),
     );
     let wall_ms = started.elapsed().as_millis() as u64;
-    let memory_ready = request.metric_ids.iter().all(|metric_id| {
-        !metric_id_is_scalar_rowset(metric_id)
-    }) && !request_all_metrics;
+    let memory_ready = request
+        .metric_ids
+        .iter()
+        .all(|metric_id| !metric_id_is_scalar_rowset(metric_id))
+        && !request_all_metrics;
     let descriptors = build_descriptors_for_metrics(
         request,
         dependency_revision_key.as_str(),
