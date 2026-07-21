@@ -34,7 +34,7 @@ pub struct RuntimeRouteEntry {
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeRouteTable {
     /// app_id → entry
-    entries: BTreeMap<String, RuntimeRouteEntry>,
+    pub entries: BTreeMap<String, RuntimeRouteEntry>,
     pub version: u64,
 }
 

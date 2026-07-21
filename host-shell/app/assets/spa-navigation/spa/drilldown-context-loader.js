@@ -188,6 +188,19 @@
   }
 
   async function ensureSceneDrilldownContext(ctx) {
+    const path = String((global.location && global.location.pathname) || "");
+    if (
+      path === "/home" ||
+      path.startsWith("/home/") ||
+      path === "/share" ||
+      path.startsWith("/share/") ||
+      path === "/runtime" ||
+      path.startsWith("/runtime/") ||
+      path === "/host/starting" ||
+      path.startsWith("/host/starting/")
+    ) {
+      return null;
+    }
     const inline = document.getElementById("mei-scene-drilldown-context");
     if (inline && inline.textContent && !isDrilldownRevisionOnly()) {
       return JSON.parse(inline.textContent || "{}");

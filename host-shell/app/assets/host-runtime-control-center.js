@@ -390,12 +390,59 @@
       <select class="mei-runtime-control__sort" data-runtime-sort aria-label="应用排序">${options}</select>`;
   }
 
-  function navCardHtml(app, runningByApp) {
-    const appId = app.appId || "—";
+  function loadStateLabel(app, runningByApp) {
+    const appId = app.appId || "";
     const run = runningByApp[appId];
     const phaseFromApi = run?.phase || null;
-    const isReady = phaseFromApi === "ready";
-    const isStarting = phaseFromApi === "starting";
+    const enabled = app.enabled === true;
+    const loaded = app.loaded === true || phaseFromApi === "ready";
+    const loading =
+      app.loadState === "loading" ||
+      phaseFromApi === "starting" ||
+      Boolean(state.pendingByApp[appId]);
+    const failed = app.loadState === "load_failed";
+    if (!enabled) {
+      return {
+        label: "未启用",
+        shortLabel: "未启用",
+        tone: "is-disabled",
+        detail: "不可访问 · 需先启用",
+      };
+    }
+    if (failed) {
+      return {
+        label: "载入失败",
+        shortLabel: "失败",
+        tone: "is-failed",
+        detail: "可重试启用或立即载入",
+      };
+    }
+    if (loading) {
+      return {
+        label: "载入中",
+        shortLabel: "载入中",
+        tone: "is-pending",
+        detail: `模式 ${String(app.effectiveDefaultMode || "lazy")}`,
+      };
+    }
+    if (loaded) {
+      return {
+        label: "已载入",
+        shortLabel: "已载入",
+        tone: "is-running",
+        detail: `模式 ${String(app.effectiveDefaultMode || "lazy")}`,
+      };
+    }
+    return {
+      label: "已启用 · 未载入",
+      shortLabel: "待载入",
+      tone: "is-enabled",
+      detail: `已准入 · 首访或点「立即载入」`,
+    };
+  }
+
+  function navCardHtml(app, runningByApp) {
+    const appId = app.appId || "—";
     const pending = state.pendingByApp[appId] || null;
     const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
     const effectiveMode = String(
@@ -406,38 +453,39 @@
     const generations = Array.isArray(app.generations) ? app.generations : [];
     const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
     const selected = state.selectedAppId === appId;
-    let phaseLabel = "已停止";
-    let tone = "";
+    const loadUi = loadStateLabel(app, runningByApp);
+    let phaseLabel = loadUi.shortLabel || loadUi.label;
+    let tone = loadUi.tone;
     if (pending) {
-      phaseLabel = pending.label || "处理中…";
-      tone = "is-pending";
-    } else if (isReady) {
-      phaseLabel = "ready";
-      tone = "is-running";
-    } else if (isStarting) {
-      phaseLabel = "启动中";
+      phaseLabel = "处理中";
       tone = "is-pending";
     }
     const stoppedDetail = !app.hasLaunch
       ? "无 app.toml"
       : !hasCurrentBundle
         ? "无编译产物"
-        : "未运行";
+        : loadUi.detail;
     const meta = pending
       ? pending.label || "处理中…"
-      : isReady || isStarting
-        ? `模式 ${effectiveMode}`
+      : app.enabled
+        ? stoppedDetail
         : stoppedDetail;
     const view = state.viewMode === "list" ? "list" : "card";
-    return `<article class="mei-runtime-control__nav-card${selected ? " is-selected" : ""}${tone ? ` ${tone}` : ""}" data-runtime-select-app="${escapeHtml(appId)}" data-view="${view}" role="option" aria-selected="${selected ? "true" : "false"}" tabindex="0">
+    return `<article class="mei-runtime-control__nav-card${selected ? " is-selected" : ""}${tone ? ` ${tone}` : ""}" data-runtime-select-app="${escapeHtml(appId)}" data-view="${view}" data-load-tone="${escapeHtml(tone || "is-disabled")}" role="option" aria-selected="${selected ? "true" : "false"}" tabindex="0">
       <div class="mei-runtime-control__nav-card-head">
-        <div>
+        <div class="mei-runtime-control__nav-card-identity">
           <h3>${escapeHtml(app.displayName || appId)}</h3>
           <p><code>${escapeHtml(appId)}</code></p>
         </div>
-        <span class="mei-runtime-control__status-chip${tone ? ` ${tone}` : ""}" data-runtime-nav-chip><strong>${escapeHtml(phaseLabel)}</strong></span>
+        <span class="mei-runtime-control__status-chip${tone ? ` ${tone}` : ""}" data-runtime-nav-chip title="${escapeHtml(loadUi.label)}">
+          <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
+          <strong>${escapeHtml(phaseLabel)}</strong>
+        </span>
       </div>
-      <p class="mei-runtime-control__nav-card-meta" data-runtime-nav-meta>${escapeHtml(meta)}</p>
+      <div class="mei-runtime-control__nav-card-foot">
+        <span class="mei-runtime-control__mode-pill" data-mode="${escapeHtml(effectiveMode)}">${escapeHtml(modeLabel(effectiveMode))}</span>
+        <p class="mei-runtime-control__nav-card-meta" data-runtime-nav-meta>${escapeHtml(meta)}</p>
+      </div>
     </article>`;
   }
 
@@ -493,8 +541,10 @@
     const appId = app.appId || "—";
     const run = runningByApp[appId];
     const phaseFromApi = run?.phase || null;
-    const isReady = phaseFromApi === "ready";
-    const isStarting = phaseFromApi === "starting";
+    const isReady = phaseFromApi === "ready" || app.loaded === true;
+    const isStarting = phaseFromApi === "starting" || app.loadState === "loading";
+    const isEnabled = app.enabled === true;
+    const isLoaded = isReady;
     const isRunning = isReady || isStarting;
     const hasLaunch = Boolean(app.hasLaunch);
     const gitMode = String(app.gitDefaultMode || "lazy").trim().toLowerCase();
@@ -506,25 +556,21 @@
     const generations = Array.isArray(app.generations) ? app.generations : [];
     const hasCurrentBundle = generations.some((gen) => gen.isCurrent);
     const hasAnyBundle = generations.length > 0;
-    const canStartExisting = hasLaunch && hasCurrentBundle;
+    const canEnableExisting = hasLaunch && hasCurrentBundle;
     const pending = state.pendingByApp[appId] || null;
     const startedAt = run?.startedAtMs ? Number(run.startedAtMs) : null;
     const duration = isReady && startedAt ? formatDuration(now - startedAt) : null;
-    const phase = pending ? pending.kind : phaseFromApi || "stopped";
-    const phaseLabel =
-      phase === "ready"
-        ? "ready"
-        : phase === "starting"
-          ? "启动中"
-          : phase === "stopped"
-            ? "已停止"
-            : phase;
-    let stoppedDetail = "未运行";
-    if (!hasLaunch) stoppedDetail = "无 app.toml · 启动将自动创建";
+    const loadUi = loadStateLabel(app, runningByApp);
+    const phaseLabel = pending ? pending.label || "处理中…" : loadUi.label;
+    let stoppedDetail = loadUi.detail;
+    if (!hasLaunch) stoppedDetail = "无 app.toml · 启用将自动创建";
     else if (!hasCurrentBundle) stoppedDetail = "无编译产物";
     const overlayHint = overlayMode
       ? `临时 ${modeLabel(overlayMode)}`
       : `默认 ${modeLabel(gitMode)}`;
+    const statusTone = pending
+      ? "is-pending"
+      : loadUi.tone || "";
     const statusBlock = pending
       ? `<div class="mei-runtime-control__status-chip is-pending">
            <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
@@ -532,14 +578,14 @@
            <span>${escapeHtml(pending.label || "处理中…")}</span>
          </div>
          ${pendingProgressHtml(pending)}`
-      : isReady
+      : isLoaded
         ? `<div class="mei-runtime-control__status-chip is-running">
              <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
              <strong>${escapeHtml(phaseLabel)}</strong>
              <span data-runtime-uptime data-started-at="${startedAt || ""}">${escapeHtml(duration ? `已运行 ${duration}` : "—")}</span>
            </div>
            <dl class="mei-runtime-control__status-meta">
-             <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
+             <div><dt>载入</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
              <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
              <div><dt>配置</dt><dd><code>${escapeHtml(app.launchPath || `apps/${appId}/app.toml`)}</code></dd></div>
            </dl>`
@@ -550,15 +596,16 @@
                <span>进程尚未就绪</span>
              </div>
              <dl class="mei-runtime-control__status-meta">
-               <div><dt>启动</dt><dd>${escapeHtml(formatClock(startedAt))}</dd></div>
                <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
              </dl>`
-          : `<div class="mei-runtime-control__status-chip">
+          : `<div class="mei-runtime-control__status-chip${statusTone ? ` ${statusTone}` : " is-disabled"}">
                <span class="mei-runtime-control__status-dot" aria-hidden="true"></span>
-               <strong>已停止</strong>
+               <strong>${escapeHtml(phaseLabel)}</strong>
                <span>${escapeHtml(stoppedDetail)}</span>
              </div>
              <dl class="mei-runtime-control__status-meta">
+               <div><dt>准入</dt><dd>${isEnabled ? "已启用" : "未启用"}</dd></div>
+               <div><dt>模式</dt><dd><code>${escapeHtml(effectiveMode)}</code> · ${escapeHtml(overlayHint)}</dd></div>
                <div><dt>配置</dt><dd><code>${escapeHtml(app.launchPath || `apps/${appId}/app.toml`)}</code></dd></div>
              </dl>`;
     const genRows = generations.length
@@ -576,7 +623,7 @@
               <div class="mei-runtime-control__bundle-meta">
                 <span>${escapeHtml(gen.createdAt || "—")}</span>
                 <span>${formatBytes(gen.bytes)}</span>
-                <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停止应用" : "切换到该 Bundle 并用当前模式启动"}">载入并启动</button>
+                <button class="mei-host-shell__btn mei-host-shell__btn--ghost mei-runtime-control__btn-compact" type="button" data-runtime-load-generation data-app="${escapeHtml(appId)}" data-generation="${escapeHtml(gen.id)}"${lockedAttr(loadLocked)} title="${loadLocked ? "请先停用或卸载应用" : "切换到该 Bundle 并用当前模式载入"}">载入 Bundle</button>
               </div>
             </li>`;
           })
@@ -584,17 +631,21 @@
       : `<li class="mei-runtime-control__bundle-empty">尚无历史 Bundle</li>`;
     const actions = pending
       ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" disabled data-runtime-locked>处理中…</button>`
-      : isRunning
-        ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停止</button>
-           <button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="停止后立刻再启动">重载</button>
-           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后重启">编译并重启</button>`
-        : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canStartExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启动" : "用已有编译产物启动"}">启动</button>
-           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 app.toml 将自动创建），再启动">编译并启动</button>`;
+      : isEnabled
+        ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-stop data-app="${escapeHtml(appId)}">停用</button>
+           ${
+             isLoaded || isStarting
+               ? `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="卸载进程后立刻再载入（保持启用）">重载</button>`
+               : `<button class="mei-host-shell__btn mei-host-shell__btn--ghost" type="button" data-runtime-app-reload data-app="${escapeHtml(appId)}" title="立即载入进程（不等待首访）">立即载入</button>`
+           }
+           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="prebuild 后重载">编译并重载</button>`
+        : `<button class="mei-host-shell__btn mei-host-shell__btn--primary" type="button" data-runtime-app-start data-app="${escapeHtml(appId)}"${lockedAttr(!canEnableExisting)} title="${!hasCurrentBundle ? "尚无 current 编译产物，请先编译并启用" : "启用：hot 立刻载入，lazy/frozen 仅准入"}">启用</button>
+           <button class="mei-host-shell__btn" type="button" data-runtime-app-compile-load data-app="${escapeHtml(appId)}" title="先 prebuild（若无 app.toml 将自动创建），再启用">编译并启用</button>`;
     const enterLink =
-      !pending && isReady && app.href
-        ? `<a class="mei-runtime-control__enter" href="${escapeHtml(app.href)}">进入</a>`
+      !pending && isEnabled && app.href
+        ? `<a class="mei-runtime-control__enter" href="${escapeHtml(app.href)}">${isLoaded ? "进入" : "进入（将载入）"}</a>`
         : "";
-    detailMount.innerHTML = `<div class="mei-runtime-control__detail-surface" data-app-card="${escapeHtml(appId)}">
+    detailMount.innerHTML = `<div class="mei-runtime-control__detail-surface${statusTone ? ` ${statusTone}` : " is-disabled"}" data-app-card="${escapeHtml(appId)}">
       <header class="mei-runtime-control__app-card-head">
         <div class="mei-runtime-control__app-card-identity">
           <h3 class="mei-runtime-control__app-card-title">${escapeHtml(app.displayName || appId)}</h3>
@@ -605,8 +656,8 @@
       <div class="mei-runtime-control__app-card-status">${statusBlock}</div>
       <div class="mei-runtime-control__app-card-launch">
         <label class="mei-runtime-control__mode-field">
-          <span>启动模式</span>
-          <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} 启动模式"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
+          <span>运行模式</span>
+          <select data-runtime-mode-select data-app="${escapeHtml(appId)}" aria-label="${escapeHtml(appId)} 运行模式"${lockedAttr(Boolean(pending))}>${modeOptionsHtml(selectedMode, gitMode)}</select>
         </label>
       </div>
       <div class="mei-runtime-control__app-card-actions">${actions}</div>
@@ -890,26 +941,32 @@
     setAppPending(
       appId,
       "starting",
-      `正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+      `正在启用（mode=${modeAnnounceLabel(startBody)}）…`,
     );
     setBusy(true);
     let keepPending = false;
     try {
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+      const payload = await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/enable`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
       });
-      announce(`已启动 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
+      const loaded = payload?.loaded === true;
+      announce(
+        loaded
+          ? `已启用并载入 ${appId} · ${modeAnnounceLabel(startBody)}`
+          : `已启用 ${appId}（未载入，等待首访）· ${modeAnnounceLabel(startBody)}`,
+        "success",
+      );
       await loadApps();
     } catch (error) {
       if (isStartInFlightError(error)) {
         keepPending = true;
-        announce(`启动进行中：${appId}（请勿重复点击）`, "neutral");
-        setAppPending(appId, "starting", "启动进行中…");
+        announce(`启用/载入进行中：${appId}（请勿重复点击）`, "neutral");
+        setAppPending(appId, "starting", "载入进行中…");
         await loadApps();
       } else {
-        announce(`启动失败：${error.message}`, "error");
+        announce(`启用失败：${error.message}`, "error");
       }
     } finally {
       if (!keepPending) clearAppPending(appId);
@@ -928,18 +985,18 @@
 
   async function stopAppRuntime(appId, { confirm = true } = {}) {
     if (!appId) return;
-    if (confirm && !global.confirm(`确认停止应用 ${appId}？`)) return;
+    if (confirm && !global.confirm(`确认停用应用 ${appId}？（将禁止访问并卸载进程）`)) return;
     setBusy(true);
     try {
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/stop`, {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/disable`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      announce(`已停止 ${appId}`, "success");
+      announce(`已停用 ${appId}`, "success");
       await loadApps();
     } catch (error) {
-      announce(`停止失败：${error.message}`, "error");
+      announce(`停用失败：${error.message}`, "error");
     } finally {
       setBusy(false);
     }
@@ -950,28 +1007,23 @@
     const startBody = startBodyForApp(appId);
     if (
       !global.confirm(
-        `确认重载 ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
+        `确认载入/重载 ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
       )
     ) {
       return;
     }
-    setAppPending(appId, "reloading", `正在重载（mode=${modeAnnounceLabel(startBody)}）…`);
+    setAppPending(appId, "reloading", `正在载入（mode=${modeAnnounceLabel(startBody)}）…`);
     setBusy(true);
     try {
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/stop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/reload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
       });
-      announce(`已重载 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
+      announce(`已载入 ${appId} · ${modeAnnounceLabel(startBody)}`, "success");
       await loadApps();
     } catch (error) {
-      announce(`重载失败：${error.message}`, "error");
+      announce(`载入失败：${error.message}`, "error");
     } finally {
       clearAppPending(appId);
       setBusy(false);
@@ -983,7 +1035,10 @@
     const config = "launch";
     const startBody = startBodyForApp(appId);
     const running = (state.appsOverview?.running || []).some((row) => row.appId === appId);
-    const actionLabel = running ? "编译并重启" : "编译并启动";
+    const enabled = (state.appsOverview?.apps || []).some(
+      (row) => row.appId === appId && row.enabled === true,
+    );
+    const actionLabel = running || enabled ? "编译并重载" : "编译并启用";
     if (
       !global.confirm(
         `${actionLabel} ${appId}（统一模式 ${modeAnnounceLabel(startBody)}）？`,
@@ -995,7 +1050,7 @@
     setBusy(true);
     try {
       if (running) {
-        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/stop`, {
+        await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/unload`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
@@ -1011,9 +1066,9 @@
       setAppPending(
         appId,
         "starting",
-        `编译完成，正在启动（mode=${modeAnnounceLabel(startBody)}）…`,
+        `编译完成，正在启用/载入（mode=${modeAnnounceLabel(startBody)}）…`,
       );
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/reload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
@@ -1036,7 +1091,7 @@
     const startBody = startBodyForApp(appId);
     if (
       !global.confirm(
-        `将 ${appId} 切换到 ${generation} 并以模式 ${modeAnnounceLabel(startBody)} 启动？`,
+        `将 ${appId} 切换到 ${generation} 并以模式 ${modeAnnounceLabel(startBody)} 载入？`,
       )
     ) {
       return;
@@ -1045,13 +1100,13 @@
     try {
       const url = `${ACTIVATE_ENV_API}?appId=${encodeURIComponent(appId)}&envVersion=${encodeURIComponent(generation)}`;
       await requestJson(url, { method: "POST" });
-      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/start`, {
+      await requestJson(`${APPS_API}/${encodeURIComponent(appId)}/reload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
       });
       announce(
-        `已载入 ${generation} 并启动 ${appId} · ${modeAnnounceLabel(startBody)}`,
+        `已载入 Bundle ${generation} · ${appId} · ${modeAnnounceLabel(startBody)}`,
         "success",
       );
       await loadApps();

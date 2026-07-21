@@ -47,17 +47,59 @@ pub struct AppQuery {
     pub surface: Option<String>,
 }
 
-/// Access visit while App Runtime is not running: record INFO and send user to the
-/// friendly starting gate (`应用未启动`) instead of Host legacy assemble + client ERROR.
-fn redirect_access_app_not_running(uri: &Uri, app_id: &str, scene_id: &str) -> Response {
+/// Access visit while App Runtime is not running.
+/// - not enabled → reject (admission)
+/// - enabled → kick demand-load + starting page
+fn redirect_access_app_not_running(
+    http: &crate::state::HostHttpState,
+    uri: &Uri,
+    app_id: &str,
+    scene_id: &str,
+) -> Response {
     let scene = scene_id.trim();
     let scene = if scene.is_empty() { "home" } else { scene };
+    if !crate::app_enable::is_app_enabled(http, app_id) {
+        tracing::info!(
+            target: "mei.app_lifecycle",
+            app_id = %app_id,
+            scene_id = %scene,
+            path = %uri.path(),
+            action = "deny",
+            "access denied — app not enabled"
+        );
+        let workspace = {
+            let guard = http.shell.read().expect("state lock");
+            guard.ctx.workspace_root.clone()
+        };
+        let body = mei_host_auth::render_access_gate_main_html(
+            "应用未启用",
+            &format!(
+                "应用 `{app_id}` 不在启用清单中，不会自动载入。请到应用中心启用后再访问。"
+            ),
+            "blocked",
+        );
+        let topbar_menu = load_topbar_menu_context(workspace.as_path());
+        let html = crate::workspace_page::render_workspace_shell_page(
+            workspace.as_path(),
+            &[],
+            &topbar_menu,
+            mei_lang_app::WorkspaceShellNav::Starting,
+            "应用未启用",
+            body.as_str(),
+            false,
+            None,
+        );
+        return (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response();
+    }
+    crate::app_enable::kick_demand_load(http, app_id);
+    crate::app_enable::record_app_activity(app_id);
     tracing::info!(
-        target: "mei.startup",
+        target: "mei.app_lifecycle",
         app_id = %app_id,
         scene_id = %scene,
         path = %uri.path(),
-        "access visit while app runtime not running — redirecting to starting page"
+        action = "load",
+        "access visit while unloaded — demand-load kicked; redirecting to starting page"
     );
     let location = crate::startup::build_starting_location(uri, app_id, scene, "app");
     Redirect::temporary(location.as_str()).into_response()
@@ -127,7 +169,7 @@ pub async fn app_stage_page(
         crate::app_runtime_proxy::GatewayProxyOutcome::Proxied(response) => response,
         crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
         | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
-            redirect_access_app_not_running(&uri, app_id.as_str(), stage)
+            redirect_access_app_not_running(&http, &uri, app_id.as_str(), stage)
         }
     }
 }
@@ -248,6 +290,7 @@ pub async fn app_temp_stage_page(
         crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
         | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
             redirect_access_app_not_running(
+                &http,
                 &uri,
                 app_id.as_str(),
                 query.scene.as_deref().unwrap_or(stage_guess.as_str()),
@@ -316,6 +359,7 @@ pub async fn app_scoped_stage_page(
                 crate::app_runtime_proxy::GatewayProxyOutcome::RequiredUnavailable(_)
                 | crate::app_runtime_proxy::GatewayProxyOutcome::LegacyFallback => {
                     redirect_access_app_not_running(
+                        &http,
                         &uri,
                         app_id.as_str(),
                         q.scene.as_deref().unwrap_or(stage),
@@ -425,7 +469,7 @@ pub async fn app_root_page(
                 workspace_root.as_path(),
                 app_id.as_str(),
             );
-            redirect_access_app_not_running(&uri, app_id.as_str(), default_scene.as_str())
+            redirect_access_app_not_running(&http, &uri, app_id.as_str(), default_scene.as_str())
         }
     }
 }
@@ -1099,6 +1143,11 @@ pub async fn host_starting_page(
     if poll_app.trim().is_empty() {
         return Redirect::temporary("/runtime").into_response();
     }
+    // Enabled + unloaded visits land here; ensure demand-load is kicked even for bookmarked URLs.
+    if crate::app_enable::is_app_enabled(&http, poll_app.as_str()) {
+        crate::app_enable::kick_demand_load(&http, poll_app.as_str());
+        crate::app_enable::record_app_activity(poll_app.as_str());
+    }
     let route_mode = if poll_mode.as_str() == "view" {
         let surface = return_path
             .split('?')
@@ -1182,7 +1231,7 @@ pub async fn host_starting_page(
         } else {
             readiness.reason
         };
-        let title = crate::access_gate_status::resolve_access_gate_title(
+        let gate = crate::access_gate_status::resolve_access_gate_status(
             &guard,
             None,
             poll_app.as_str(),
@@ -1190,7 +1239,7 @@ pub async fn host_starting_page(
         );
         (
             readiness.ready && assemble_ready && runtime_gate_ready,
-            title,
+            gate,
         )
     };
     if already_ready {
@@ -1205,7 +1254,11 @@ pub async fn host_starting_page(
     let topbar_menu = load_topbar_menu_context(workspace.as_path());
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let body_html = mei_host_auth::render_startup_warming_main_html(gate_status);
+    let body_html = mei_host_auth::render_access_gate_main_html(
+        gate_status.title,
+        gate_status.hint,
+        gate_status.kind_slug(),
+    );
     let poll_script = mei_host_auth::startup_warming_poll_script(
         return_path.as_str(),
         poll_app.as_str(),
@@ -1216,8 +1269,8 @@ pub async fn host_starting_page(
         workspace.as_path(),
         running_apps.as_slice(),
         &topbar_menu,
-        mei_lang_app::WorkspaceShellNav::Home,
-        gate_status,
+        mei_lang_app::WorkspaceShellNav::Starting,
+        gate_status.title,
         body_html.as_str(),
         auth_enabled,
         account_view.as_ref(),
@@ -1272,6 +1325,8 @@ pub async fn api_host_access_readiness(
             "ready": true,
             "reason": "runtime_ready",
             "title": "应用已就绪",
+            "hint": "",
+            "gateKind": "waiting",
             "bootstrapReason": null,
             "startupPhase": "ready",
             "startupDetail": "App Runtime 已就绪",
@@ -1282,7 +1337,7 @@ pub async fn api_host_access_readiness(
         .into_response();
     }
     let state = &http.shell;
-    let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason, title) = {
+    let (ready, reason, startup_phase, startup_detail, startup_error, bootstrap_reason, gate) = {
         let workspace_root = {
             let guard = state.read().expect("state lock");
             guard.ctx.workspace_root.clone()
@@ -1350,8 +1405,8 @@ pub async fn api_host_access_readiness(
         } else {
             readiness.reason
         };
-        let title =
-            crate::access_gate_status::resolve_access_gate_title(&guard, None, app_id, gate_reason);
+        let gate =
+            crate::access_gate_status::resolve_access_gate_status(&guard, None, app_id, gate_reason);
         (
             gate_ready,
             gate_reason,
@@ -1359,7 +1414,7 @@ pub async fn api_host_access_readiness(
             guard.startup_detail.clone(),
             guard.startup_error.clone(),
             bootstrap_reason,
-            title,
+            gate,
         )
     };
     if ready {
@@ -1373,10 +1428,17 @@ pub async fn api_host_access_readiness(
             "app access ready for requests"
         );
     }
+    // Ensure demand-load while polling if admitted but unloaded.
+    if !ready && crate::app_enable::is_app_enabled(&http, app_id) {
+        crate::app_enable::kick_demand_load(&http, app_id);
+        crate::app_enable::record_app_activity(app_id);
+    }
     Json(json!({
         "ready": ready,
         "reason": reason,
-        "title": title,
+        "title": gate.title,
+        "hint": gate.hint,
+        "gateKind": gate.kind_slug(),
         "bootstrapReason": bootstrap_reason,
         "startupPhase": startup_phase,
         "startupDetail": startup_detail,

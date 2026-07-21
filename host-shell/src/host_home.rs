@@ -51,8 +51,8 @@ fn render_host_home_slots(
 
     let app_section = if running_apps.is_empty() {
         r#"<section class="mei-host-shell__home-empty" aria-labelledby="mei-home-empty-title">
-  <h2 id="mei-home-empty-title" class="mei-host-shell__home-empty-title">还没有运行中的应用</h2>
-  <p class="mei-host-shell__home-empty-body">顶栏与首页只展示已启动的应用。到应用中心选择 launch config 并启动后，入口会出现在这里。</p>
+  <h2 id="mei-home-empty-title" class="mei-host-shell__home-empty-title">还没有已启用的应用</h2>
+  <p class="mei-host-shell__home-empty-body">顶栏与首页按启用清单展示应用。到应用中心启用后，入口会出现在这里（lazy 应用可在首次访问时自动载入）。</p>
   <p class="mei-host-shell__home-empty-actions"><a class="mei-host-shell__btn mei-host-shell__btn--primary" href="/runtime">打开应用中心</a></p>
 </section>"#
             .to_string()
@@ -67,9 +67,9 @@ fn render_host_home_slots(
                     crate::shell_chrome::app_access_href(workspace_root, app.id.as_str());
                 let status = if access_ready { "ready" } else { "starting" };
                 let status_label = if access_ready {
-                    "运行中"
+                    "已载入"
                 } else {
-                    "启动中"
+                    "已启用 · 待载入"
                 };
                 format!(
                     r#"<article class="mei-host-shell__app-card" data-status="{status}">
@@ -86,14 +86,15 @@ fn render_host_home_slots(
                     app_id = html_escape(app.id.as_str()),
                     status = status,
                     status_label = status_label,
-                    access_action = if access_ready {
-                        format!(
-                            r#"<a class="mei-host-shell__btn mei-host-shell__btn--primary" href="{}">进入应用</a>"#,
-                            html_escape(access_href.as_str())
-                        )
-                    } else {
-                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/runtime">查看状态</a>"#.to_string()
-                    },
+                    access_action = format!(
+                        r#"<a class="mei-host-shell__btn mei-host-shell__btn--primary" href="{}">{}</a>"#,
+                        html_escape(access_href.as_str()),
+                        if access_ready {
+                            "进入应用"
+                        } else {
+                            "进入（将载入）"
+                        },
+                    ),
                 )
             })
             .collect::<Vec<_>>()
@@ -101,8 +102,8 @@ fn render_host_home_slots(
         format!(
             r#"<section class="mei-host-shell__home-apps" aria-labelledby="mei-home-apps-title">
   <div class="mei-host-shell__home-section-head">
-    <h2 id="mei-home-apps-title" class="mei-host-shell__home-section-title">运行中的应用 <span class="mei-host-shell__home-count">{count}</span></h2>
-    <a class="mei-host-shell__home-section-link" href="/runtime">管理启停</a>
+    <h2 id="mei-home-apps-title" class="mei-host-shell__home-section-title">已启用的应用 <span class="mei-host-shell__home-count">{count}</span></h2>
+    <a class="mei-host-shell__home-section-link" href="/runtime">管理启用</a>
   </div>
   <div class="mei-host-shell__app-grid">{cards}</div>
 </section>"#,

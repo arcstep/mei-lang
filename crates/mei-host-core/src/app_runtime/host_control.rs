@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,9 @@ pub const SCHEMA_HOST_CONTROL_V2: &str = "mei-host-control-v2";
 pub struct HostControlState {
     pub schema_version: String,
     pub launch_manifest: LaunchManifest,
+    /// Apps allowed for Access (admission). Independent of whether a runtime process is loaded.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub enabled_apps: BTreeSet<String>,
     /// Compatibility field for migration-period readers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_profile: Option<ActiveProfileRef>,
@@ -76,9 +80,26 @@ impl HostControlState {
         Self {
             schema_version: SCHEMA_HOST_CONTROL_V2.to_string(),
             launch_manifest,
+            enabled_apps: BTreeSet::new(),
             active_profile: None,
             last_successful_apply,
             runtime_plan: None,
+        }
+    }
+
+    pub fn is_app_enabled(&self, app_id: &str) -> bool {
+        self.enabled_apps.contains(app_id)
+    }
+
+    pub fn set_app_enabled(&mut self, app_id: &str, enabled: bool) {
+        let id = app_id.trim();
+        if id.is_empty() {
+            return;
+        }
+        if enabled {
+            self.enabled_apps.insert(id.to_string());
+        } else {
+            self.enabled_apps.remove(id);
         }
     }
 
@@ -134,6 +155,7 @@ fn migrate_v1(value: Value) -> Option<HostControlState> {
     Some(HostControlState {
         schema_version: SCHEMA_HOST_CONTROL_V2.to_string(),
         launch_manifest,
+        enabled_apps: BTreeSet::new(),
         active_profile,
         last_successful_apply,
         runtime_plan,

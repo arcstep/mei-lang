@@ -435,6 +435,7 @@ fn record_proxy_transport_failure(app_id: &str) {
 fn record_proxy_transport_success(app_id: &str) {
     let mut guard = proxy_circuits().lock().expect("proxy circuit lock");
     guard.remove(app_id);
+    crate::app_enable::record_app_activity(app_id);
 }
 
 /// Prefer App Runtime endpoint for datasets; fallback to legacy plug-ds.

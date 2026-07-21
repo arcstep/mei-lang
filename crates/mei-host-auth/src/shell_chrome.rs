@@ -195,7 +195,7 @@ pub fn render_auth_card_page(
     )
 }
 
-const STARTUP_WARMING_SCRIPT_TEMPLATE: &str = r#"<script>(function(){var delay=2000;var returnTo=__RETURN_TO__;var poll={app:"__APP__",scene:"__SCENE__",mode:"__MODE__"};function readinessUrl(){return"/api/host/access-readiness?app="+encodeURIComponent(poll.app)+"&scene="+encodeURIComponent(poll.scene)+"&mode="+encodeURIComponent(poll.mode);}function tick(){fetch(readinessUrl(),{cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"}}).then(function(res){if(!res.ok){throw new Error("readiness "+res.status);}return res.json();}).then(function(body){body=body||{};if(body.ready){location.replace(returnTo);return;}if(typeof body.title==="string"&&body.title){var el=document.getElementById("mei-access-gate-title");if(el){el.textContent=body.title;}}setTimeout(tick,body.startupError?delay*2:delay);}).catch(function(){setTimeout(tick,delay);});}setTimeout(tick,delay);})();</script>"#;
+const STARTUP_WARMING_SCRIPT_TEMPLATE: &str = r#"<script>(function(){var delay=2000;var returnTo=__RETURN_TO__;var poll={app:"__APP__",scene:"__SCENE__",mode:"__MODE__"};function readinessUrl(){return"/api/host/access-readiness?app="+encodeURIComponent(poll.app)+"&scene="+encodeURIComponent(poll.scene)+"&mode="+encodeURIComponent(poll.mode);}function applyGate(body){var kind=typeof body.gateKind==="string"&&body.gateKind?body.gateKind:"waiting";var panel=document.querySelector("[data-access-gate]");var card=document.querySelector("[data-access-gate-card]");if(panel){panel.setAttribute("data-gate-kind",kind);}if(card){card.setAttribute("data-gate-kind",kind);}if(typeof body.title==="string"&&body.title){var titleEl=document.getElementById("mei-access-gate-title");if(titleEl){titleEl.textContent=body.title;}}if(typeof body.hint==="string"){var hintEl=document.getElementById("mei-access-gate-hint");if(hintEl){hintEl.textContent=body.hint;hintEl.hidden=!body.hint;}}var progress=document.querySelector("[data-access-gate-progress]");if(progress){progress.hidden=kind==="blocked";}var actions=document.querySelector("[data-access-gate-actions]");if(actions){actions.hidden=kind!=="blocked";}if(panel){panel.setAttribute("aria-busy",kind==="waiting"?"true":"false");}}function tick(){fetch(readinessUrl(),{cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"}}).then(function(res){if(!res.ok){throw new Error("readiness "+res.status);}return res.json();}).then(function(body){body=body||{};if(body.ready){location.replace(returnTo);return;}applyGate(body);if(body.gateKind==="blocked"){return;}setTimeout(tick,body.startupError?delay*2:delay);}).catch(function(){setTimeout(tick,delay);});}setTimeout(tick,delay);})();</script>"#;
 
 /// Poll script that redirects to `return_path` once access readiness is true.
 pub fn startup_warming_poll_script(
@@ -220,14 +220,43 @@ pub fn startup_warming_poll_script(
 /// Main-panel HTML for gated Access (host chrome stays elsewhere).
 /// Poll script is separate — inject before `</body>` so SSR `inner_html` slots do not own it.
 pub fn render_startup_warming_main_html(title: &str) -> String {
+    render_access_gate_main_html(title, "", "waiting")
+}
+
+/// Access gate card: `gate_kind` is `waiting` (auto-enters) or `blocked` (never auto-loads).
+pub fn render_access_gate_main_html(title: &str, hint: &str, gate_kind: &str) -> String {
+    let kind = match gate_kind.trim() {
+        "blocked" => "blocked",
+        _ => "waiting",
+    };
+    let busy = if kind == "waiting" { "true" } else { "false" };
+    let progress_hidden = if kind == "blocked" { " hidden" } else { "" };
+    let actions_hidden = if kind == "blocked" { "" } else { " hidden" };
+    let hint_hidden = if hint.trim().is_empty() { " hidden" } else { "" };
     format!(
-        r#"<section class="mei-host-shell__warming-panel" role="status" aria-live="polite" aria-busy="true">
-  <div class="mei-host-shell__card mei-host-shell__card--starting">
+        r#"<section class="mei-host-shell__warming-panel" data-access-gate data-gate-kind="{kind}" role="status" aria-live="polite" aria-busy="{busy}">
+  <div class="mei-host-shell__card mei-host-shell__card--starting" data-access-gate-card data-gate-kind="{kind}">
+    <p class="mei-host-shell__gate-kicker" data-access-gate-kicker>{kicker}</p>
     <h1 id="mei-access-gate-title" class="mei-host-shell__title">{title}</h1>
-    <div class="mei-host-shell__progress" aria-hidden="true"><span></span><span></span><span></span></div>
+    <p id="mei-access-gate-hint" class="mei-host-shell__gate-hint"{hint_hidden}>{hint}</p>
+    <div class="mei-host-shell__progress" data-access-gate-progress aria-hidden="true"{progress_hidden}><span></span><span></span><span></span></div>
+    <p class="mei-host-shell__gate-actions" data-access-gate-actions{actions_hidden}>
+      <a class="mei-host-shell__btn mei-host-shell__btn--primary" href="/runtime">打开应用中心</a>
+    </p>
   </div>
 </section>"#,
+        kind = kind,
+        busy = busy,
+        kicker = if kind == "blocked" {
+            "无法自动载入"
+        } else {
+            "即将进入"
+        },
         title = html_escape(title),
+        hint = html_escape(hint),
+        hint_hidden = hint_hidden,
+        progress_hidden = progress_hidden,
+        actions_hidden = actions_hidden,
     )
 }
 
@@ -372,16 +401,28 @@ mod tests {
 
     #[test]
     fn warming_page_keeps_only_the_actionable_status_copy() {
-        let html = render_startup_warming_main_html("工作区尚未配置");
+        let html = render_access_gate_main_html(
+            "应用载入中",
+            "正在拉起运行时，通常数秒后自动进入。",
+            "waiting",
+        );
+        let blocked = render_access_gate_main_html(
+            "应用未启用",
+            "该应用不在启用清单中，不会自动载入。",
+            "blocked",
+        );
         let script = startup_warming_poll_script("/apps/zhifa/home", "zhifa", "home", "app");
 
-        assert!(html.contains("工作区尚未配置"));
+        assert!(html.contains("应用载入中"));
+        assert!(html.contains("data-gate-kind=\"waiting\""));
         assert!(html.contains("mei-host-shell__progress"));
-        assert!(!html.contains("/runtime"));
-        assert!(!html.contains("返回首页"));
+        assert!(html.contains("即将进入"));
+        assert!(blocked.contains("data-gate-kind=\"blocked\""));
+        assert!(blocked.contains("无法自动载入"));
+        assert!(blocked.contains("/runtime"));
         assert!(script.contains("/api/host/access-readiness"));
+        assert!(script.contains("gateKind"));
         assert!(!html.contains("服务正在准备启动中，请耐心等候"));
         assert!(!html.contains("梅花铜钱"));
-        assert!(!html.contains("目标页面就绪后"));
     }
 }

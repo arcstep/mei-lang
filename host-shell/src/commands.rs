@@ -156,8 +156,26 @@ fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()
 fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
     match command {
         AppsCommand::List(args) => run_apps_list(args),
-        AppsCommand::Start(args) => run_apps_start(args),
-        AppsCommand::Stop(args) => run_apps_stop(args),
+        AppsCommand::Enable(args) => run_apps_enable(args),
+        AppsCommand::Disable(args) => run_apps_disable(args),
+        AppsCommand::Start(args) => {
+            tracing::info!(
+                target: "mei.app_lifecycle",
+                action = "enable",
+                via = "cli_start_alias",
+                "apps start is deprecated; use apps enable"
+            );
+            run_apps_enable(args)
+        }
+        AppsCommand::Stop(args) => {
+            tracing::info!(
+                target: "mei.app_lifecycle",
+                action = "disable",
+                via = "cli_stop_alias",
+                "apps stop is deprecated; use apps disable"
+            );
+            run_apps_disable(args)
+        }
     }
 }
 
@@ -207,7 +225,7 @@ fn default_control_url(explicit: Option<&str>) -> String {
         .unwrap_or_else(|| "http://127.0.0.1:9527".to_string())
 }
 
-fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
+fn run_apps_enable(args: AppsStartArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app = args.app.trim();
     anyhow::ensure!(!app.is_empty(), "--app is required");
@@ -217,7 +235,7 @@ fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
     }) {
         tracing::warn!(
             config = ?args.config,
-            "apps start --config is ignored; only apps/{{app}}/launch.json is used"
+            "apps enable --config is ignored; only apps/{{app}}/launch.json is used"
         );
     }
     // Ensure launch file exists locally before asking the running Host.
@@ -236,7 +254,7 @@ fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
         );
     }
     let base = default_control_url(args.control_url.as_deref());
-    let url = format!("{base}/api/host/apps/{}/start", urlencoding_app(app));
+    let url = format!("{base}/api/host/apps/{}/enable", urlencoding_app(app));
     let body = if let Some(mode) = mode {
         serde_json::json!({ "mode": mode })
     } else {
@@ -247,11 +265,11 @@ fn run_apps_start(args: AppsStartArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_apps_stop(args: AppsStopArgs) -> anyhow::Result<()> {
+fn run_apps_disable(args: AppsStopArgs) -> anyhow::Result<()> {
     let app = args.app.trim();
     anyhow::ensure!(!app.is_empty(), "--app is required");
     let base = default_control_url(args.control_url.as_deref());
-    let url = format!("{base}/api/host/apps/{}/stop", urlencoding_app(app));
+    let url = format!("{base}/api/host/apps/{}/disable", urlencoding_app(app));
     let response = ureq_or_reqwest_post_json(&url, &serde_json::json!({}))?;
     println!("{response}");
     Ok(())
@@ -892,6 +910,8 @@ async fn run_serve_control_plane(
         state.clone(),
     ));
     state.sync_route_table_from_supervisor().await;
+    crate::app_enable::sync_enabled_apps_into_shell(&state);
+    crate::app_enable::spawn_idle_ticker(state.clone());
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let managed_martin_for_shutdown = state.managed_martin.clone();
     let defer_autostart = crate::startup::defer_warmup_to_prebuild() && !launch_targets.is_empty();
@@ -937,11 +957,20 @@ async fn run_serve_control_plane(
             },
         ],
     );
-    let apps_ready_line = format!("apps ready: {ready_count}/{total_count}");
-    let access_detail = if ready_count == 0 {
-        "no app runtime loaded yet — Host control plane is ready"
+    let (enabled_count, loaded_count) = {
+        let guard = state.shell.read().expect("state lock");
+        let enabled_count = guard.enabled_apps.len();
+        let loaded_count = crate::shell_chrome::active_running_app_ids(&guard.launch_manifest).len();
+        (enabled_count, loaded_count)
+    };
+    let apps_ready_line =
+        format!("apps enabled: {enabled_count}/{total_count}; loaded: {loaded_count} (ready {ready_count})");
+    let access_detail = if enabled_count == 0 {
+        "no app enabled yet — enable from /runtime (hot loads now; lazy on first Access)"
+    } else if loaded_count == 0 {
+        "apps enabled but none loaded — Access will demand-load lazy/frozen"
     } else {
-        "running app runtimes may be served; others can be started from /runtime"
+        "enabled apps may be served; unload/disable from /runtime"
     };
     crate::startup_banner::emit_access_warmup_ready_banner(&[
         listen_url.as_str(),
@@ -1211,6 +1240,8 @@ async fn run_serve_blocking_init(
         state.clone(),
     ));
     state.sync_route_table_from_supervisor().await;
+    crate::app_enable::sync_enabled_apps_into_shell(&state);
+    crate::app_enable::spawn_idle_ticker(state.clone());
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let managed_martin_for_shutdown = state.managed_martin.clone();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -1346,6 +1377,8 @@ async fn run_serve_early_bind(
         state.clone(),
     ));
     state.sync_route_table_from_supervisor().await;
+    crate::app_enable::sync_enabled_apps_into_shell(&state);
+    crate::app_enable::spawn_idle_ticker(state.clone());
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let managed_martin_for_shutdown = state.managed_martin.clone();
     let addr = format!("{}:{}", args.host, args.port);

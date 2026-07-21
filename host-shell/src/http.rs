@@ -230,6 +230,22 @@ pub fn router(state: HostHttpState) -> Router {
             post(crate::app_launch_api::api_host_app_stop),
         )
         .route(
+            "/api/host/apps/:app_id/enable",
+            post(crate::app_launch_api::api_host_app_enable),
+        )
+        .route(
+            "/api/host/apps/:app_id/disable",
+            post(crate::app_launch_api::api_host_app_disable),
+        )
+        .route(
+            "/api/host/apps/:app_id/unload",
+            post(crate::app_launch_api::api_host_app_unload),
+        )
+        .route(
+            "/api/host/apps/:app_id/reload",
+            post(crate::app_launch_api::api_host_app_reload),
+        )
+        .route(
             "/api/host/instances/:instance_id/stop",
             post(api_host_instance_stop),
         )
@@ -1061,6 +1077,7 @@ mod tests {
             app_runtime_by_instance: std::collections::BTreeMap::new(),
             app_runtime_started_at_ms: std::collections::BTreeMap::new(),
             launch_manifest: mei_host_core::LaunchManifest::empty(),
+            enabled_apps: std::collections::BTreeSet::new(),
             route_plane_ready: false,
             imported: true,
             warmed_up: true,

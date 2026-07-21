@@ -46,7 +46,13 @@ pub struct AdminRegistryMaterializeArgs {
 #[derive(Subcommand, Debug)]
 pub enum AppsCommand {
     List(AppsListArgs),
+    /// Enable admission (hot → also load; lazy/frozen → admit only).
+    Enable(AppsStartArgs),
+    /// Disable admission and unload runtime if present.
+    Disable(AppsStopArgs),
+    /// Deprecated alias of `enable`.
     Start(AppsStartArgs),
+    /// Deprecated alias of `disable`.
     Stop(AppsStopArgs),
 }
 

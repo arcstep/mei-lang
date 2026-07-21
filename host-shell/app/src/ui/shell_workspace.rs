@@ -13,22 +13,26 @@ pub enum WorkspaceShellNav {
     Home,
     Runtime,
     Share,
+    /// `/host/starting` 等门闩页：不要挂 Access SPA（否则会并行打 scene API → 404 toast）。
+    Starting,
 }
 
 impl WorkspaceShellNav {
-    fn shell_nav_active(self) -> ShellNavActive {
+    fn shell_nav_active(self) -> Option<ShellNavActive> {
         match self {
-            Self::Home => ShellNavActive::Home,
-            Self::Runtime => ShellNavActive::Runtime,
-            Self::Share => ShellNavActive::Share,
+            Self::Home => Some(ShellNavActive::Home),
+            Self::Runtime => Some(ShellNavActive::Runtime),
+            Self::Share => Some(ShellNavActive::Share),
+            // Gate page: keep topbar apps, no false "home/runtime" highlight.
+            Self::Starting => None,
         }
     }
 
     fn document_route_mode(self) -> UiRouteMode {
         match self {
-            Self::Home => UiRouteMode::App,
-            Self::Runtime => UiRouteMode::Runtime,
-            Self::Share => UiRouteMode::App,
+            // Workspace-level pages must not use Access App mode: access.js cold-start
+            // would fetch scene-drilldown for the topbar default app → 404 toast on /home.
+            Self::Home | Self::Share | Self::Runtime | Self::Starting => UiRouteMode::Runtime,
         }
     }
 
@@ -37,6 +41,7 @@ impl WorkspaceShellNav {
             Self::Home => "/home",
             Self::Runtime => "/runtime",
             Self::Share => "/share",
+            Self::Starting => "/host/starting",
         }
     }
 }
@@ -67,7 +72,7 @@ pub(crate) fn workspace_shell(
         None,
         None,
         None,
-        Some(shell_nav.shell_nav_active()),
+        shell_nav.shell_nav_active(),
         &[],
         None,
     );
@@ -122,7 +127,7 @@ pub fn render_workspace_shell_chrome_html(
         None,
         None,
         None,
-        Some(shell_nav.shell_nav_active()),
+        shell_nav.shell_nav_active(),
         &[],
         None,
     );

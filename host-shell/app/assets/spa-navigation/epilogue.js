@@ -17,6 +17,28 @@
     boot.watchTopbarChromeInjection();
   }
   void (async () => {
+    // 工作区级页面（/home /share /runtime /host/starting）不是 Access scene 面；
+    // 勿拉 scene-drilldown（会落到顶栏默认 app → 404 toast）。
+    const hostControlPath = String(window.location?.pathname || "");
+    const isHostControlSurface =
+      hostControlPath === "/home" ||
+      hostControlPath.startsWith("/home/") ||
+      hostControlPath === "/share" ||
+      hostControlPath.startsWith("/share/") ||
+      hostControlPath === "/runtime" ||
+      hostControlPath.startsWith("/runtime/") ||
+      hostControlPath === "/host/starting" ||
+      hostControlPath.startsWith("/host/starting/");
+    if (isHostControlSurface) {
+      if (typeof boot.finishInitialLoadProgress === "function") {
+        try {
+          await boot.finishInitialLoadProgress();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return;
+    }
     if (typeof boot.ensureSceneDrilldownContext === "function") {
       try {
         const ctx =

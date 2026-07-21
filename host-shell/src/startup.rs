@@ -323,6 +323,14 @@ pub(crate) fn evaluate_access_readiness(
     axes: PageRenderAxes,
 ) -> AccessReadiness {
     if !shell.data_plane_enabled {
+        // Enable-only / demand-load: admitted apps must not look like an empty workspace.
+        // Otherwise `/host/starting` shows blocked「工作区尚未配置」and the poll script stops.
+        if shell.enabled_apps.contains(app_id.trim()) {
+            return AccessReadiness {
+                ready: false,
+                reason: "runtime_starting",
+            };
+        }
         return AccessReadiness {
             ready: false,
             reason: if crate::workspace_profile_api::read_host_control_state(
@@ -885,6 +893,32 @@ mod tests {
         let uri: Uri = "/apps/mini-data/home?chrome=none".parse().expect("uri");
         let location = build_starting_location(&uri, "mini-data", "home", "app");
         assert!(location.contains("return=%2Fapps%2Fmini-data%2Fhome%3Fchrome%3Dnone"));
+    }
+
+    #[test]
+    fn enabled_app_without_data_plane_is_runtime_starting_not_unconfigured() {
+        use mei_lang_app::UiRouteMode;
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+
+        let mut shell = ShellState::new(
+            PathBuf::from("/tmp/ws"),
+            String::new(),
+            PathBuf::from("/tmp/pkg"),
+            BTreeMap::new(),
+            false,
+        );
+        shell.data_plane_enabled = false;
+        shell.enabled_apps.insert("thunder".into());
+        let readiness = evaluate_access_readiness(
+            &shell,
+            "thunder",
+            "home",
+            UiRouteMode::App,
+            PageRenderAxes::default(),
+        );
+        assert!(!readiness.ready);
+        assert_eq!(readiness.reason, "runtime_starting");
     }
 
     #[test]

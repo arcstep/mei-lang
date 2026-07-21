@@ -64,6 +64,8 @@ pub fn active_running_app_ids(manifest: &LaunchManifest) -> BTreeSet<String> {
 
 /// Discover + menu-enrich apps, then keep only those with an active LaunchManifest route.
 /// Titles prefer the active launch config `displayName`.
+/// Used for loaded-runtime listings (distinct from [`apps_for_topbar`] enabled set).
+#[allow(dead_code)]
 pub fn running_enriched_apps(workspace: &Path, manifest: &LaunchManifest) -> Vec<WorkspaceAppMeta> {
     let topbar_menu = load_topbar_menu_context(workspace);
     let discovered = discover_workspace_apps(workspace).unwrap_or_default();
@@ -122,16 +124,33 @@ pub fn display_name_for_running_app(
 }
 
 pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
-    let (workspace, manifest) = {
+    let (workspace, manifest, enabled_apps) = {
         let guard = http.shell.read().expect("state lock");
         (
             guard.ctx.workspace_root.clone(),
             guard.launch_manifest.clone(),
+            guard.enabled_apps.clone(),
         )
     };
     let topbar_menu = load_topbar_menu_context(workspace.as_path());
     let discovered = discover_workspace_apps(workspace.as_path()).unwrap_or_default();
     let enriched = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    let running_ids = active_running_app_ids(&manifest);
+    let loading_ids: BTreeSet<String> = {
+        let table = http.route_table.load();
+        table
+            .entries
+            .values()
+            .filter(|e| {
+                matches!(
+                    e.phase,
+                    crate::runtime_route_table::RuntimeRoutePhase::Starting
+                        | crate::runtime_route_table::RuntimeRoutePhase::Draining
+                )
+            })
+            .map(|e| e.app_id.clone())
+            .collect()
+    };
 
     let apps: Vec<Value> = enriched
         .iter()
@@ -163,6 +182,11 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 workspace.as_path(),
                 app.id.as_str(),
             );
+            let enabled = enabled_apps.contains(app.id.as_str());
+            let loaded = running_ids.contains(app.id.as_str());
+            let loading = loading_ids.contains(app.id.as_str());
+            let load_state =
+                crate::app_enable::compute_load_state(enabled, loaded, loading, false);
             json!({
                 "appId": app.id,
                 "displayName": app.title,
@@ -178,6 +202,9 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
                 "overlayDefaultMode": overlay.as_ref().and_then(|o| o.default_mode.clone()),
                 "effectiveDefaultMode": effective_default_mode,
                 "overlayRevision": overlay.as_ref().map(|o| o.revision.clone()),
+                "enabled": enabled,
+                "loaded": loaded,
+                "loadState": load_state,
                 "launches": launches,
                 "generations": generations,
             })
@@ -244,6 +271,9 @@ pub fn build_apps_overview_payload(http: &HostHttpState) -> Value {
     json!({
         "apps": apps,
         "running": running,
+        "enabledApps": enabled_apps.iter().cloned().collect::<Vec<_>>(),
+        "enabledCount": enabled_apps.len(),
+        "loadedCount": running.len(),
         "menuRevision": menu_revision_digest(workspace.as_path()),
     })
 }
@@ -304,12 +334,49 @@ pub fn running_event_payload_with_plan(
     payload
 }
 
-/// Apps list for topbar SSR: only apps with a live runtime endpoint (accessible).
-/// Desired Running without endpoint (still starting) stays off the topbar.
+/// Apps list for topbar SSR: **enabled** admission set (not merely loaded runtimes).
+/// Enabled-but-unloaded apps still appear; Access will demand-load on visit.
 pub fn apps_for_topbar(shell: &ShellState) -> Vec<WorkspaceAppMeta> {
-    running_enriched_apps(shell.ctx.workspace_root.as_path(), &shell.launch_manifest)
+    enabled_enriched_apps(
+        shell.ctx.workspace_root.as_path(),
+        &shell.enabled_apps,
+        &shell.launch_manifest,
+    )
+}
+
+/// Discover + enrich apps, keep those in the enabled admission set.
+pub fn enabled_enriched_apps(
+    workspace: &Path,
+    enabled: &BTreeSet<String>,
+    manifest: &LaunchManifest,
+) -> Vec<WorkspaceAppMeta> {
+    if enabled.is_empty() {
+        return Vec::new();
+    }
+    let topbar_menu = load_topbar_menu_context(workspace);
+    let discovered = discover_workspace_apps(workspace).unwrap_or_default();
+    let enriched = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    enriched
         .into_iter()
-        .filter(|app| shell.endpoint_for_app(app.id.as_str()).is_some())
+        .filter(|app| enabled.contains(app.id.as_str()))
+        .map(|mut app| {
+            let launch_id = manifest
+                .routes
+                .get(app.id.as_str())
+                .and_then(|route| route.active.as_ref())
+                .and_then(|instance_id| {
+                    read_instance_spec_for_app(workspace, app.id.as_str())
+                        .or_else(|| read_instance_spec(workspace, instance_id.as_str()))
+                        .and_then(|spec| spec.config_snapshot.launch_config_id)
+                });
+            app.title = display_name_for_running_app(
+                workspace,
+                app.id.as_str(),
+                launch_id.as_deref(),
+                Some(app.title.as_str()),
+            );
+            app
+        })
         .collect()
 }
 
@@ -496,12 +563,22 @@ pub fn render_shell_chrome_payload(
     hasher.update(statusbar_html.as_bytes());
     let digest = format!("{:x}", hasher.finalize());
 
+    let (enabled_app_ids, loaded_app_ids) = {
+        let guard = http.shell.read().expect("state lock");
+        let enabled = guard.enabled_apps.iter().cloned().collect::<Vec<_>>();
+        let loaded = active_running_app_ids(&guard.launch_manifest)
+            .into_iter()
+            .filter(|id| guard.endpoint_for_app(id.as_str()).is_some())
+            .collect::<Vec<_>>();
+        (enabled, loaded)
+    };
     Ok(json!({
         "topbarHtml": topbar_html,
         "statusbarHtml": statusbar_html,
         "digest": digest,
         "menuRevision": menu_revision_digest(workspace.as_path()),
-        "runningAppIds": apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>(),
+        "enabledAppIds": enabled_app_ids,
+        "runningAppIds": loaded_app_ids,
     }))
 }
 

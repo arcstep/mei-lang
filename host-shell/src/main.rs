@@ -6,6 +6,7 @@ mod admin_pages;
 mod admin_registry;
 mod api_error;
 mod api_stubs;
+mod app_enable;
 mod app_launch_api;
 mod app_runtime_proxy;
 mod app_runtime_supervisor;

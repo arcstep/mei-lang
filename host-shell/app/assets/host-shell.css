@@ -127,17 +127,74 @@
 }
 
 .mei-host-shell__card--starting {
-  width: min(80vw, 320px);
-  padding: 32px 28px 28px;
+  width: min(88vw, 380px);
+  padding: 28px 26px 24px;
   text-align: center;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
+}
+
+.mei-host-shell__card--starting[data-gate-kind="waiting"] {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 55%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 18%, transparent),
+    0 18px 40px color-mix(in srgb, var(--mei-shell-color-shadow-card) 40%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 12%, transparent),
+      transparent 52%
+    ),
+    var(--mei-shell-color-card-bg);
+}
+
+.mei-host-shell__card--starting[data-gate-kind="blocked"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--mei-shell-color-status-warn) 48%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--mei-shell-color-status-warn) 10%, transparent),
+      transparent 52%
+    ),
+    var(--mei-shell-color-card-bg);
 }
 
 .mei-host-shell__card--starting .mei-host-shell__title {
-  margin: 0 0 18px;
+  margin: 0 0 10px;
 }
 
 .mei-host-shell__card--starting .mei-host-shell__progress {
+  margin: 18px 0 0;
+}
+
+.mei-host-shell__gate-kicker {
+  margin: 0 0 8px;
+  font-size: var(--mei-shell-font-2);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mei-host-shell__card--starting[data-gate-kind="waiting"] .mei-host-shell__gate-kicker {
+  color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 88%, var(--mei-shell-color-text-primary));
+}
+
+.mei-host-shell__card--starting[data-gate-kind="blocked"] .mei-host-shell__gate-kicker {
+  color: var(--mei-shell-color-status-warn);
+}
+
+.mei-host-shell__gate-hint {
   margin: 0;
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
+  line-height: 1.5;
+}
+
+.mei-host-shell__gate-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px 0 0;
 }
 
 .mei-host-shell__warming-panel {
@@ -147,6 +204,10 @@
   width: 100%;
   padding: 24px 8px;
   box-sizing: border-box;
+}
+
+.mei-host-shell__warming-panel[data-gate-kind="blocked"] .mei-host-shell__progress {
+  display: none;
 }
 
 .mei-host-shell__brand {
@@ -1195,10 +1256,17 @@ main.workspace-view-main:has(.mei-runtime-control) {
   gap: 0;
   align-items: stretch;
   min-height: 0;
-  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
-  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 72%, transparent);
+  border-radius: 18px;
   overflow: hidden;
-  background: var(--mei-shell-color-card-bg);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--mei-shell-color-inset-highlight) 40%, transparent),
+      transparent 120px
+    ),
+    var(--mei-shell-color-card-bg);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--mei-shell-color-shadow-card) 42%, transparent);
 }
 
 .mei-runtime-control__explorer.is-resizing {
@@ -1221,7 +1289,13 @@ main.workspace-view-main:has(.mei-runtime-control) {
   gap: 0;
   overflow: hidden;
   padding: 0;
-  background: color-mix(in srgb, var(--mei-shell-color-inset-highlight) 55%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--mei-shell-color-inset-highlight) 72%, transparent) 0%,
+      transparent 55%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-host-page-bg) 35%, var(--mei-shell-color-card-bg));
 }
 
 .mei-runtime-control__explorer-toolbar {
@@ -1229,36 +1303,48 @@ main.workspace-view-main:has(.mei-runtime-control) {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-  padding: 12px 12px 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 55%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 55%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .mei-runtime-control__search {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 90%, transparent);
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mei-shell-color-input-bg) 88%, transparent);
   color: inherit;
   font-size: var(--mei-shell-font-1);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.mei-runtime-control__search:focus {
+  outline: none;
+  border-color: var(--mei-shell-color-focus-border);
+  box-shadow: 0 0 0 3px var(--mei-shell-color-focus-ring);
 }
 
 .mei-runtime-control__view-toggle {
   display: inline-flex;
   gap: 0;
-  padding: 2px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 78%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-inset-highlight) 40%, transparent);
 }
 
 .mei-runtime-control__view-toggle button {
   margin: 0;
-  padding: 5px 10px;
+  padding: 5px 11px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
-  color: inherit;
+  color: var(--mei-shell-color-text-muted);
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .mei-runtime-control__view-toggle button[aria-pressed="true"] {
@@ -1270,10 +1356,10 @@ main.workspace-view-main:has(.mei-runtime-control) {
   flex: 0 0 auto;
   max-width: 148px;
   min-width: 112px;
-  padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 90%, transparent);
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mei-shell-color-input-bg) 88%, transparent);
   color: inherit;
   font-size: var(--mei-shell-font-2);
 }
@@ -1289,10 +1375,10 @@ main.workspace-view-main:has(.mei-runtime-control) {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--mei-shell-color-text-muted) 55%, transparent) transparent;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-content: start;
   align-items: start;
-  padding: 0 12px 12px;
+  padding: 12px 14px 16px;
 }
 
 /* 强制经典滚动条（避免 macOS overlay 看起来像「没了滚动条」） */
@@ -1340,15 +1426,21 @@ main.workspace-view-main:has(.mei-runtime-control) {
 }
 
 .mei-runtime-control__explorer-detail {
-  padding: 16px;
-  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 92%, transparent);
+  padding: 20px 22px;
+  background:
+    radial-gradient(
+      90% 60% at 100% 0%,
+      color-mix(in srgb, var(--mei-shell-color-accent) 8%, transparent),
+      transparent 55%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-card-bg) 96%, transparent);
   overflow-x: hidden;
   overflow-y: auto;
 }
 
 .mei-runtime-control__explorer-splitter {
   width: 1px;
-  background: color-mix(in srgb, var(--mei-shell-color-border-slate) 80%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
   cursor: col-resize;
   position: relative;
 }
@@ -1369,20 +1461,133 @@ main.workspace-view-main:has(.mei-runtime-control) {
   min-width: min(100%, 420px);
   margin-inline: auto;
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  padding: 18px 18px 16px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--mei-shell-color-inset-highlight) 55%, transparent) 0%,
+      transparent 46%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-card-bg) 94%, transparent);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--mei-shell-color-shadow-card) 36%, transparent);
+}
+
+.mei-runtime-control__detail-surface.is-enabled {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 55%, transparent);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 85%, transparent),
+    0 12px 32px color-mix(in srgb, var(--mei-shell-color-shadow-card) 36%, transparent);
+}
+
+.mei-runtime-control__detail-surface.is-running {
+  border-color: color-mix(in srgb, var(--mei-shell-color-feedback-ok) 42%, transparent);
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--mei-shell-color-feedback-ok) 80%, transparent),
+    0 12px 32px color-mix(in srgb, var(--mei-shell-color-shadow-card) 36%, transparent);
+}
+
+.mei-runtime-control__detail-surface.is-disabled {
+  opacity: 0.92;
+  border-style: dashed;
 }
 
 .mei-runtime-control__nav-card {
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 88%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--mei-shell-color-card-bg) 88%, transparent);
+  position: relative;
+  padding: 12px 12px 11px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 78%, transparent);
+  border-radius: 13px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--mei-shell-color-inset-highlight) 45%, transparent),
+      transparent 58%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-card-bg) 90%, transparent);
   cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.mei-runtime-control__nav-card::before {
+  content: "";
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: color-mix(in srgb, var(--mei-shell-color-text-muted) 45%, transparent);
+}
+
+.mei-runtime-control__nav-card:hover {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-slate) 55%, var(--mei-shell-color-accent));
+  transform: translateY(-1px);
 }
 
 .mei-runtime-control__nav-card.is-selected {
-  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 65%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--mei-shell-color-accent) 80%, transparent);
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 62%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--mei-shell-color-accent) 28%, transparent),
+    0 10px 24px color-mix(in srgb, var(--mei-shell-color-shadow-card) 40%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-disabled {
+  background: color-mix(in srgb, var(--mei-shell-color-host-page-bg) 42%, var(--mei-shell-color-card-bg));
+  border-style: dashed;
+  opacity: 0.78;
+}
+
+.mei-runtime-control__nav-card.is-disabled::before {
+  background: color-mix(in srgb, var(--mei-shell-color-text-muted) 55%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-enabled {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 48%, transparent);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 14%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-card-bg) 92%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-enabled::before {
+  background: var(--mei-shell-color-border-accent-teal);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 45%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-running {
+  border-color: color-mix(in srgb, var(--mei-shell-color-feedback-ok) 42%, transparent);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--mei-shell-color-feedback-ok) 12%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--mei-shell-color-card-bg) 92%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-running::before {
+  background: var(--mei-shell-color-feedback-ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--mei-shell-color-feedback-ok) 40%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-pending::before {
+  background: var(--mei-shell-color-accent);
+  animation: mei-runtime-pulse 1.1s ease-in-out infinite;
+}
+
+.mei-runtime-control__nav-card.is-failed {
+  border-color: color-mix(in srgb, var(--mei-shell-color-status-warn) 50%, transparent);
+}
+
+.mei-runtime-control__nav-card.is-failed::before {
+  background: var(--mei-shell-color-status-warn);
 }
 
 .mei-runtime-control__nav-card-head {
@@ -1392,20 +1597,82 @@ main.workspace-view-main:has(.mei-runtime-control) {
   gap: 8px;
 }
 
+.mei-runtime-control__nav-card-identity {
+  min-width: 0;
+}
+
 .mei-runtime-control__nav-card-head h3 {
   margin: 0;
   font-size: var(--mei-shell-font-1);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--mei-shell-color-text-primary);
 }
 
 .mei-runtime-control__nav-card-head p {
-  margin: 4px 0 0;
-  opacity: 0.75;
+  margin: 5px 0 0;
+}
+
+.mei-runtime-control__nav-card-head code {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mei-shell-color-hint-bg) 75%, transparent);
+  color: var(--mei-shell-color-text-muted);
+  font-size: 0.92em;
+}
+
+.mei-runtime-control__nav-card-foot {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mei-runtime-control__mode-pill {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-hint-bg) 70%, transparent);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-2);
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+.mei-runtime-control__mode-pill[data-mode="hot"] {
+  border-color: color-mix(in srgb, var(--mei-shell-color-status-warn) 40%, transparent);
+  color: var(--mei-shell-color-status-warn);
+  background: color-mix(in srgb, var(--mei-shell-color-status-warn) 10%, transparent);
+}
+
+.mei-runtime-control__mode-pill[data-mode="lazy"] {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 42%, transparent);
+  color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 85%, var(--mei-shell-color-text-primary));
+  background: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 10%, transparent);
+}
+
+.mei-runtime-control__mode-pill[data-mode="frozen"] {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 40%, transparent);
+  color: var(--mei-shell-color-accent-muted);
+  background: color-mix(in srgb, var(--mei-shell-color-accent) 10%, transparent);
 }
 
 .mei-runtime-control__nav-card-meta {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: var(--mei-shell-font-2);
-  opacity: 0.72;
+  color: var(--mei-shell-color-text-muted);
+  line-height: 1.35;
+}
+
+.mei-runtime-control__nav-card.is-enabled .mei-runtime-control__nav-card-meta {
+  color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 70%, var(--mei-shell-color-text-body));
+}
+
+.mei-runtime-control__nav-card.is-disabled .mei-runtime-control__nav-card-meta {
+  color: var(--mei-shell-color-text-muted);
+  opacity: 0.85;
 }
 
 @media (min-width: 1200px) {
@@ -1530,32 +1797,76 @@ main.workspace-view-main:has(.mei-runtime-control) {
 .mei-runtime-control__status-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: fit-content;
   max-width: 100%;
-  padding: 6px 10px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--mei-shell-color-nav-chip-bg) 88%, transparent);
   color: var(--mei-shell-color-text-muted);
-  font-size: var(--mei-shell-font-1);
+  font-size: var(--mei-shell-font-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.mei-runtime-control__status-chip strong {
+  font-weight: 650;
+}
+
+.mei-runtime-control__status-chip.is-disabled {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-host-page-bg) 50%, transparent);
+  color: var(--mei-shell-color-text-muted);
+  font-weight: 500;
+}
+
+.mei-runtime-control__status-chip.is-enabled {
+  border-color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 50%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 16%, transparent);
+  color: color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 88%, var(--mei-shell-color-text-primary));
 }
 
 .mei-runtime-control__status-chip.is-running {
+  border-color: color-mix(in srgb, var(--mei-shell-color-feedback-ok) 42%, transparent);
   background: color-mix(in srgb, var(--mei-shell-color-feedback-ok) 14%, transparent);
   color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-runtime-control__status-chip.is-failed {
+  border-color: color-mix(in srgb, var(--mei-shell-color-status-warn) 48%, transparent);
+  background: color-mix(in srgb, var(--mei-shell-color-status-warn) 14%, transparent);
+  color: var(--mei-shell-color-status-warn);
 }
 
 .mei-runtime-control__status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
   background: var(--mei-shell-color-text-muted);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mei-shell-color-text-muted) 18%, transparent);
+}
+
+.mei-runtime-control__status-chip.is-disabled .mei-runtime-control__status-dot {
+  background: color-mix(in srgb, var(--mei-shell-color-text-muted) 70%, transparent);
+  box-shadow: none;
+}
+
+.mei-runtime-control__status-chip.is-enabled .mei-runtime-control__status-dot {
+  background: var(--mei-shell-color-border-accent-teal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mei-shell-color-border-accent-teal) 24%, transparent);
 }
 
 .mei-runtime-control__status-chip.is-running .mei-runtime-control__status-dot {
   background: var(--mei-shell-color-feedback-ok);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mei-shell-color-feedback-ok) 22%, transparent);
+}
+
+.mei-runtime-control__status-chip.is-failed .mei-runtime-control__status-dot {
+  background: var(--mei-shell-color-status-warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mei-shell-color-status-warn) 22%, transparent);
 }
 
 .mei-runtime-control__status-meta {
@@ -1634,6 +1945,7 @@ main.workspace-view-main:has(.mei-runtime-control) {
 }
 
 .mei-runtime-control__status-chip.is-pending {
+  border-color: color-mix(in srgb, var(--mei-shell-color-accent) 45%, transparent);
   background: color-mix(in srgb, var(--mei-shell-color-accent) 18%, transparent);
   color: var(--mei-shell-color-text-primary);
 }
@@ -1642,6 +1954,11 @@ main.workspace-view-main:has(.mei-runtime-control) {
   background: var(--mei-shell-color-accent);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--mei-shell-color-accent) 22%, transparent);
   animation: mei-runtime-pulse 1.1s ease-in-out infinite;
+}
+
+.mei-runtime-control__app-card-status .mei-runtime-control__status-chip {
+  font-size: var(--mei-shell-font-1);
+  padding: 7px 12px;
 }
 
 .mei-runtime-control__progress {
@@ -1690,6 +2007,11 @@ main.workspace-view-main:has(.mei-runtime-control) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding-top: 2px;
+}
+
+.mei-runtime-control__app-card-actions .mei-host-shell__btn--primary {
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--mei-shell-color-accent) 28%, transparent);
 }
 
 .mei-runtime-control__app-card-actions .mei-host-shell__btn[disabled],

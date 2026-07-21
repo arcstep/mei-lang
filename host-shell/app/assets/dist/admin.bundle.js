@@ -794,13 +794,44 @@
     return nativeFetch(input, init);
   }
 
+  function isHostControlSurfacePath() {
+    const path = String((window.location && window.location.pathname) || "");
+    return (
+      path === "/home" ||
+      path.startsWith("/home/") ||
+      path === "/share" ||
+      path.startsWith("/share/") ||
+      path === "/host/starting" ||
+      path.startsWith("/host/starting/") ||
+      path === "/runtime" ||
+      path.startsWith("/runtime/")
+    );
+  }
+
+  function isExpectedLoadingApi(url, status) {
+    if (!isHostControlSurfacePath()) return false;
+    if (Number(status) !== 404 && Number(status) !== 503) return false;
+    const value = String(url || "");
+    // Control surfaces: scene APIs may race or target topbar default app while unloaded.
+    return (
+      value.includes("/api/host/scene-drilldown-context") ||
+      value.includes("/api/host/view-revision") ||
+      value.includes("/api/host/scene-bootstrap") ||
+      value.includes("/api/host/scene-manifest") ||
+      value.includes("/api/host/scene-eval-pack") ||
+      value.includes("/api/host/layer-batch")
+    );
+  }
+
   function shouldSkipNotify(url, status) {
     if (Number(status) === 401) return true;
     if (!url || !String(url).includes("/api/")) return true;
     if (String(url).includes("/api/host/heartbeat")) return true;
+    if (String(url).includes("/api/host/access-readiness")) return true;
     if (String(url).includes("/api/auth/refresh")) return true;
     if (String(url).includes("/api/agent/")) return true;
     if (String(url).includes("/api/auth/session") && Number(status) === 404) return true;
+    if (isExpectedLoadingApi(url, status)) return true;
     if (
       Number(status) === 410 &&
       /\/api\/agent\/session\/[^/?]+\/(diff|revert|unrevert)(?:\?|$)/.test(String(url))
@@ -11825,6 +11856,28 @@
     boot.watchTopbarChromeInjection();
   }
   void (async () => {
+    // 工作区级页面（/home /share /runtime /host/starting）不是 Access scene 面；
+    // 勿拉 scene-drilldown（会落到顶栏默认 app → 404 toast）。
+    const hostControlPath = String(window.location?.pathname || "");
+    const isHostControlSurface =
+      hostControlPath === "/home" ||
+      hostControlPath.startsWith("/home/") ||
+      hostControlPath === "/share" ||
+      hostControlPath.startsWith("/share/") ||
+      hostControlPath === "/runtime" ||
+      hostControlPath.startsWith("/runtime/") ||
+      hostControlPath === "/host/starting" ||
+      hostControlPath.startsWith("/host/starting/");
+    if (isHostControlSurface) {
+      if (typeof boot.finishInitialLoadProgress === "function") {
+        try {
+          await boot.finishInitialLoadProgress();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return;
+    }
     if (typeof boot.ensureSceneDrilldownContext === "function") {
       try {
         const ctx =

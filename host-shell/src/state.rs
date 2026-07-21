@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
@@ -139,6 +139,8 @@ pub struct ShellState {
     pub app_runtime_started_at_ms: BTreeMap<String, u64>,
     /// In-memory LaunchManifest / route table view (control-plane + gateway).
     pub launch_manifest: LaunchManifest,
+    /// Apps with Access admission (enabled). May be unloaded (no runtime process).
+    pub enabled_apps: BTreeSet<String>,
     /// True when at least one desired Running instance is reachable via supervisor.
     pub route_plane_ready: bool,
     pub imported: bool,
@@ -194,6 +196,7 @@ impl ShellState {
             app_runtime_by_instance: BTreeMap::new(),
             app_runtime_started_at_ms: BTreeMap::new(),
             launch_manifest: LaunchManifest::empty(),
+            enabled_apps: BTreeSet::new(),
             route_plane_ready: false,
             imported: false,
             warmed_up: false,

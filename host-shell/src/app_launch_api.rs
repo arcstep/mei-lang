@@ -62,26 +62,23 @@ pub async fn api_host_app_start(
     AxumPath(app_id): AxumPath<String>,
     Json(body): Json<StartAppBody>,
 ) -> Response {
-    let result = if let Some(actor) = http.runtime_actor.as_ref() {
-        actor
-            .start(
-                app_id.as_str(),
-                body.config.as_deref(),
-                body.mode.as_deref(),
-                body.follow_git,
-            )
-            .await
-    } else {
-        start_app_with_launch(
-            &http,
-            app_id.as_str(),
-            body.config.as_deref(),
-            body.mode.as_deref(),
-            body.follow_git,
-        )
-        .await
-    };
-    match result {
+    // Compat alias: start → enable (+ hot load / lazy admit).
+    tracing::info!(
+        target: "mei.app_lifecycle",
+        app_id = %app_id,
+        action = "enable",
+        via = "start_alias",
+        "apps start aliased to enable"
+    );
+    match crate::app_enable::enable_app(
+        &http,
+        app_id.as_str(),
+        body.config.as_deref(),
+        body.mode.as_deref(),
+        body.follow_git,
+    )
+    .await
+    {
         Ok(payload) => Json(payload).into_response(),
         Err(error) => error_response(error),
     }
@@ -91,12 +88,73 @@ pub async fn api_host_app_stop(
     State(http): State<HostHttpState>,
     AxumPath(app_id): AxumPath<String>,
 ) -> Response {
-    let result = if let Some(actor) = http.runtime_actor.as_ref() {
-        actor.stop(app_id.as_str()).await
-    } else {
-        stop_app_runtime(&http, app_id.as_str()).await
-    };
-    match result {
+    // Compat alias: stop → disable (unload + revoke admission).
+    tracing::info!(
+        target: "mei.app_lifecycle",
+        app_id = %app_id,
+        action = "disable",
+        via = "stop_alias",
+        "apps stop aliased to disable"
+    );
+    match crate::app_enable::disable_app(&http, app_id.as_str()).await {
+        Ok(payload) => Json(payload).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_host_app_enable(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+    Json(body): Json<StartAppBody>,
+) -> Response {
+    match crate::app_enable::enable_app(
+        &http,
+        app_id.as_str(),
+        body.config.as_deref(),
+        body.mode.as_deref(),
+        body.follow_git,
+    )
+    .await
+    {
+        Ok(payload) => Json(payload).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_host_app_disable(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+) -> Response {
+    match crate::app_enable::disable_app(&http, app_id.as_str()).await {
+        Ok(payload) => Json(payload).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_host_app_unload(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+) -> Response {
+    match crate::app_enable::unload_app(&http, app_id.as_str()).await {
+        Ok(payload) => Json(payload).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_host_app_reload(
+    State(http): State<HostHttpState>,
+    AxumPath(app_id): AxumPath<String>,
+    Json(body): Json<StartAppBody>,
+) -> Response {
+    match crate::app_enable::reload_app(
+        &http,
+        app_id.as_str(),
+        body.config.as_deref(),
+        body.mode.as_deref(),
+        body.follow_git,
+    )
+    .await
+    {
         Ok(payload) => Json(payload).into_response(),
         Err(error) => error_response(error),
     }
@@ -1010,12 +1068,14 @@ fn apply_start_mode_policy(
 }
 
 /// Autostart targets collected at serve time.
+///
+/// Semantics: **enable** each target; hot → load runtime; lazy/frozen → admit only.
 pub async fn autostart_launch_targets(
     http: &HostHttpState,
     targets: &[crate::launch_targets::LaunchTarget],
 ) {
     for target in targets {
-        match start_app_with_launch(
+        match crate::app_enable::enable_app(
             http,
             target.app_id.as_str(),
             Some(target.document.id.as_str()),
@@ -1024,13 +1084,17 @@ pub async fn autostart_launch_targets(
         )
         .await
         {
-            Ok(_) => tracing::info!(
+            Ok(payload) => tracing::info!(
+                target: "mei.app_lifecycle",
                 app = %target.app_id,
                 launch = %target.document.id,
-                mode = target.mode_override.as_deref().unwrap_or("launch.json"),
-                "autostarted app"
+                mode = target.mode_override.as_deref().unwrap_or("git"),
+                loaded = payload.get("loaded").and_then(|v| v.as_bool()).unwrap_or(false),
+                action = "enable",
+                "autostart enable completed"
             ),
             Err(error) => tracing::warn!(
+                target: "mei.app_lifecycle",
                 app = %target.app_id,
                 launch = %target.document.id,
                 detail = %match error {
@@ -1038,7 +1102,7 @@ pub async fn autostart_launch_targets(
                     | StartStopError::Conflict(m)
                     | StartStopError::Unavailable(m) => m,
                 },
-                "autostart failed"
+                "autostart enable failed"
             ),
         }
     }

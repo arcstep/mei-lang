@@ -5,7 +5,7 @@
 #   MEI_CARGO_TARGET_SWEEP=0            disable stale-artifact sweep (default: 1)
 #   MEI_CARGO_TARGET_SOFT_GB=…          start sweep (default: 80% of max)
 #   MEI_CARGO_TARGET_LOW_GB=…           desired low watermark (default: 70% of max)
-#   MEI_CARGO_TARGET_MAX_GB=10          hard warning watermark
+#   MEI_CARGO_TARGET_MAX_GB=30          hard warning watermark
 #   MEI_CARGO_TARGET_MAX_BYTES=…      override budget in bytes
 #   MEI_CARGO_TARGET_GC_DRY_RUN=1     print action only, do not clean
 #   MEI_CARGO_TARGET_MAX_AGE_DAYS=30    superseded fingerprint TTL
@@ -28,7 +28,7 @@ _cargo_target_gc_max_bytes() {
     printf '%s' "${MEI_CARGO_TARGET_MAX_BYTES}"
     return 0
   fi
-  local max_gb="${MEI_CARGO_TARGET_MAX_GB:-10}"
+  local max_gb="${MEI_CARGO_TARGET_MAX_GB:-30}"
   if [[ ! "${max_gb}" =~ ^[0-9]+$ ]]; then
     echo "error: MEI_CARGO_TARGET_MAX_GB must be an integer, got: ${max_gb}" >&2
     return 1
