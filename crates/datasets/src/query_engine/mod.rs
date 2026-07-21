@@ -18,6 +18,7 @@ pub(crate) use metric_sql::count_primary_dataset_rows;
 pub use pipeline_sql::{snapshot_pipeline_sql_stats, take_pipeline_sql_stats};
 pub(crate) use pipeline_sql::{
     try_eval_dataframe_metrics_via_sql, try_eval_metrics_via_sql_partial,
+    try_page_dataframe_metric_via_sql,
 };
 pub(crate) use query::{query_parquet_page, ParquetPageQuery};
 pub(crate) use register::ensure_parquet_view;

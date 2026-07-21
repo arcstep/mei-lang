@@ -38,6 +38,9 @@ struct DatasetQueryRequest {
     filter_intents: Vec<FilterIntent>,
     #[serde(default)]
     metric_id: Option<String>,
+    /// Columns to compute DISTINCT facet values over the full filtered rowset.
+    #[serde(default)]
+    facet_columns: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +145,14 @@ pub fn query_dataset(ctx: &HostContext, body: &Value) -> Result<Value> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        let resource = locate_dataset_resource(compiled, request.dataset_id.trim())
+            .map_err(|error| anyhow!("{error}"))?;
+        let dataset = resource
+            .dataset
+            .as_ref()
+            .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
+        let mut metric_options = options;
+        metric_options.filters = map_dataset_query_filters(&effective_query_state, dataset);
         query_metric_dataframe(
             compiled,
             app_root.as_path(),
@@ -150,7 +161,7 @@ pub fn query_dataset(ctx: &HostContext, body: &Value) -> Result<Value> {
             Some(scene_id),
             target,
             outcome.compile_revision.as_str(),
-            options,
+            metric_options,
             Some(effective_query_state.clone()),
             request.filter_intents.clone(),
         )?
@@ -192,6 +203,7 @@ pub fn query_dataset(ctx: &HostContext, body: &Value) -> Result<Value> {
         "perf": perf,
         "column_meta": result.column_meta,
         "summary": result.summary,
+        "column_facets": result.column_facets,
     }))
 }
 
@@ -486,6 +498,12 @@ fn dataset_options_from_request(
         sort: Vec::new(),
         column_state: None,
         summary: false,
+        facet_columns: request
+            .facet_columns
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect(),
     }
 }
 

@@ -165,6 +165,123 @@ pub fn query_metric_dataframe(
         &referenced_dataset_ids,
     );
     let sql_ids = vec![workset_metric_id.clone()];
+
+    // Drilldown tables: push filters/page to SQL (0528). Avoids materializing ≤2000 then fail.
+    if !options.collect_all {
+        let default_page_size = meta
+            .lazy
+            .default_page_size
+            .unwrap_or(DEFAULT_PAGE_SIZE)
+            .max(1);
+        let max_page_size = meta
+            .lazy
+            .max_page_size
+            .unwrap_or(MAX_PAGE_SIZE)
+            .max(default_page_size);
+        let page = options.page.max(1);
+        let page_size = if options.page_size == 0 {
+            default_page_size
+        } else {
+            options.page_size.clamp(1, max_page_size)
+        };
+        match crate::query_engine::try_page_dataframe_metric_via_sql(
+            app_root,
+            &sql_datasets,
+            metric_defs_for_sql,
+            workset_metric_id.as_str(),
+            &options.filters,
+            options.search.as_deref(),
+            page,
+            page_size,
+            &options.sort,
+            &options.facet_columns,
+        ) {
+            Ok(Some(paged)) => {
+                let mut columns = paged.columns;
+                let (row_schema, rows) =
+                    format_rows_with_dataset_schema(&columns, paged.rows, &sql_datasets);
+                if !row_schema.is_empty()
+                    && columns.iter().any(|name| {
+                        row_schema.iter().any(|col| {
+                            col.source
+                                .as_deref()
+                                .map(str::trim)
+                                .is_some_and(|source| source == name.as_str())
+                        })
+                    })
+                {
+                    columns = row_schema.iter().map(|col| col.name.clone()).collect();
+                }
+                let metric_eval_ms = elapsed_ms(eval_started);
+                let mut result = DatasetQueryResult {
+                    page: paged.page,
+                    page_size: paged.page_size,
+                    total: paged.total,
+                    has_more: paged.has_more,
+                    columns: columns.clone(),
+                    rows: coerce_calendar_columns_in_rows(rows, &columns, &row_schema),
+                    lazy: true,
+                    perf: BTreeMap::from([
+                        ("base_query_ms".to_string(), 0),
+                        ("base_rowset_materialize_ms".to_string(), 0),
+                        ("metric_eval_ms".to_string(), metric_eval_ms),
+                        ("metric_dataframe_eval_ms".to_string(), metric_eval_ms),
+                        ("query_engine_pipeline_sql".to_string(), 1),
+                        (
+                            "workset_artifact_load_ms".to_string(),
+                            workset_artifact_load_ms,
+                        ),
+                        (
+                            "workset_artifact_hit".to_string(),
+                            u64::from(workset_artifact_hit),
+                        ),
+                        ("response_cache_hit".to_string(), 0),
+                        ("result_artifact_hit".to_string(), 0),
+                        (
+                            "response_cache_key_hash".to_string(),
+                            hash_fingerprint(&response_cache_key),
+                        ),
+                        (
+                            "response_cache_lookup_ms".to_string(),
+                            response_cache_lookup_ms,
+                        ),
+                    ]),
+                    column_meta: if row_schema.is_empty() {
+                        Vec::new()
+                    } else {
+                        column_meta_for_row_schema(&row_schema, &columns)
+                    },
+                    summary: None,
+                    query_state_echo: None,
+                    column_facets: paged.column_facets,
+                };
+                if options.summary {
+                    result.summary = Some(crate::types::TableSummary {
+                        total: result.total,
+                    });
+                }
+                store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
+                if result_artifact_candidate {
+                    store_metric_dataframe_result_artifact(
+                        app_root,
+                        &response_cache_key,
+                        &result,
+                    )?;
+                }
+                return Ok(result);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!(
+                        "pipeline_sql_fallback: metric_id={} dataset={} reason=sql_page",
+                        resolved_metric_id, owner_resource.id
+                    )
+                });
+            }
+        }
+    }
+
     match crate::query_engine::try_eval_dataframe_metrics_via_sql(
         app_root,
         &sql_datasets,

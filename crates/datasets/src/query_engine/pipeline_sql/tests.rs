@@ -1283,7 +1283,7 @@ fn uncovered_pipeline_returns_none_for_fail_fast_callers() {
             "shape": "dataframe",
             "value": {
                 "__kind": "analysis_expr",
-                "type": "split_text",
+                "type": "not_a_real_pipeline_op",
                 "field": "当事人",
                 "rowset": {
                     "__kind": "analysis_expr",
@@ -1725,3 +1725,268 @@ fn mutate_div_extract_match_coalesce_pipeline_sql() {
     // 沙坪坝街道 / 陈家桥街道 / 青木关镇 → 3 groups
     assert_eq!(count, 3);
 }
+
+#[test]
+fn composition_group_by_via_metric_ref_to_scalar_rowset_sql() {
+    use super::try_eval_dataframe_metrics_via_sql;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/warnings.xlsx",
+        &[
+            ("预警ID", DataType::Utf8),
+            ("问题分类名称", DataType::Utf8),
+            ("问题跟踪ID", DataType::Utf8),
+            ("承办部门", DataType::Utf8),
+            ("办结时间", DataType::Utf8),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["W1", "W2", "W3"])),
+            Arc::new(StringArray::from(vec!["模型A", "模型A", "模型B"])),
+            Arc::new(StringArray::from(vec!["T1", "T2", "T3"])),
+            Arc::new(StringArray::from(vec!["部门1", "部门2", "部门3"])),
+            Arc::new(StringArray::from(vec!["2025-01-01", "2025-01-02", "2025-01-03"])),
+        ],
+    );
+
+    let view = DatasetView {
+        id: "warning_list".into(),
+        title: None,
+        purpose: None,
+        schema: Vec::new(),
+        stage_schema: Vec::new(),
+        columns: vec![
+            "预警ID".into(),
+            "问题分类名称".into(),
+            "问题跟踪ID".into(),
+            "承办部门".into(),
+            "办结时间".into(),
+        ],
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/warnings.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert(view.id.clone(), view);
+
+    let ae = |ty: &str, fields: serde_json::Value| {
+        let mut obj = fields.as_object().cloned().unwrap_or_default();
+        obj.insert("__kind".into(), json!("analysis_expr"));
+        obj.insert("type".into(), json!(ty));
+        serde_json::Value::Object(obj)
+    };
+
+    let scalar_rowset = ae(
+        "where",
+        json!({
+            "rowset": ae("first_by", json!({
+                "rowset": ae("rows", json!({"dataset": "warning_list"})),
+                "field": "预警ID"
+            })),
+            "predicate": ae("and", json!({
+                "predicates": [
+                    ae("present", json!({"field":"问题跟踪ID"})),
+                    ae("present", json!({"field":"承办部门"})),
+                    ae("present", json!({"field":"办结时间"}))
+                ]
+            }))
+        }),
+    );
+    let composition = ae(
+        "group_by",
+        json!({
+            "rowset": {"__ref": "metric", "id": "effectiveness_completed_count::__scalar_rowset__"},
+            "by": "问题分类名称",
+            "agg": "count",
+            "limit": 6
+        }),
+    );
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "effectiveness_completed_count::__scalar_rowset__".into(),
+        json!({
+            "shape": "dataframe",
+            "value": scalar_rowset.clone()
+        }),
+    );
+    defs.insert(
+        "effectiveness_completed_count::composition_by_category".into(),
+        json!({
+            "shape": "dataframe",
+            "value": composition,
+            "schema": [
+                {"name": "问题分类名称", "type": "string"},
+                {"name": "value", "type": "number"}
+            ]
+        }),
+    );
+
+    let scalar_rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &scalar_rowset)
+        .expect("scalar sql")
+        .expect("scalar_rowset must lower");
+    assert_eq!(scalar_rows.len(), 3, "scalar_rows={scalar_rows:?}");
+
+    let direct = ae(
+        "group_by",
+        json!({
+            "rowset": scalar_rowset.clone(),
+            "by": "问题分类名称",
+            "agg": "count",
+            "limit": 6
+        }),
+    );
+    let direct_rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &direct)
+        .expect("direct sql")
+        .expect("direct group_by over filtered scalar_rowset must lower/exec");
+    assert_eq!(direct_rows.len(), 2, "direct_rows={direct_rows:?}");
+
+    let out = try_eval_dataframe_metrics_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        &["effectiveness_completed_count::composition_by_category".into()],
+    )
+    .expect("sql eval");
+    assert!(
+        out.is_some(),
+        "composition via metric ref must lower; defs keys={:?}",
+        defs.keys().collect::<Vec<_>>()
+    );
+    let metrics = out.expect("metrics map");
+    let rows = metrics
+        .get("effectiveness_completed_count::composition_by_category")
+        .expect("metric")
+        .value
+        .as_array()
+        .expect("array");
+    assert_eq!(rows.len(), 2, "rows={rows:?}");
+    let total: f64 = rows
+        .iter()
+        .filter_map(|row| row.get("value").and_then(|v| v.as_f64()))
+        .sum();
+    assert!((total - 3.0).abs() < 1e-9, "total={total} rows={rows:?}");
+}
+
+#[test]
+fn pipeline_sql_page_and_facets_over_large_rowset() {
+    use super::try_page_dataframe_metric_via_sql;
+    use std::collections::BTreeMap;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    let n = 2500usize;
+    let ids: Vec<&str> = (0..n).map(|i| {
+        // leak for Array lifetime simplicity via owned strings below
+        Box::leak(format!("R{i}").into_boxed_str()) as &str
+    }).collect();
+    let agencies: Vec<&str> = (0..n)
+        .map(|i| {
+            let name = format!("机构{}", i % 60);
+            Box::leak(name.into_boxed_str()) as &str
+        })
+        .collect();
+    write_parquet_table(
+        app_root,
+        "upload/data/inspections.xlsx",
+        &[
+            ("序号", DataType::Utf8),
+            ("检查机构", DataType::Utf8),
+        ],
+        vec![
+            Arc::new(StringArray::from(ids)),
+            Arc::new(StringArray::from(agencies)),
+        ],
+    );
+
+    let view = DatasetView {
+        id: "inspections".into(),
+        title: None,
+        purpose: None,
+        schema: Vec::new(),
+        stage_schema: Vec::new(),
+        columns: vec!["序号".into(), "检查机构".into()],
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/inspections.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert("inspections".into(), view);
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "inspections_total_count::__scalar_rowset__".into(),
+        json!({
+            "shape": "dataframe",
+            "schema": [
+                {"name": "序号", "type": "string"},
+                {"name": "检查机构", "type": "string"}
+            ],
+            "value": {"__ref": "data", "id": "inspections"}
+        }),
+    );
+
+    let page = try_page_dataframe_metric_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        "inspections_total_count::__scalar_rowset__",
+        &BTreeMap::new(),
+        None,
+        1,
+        50,
+        &[],
+        &["检查机构".into()],
+    )
+    .expect("page ok")
+    .expect("must page large rowset");
+    assert_eq!(page.total, n);
+    assert_eq!(page.rows.len(), 50);
+    assert!(page.has_more);
+    let facets = page
+        .column_facets
+        .get("检查机构")
+        .expect("facet column");
+    assert_eq!(facets.len(), 60, "facets={facets:?}");
+    assert!(
+        facets.windows(2).all(|w| w[0].count >= w[1].count),
+        "must be count-desc: {facets:?}"
+    );
+    let total_count: u64 = facets.iter().map(|f| f.count).sum();
+    assert_eq!(total_count, n as u64);
+}
+

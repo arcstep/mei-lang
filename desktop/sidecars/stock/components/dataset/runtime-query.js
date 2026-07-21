@@ -3321,9 +3321,14 @@ function shouldDeferUncoveredBootstrapMetricFetch(props, metricIds = []) {
   if (bootstrapCoversRequestedMetrics(metricIds)) {
     return false;
   }
-  const datasetId = String(resolveRuntimeMetricRef(props)?.dataset_id || "").trim();
-  if (datasetId.includes("map.bundle.mei")) {
-    return true;
+  // map.bundle 常含大 dataframe（全量/规上 POI），不一定进 client bootstrap。
+  // 仅在 seed 尚未就绪时短暂等待；seed 已就绪仍缺清单 → 放行网络，避免整批永远 null
+  //（否则默认街镇设色/POI 会一起丢光）。
+  if (!bootstrapSeedReady()) {
+    const datasetId = String(resolveRuntimeMetricRef(props)?.dataset_id || "").trim();
+    if (datasetId.includes("map.bundle.mei")) {
+      return true;
+    }
   }
   return false;
 }
@@ -4800,6 +4805,7 @@ export async function fetchDatasetRows(
     sort = [],
     columnState = null,
     summary = false,
+    facetColumns = [],
     signal = undefined,
     meta = {},
   } = {}
@@ -4872,6 +4878,13 @@ export async function fetchDatasetRows(
     sort: normalizedSort.length > 0 ? normalizedSort : undefined,
     column_state: normalizedColumnState,
     summary: summary === true,
+    ...(Array.isArray(facetColumns) && facetColumns.length > 0
+      ? {
+          facet_columns: [
+            ...new Set(facetColumns.map((value) => String(value || "").trim()).filter(Boolean)),
+          ],
+        }
+      : {}),
   };
   const errorContext = {
     scene_id: safeTrim(payload.scene_id || props?._mei?.active_scene_id),
@@ -4977,11 +4990,7 @@ export async function fetchDatasetRows(
       );
     }
     if (bootstrapPackExpected() && bootstrapSeedReady()) {
-      const metricIds = safeTrim(metricId) ? [metricId] : [];
-      if (!bootstrapCoversRequestedMetrics(metricIds) && String(datasetId).includes("map.bundle.mei")) {
-        window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_partial_defer";
-        return waitForSharedPromise(Promise.resolve(null), signal);
-      }
+      // map.bundle 未进 bootstrap 清单的大表不再永久 defer，落到下方网络/JIT 路径。
       window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "dataset_cache_miss_after_seed";
       if (recentScopeActivationMatches(props)) {
         const sceneId = String(

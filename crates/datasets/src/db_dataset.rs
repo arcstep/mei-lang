@@ -93,6 +93,7 @@ pub(crate) fn query_db_rows(
             column_meta: Vec::new(),
             summary: None,
             query_state_echo: None,
+            column_facets: std::collections::BTreeMap::new(),
         };
         result
             .perf

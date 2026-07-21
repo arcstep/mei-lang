@@ -77,6 +77,7 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             sort: Vec::new(),
             column_state: None,
             summary: false,
+            facet_columns: Vec::new(),
         };
         let applied_filters = load_query.filters.len() as u64;
         let dropped_filters = query.filters.len().saturating_sub(load_query.filters.len()) as u64;

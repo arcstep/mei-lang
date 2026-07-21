@@ -67,6 +67,7 @@ pub(crate) fn query_xlsx_rows(
             column_meta: Vec::new(),
             summary: None,
             query_state_echo: None,
+            column_facets: page.column_facets,
         };
         // Only cache small pages — never whole-table collect_all into rows cache.
         if !options.collect_all {
@@ -121,6 +122,7 @@ pub(crate) fn query_xlsx_rows(
             column_meta: Vec::new(),
             summary: None,
             query_state_echo: None,
+            column_facets: std::collections::BTreeMap::new(),
         };
         result
             .perf

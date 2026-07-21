@@ -37,6 +37,7 @@ fn paginate_materialized_metric_dataframe(
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),
         summary: options.summary,
+        facet_columns: options.facet_columns.clone(),
     };
 
     let mut result = paginate_rows(

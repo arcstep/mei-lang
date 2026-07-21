@@ -114,7 +114,9 @@ pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
     TableSortSpec,
 };
-pub use types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
+pub use types::{
+    DatasetQueryOptions, DatasetQueryResult, TableColumnFacet, TableColumnMeta, TableSummary,
+};
 
 /// 将 query_state 中的逻辑 filter 维度（如 agencies）映射为数据集列名（如 检查机构）。
 pub fn map_dataset_query_filters(

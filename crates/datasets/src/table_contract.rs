@@ -469,6 +469,7 @@ mod tests {
                 }],
                 summary: None,
                 query_state_echo: None,
+                column_facets: BTreeMap::new(),
             },
         );
         assert_eq!(result.column_meta[0].type_name, "date");

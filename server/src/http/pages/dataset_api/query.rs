@@ -187,6 +187,12 @@ pub async fn dataset_query_api(
         request.column_state.clone(),
         request.summary,
     );
+    query.facet_columns = request
+        .facet_columns
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
     let metric_id = request
         .metric_id
         .as_deref()
@@ -302,5 +308,6 @@ pub async fn dataset_query_api(
         column_meta: result.column_meta,
         summary: result.summary,
         query_state_echo: result.query_state_echo,
+        column_facets: result.column_facets,
     }))
 }

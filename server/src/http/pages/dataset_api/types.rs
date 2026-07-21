@@ -39,6 +39,9 @@ pub struct DatasetQueryRequest {
     pub column_state: Option<TableColumnState>,
     #[serde(default, deserialize_with = "serde_lenient::bool_default_false")]
     pub summary: bool,
+    /// Columns to compute DISTINCT facet values over the full filtered rowset.
+    #[serde(default)]
+    pub facet_columns: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +66,8 @@ pub struct DatasetQueryResponse {
     pub summary: Option<crate::http::datasets::TableSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_state_echo: Option<crate::http::datasets::table_contract::QueryStateEcho>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub column_facets: BTreeMap<String, Vec<crate::http::datasets::TableColumnFacet>>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -17,6 +17,9 @@ pub struct DatasetQueryOptions {
     pub sort: Vec<TableSortSpec>,
     pub column_state: Option<TableColumnState>,
     pub summary: bool,
+    /// When non-empty, query path computes SQL DISTINCT facet values for these columns
+    /// (full filtered rowset — not limited to the returned page sample).
+    pub facet_columns: Vec<String>,
 }
 
 impl Default for DatasetQueryOptions {
@@ -32,6 +35,7 @@ impl Default for DatasetQueryOptions {
             sort: Vec::new(),
             column_state: None,
             summary: false,
+            facet_columns: Vec::new(),
         }
     }
 }
@@ -50,6 +54,13 @@ pub struct TableSummary {
     pub total: usize,
 }
 
+/// One facet bucket for filter-bar enum options (value + row count).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TableColumnFacet {
+    pub value: String,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatasetQueryResult {
     pub page: usize,
@@ -66,6 +77,9 @@ pub struct DatasetQueryResult {
     pub summary: Option<TableSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_state_echo: Option<super::table_contract::QueryStateEcho>,
+    /// Filtered-rowset facet buckets for requested `facet_columns` (top-N by count desc).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub column_facets: BTreeMap<String, Vec<TableColumnFacet>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

@@ -33,6 +33,7 @@ pub struct ParquetPageResult {
     pub rows: Vec<Value>,
     pub query_engine_ms: u64,
     pub rows_materialized: usize,
+    pub column_facets: BTreeMap<String, Vec<crate::types::TableColumnFacet>>,
 }
 
 pub fn query_parquet_page(app_root: &Path, req: ParquetPageQuery<'_>) -> Result<ParquetPageResult> {
@@ -120,6 +121,32 @@ pub fn query_parquet_page(app_root: &Path, req: ParquetPageQuery<'_>) -> Result<
     } else {
         rows
     };
+    let mut column_facets = BTreeMap::new();
+    for column in req
+        .options
+        .facet_columns
+        .iter()
+        .take(super::pipeline_sql::MAX_FACET_COLUMNS_PER_QUERY)
+    {
+        let name = column.trim();
+        if name.is_empty() {
+            continue;
+        }
+        match query_parquet_facets(
+            app_root,
+            &view_ident,
+            name,
+            &where_sql,
+            super::pipeline_sql::MAX_COLUMN_FACET_VALUES,
+        ) {
+            Ok(values) => {
+                column_facets.insert(name.to_string(), values);
+            }
+            Err(err) => {
+                tracing::debug!(column = %name, error = %err, "parquet facet group skipped");
+            }
+        }
+    }
     let materialized = page_rows.len();
     let ms = elapsed_ms(started);
     record_query_engine_ms(ms);
@@ -138,7 +165,72 @@ pub fn query_parquet_page(app_root: &Path, req: ParquetPageQuery<'_>) -> Result<
         rows: page_rows,
         query_engine_ms: ms,
         rows_materialized: materialized,
+        column_facets,
     })
+}
+
+fn query_parquet_facets(
+    app_root: &Path,
+    view_ident: &str,
+    column: &str,
+    where_sql: &str,
+    limit: usize,
+) -> Result<Vec<crate::types::TableColumnFacet>> {
+    let col = quote_ident(column)?;
+    let col_expr = format!("TRIM(CAST({col} AS VARCHAR))");
+    let facet_where = if where_sql.is_empty() {
+        format!(" WHERE {col_expr} IS NOT NULL AND {col_expr} <> ''")
+    } else {
+        format!("{where_sql} AND {col_expr} IS NOT NULL AND {col_expr} <> ''")
+    };
+    let limit = limit.max(1);
+    let sql = format!(
+        "SELECT {col_expr} AS v, CAST(COUNT(*) AS BIGINT) AS c \
+         FROM {view_ident}{facet_where} \
+         GROUP BY {col_expr} \
+         ORDER BY c DESC, v ASC \
+         LIMIT {limit}"
+    );
+    let rows = with_app_session(app_root, |ctx| {
+        block_on(async {
+            let batches = ctx
+                .sql(&sql)
+                .await
+                .with_context(|| format!("prepare parquet facet sql: {sql}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect parquet facet sql: {sql}"))?;
+            batches_to_json_rows(&batches)
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let text = row
+            .get("v")
+            .and_then(|value| match value {
+                Value::String(s) => Some(s.trim().to_string()),
+                Value::Number(n) => Some(n.to_string()),
+                Value::Bool(b) => Some(b.to_string()),
+                _ => None,
+            })
+            .filter(|s| !s.is_empty());
+        let Some(text) = text else {
+            continue;
+        };
+        let count = row
+            .get("c")
+            .and_then(|value| match value {
+                Value::Number(n) => n.as_u64().or_else(|| n.as_i64().map(|v| v.max(0) as u64)),
+                Value::String(s) => s.trim().parse::<u64>().ok(),
+                _ => None,
+            })
+            .unwrap_or(0);
+        out.push(crate::types::TableColumnFacet {
+            value: text,
+            count,
+        });
+    }
+    Ok(out)
 }
 
 pub fn query_parquet_scalar_i64(

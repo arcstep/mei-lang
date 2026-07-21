@@ -76,6 +76,7 @@ where
         column_meta: Vec::new(),
         summary: None,
         query_state_echo: None,
+        column_facets: std::collections::BTreeMap::new(),
     }
 }
 
@@ -150,6 +151,7 @@ where
         column_meta: Vec::new(),
         summary: None,
         query_state_echo: None,
+        column_facets: std::collections::BTreeMap::new(),
     }
 }
 

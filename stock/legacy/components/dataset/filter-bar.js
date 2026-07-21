@@ -286,18 +286,56 @@ class MeiDatasetFilterBar extends HTMLElement {
       },
     };
     try {
-      const FILTER_OPTIONS_MAX_ROWS = 2048;
+      const FACET_COLUMNS_MAX = 8;
+      const facetColumns = [];
+      const seen = new Set();
+      const pushFacet = (value) => {
+        const name = String(value || "").trim();
+        if (!name || seen.has(name) || facetColumns.length >= FACET_COLUMNS_MAX) return;
+        seen.add(name);
+        facetColumns.push(name);
+      };
+      // Prefer fields that actually need rowset enums; avoid scanning every catalog column.
+      for (const field of this._fields || []) {
+        if (!shouldLoadRowsetOptions(field)) continue;
+        pushFacet(field?.options_field || field?.column || fieldQueryKey(field));
+      }
+      for (const field of profileCatalog || []) {
+        if (typeof field === "string") continue;
+        const control = normalizeControl(field);
+        if (control === "text" || control === "date_range") continue;
+        if (Array.isArray(field?.options) && field.options.length > 0) continue;
+        const optionsFrom = String(field?.options_from || field?.optionsFrom || "rowset").trim();
+        if (optionsFrom && optionsFrom !== "rowset") continue;
+        pushFacet(field?.options_field || field?.optionsField || field?.column || field?.key || field?.field);
+      }
       const result = await fetchDatasetRows(props, {
         page: 1,
-        pageSize: FILTER_OPTIONS_MAX_ROWS,
+        pageSize: 1,
         full: false,
+        facetColumns,
         meta: { component: "dataset.filter-bar", request_id: "filter-bar-options" },
       });
+      const facets =
+        result?.column_facets && typeof result.column_facets === "object"
+          ? result.column_facets
+          : {};
       const rows = Array.isArray(result?.rows) ? result.rows : [];
       if (this._schemaMode || this._additiveMode) {
-        this._columnProfiles = buildColumnProfiles(profileCatalog, rows);
+        const profileRows =
+          Object.keys(facets).length > 0
+            ? Object.entries(facets).flatMap(([column, options]) =>
+                normalizeFacetOptions(options).map((item) => ({ [column]: item.value })),
+              )
+            : rows;
+        this._columnProfiles = buildColumnProfiles(profileCatalog, profileRows);
         for (const field of profileCatalog) {
           const column = fieldQueryKey(field);
+          const facetOptions = normalizeFacetOptions(facets[column]);
+          if (facetOptions.length > 0) {
+            this._fieldOptions.set(column, facetOptions);
+            continue;
+          }
           const profile = this._columnProfiles.get(column) || null;
           if (Array.isArray(profile?.options) && profile.options.length > 0) {
             this._fieldOptions.set(column, profile.options);
@@ -309,6 +347,27 @@ class MeiDatasetFilterBar extends HTMLElement {
         const queryKey = fieldQueryKey(field);
         const optionsField = String(field?.options_field || field?.column || queryKey).trim();
         const control = normalizeControl(field);
+        const facetOptions = normalizeFacetOptions(
+          facets[optionsField] || facets[queryKey] || [],
+        );
+        if (facetOptions.length > 0) {
+          if (control === "month_multi_select") {
+            const monthCounts = new Map();
+            for (const item of facetOptions) {
+              const month = extractYearMonth(item.value);
+              if (!month) continue;
+              monthCounts.set(month, (monthCounts.get(month) || 0) + (item.count || 0));
+            }
+            const sorted = Array.from(monthCounts.entries())
+              .map(([value, count]) => ({ value, count }))
+              .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "zh-CN"));
+            this._fieldOptions.set(queryKey, sorted);
+          } else {
+            // Server already returns count-desc; keep that order.
+            this._fieldOptions.set(queryKey, facetOptions);
+          }
+          continue;
+        }
         const values = new Set();
         for (const row of rows) {
           const raw = row && typeof row === "object" ? row[optionsField] : "";
@@ -1095,13 +1154,23 @@ function resolveMultiOptions(options, selectedValues) {
   const items = [];
   const seen = new Set();
   for (const option of options || []) {
-    const optionValue = typeof option === "string" ? option : option?.value || "";
+    const optionValue =
+      typeof option === "string" ? option : option?.value ?? option?.id ?? "";
     const text = String(optionValue).trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
+    const countRaw =
+      typeof option === "object" && option
+        ? option.count ?? option.n ?? option.total
+        : null;
+    const count = Number(countRaw);
+    const hasCount = Number.isFinite(count) && count >= 0;
+    const baseLabel =
+      typeof option === "string" ? option : option?.label || text;
     items.push({
       value: text,
-      label: typeof option === "string" ? option : option?.label || text,
+      label: hasCount ? `${baseLabel}（${formatFacetCount(count)}）` : baseLabel,
+      count: hasCount ? count : undefined,
     });
   }
   for (const value of selectedValues || []) {
@@ -1111,6 +1180,35 @@ function resolveMultiOptions(options, selectedValues) {
     items.push({ value: text, label: text });
   }
   return items;
+}
+
+function formatFacetCount(count) {
+  const n = Math.floor(Number(count) || 0);
+  if (n >= 10000) {
+    const wan = n / 10000;
+    return `${wan >= 10 ? Math.round(wan) : wan.toFixed(1).replace(/\.0$/, "")}万`;
+  }
+  return String(n);
+}
+
+function normalizeFacetOptions(rawOptions) {
+  if (!Array.isArray(rawOptions)) return [];
+  return rawOptions
+    .map((item) => {
+      if (typeof item === "string") {
+        const value = String(item || "").trim();
+        return value ? { value, count: 0 } : null;
+      }
+      if (!item || typeof item !== "object") return null;
+      const value = String(item.value ?? item.id ?? item.label ?? "").trim();
+      if (!value) return null;
+      const count = Number(item.count ?? item.n ?? 0);
+      return {
+        value,
+        count: Number.isFinite(count) && count > 0 ? count : 0,
+      };
+    })
+    .filter(Boolean);
 }
 
 function profileForColumn(column, profiles) {

@@ -27,6 +27,7 @@ fn metric_output_pagination_options(options: &DatasetQueryOptions) -> DatasetQue
         filters: BTreeMap::new(),
         group: Vec::new(),
         time_range: None,
+        facet_columns: options.facet_columns.clone(),
     }
 }
 
@@ -50,7 +51,7 @@ fn metric_dataframe_scope_cache_key(
     let group = serialize_cache_value(&options.group);
     let time_range = serialize_cache_value(&options.time_range);
     format!(
-        "{}|compile={}|{}|scene={}|target={}|{}|{}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
+        "{}|compile={}|{}|scene={}|target={}|{}|{}|search={}|filters={}|group={}|time_range={}|filter_intents={}|facets={}",
         app_root.display(),
         compile_revision,
         dependency_revision_key,
@@ -63,6 +64,7 @@ fn metric_dataframe_scope_cache_key(
         group,
         time_range,
         serde_json::to_string(filter_intents).unwrap_or_else(|_| "[]".to_string()),
+        serialize_cache_value(&options.facet_columns),
     )
 }
 
