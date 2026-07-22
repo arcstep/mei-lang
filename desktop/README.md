@@ -60,6 +60,13 @@ mei-lang/desktop/dist/mei-viewer-<version>-aarch64-apple-darwin.manifest.json
 mei-lang/desktop/src-tauri/target/release/bundle/macos/mei-viewer.app
 ```
 
+macOS zip 注意：
+
+- 打包脚本会在打 zip 前对 `.app` 做 adhoc `codesign --deep`，避免「未压缩能开、解压后提示损坏」。
+- 请用 Finder 或 `ditto -x -k xxx.zip ~/Applications` 解压；避免用会弄乱结构的第三方工具。
+- 若从浏览器下载后仍提示损坏，多半是隔离属性：`xattr -cr mei-viewer.app` 后再开。
+- 正式分发仍需 Apple 开发者签名 + 公证；adhoc 仅适合内测。
+
 `npm run build` 会在 `tauri build` 之后跑 `scripts/package-release.mjs`：复制稳定 `.app` 到 `dist/`，并打版本化 zip。
 
 打开：

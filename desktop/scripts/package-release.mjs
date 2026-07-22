@@ -95,13 +95,19 @@ function zipMacApp(appDir, outZip) {
   if (platform() !== "darwin") {
     throw new Error("macOS .app packaging requires running on darwin");
   }
-  run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appDir, outZip]);
+  // Tauri/linker adhoc signatures often break across zip round-trips
+  // ("code has no resources but signature indicates they must be present").
+  // Re-sign deep before archive so extract+open works for local/CI zips.
+  run("codesign", ["--force", "--deep", "--sign", "-", appDir]);
+  // Prefer plain zip (no __MACOSX AppleDouble). Finder/ditto extract keep structure.
+  run("ditto", ["-c", "-k", "--keepParent", appDir, outZip]);
 }
 
 /** Copy .app into dist/mei-viewer.app (stable path for Finder / open). */
 function syncStableMacApp(appDir, destApp) {
   rmSync(destApp, { recursive: true, force: true });
   run("ditto", [appDir, destApp]);
+  run("codesign", ["--force", "--deep", "--sign", "-", destApp]);
 }
 
 function cleanDistArtifacts() {
