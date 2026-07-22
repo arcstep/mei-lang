@@ -1,0 +1,237 @@
+# 大屏顶栏 / section 壳 / content fill 宏（Fill-down）。
+# section 用 section_shell；content 用 content_fill_props / content_strip（无 row_budgets）。
+# content_panel 将在后续阶段更名为 content_panel。
+
+TPL_PANEL = "/workspace-app-assets/templates/cockpit/assets/panel"
+TPL_HEADER = "/workspace-app-assets/templates/cockpit/assets/header"
+
+RAIL_STANDARD_GAP = "12px"
+# 上 = 标题栏与 slot 间距；右/下/左 = section 内 inset
+SHELL_BODY_PADDING_COMPACT = "8px 6px 6px 6px"
+SHELL_BODY_PADDING_DENSE = "8px 4px 4px 4px"
+DEBUG_SHELL_SHADOW = "var(--mei-layout-debug-shell-shadow, inset 0 0 0 0 transparent)"
+DEBUG_BODY_SHADOW = "var(--mei-layout-debug-body-shadow, inset 0 0 0 0 transparent)"
+
+template panel_title_decor(
+    caret_url = TPL_PANEL + "/caret-left-filled@3x.svg",
+):
+    {
+        "url": caret_url,
+        "left": "26.2%",
+        "right": "71.2%",
+        "left_rotate": "180deg",
+        "size": "14px 24px",
+    }
+
+template panel_shell_props(
+    width = "522px",
+    height = "232px",
+):
+    {
+        "border": "1px solid rgba(52, 82, 108, 0.5)",
+        "box_shadow": DEBUG_SHELL_SHADOW,
+        "radius": "0",
+        "width": width,
+        "height": height,
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+template rail_standard_gap():
+    RAIL_STANDARD_GAP
+
+template shell_body_padding_compact():
+    SHELL_BODY_PADDING_COMPACT
+
+template shell_body_padding_dense():
+    SHELL_BODY_PADDING_DENSE
+
+template panel_body_props(
+    padding = "0",
+):
+    {
+        "padding": padding,
+        "background": "transparent",
+        "box_shadow": DEBUG_BODY_SHADOW,
+        "height": "100%",
+        "min_height": "0",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+template panel_body(
+    body = None,
+    padding = "0",
+):
+    panel(
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = panel_body_props(padding = padding),
+        blocks = [body],
+    )
+
+template panel_title_heading():
+    {
+        "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+        "font": "4",
+        "font_weight": "700",
+        "letter_spacing": "20px",
+        "color": "panel_title",
+    }
+
+template screen_header_assets(
+    title_bg = TPL_HEADER + "/screen-title-bg@3x.svg",
+    title_mid = TPL_HEADER + "/screen-title-center@3x.svg",
+):
+    {
+        "title_bg": title_bg,
+        "title_mid": title_mid,
+    }
+
+template screen_header(
+    title = "标题占位",
+    assets = screen_header_assets(),
+    cap_min_width = 633,
+):
+    content_panel(
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = {
+            "padding": "0",
+            "background": "rgba(10, 36, 72, 0.68)",
+            "border": "none",
+            "width": "100%",
+            # 高度由 plane header 行（如 72px）fill-down；禁止 section 手写固定 height。
+            "height": "100%",
+            "min_height": "0",
+            "overflow": "hidden",
+            "box_sizing": "border-box",
+        },
+        blocks = [
+            component(
+                "cockpit.header-brand",
+                id = "screen_header_brand",
+                props = {
+                    "title": title,
+                    "assets": assets,
+                    "capMinWidth": cap_min_width,
+                    "titleColor": "#E8F0FF",
+                    "titleLineHeight": "68px",
+                    "titleLetterSpacing": "0",
+                },
+            ),
+        ],
+    )
+
+template panel_shell_props_width_only(
+    width = "522px",
+):
+    {
+        "border": "1px solid rgba(52, 82, 108, 0.5)",
+        "box_shadow": DEBUG_SHELL_SHADOW,
+        "radius": "0",
+        "width": width,
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+template padding_profile_css(profile = "space_1"):
+    {
+        "dense_strip_100": "8px 4px 2px 4px",
+        "compact_ai": "8px 6px 3px 6px",
+        "compact": "8px 6px 6px 6px",
+        "dense": "8px 4px 4px 4px",
+        "space_1": "1px",
+        "none": "0",
+    }.get(profile, "1px")
+
+template content_strip_bare_props(
+    padding = "0",
+    background = "transparent",
+    height = "100%",
+):
+    {
+        "padding": padding,
+        "background": background,
+        "border": "none",
+        "radius": "0",
+        "height": height,
+        "min_height": "0",
+        "width": "100%",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+# Fill-down body：section 高度由 region fr 分配，content 水平+垂直撑满（stretch）。
+# Fill-down 尺寸由 StageLayoutProfile(cockpit) 在作者省略时注入。
+# 本宏仅作显式「需要 fill」标记；勿再叠 width/height/min_height。
+template content_fill_props():
+    {
+        "__mei_layout_fill": True,
+    }
+
+template content_strip(
+    gap = "0",
+    blocks = [],
+    id = "content_strip",
+    area = "auto",
+    rows = ["1fr"],
+    columns = ["1fr"],
+    areas = None,
+    column_gap = None,
+    align = "stretch",
+    justify = "stretch",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = content_fill_props(),
+        layout = grid(
+            rows = rows,
+            columns = columns,
+            areas = areas,
+            gap = gap if column_gap == None else column_gap,
+            align = align,
+            justify = justify,
+        ),
+        blocks = blocks,
+    )
+
+template section_shell(
+    title,
+    body = None,
+    width = "100%",
+    padding_profile = "space_1",
+    margin = "0",
+    justify_self = None,
+    # 叠在地图上的 section：单 child（如 data-table）会折叠掉内层 content_panel，
+    # 必须把底板写在 section 壳上，否则 panel_glow_bg 会丢失变成全透明。
+    background = None,
+):
+    content_panel(
+        variant = "container",
+        title = title,
+        title_background = {
+            "image": "panel_title_bar",
+            "position": "center",
+            "size": "100% 100%",
+            "repeat": "no-repeat",
+        },
+        title_decor = panel_title_decor(),
+        title_height = "54px",
+        title_align = "center",
+        heading_variant = "plain",
+        heading = panel_title_heading(),
+        props = panel_shell_props_width_only(width = width) | {
+            "__mei_padding_profile": padding_profile,
+            "margin": margin,
+            "justify_self": justify_self,
+            "background": background,
+        },
+        blocks = [panel_body(body = body, padding = padding_profile_css(padding_profile))],
+    )

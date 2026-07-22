@@ -2,12 +2,15 @@ import { escapeHtml, parseProps, resolveWorldRef } from "./shared.js";
 import {
   ensureWorldStageInputPlane,
   layoutWorldStageInputPlane,
+  mountCockpitFloatingControl,
+  positionFocusInsetTopRight,
   resolveCockpitMapToolHost,
   setWorldStageInputPlaneActive,
 } from "./cockpit-stage-overlay.js";
 import { resolveCockpitStageSurface } from "./map-focus-inset.js";
 import { createWorldPropScreenMesh } from "./world-prop-screen.js";
 import { normalizeImportedFootprint } from "../gis/layer-spec.js";
+import { buildLocalHeroFacadeOverlay } from "../map/maplibre/map-hero-facade.js";
 
 let THREE = null;
 let OrbitControls = null;
@@ -37,8 +40,8 @@ function isWorldStageActive() {
 }
 const ORBIT_MIN_DISTANCE = 5;
 const ORBIT_MAX_DISTANCE = 960;
-const ORBIT_MIN_POLAR_DEG = 18;
-const ORBIT_MAX_POLAR_DEG = 80;
+const ORBIT_MIN_POLAR_DEG = 12;
+const ORBIT_MAX_POLAR_DEG = 85;
 const PICK_MOVE_THRESHOLD_PX = 6;
 const FOOTPRINT_LAYER = {
   site_outline: { lift: 0.012, renderOrder: 10, opacity: 0.18, color: 0x93c5fd },
@@ -72,7 +75,8 @@ function resolveWorldQuality(props) {
     id: "park",
     pixelRatioCap: 1.5,
     antialias: true,
-    logarithmicDepthBuffer: false,
+    // Tall towers (100m+) need log depth or shell/floor edges shimmer while orbiting.
+    logarithmicDepthBuffer: true,
   };
 }
 
@@ -158,19 +162,22 @@ function footprintLayerFor(renderFamily) {
   return FOOTPRINT_LAYER.default;
 }
 
-function createFootprintSurfaceMaterial({ color, opacity }) {
-  const transparent = opacity < 0.999;
+function createFootprintSurfaceMaterial({ color, opacity, doubleSide = false }) {
+  const clamped = Math.min(1, Math.max(Number(opacity) || 1, 0));
+  const opaque = clamped >= 0.9;
+  const transparent = !opaque && clamped < 0.999;
   return new THREE.MeshStandardMaterial({
     color,
-    roughness: transparent ? 0.42 : 0.92,
-    metalness: transparent ? 0.04 : 0.02,
+    roughness: opaque ? 0.78 : 0.42,
+    metalness: opaque ? 0.04 : 0.06,
     transparent,
-    opacity,
-    side: THREE.DoubleSide,
-    depthWrite: !transparent,
+    opacity: opaque ? 1 : clamped,
+    side: doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+    depthWrite: opaque || clamped >= 0.55,
+    depthTest: true,
     polygonOffset: transparent,
-    polygonOffsetFactor: transparent ? -1 : 0,
-    polygonOffsetUnits: transparent ? -1 : 0,
+    polygonOffsetFactor: transparent ? 1 : 0,
+    polygonOffsetUnits: transparent ? 1 : 0,
   });
 }
 
@@ -184,10 +191,12 @@ function ringToShape(ring, origin) {
   const shape = new THREE.Shape();
   ring.forEach((coord, index) => {
     const point = geoToLocal(coord[0], coord[1], origin);
+    // Shape lies in XY; after rotateX(-π/2), shapeY becomes -worldZ.
+    // Store -local.z so the mesh lands on the same +Z as geoToLocal walls/roof.
     if (index === 0) {
-      shape.moveTo(point.x, point.z);
+      shape.moveTo(point.x, -point.z);
     } else {
-      shape.lineTo(point.x, point.z);
+      shape.lineTo(point.x, -point.z);
     }
   });
   return shape;
@@ -219,6 +228,58 @@ function footprintEnvelope(ring, origin) {
     halfD: Math.max((maxZ - minZ) / 2, 1.2),
     ring,
   };
+}
+
+/** Vertical wall segments along footprint edges (absolute local meters). */
+function wallSegmentsFromRing(ring, origin, thickness, insetMeters = 0.32) {
+  if (!Array.isArray(ring) || ring.length < 3) return [];
+  const points = [];
+  for (const coord of ring) {
+    if (!Array.isArray(coord) || coord.length < 2) continue;
+    const local = geoToLocal(coord[0], coord[1], origin);
+    points.push({ x: local.x, z: local.z });
+  }
+  if (points.length < 3) return [];
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first.x !== last.x || first.z !== last.z) {
+    points.push({ x: first.x, z: first.z });
+  }
+  let cx = 0;
+  let cz = 0;
+  const n = points.length - 1;
+  for (let i = 0; i < n; i += 1) {
+    cx += points[i].x;
+    cz += points[i].z;
+  }
+  cx /= Math.max(n, 1);
+  cz /= Math.max(n, 1);
+  const inset = Math.max(Number(insetMeters) || 0, 0);
+  const segments = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.4) continue;
+    let mx = (a.x + b.x) * 0.5;
+    let mz = (a.z + b.z) * 0.5;
+    // Pull segment inward so it does not coplanar-fight the extruded shell.
+    const ix = cx - mx;
+    const iz = cz - mz;
+    const ilen = Math.hypot(ix, iz) || 1;
+    mx += (ix / ilen) * inset;
+    mz += (iz / ilen) * inset;
+    segments.push({
+      x: mx,
+      z: mz,
+      length: Math.max(length - inset * 0.15, 0.5),
+      yaw: Math.atan2(dx, dz),
+      thickness,
+    });
+  }
+  return segments;
 }
 
 function resolveBuildingIdFromParent(parentId, plan) {
@@ -366,6 +427,9 @@ class MeiWorldStage extends HTMLElement {
     this._resizeDebounceTimer = 0;
     this._inputSurface = null;
     this._controlsDom = null;
+    this._orbitAnchor = null;
+    this._orbitPanRadius = 16;
+    this._orbitPanVertical = 20;
     this._onWorldStageEntered = null;
     this._onWorldStageExited = null;
     this._onViewportStageLayout = null;
@@ -670,6 +734,7 @@ class MeiWorldStage extends HTMLElement {
     }
     this._controlsDom = null;
     this._inputSurface = null;
+    this._orbitAnchor = null;
     if (this._scene) {
       this._scene.traverse((obj) => {
         if (obj.geometry) {
@@ -902,6 +967,30 @@ class MeiWorldStage extends HTMLElement {
     this._controls.connect(domElement);
     this._controlsDom = domElement;
     domElement.tabIndex = 0;
+    if (!domElement.dataset.meiOrbitCtxBound) {
+      domElement.dataset.meiOrbitCtxBound = "1";
+      domElement.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+    }
+    this.bindStableGestureGuards(domElement);
+  }
+
+  bindStableGestureGuards(domElement) {
+    if (!domElement || domElement.dataset.meiStableGesturesBound) return;
+    domElement.dataset.meiStableGesturesBound = "1";
+    // OrbitControls swaps ROTATE/PAN when Ctrl/Meta/Shift is held. That makes
+    // one drag unexpectedly change modes. World-stage keeps fixed buttons:
+    // left=pan, right=rotate; modifier drags are ignored.
+    domElement.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!(event.ctrlKey || event.metaKey || event.shiftKey)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true,
+    );
   }
 
   syncInteractionSurfaceLayout() {
@@ -927,6 +1016,7 @@ class MeiWorldStage extends HTMLElement {
       }
       this._unbindEntityPick = this.bindEntityPicking(surface);
       surface.focus({ preventScroll: true });
+      this.syncFloatingLayerControl();
       return;
     }
     const canvas = this._renderer?.domElement;
@@ -934,10 +1024,12 @@ class MeiWorldStage extends HTMLElement {
       this.connectControlsToDom(canvas);
       canvas.focus({ preventScroll: true });
     }
+    this.syncFloatingLayerControl();
   }
 
   deactivateInteractionSurface() {
     setWorldStageInputPlaneActive(false);
+    this.detachFloatingLayerControl();
     const canvas = this._renderer?.domElement;
     if (canvas instanceof HTMLElement && this._controls) {
       this.connectControlsToDom(canvas);
@@ -959,9 +1051,36 @@ class MeiWorldStage extends HTMLElement {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.screenSpacePanning = true;
-    controls.zoomSpeed = 1.05;
-    controls.rotateSpeed = 0.85;
-    controls.panSpeed = 0.9;
+    controls.enableRotate = true;
+    controls.enablePan = true;
+    controls.enableZoom = true;
+    controls.zoomSpeed = 1.15;
+    controls.rotateSpeed = 0.92;
+    controls.panSpeed = 0.95;
+    // Match MapLibre city navigation: left-drag pan, right / Ctrl+left rotate+pitch.
+    const mouse = THREE.MOUSE || {};
+    const touch = THREE.TOUCH || {};
+    if (mouse.PAN != null && mouse.ROTATE != null) {
+      controls.mouseButtons = {
+        LEFT: mouse.PAN,
+        MIDDLE: mouse.DOLLY ?? mouse.PAN,
+        RIGHT: mouse.ROTATE,
+      };
+    }
+    if (touch.PAN != null) {
+      controls.touches = {
+        ONE: touch.PAN,
+        TWO: touch.DOLLY_ROTATE ?? touch.DOLLY_PAN,
+      };
+    }
+    // Right-drag rotate needs context menu suppressed on the input surface.
+    if (domElement && !domElement.dataset.meiOrbitCtxBound) {
+      domElement.dataset.meiOrbitCtxBound = "1";
+      domElement.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+    }
+    this.bindStableGestureGuards(domElement);
     controls.addEventListener("change", () => {
       this.clampControlsTarget();
       this.invalidate();
@@ -969,12 +1088,76 @@ class MeiWorldStage extends HTMLElement {
     return controls;
   }
 
+  /**
+   * Pan bounds scale with focused building / scene size so tall towers (200m+)
+   * are not stuck in the old park-scale clamp (±48m / y≤16).
+   */
   clampControlsTarget() {
-    if (!this._controls) return;
-    const radius = 48;
-    this._controls.target.x = THREE.MathUtils.clamp(this._controls.target.x, -radius, radius);
-    this._controls.target.z = THREE.MathUtils.clamp(this._controls.target.z, -radius, radius);
-    this._controls.target.y = THREE.MathUtils.clamp(this._controls.target.y, 0, 16);
+    if (!this._controls || !this._camera) return;
+    const bounds = this.resolveOrbitPanBounds();
+    const next = this._controls.target.clone();
+    next.x = THREE.MathUtils.clamp(
+      this._controls.target.x,
+      bounds.minX,
+      bounds.maxX,
+    );
+    next.z = THREE.MathUtils.clamp(
+      this._controls.target.z,
+      bounds.minZ,
+      bounds.maxZ,
+    );
+    next.y = THREE.MathUtils.clamp(
+      this._controls.target.y,
+      bounds.minY,
+      bounds.maxY,
+    );
+    const correction = next.sub(this._controls.target);
+    if (correction.lengthSq() < 1e-10) return;
+    // OrbitControls pans camera and target together. Clamping only target breaks
+    // that invariant and repeated drags eventually throw the model off-screen.
+    this._controls.target.add(correction);
+    this._camera.position.add(correction);
+  }
+
+  resolveOrbitPanBounds() {
+    const fallback = { minX: -80, maxX: 80, minZ: -80, maxZ: 80, minY: 0, maxY: 40 };
+    if (this._orbitAnchor) {
+      const anchor = this._orbitAnchor;
+      const radius = Math.max(Number(this._orbitPanRadius) || 0, 2);
+      const vertical = Math.max(Number(this._orbitPanVertical) || 0, 4);
+      return {
+        minX: anchor.x - radius,
+        maxX: anchor.x + radius,
+        minZ: anchor.z - radius,
+        maxZ: anchor.z + radius,
+        minY: Math.max(0, anchor.y - vertical),
+        maxY: anchor.y + vertical,
+      };
+    }
+    if (!this._scene || !this._meshes?.size) return fallback;
+    try {
+      const box = new THREE.Box3();
+      let has = false;
+      for (const mesh of this._meshes.values()) {
+        if (!mesh?.visible) continue;
+        box.expandByObject(mesh);
+        has = true;
+      }
+      if (!has || box.isEmpty()) return fallback;
+      const size = box.getSize(new THREE.Vector3());
+      const pad = Math.max(size.x, size.z, size.y) * 0.65 + 40;
+      const center = box.getCenter(new THREE.Vector3());
+      return {
+        minX: center.x - pad,
+        maxX: center.x + pad,
+        minZ: center.z - pad,
+        maxZ: center.z + pad,
+        minY: 0,
+        maxY: Math.max(center.y + size.y * 0.85, 24),
+      };
+    } catch {
+      return fallback;
+    }
   }
 
   syncControlsFromCamera(saveHome = true) {
@@ -983,6 +1166,49 @@ class MeiWorldStage extends HTMLElement {
     if (saveHome) {
       this._controls.saveState();
     }
+  }
+
+  updateOrbitDistanceBounds(box) {
+    if (!this._controls || !box || box.isEmpty()) {
+      return ORBIT_MIN_DISTANCE;
+    }
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const size = box.getSize(new THREE.Vector3());
+    const radius = Math.max(Number(sphere.radius) || 1, 1);
+    const minDistance = THREE.MathUtils.clamp(
+      radius * 1.08,
+      ORBIT_MIN_DISTANCE,
+      ORBIT_MAX_DISTANCE * 0.48,
+    );
+    this._controls.minDistance = minDistance;
+    this._controls.maxDistance = Math.max(ORBIT_MAX_DISTANCE, radius * 10);
+    this._orbitAnchor = sphere.center.clone();
+    // Isolated building inspection only needs modest framing adjustment.
+    // Keeping this tight prevents repeated left-pans from losing the model.
+    this._orbitPanRadius = THREE.MathUtils.clamp(
+      Math.max(size.x, size.z) * 0.28,
+      3,
+      24,
+    );
+    this._orbitPanVertical = THREE.MathUtils.clamp(size.y * 0.12, 8, 28);
+    return minDistance;
+  }
+
+  distanceToFitBox(box, margin = 1.16) {
+    if (!this._camera || !box || box.isEmpty()) return ORBIT_MIN_DISTANCE;
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const radius = Math.max(Number(sphere.radius) || 1, 1);
+    const verticalFov = degToRad(
+      THREE.MathUtils.clamp(Number(this._camera.fov) || 50, 10, 120),
+    );
+    const aspect = Math.max(Number(this._camera.aspect) || 1, 0.1);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+    const limitingFov = Math.max(Math.min(verticalFov, horizontalFov), 0.1);
+    return THREE.MathUtils.clamp(
+      (radius / Math.sin(limitingFov / 2)) * margin,
+      ORBIT_MIN_DISTANCE,
+      ORBIT_MAX_DISTANCE * 0.92,
+    );
   }
 
   navZoomBy(factor) {
@@ -1042,7 +1268,10 @@ class MeiWorldStage extends HTMLElement {
     };
 
     const onPointerDown = (event) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0) {
+        clearPointerDown();
+        return;
+      }
       pointerDown = {
         x: event.clientX,
         y: event.clientY,
@@ -1053,6 +1282,10 @@ class MeiWorldStage extends HTMLElement {
       pointerDown = null;
     };
     const onPointerUp = (event) => {
+      if (event.button !== 0) {
+        clearPointerDown();
+        return;
+      }
       if (!pointerDown || pointerDown.id !== event.pointerId) return;
       const dx = event.clientX - pointerDown.x;
       const dy = event.clientY - pointerDown.y;
@@ -1085,7 +1318,6 @@ class MeiWorldStage extends HTMLElement {
   }
 
   handleEntityPick(entityId, mesh) {
-    const entity = this.resolveWorldTargetEntity(entityId);
     window.dispatchEvent(
       new CustomEvent("mei:world-entity-pick", {
         detail: {
@@ -1095,14 +1327,11 @@ class MeiWorldStage extends HTMLElement {
         },
       }),
     );
-    if (entity?.cameraPreset || entity?.camera_preset) {
-      const preset = this.resolveWorldTargetPreset(entity.cameraPreset || entity.camera_preset);
-      if (preset) {
-        this.applyCameraPreset({ ...preset, targetEntity: entityId });
-        return;
-      }
-    }
-    this.focusEntity(entityId);
+    // Picking is selection-only. Reframing here made a stationary left click
+    // unexpectedly replace the current orbit camera, while right-click belongs
+    // exclusively to rotation. Explicit buttons/actions still call focusEntity.
+    this.updateStatus(`selected ${entityId}`);
+    this.invalidate();
   }
 
   bindResize(viewport) {
@@ -1289,9 +1518,10 @@ class MeiWorldStage extends HTMLElement {
       const rings = polygonRingsFromFeature(feature);
       if (!rings.length) return results;
       const ring = rings[0];
-      const layer = footprintLayerFor("extrude_shell");
-      const shape = ringToShape(ring, this._siteOrigin);
-      const semantics = this._buildingSemantics.get(String(prim.id || "")) || {};
+      const buildingId = String(prim.id || "");
+      const heroLike = prim.worldEnterable === true || Boolean(prim.mapHero);
+      const envelope = footprintEnvelope(ring, this._siteOrigin);
+      const semantics = this._buildingSemantics.get(buildingId) || {};
       const worldView = prim.worldView || semantics.worldView || {};
       const height = Number(
         prim.height ??
@@ -1300,16 +1530,27 @@ class MeiWorldStage extends HTMLElement {
           semantics.height ??
           8.6,
       );
-      const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+      const layer = footprintLayerFor("extrude_shell");
+      const shape = ringToShape(ring, this._siteOrigin);
+      const geom = new THREE.ExtrudeGeometry(shape, {
+        depth: height,
+        bevelEnabled: false,
+      });
       geom.rotateX(-Math.PI / 2);
       const shellMaterial = prim.shellMaterial || semantics.shellMaterial || material;
+      // Hero towers need an opaque mass (MapLibre L4 look). Author glass opacity
+      // is for cutaway/interior layers — not for the default exterior shell.
+      const rawShellOpacity = Number(shellMaterial.opacity ?? 0.9);
+      const shellOpacity = heroLike ? 1 : rawShellOpacity;
       const mesh = new THREE.Mesh(
         geom,
         createFootprintSurfaceMaterial({
           color: parseHexColor(shellMaterial.color, 0xffd36b),
-          opacity: Number(shellMaterial.opacity ?? 0.9),
+          opacity: shellOpacity,
+          doubleSide: true,
         }),
       );
+      mesh.renderOrder = 5;
       applyFootprintLayer(mesh, {
         ...layer,
         lift: Number(worldView.lift ?? layer.lift),
@@ -1321,6 +1562,9 @@ class MeiWorldStage extends HTMLElement {
         layerTags: [`${prim.id}:shell`, prim.id],
         shellMesh: true,
       });
+      if (heroLike) {
+        results.push(...this.buildHeroExteriorMeshes(prim, ring, envelope, height));
+      }
       return results;
     }
 
@@ -1382,28 +1626,58 @@ class MeiWorldStage extends HTMLElement {
       const buildingId = resolveBuildingIdFromParent(prim.parent, this._worldPlan);
       const envelope = this.resolveBuildingFootprint(buildingId);
       if (!envelope) return results;
+      const buildingPrim = (this._worldPlan?.primitives || []).find(
+        (item) => String(item?.id || "") === buildingId,
+      );
+      // Overview uses opaque shell; floor slabs are for cutaway/interior layers.
+      // Skip in default hero overview so the tower reads as a solid mass.
+      if (buildingPrim?.worldEnterable === true || Boolean(buildingPrim?.mapHero)) {
+        return results;
+      }
       const semantics = this._buildingSemantics.get(buildingId) || {};
       const profile = semantics.interiorProfile || {};
       const elevation = Number(
         prim.elevation ?? worldView.elevation ?? profile.floorElevation ?? 0.05,
       );
       const slab = prim.slab || material;
-      const floorShape =
-        envelope.ring.length >= 3
-          ? ringToShape(envelope.ring, this._siteOrigin)
-          : null;
-      const floorGeom = floorShape
-        ? new THREE.ShapeGeometry(floorShape)
-        : new THREE.PlaneGeometry(envelope.halfW * 2, envelope.halfD * 2);
-      floorGeom.rotateX(-Math.PI / 2);
-      const floor = new THREE.Mesh(
-        floorGeom,
-        new THREE.MeshStandardMaterial({
-          color: parseHexColor(slab.color ?? material.color, 0xd9c7a2),
-          side: THREE.DoubleSide,
-        }),
-      );
-      floor.position.set(envelope.center.x, elevation, envelope.center.z);
+      const floorThickness = 0.22;
+      const floorOpacity = Number(slab.opacity ?? material.opacity ?? 0.96);
+      let floor;
+      if (envelope.ring.length >= 3) {
+        // Thick extruded slab (not a zero-thickness plane) so floors read clearly
+        // through glass wall bands instead of looking like a hollow cage.
+        const shape = ringToShape(envelope.ring, this._siteOrigin);
+        const floorGeom = new THREE.ExtrudeGeometry(shape, {
+          depth: floorThickness,
+          bevelEnabled: false,
+        });
+        floorGeom.rotateX(-Math.PI / 2);
+        floor = new THREE.Mesh(
+          floorGeom,
+          new THREE.MeshStandardMaterial({
+            color: parseHexColor(slab.color ?? material.color, 0xd9c7a2),
+            transparent: floorOpacity < 0.98,
+            opacity: floorOpacity < 0.98 ? floorOpacity : 1,
+            side: THREE.DoubleSide,
+            depthWrite: true,
+            depthTest: true,
+            roughness: 0.85,
+            metalness: 0.02,
+          }),
+        );
+        floor.position.set(0, elevation, 0);
+      } else {
+        floor = new THREE.Mesh(
+          new THREE.BoxGeometry(envelope.halfW * 2, floorThickness, envelope.halfD * 2),
+          new THREE.MeshStandardMaterial({
+            color: parseHexColor(slab.color ?? material.color, 0xd9c7a2),
+            side: THREE.DoubleSide,
+            depthWrite: true,
+          }),
+        );
+        floor.position.set(envelope.center.x, elevation + floorThickness * 0.5, envelope.center.z);
+      }
+      floor.renderOrder = 8;
       results.push({ meshId: prim.id, mesh: floor, layerTags: [prim.id] });
       return results;
     }
@@ -1412,6 +1686,15 @@ class MeiWorldStage extends HTMLElement {
       const buildingId = resolveBuildingIdFromParent(prim.parent, this._worldPlan);
       const envelope = this.resolveBuildingFootprint(buildingId);
       if (!envelope) return results;
+      const buildingPrim = (this._worldPlan?.primitives || []).find(
+        (item) => String(item?.id || "") === buildingId,
+      );
+      // Opaque exterior shell already forms the tower. Glass wall bands on the same
+      // footprint only create a hollow/flicker look in overview — keep them for
+      // non-hero buildings or future cutaway modes.
+      if (buildingPrim?.worldEnterable === true || Boolean(buildingPrim?.mapHero)) {
+        return results;
+      }
       const semantics = this._buildingSemantics.get(buildingId) || {};
       const profile = semantics.interiorProfile || {};
       const wallHeight = Number(
@@ -1420,23 +1703,78 @@ class MeiWorldStage extends HTMLElement {
       const thickness = Number(
         prim.thickness ?? worldView.thickness ?? profile.wallThickness ?? 0.12,
       );
+      const parentId = String(prim.parent || "").trim();
+      const parentPrim = (this._worldPlan?.primitives || []).find(
+        (item) => String(item?.id || "") === parentId,
+      );
+      const parentElevation =
+        String(parentPrim?.kind || "") === "floor"
+          ? Number(
+              parentPrim.elevation ??
+                parentPrim.worldView?.elevation ??
+                parentPrim.world_view?.elevation ??
+                0,
+            )
+          : 0;
+      const relativeLift = Number(worldView.lift ?? worldView.elevationOffset ?? 0);
+      const absoluteBase = worldView.elevation;
+      const baseElevation =
+        String(parentPrim?.kind || "") === "floor"
+          ? parentElevation + relativeLift
+          : Number(
+              absoluteBase ??
+                worldView.baseElevation ??
+                parentElevation + relativeLift ??
+                0,
+            );
+      const wallOpacity = Number(material.opacity ?? 0.82);
       const wallMaterial = new THREE.MeshStandardMaterial({
         color: parseHexColor(material.color, 0xf5f0e6),
-        transparent: true,
-        opacity: Number(material.opacity ?? 0.82),
+        transparent: wallOpacity < 0.999,
+        opacity: wallOpacity,
         side: THREE.DoubleSide,
+        depthWrite: wallOpacity >= 0.85,
+        depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
       });
+      const wallY = baseElevation + wallHeight / 2;
+      const edgeWalls = wallSegmentsFromRing(
+        envelope.ring,
+        this._siteOrigin,
+        thickness,
+        Math.max(thickness * 2.5, 0.35),
+      );
+      if (edgeWalls.length) {
+        edgeWalls.forEach((seg, index) => {
+          const wall = new THREE.Mesh(
+            new THREE.BoxGeometry(thickness, wallHeight, seg.length),
+            wallMaterial.clone(),
+          );
+          wall.position.set(seg.x, wallY, seg.z);
+          wall.rotation.y = seg.yaw;
+          wall.renderOrder = 20;
+          results.push({
+            meshId: `${prim.id}_${index + 1}`,
+            mesh: wall,
+            layerTags: [prim.id],
+          });
+        });
+        return results;
+      }
       const { center, halfW, halfD } = envelope;
       const wallSpecs = [
-        [center.x, wallHeight / 2, center.z - halfD, halfW * 2, wallHeight, thickness],
-        [center.x, wallHeight / 2, center.z + halfD, halfW * 2, wallHeight, thickness],
-        [center.x - halfW, wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
-        [center.x + halfW, wallHeight / 2, center.z, thickness, wallHeight, halfD * 2],
+        [center.x, wallY, center.z - halfD, halfW * 2, wallHeight, thickness],
+        [center.x, wallY, center.z + halfD, halfW * 2, wallHeight, thickness],
+        [center.x - halfW, wallY, center.z, thickness, wallHeight, halfD * 2],
+        [center.x + halfW, wallY, center.z, thickness, wallHeight, halfD * 2],
       ];
       wallSpecs.forEach((spec, index) => {
         const [x, y, z, w, h, d] = spec;
         const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMaterial.clone());
         wall.position.set(x, y, z);
+        wall.renderOrder = 20;
         results.push({
           meshId: `${prim.id}_${index + 1}`,
           mesh: wall,
@@ -1459,16 +1797,35 @@ class MeiWorldStage extends HTMLElement {
       const elevation = Number(
         worldView.elevation ?? profile.roofElevation ?? wallHeight + thickness * 0.5,
       );
-      const { center, halfW, halfD } = envelope;
-      const roof = new THREE.Mesh(
-        new THREE.BoxGeometry(halfW * 2, thickness, halfD * 2),
-        new THREE.MeshStandardMaterial({
-          color: parseHexColor(slabMaterial.color ?? material.color, 0x8b5e34),
-          transparent: true,
-          opacity: Number(slabMaterial.opacity ?? material.opacity ?? 0.88),
-        }),
-      );
-      roof.position.set(center.x, elevation, center.z);
+      const roofOpacity = Number(slabMaterial.opacity ?? material.opacity ?? 0.92);
+      const roofMat = new THREE.MeshStandardMaterial({
+        color: parseHexColor(slabMaterial.color ?? material.color, 0x8b5e34),
+        transparent: roofOpacity < 0.95,
+        opacity: roofOpacity < 0.95 ? roofOpacity : 1,
+        side: THREE.DoubleSide,
+        depthWrite: true,
+        depthTest: true,
+      });
+      let roof;
+      if (envelope.ring.length >= 3) {
+        // Same footprint shape as shell/floors — AABB box skews on rotated parcels.
+        const shape = ringToShape(envelope.ring, this._siteOrigin);
+        const geom = new THREE.ExtrudeGeometry(shape, {
+          depth: Math.max(thickness, 0.35),
+          bevelEnabled: false,
+        });
+        geom.rotateX(-Math.PI / 2);
+        roof = new THREE.Mesh(geom, roofMat);
+        roof.position.set(0, elevation - Math.max(thickness, 0.35) * 0.5, 0);
+      } else {
+        const { center, halfW, halfD } = envelope;
+        roof = new THREE.Mesh(
+          new THREE.BoxGeometry(halfW * 2, Math.max(thickness, 0.35), halfD * 2),
+          roofMat,
+        );
+        roof.position.set(center.x, elevation, center.z);
+      }
+      roof.renderOrder = 25;
       results.push({
         meshId: prim.id,
         mesh: roof,
@@ -1522,6 +1879,74 @@ class MeiWorldStage extends HTMLElement {
     };
   }
 
+  buildHeroExteriorMeshes(prim, ring, envelope, height) {
+    if (!envelope || !THREE) return [];
+    const buildingId = String(prim?.id || "hero");
+    const entityId = String(prim?.featureEntityId || buildingId);
+    const layerTags = [`${buildingId}:shell`, buildingId];
+    const results = [];
+
+    // ExtrudeGeometry caps can be back-facing after the Y-up transform. Add an
+    // explicit double-sided crown cap so the building is never an open shell.
+    if (Array.isArray(ring) && ring.length >= 3) {
+      const capShape = ringToShape(ring, this._siteOrigin);
+      const capGeometry = new THREE.ShapeGeometry(capShape);
+      capGeometry.rotateX(-Math.PI / 2);
+      const cap = new THREE.Mesh(
+        capGeometry,
+        new THREE.MeshStandardMaterial({
+          color: parseHexColor(prim?.shellMaterial?.color, 0xf97316),
+          side: THREE.DoubleSide,
+          depthWrite: true,
+          depthTest: true,
+          roughness: 0.78,
+          metalness: 0.04,
+        }),
+      );
+      cap.position.y = Number(height) + 0.06;
+      cap.renderOrder = 12;
+      results.push({
+        meshId: `${buildingId}:crown-cap`,
+        mesh: cap,
+        entityId,
+        layerTags: [...layerTags, `${buildingId}:crown-cap`],
+        roofMesh: true,
+      });
+    }
+
+    const localPoints = ring
+      .filter((coord) => Array.isArray(coord) && coord.length >= 2)
+      .map((coord) => {
+        const local = geoToLocal(coord[0], coord[1], this._siteOrigin);
+        return { x: local.x, y: local.z };
+      });
+    if (localPoints.length >= 3) {
+      const first = localPoints[0];
+      const last = localPoints[localPoints.length - 1];
+      if (first.x !== last.x || first.y !== last.y) {
+        localPoints.push({ x: first.x, y: first.y });
+      }
+      const overlay = buildLocalHeroFacadeOverlay(THREE, localPoints, height, {
+        ...prim,
+        entityId,
+        label: prim?.worldEnterLabel || prim?.label || buildingId,
+      });
+      if (overlay) {
+        results.push({
+          meshId: `${buildingId}:facade-overlay`,
+          mesh: overlay,
+          entityId,
+          layerTags: [
+            ...layerTags,
+            `${buildingId}:facade-overlay`,
+            `${buildingId}:billboard`,
+          ],
+        });
+      }
+    }
+    return results;
+  }
+
   resolveInteriorAnchor(parentId) {
     const buildingId = resolveBuildingIdFromParent(parentId, this._worldPlan);
     const envelope = this.resolveBuildingFootprint(buildingId);
@@ -1549,6 +1974,7 @@ class MeiWorldStage extends HTMLElement {
     if (!this._viewLayers.length) {
       panel.hidden = true;
       list.innerHTML = "";
+      this.detachFloatingLayerControl();
       return;
     }
     panel.hidden = false;
@@ -1567,6 +1993,59 @@ class MeiWorldStage extends HTMLElement {
         this.applyViewLayerVisibility();
       });
     });
+    this.syncFloatingLayerControl();
+  }
+
+  detachFloatingLayerControl() {
+    const floating = this._floatingLayerControl;
+    if (floating instanceof HTMLElement) {
+      floating.remove();
+    }
+    this._floatingLayerControl = null;
+    const panel = this.shadowRoot?.querySelector('[data-role="layer-control"]');
+    if (panel instanceof HTMLElement) {
+      panel.hidden = !this._viewLayers?.length;
+    }
+  }
+
+  syncFloatingLayerControl() {
+    if (!isWorldStageActive() || !this._viewLayers?.length) {
+      this.detachFloatingLayerControl();
+      return;
+    }
+    const source = this.shadowRoot?.querySelector('[data-role="layer-control"]');
+    if (!(source instanceof HTMLElement)) return;
+    // 源面板留在 shadow 内会落在 T0 全幅右上角，被 T1 rail 挡住；浮到 map-tools 平面对齐观察窗。
+    source.hidden = true;
+    let floating = this._floatingLayerControl;
+    if (!(floating instanceof HTMLElement)) {
+      floating = document.createElement("div");
+      floating.className = "mei-cockpit-floating-layer-control mei-world-stage-layer-control";
+      floating.setAttribute("data-role", "world-stage-layer-control");
+      this._floatingLayerControl = floating;
+    }
+    floating.innerHTML = `
+      <h4>视口图层</h4>
+      <div data-role="layer-list">${source.querySelector('[data-role="layer-list"]')?.innerHTML || ""}</div>
+    `;
+    floating.querySelectorAll("input[data-layer-id]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const layerId = String(input.getAttribute("data-layer-id") || "");
+        this._viewLayerVisibility.set(layerId, input.checked);
+        this.applyViewLayerVisibility();
+      });
+    });
+    mountCockpitFloatingControl(floating, this);
+    const mapHost = resolveCockpitMapToolHost();
+    const focus = mapHost?._layout?.focusInsetPx || {
+      top: 84,
+      left: 360,
+      right: 480,
+      bottom: 16,
+    };
+    // 观察窗右上、略偏左，避免与缩放工具条重叠。
+    positionFocusInsetTopRight(floating, mapHost || this, focus, 10);
+    floating.style.right = `${Math.round((Number(focus.right) || 0) + 56)}px`;
   }
 
   applyViewLayerPreset(layerIds) {
@@ -1722,8 +2201,17 @@ class MeiWorldStage extends HTMLElement {
     const box = new THREE.Box3().setFromObject(mesh);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    const distance = Math.max(size.x, size.z, size.y) * 2.4 + 8;
-    this._camera.position.set(center.x + distance * 0.55, distance * 0.72, center.z + distance * 0.55);
+    const minDistance = this.updateOrbitDistanceBounds(box);
+    const distance = Math.max(
+      Math.max(size.x, size.z, size.y) * 2.4 + 8,
+      minDistance * 1.35,
+      this.distanceToFitBox(box),
+    );
+    this._camera.position.set(
+      center.x + distance * 0.55,
+      center.y + distance * 0.72,
+      center.z + distance * 0.55,
+    );
     this._camera.lookAt(center);
     this.syncCameraNav(center);
     this.updateStatus(`focus ${entityId}`);
@@ -1746,6 +2234,11 @@ class MeiWorldStage extends HTMLElement {
       this.applyCutawayState(preset);
     }
     if (mode === "inspect") {
+      if (this._controls) {
+        this._controls.minDistance = ORBIT_MIN_DISTANCE;
+        this._controls.maxDistance = ORBIT_MAX_DISTANCE;
+      }
+      this._orbitAnchor = null;
       const eyeHeight = Number(preset.eyeHeight ?? preset.eye_height ?? 1.6);
       const fov = Number(preset.fov ?? 55);
       const targetMesh =
@@ -1768,12 +2261,20 @@ class MeiWorldStage extends HTMLElement {
       this.invalidate();
       return;
     }
-    const distance = Number(preset.distance ?? 36);
+    const minDistance = box
+      ? this.updateOrbitDistanceBounds(box)
+      : ORBIT_MIN_DISTANCE;
+    const requestedDistance = Number(preset.distance ?? 36);
+    const distance = Math.max(
+      Number.isFinite(requestedDistance) ? requestedDistance : 36,
+      minDistance * 1.35,
+      box ? this.distanceToFitBox(box) : ORBIT_MIN_DISTANCE,
+    );
     const pitch = Number(preset.pitch ?? 68);
     const bearing = Number(preset.bearing ?? 24);
     const pitchRad = degToRad(pitch);
     const bearingRad = degToRad(bearing);
-    const y = distance * Math.sin(pitchRad);
+    const y = center.y + distance * Math.sin(pitchRad);
     const planar = distance * Math.cos(pitchRad);
     const x = center.x + planar * Math.sin(bearingRad);
     const z = center.z + planar * Math.cos(bearingRad);
@@ -1781,9 +2282,9 @@ class MeiWorldStage extends HTMLElement {
       this._camera.fov = 38;
       this._camera.updateProjectionMatrix();
     }
-    this._camera.position.set(x, Math.max(y, 12), z);
-    this._camera.lookAt(center.x, 0.8, center.z);
-    this.syncCameraNav(new THREE.Vector3(center.x, 0.8, center.z));
+    this._camera.position.set(x, Math.max(y, center.y + 12), z);
+    this._camera.lookAt(center);
+    this.syncCameraNav(center);
     this.updateStatus(`layout ${targetEntity || "site"}`);
     this.invalidate();
   }

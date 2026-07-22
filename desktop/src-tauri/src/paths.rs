@@ -22,74 +22,35 @@ pub fn host_log_file() -> anyhow::Result<PathBuf> {
     Ok(logs_dir()?.join("host-shell.log"))
 }
 
-pub fn martin_root() -> anyhow::Result<PathBuf> {
-    let dir = app_support_dir()?.join("martin");
+/// Default home workspace for non-technical users (`MeiViewer/workspace`).
+pub fn home_workspace_dir() -> anyhow::Result<PathBuf> {
+    let dir = app_support_dir()?.join("workspace");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
-pub fn martin_bin_dir() -> anyhow::Result<PathBuf> {
-    let dir = martin_root()?.join("bin");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-pub fn martin_bin() -> anyhow::Result<PathBuf> {
-    let name = if cfg!(windows) {
-        "martin.exe"
-    } else {
-        "martin"
-    };
-    Ok(martin_bin_dir()?.join(name))
-}
-
-pub fn martin_cache_dir() -> anyhow::Result<PathBuf> {
-    let dir = martin_root()?.join("cache");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-pub fn martin_log_file() -> anyhow::Result<PathBuf> {
-    let dir = martin_root()?.join("logs");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir.join("martin.log"))
-}
-
-pub fn martin_state_path() -> anyhow::Result<PathBuf> {
-    Ok(martin_root()?.join("state.json"))
-}
-
-/// Dev-machine default MBTiles under the monorepo `gis/` tree (when present).
-pub fn default_shapingba_mbtiles() -> Option<PathBuf> {
-    let candidates = [
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../gis/spb/osm-tiles/data/tiles/shapingba-z10-16.mbtiles"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../gis/spb/osm-tiles/data/tiles/shapingba-z10-16.mbtiles"),
-    ];
-    for c in candidates {
-        if let Ok(canon) = std::fs::canonicalize(&c) {
-            if canon.is_file() {
-                return Some(canon);
+/// Create a minimal home workspace skeleton if missing.
+pub fn ensure_home_workspace() -> anyhow::Result<PathBuf> {
+    let ws = home_workspace_dir()?;
+    let marker = ws.join("workspace.json");
+    if !marker.is_file() {
+        let doc = serde_json::json!({
+            "id": "mei-viewer-home",
+            "label": "Mei Viewer 家工作区",
+            "schemaVersion": 2,
+            "workspace": {
+                "defaultApp": ""
             }
-        }
-        if c.is_file() {
-            return Some(c);
-        }
+        });
+        std::fs::write(&marker, serde_json::to_string_pretty(&doc)?)?;
     }
-    None
+    std::fs::create_dir_all(ws.join("apps"))?;
+    std::fs::create_dir_all(ws.join("stock").join("gis").join("tiles"))?;
+    Ok(ws)
 }
 
 pub fn snapshot_slot_dir() -> anyhow::Result<PathBuf> {
     let dir = app_support_dir()?.join("snapshots");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-pub fn snapshot_workspace_dir(app_id: &str) -> anyhow::Result<PathBuf> {
-    let dir = app_support_dir()?
-        .join("snapshot-workspaces")
-        .join(app_id);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

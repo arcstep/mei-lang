@@ -1,10 +1,8 @@
 mod host;
-mod martin;
 mod paths;
 mod recent;
 
 use host::{HostHandle, HostReadinessDto};
-use martin::{MartinHandle, MartinStatusDto};
 use recent::RecentStore;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -56,19 +54,9 @@ fn open_system_browser(url: &str) -> Result<(), String> {
 
 pub struct AppState {
     pub host: Mutex<HostHandle>,
-    pub martin: Mutex<MartinHandle>,
     pub recent: Mutex<RecentStore>,
     /// True when launch cwd/argv was a workspace and we skipped the launcher UI.
     pub auto_opened: Mutex<bool>,
-}
-
-fn martin_gis_env(state: &AppState) -> Option<(String, String)> {
-    let mut martin = state.martin.lock().ok()?;
-    if !martin.is_ready() {
-        return None;
-    }
-    let tiles = martin.tiles_json_path_for_host()?;
-    Some((martin.gis_upstream_for_host(), tiles))
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +66,7 @@ pub struct StatusDto {
     pub ready: bool,
     pub port: Option<u16>,
     pub workspace: Option<String>,
+    pub home_workspace: Option<String>,
     pub auto_opened: bool,
     pub log_path: Option<String>,
     pub viewer_version: String,
@@ -102,6 +91,9 @@ fn host_status(state: State<'_, AppState>) -> StatusDto {
         ready: host.is_ready(),
         port: host.port(),
         workspace: host.workspace().map(|p| p.display().to_string()),
+        home_workspace: paths::home_workspace_dir()
+            .ok()
+            .map(|p| p.display().to_string()),
         auto_opened,
         log_path,
         viewer_version: viewer_build_version(),
@@ -155,6 +147,7 @@ fn export_snapshot(
     app_ids: Vec<String>,
     out_path: String,
     include_data: bool,
+    include_media: bool,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let host = state.host.lock().map_err(|e| e.to_string())?;
@@ -216,7 +209,7 @@ fn export_snapshot(
             compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             workspace_label: None,
             package_root,
-            include_media: false,
+            include_media,
         })
         .map_err(|e| e.to_string())?
     } else {
@@ -279,10 +272,10 @@ fn start_workspace(path: String, state: State<'_, AppState>) -> Result<(), Strin
         ));
     }
     {
-        let gis = martin_gis_env(&state);
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
         // Viewer default: --launch so discovered apps autostart (not bare control plane).
-        host.start_workspace(&workspace, None, None, true, gis)
+        // GIS: Host managed_martin + sidecars/bin/martin (do not inject MEI_GIS_*).
+        host.start_workspace(&workspace, None, None, true, None)
             .map_err(|e| e.to_string())?;
     }
     let mut recent = state.recent.lock().map_err(|e| e.to_string())?;
@@ -291,11 +284,25 @@ fn start_workspace(path: String, state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn home_workspace_path() -> Result<String, String> {
+    paths::ensure_home_workspace()
+        .map(|p| p.display().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn start_home_workspace(state: State<'_, AppState>) -> Result<(), String> {
+    let ws = paths::ensure_home_workspace().map_err(|e| e.to_string())?;
+    start_workspace(ws.display().to_string(), state)
+}
+
+#[tauri::command]
 fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), String> {
     let archive_path = PathBuf::from(&archive);
     if !archive_path.is_file() {
         return Err(format!("archive not found: {archive}"));
     }
+    let ws = paths::ensure_home_workspace().map_err(|e| e.to_string())?;
     let slot = paths::snapshot_slot_dir().map_err(|e| e.to_string())?;
     let dest = slot.join(format!(
         "snap-{}",
@@ -308,12 +315,6 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
     let unpacked =
         mei_snapshot::unpack_snapshot(&archive_path, &dest).map_err(|e| e.to_string())?;
 
-    let ws_key = if unpacked.app_bundle_paths.len() > 1 {
-        format!("multi-{}", unpacked.manifest.app_id)
-    } else {
-        unpacked.manifest.app_id.clone()
-    };
-    let ws = paths::snapshot_workspace_dir(&ws_key).map_err(|e| e.to_string())?;
     materialize_snapshot_workspace(&ws, &unpacked).map_err(|e| e.to_string())?;
 
     let data_ceiling = unpacked.manifest.data_mode_hint.as_str().to_string();
@@ -327,8 +328,10 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
         .cloned()
         .unwrap_or_else(|| unpacked.manifest.app_id.clone());
     {
-        let gis = martin_gis_env(&state);
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
+        if host.is_running() {
+            host.stop().map_err(|e| e.to_string())?;
+        }
         for (app_id, bundle_path) in &unpacked.app_bundle_paths {
             host.import_bundle(&ws, app_id, bundle_path)
                 .map_err(|e| e.to_string())?;
@@ -344,7 +347,7 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
             },
             Some(data_ceiling),
             launch_all,
-            gis,
+            None,
         )
         .map_err(|e| e.to_string())?;
     }
@@ -357,15 +360,7 @@ fn materialize_snapshot_workspace(
     ws: &PathBuf,
     unpacked: &mei_snapshot::UnpackResult,
 ) -> anyhow::Result<()> {
-    // Wipe prior apps so re-import is clean.
-    let apps_root = ws.join("apps");
-    if apps_root.exists() {
-        std::fs::remove_dir_all(&apps_root)?;
-    }
-    if ws.join("stock").exists() {
-        let _ = std::fs::remove_dir_all(ws.join("stock"));
-    }
-
+    // Merge into home (or target) workspace: overwrite listed apps only; never wipe siblings.
     let is_v2 = unpacked.manifest.is_v2();
     let generation = snapshot_generation_id();
 
@@ -373,6 +368,9 @@ fn materialize_snapshot_workspace(
         for (app_id, bundle_path) in &unpacked.app_bundle_paths {
             let app_pack = unpacked.dest.join("apps").join(app_id);
             let app_root = ws.join("apps").join(app_id);
+            if app_root.exists() {
+                std::fs::remove_dir_all(&app_root)?;
+            }
             let env_root = app_root.join("env");
             let gen_dir = env_root.join(&generation);
             let exchange = gen_dir.join("build").join("exchange");
@@ -425,29 +423,34 @@ fn materialize_snapshot_workspace(
             }
         }
 
-        // Stock overlay
+        // Bundled workspace stock/gis (mbtiles) — merge overwrite
+        let packed_gis = unpacked.dest.join("stock").join("gis");
+        if packed_gis.is_dir() {
+            copy_dir(&packed_gis, &ws.join("stock").join("gis"))?;
+        }
+        // Stock overlay (components/templates diffs)
         let overlay = unpacked.dest.join("stock-overlay");
         if overlay.is_dir() {
             copy_dir(&overlay, &ws.join("stock"))?;
         }
 
-        // resources.json at workspace root for Viewer replenish UI
+        // resources.json: merge by id (overwrite same id, keep others)
         let resources_src = unpacked.dest.join("resources.json");
         if resources_src.is_file() {
-            std::fs::copy(&resources_src, ws.join("resources.json"))?;
+            merge_resources_json(&ws.join("resources.json"), &resources_src)?;
         }
         let readme = unpacked.dest.join("README.txt");
         if readme.is_file() {
             let _ = std::fs::copy(&readme, ws.join("SNAPSHOT-README.txt"));
         }
     } else {
-        // v1 legacy layout
+        // v1 legacy layout — overwrite only this app
         let app_id = &unpacked.manifest.app_id;
         let app_root = ws.join("apps").join(app_id);
-        let env_root = app_root.join("env");
-        if env_root.exists() {
-            std::fs::remove_dir_all(&env_root)?;
+        if app_root.exists() {
+            std::fs::remove_dir_all(&app_root)?;
         }
+        let env_root = app_root.join("env");
         let gen_dir = env_root.join(&generation);
         let exchange = gen_dir.join("build").join("exchange");
         std::fs::create_dir_all(&exchange)?;
@@ -467,23 +470,57 @@ fn materialize_snapshot_workspace(
         }
     }
 
-    let label = unpacked
-        .manifest
-        .workspace_label
-        .clone()
-        .unwrap_or_else(|| format!("Snapshot {}", unpacked.manifest.app_id));
-    std::fs::write(
-        ws.join("workspace.json"),
-        serde_json::json!({
-            "id": format!("snapshot-{}", unpacked.manifest.app_id),
-            "label": label,
-            "schemaVersion": 2,
-            "workspace": {
-                "defaultApp": unpacked.manifest.app_id,
+    // Preserve existing home workspace.json; only create if missing, and set defaultApp gently.
+    let ws_json = ws.join("workspace.json");
+    if !ws_json.is_file() {
+        let label = unpacked
+            .manifest
+            .workspace_label
+            .clone()
+            .unwrap_or_else(|| format!("Mei Viewer 家工作区"));
+        std::fs::write(
+            &ws_json,
+            serde_json::json!({
+                "id": "mei-viewer-home",
+                "label": label,
+                "schemaVersion": 2,
+                "workspace": {
+                    "defaultApp": unpacked.manifest.app_id,
+                }
+            })
+            .to_string(),
+        )?;
+    } else if let Ok(text) = std::fs::read_to_string(&ws_json) {
+        if let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(obj) = doc.get_mut("workspace").and_then(|v| v.as_object_mut()) {
+                obj.insert(
+                    "defaultApp".into(),
+                    serde_json::Value::String(unpacked.manifest.app_id.clone()),
+                );
+                let _ = std::fs::write(&ws_json, serde_json::to_string_pretty(&doc)?);
             }
-        })
-        .to_string(),
-    )?;
+        }
+    }
+    Ok(())
+}
+
+fn merge_resources_json(dest: &std::path::Path, incoming: &std::path::Path) -> anyhow::Result<()> {
+    let incoming_text = std::fs::read_to_string(incoming)?;
+    let incoming_doc: mei_snapshot::ResourcesDocument = serde_json::from_str(&incoming_text)?;
+    if !dest.is_file() {
+        std::fs::write(dest, serde_json::to_string_pretty(&incoming_doc)?)?;
+        return Ok(());
+    }
+    let existing_text = std::fs::read_to_string(dest)?;
+    let mut existing: mei_snapshot::ResourcesDocument = serde_json::from_str(&existing_text)?;
+    for entry in incoming_doc.resources {
+        if let Some(slot) = existing.resources.iter_mut().find(|r| r.id == entry.id) {
+            *slot = entry;
+        } else {
+            existing.resources.push(entry);
+        }
+    }
+    std::fs::write(dest, serde_json::to_string_pretty(&existing)?)?;
     Ok(())
 }
 
@@ -648,89 +685,6 @@ fn show_launcher(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     Err("launcher window missing".into())
-}
-
-#[tauri::command]
-fn martin_status(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    Ok(martin.status())
-}
-
-#[tauri::command]
-fn martin_ensure_installed(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    martin.ensure_installed().map_err(|e| e.to_string())?;
-    Ok(martin.status())
-}
-
-#[tauri::command]
-fn martin_start(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    martin.start().map_err(|e| e.to_string())?;
-    Ok(martin.status())
-}
-
-#[tauri::command]
-fn martin_stop(state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    martin.stop().map_err(|e| e.to_string())?;
-    Ok(martin.status())
-}
-
-#[tauri::command]
-fn martin_pick_mbtiles(path: String, state: State<'_, AppState>) -> Result<MartinStatusDto, String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    martin
-        .set_mbtiles_path(PathBuf::from(path))
-        .map_err(|e| e.to_string())?;
-    Ok(martin.status())
-}
-
-#[tauri::command]
-fn martin_reveal(state: State<'_, AppState>) -> Result<String, String> {
-    let dir = paths::martin_root().map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    {
-        let status = std::process::Command::new("open")
-            .arg(&dir)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err(format!("open failed: {status}"));
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let status = std::process::Command::new("explorer")
-            .arg(&dir)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err(format!("explorer failed: {status}"));
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let status = std::process::Command::new("xdg-open")
-            .arg(&dir)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err(format!("xdg-open failed: {status}"));
-        }
-    }
-    let _ = state;
-    Ok(dir.display().to_string())
-}
-
-#[tauri::command]
-fn martin_open_catalog(state: State<'_, AppState>) -> Result<(), String> {
-    let mut martin = state.martin.lock().map_err(|e| e.to_string())?;
-    let status = martin.status();
-    if !status.running {
-        return Err("Martin 未在运行；请先启动瓦片服务".into());
-    }
-    open_system_browser(&status.catalog_url)
 }
 
 #[tauri::command]
@@ -915,22 +869,7 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .accelerator("CmdOrCtrl+L")
         .build(app)?;
     let view = SubmenuBuilder::new(app, "查看").item(&show).build()?;
-
-    let download = MenuItemBuilder::with_id("martin_download", "下载或更新 Martin").build(app)?;
-    let start = MenuItemBuilder::with_id("martin_start", "启动瓦片服务").build(app)?;
-    let stop = MenuItemBuilder::with_id("martin_stop", "停止瓦片服务").build(app)?;
-    let reveal = MenuItemBuilder::with_id("martin_reveal", "在访达中显示 Martin 目录").build(app)?;
-    let catalog = MenuItemBuilder::with_id("martin_catalog", "打开 catalog").build(app)?;
-    let tiles = SubmenuBuilder::new(app, "地图瓦片")
-        .item(&download)
-        .item(&start)
-        .item(&stop)
-        .separator()
-        .item(&reveal)
-        .item(&catalog)
-        .build()?;
-
-    MenuBuilder::new(app).item(&view).item(&tiles).build()
+    MenuBuilder::new(app).item(&view).build()
 }
 
 fn try_auto_open_workspace(app: &AppHandle, state: &AppState) -> anyhow::Result<bool> {
@@ -938,9 +877,8 @@ fn try_auto_open_workspace(app: &AppHandle, state: &AppState) -> anyhow::Result<
         return Ok(false);
     };
     {
-        let gis = martin_gis_env(state);
         let mut host = state.host.lock().expect("host lock");
-        host.start_workspace(&ws, None, None, true, gis)?;
+        host.start_workspace(&ws, None, None, true, None)?;
         host.wait_for_control_ready(std::time::Duration::from_secs(240))?;
         let port = host.port().ok_or_else(|| anyhow::anyhow!("no port after start"))?;
         drop(host);
@@ -965,7 +903,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             host: Mutex::new(HostHandle::new()),
-            martin: Mutex::new(MartinHandle::new()),
             recent: Mutex::new(recent),
             auto_opened: Mutex::new(false),
         })
@@ -1000,54 +937,6 @@ pub fn run() {
                 "show_launcher" => {
                     let _ = show_launcher(app.clone());
                 }
-                "martin_download" => {
-                    let state = app.state::<AppState>();
-                    let mut martin = state.martin.lock().expect("martin lock");
-                    if let Err(e) = martin.ensure_installed() {
-                        eprintln!("Martin download failed: {e:#}");
-                    } else {
-                        let _ = show_launcher(app.clone());
-                    }
-                }
-                "martin_start" => {
-                    let state = app.state::<AppState>();
-                    let mut martin = state.martin.lock().expect("martin lock");
-                    if let Err(e) = martin.start() {
-                        eprintln!("Martin start failed: {e:#}");
-                        let _ = show_launcher(app.clone());
-                    }
-                }
-                "martin_stop" => {
-                    let state = app.state::<AppState>();
-                    let mut martin = state.martin.lock().expect("martin lock");
-                    let _ = martin.stop();
-                }
-                "martin_reveal" => {
-                    let state = app.state::<AppState>();
-                    match paths::martin_root() {
-                        Ok(dir) => {
-                            #[cfg(target_os = "macos")]
-                            let _ = std::process::Command::new("open").arg(&dir).status();
-                            #[cfg(target_os = "windows")]
-                            let _ = std::process::Command::new("explorer").arg(&dir).status();
-                            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-                            let _ = std::process::Command::new("xdg-open").arg(&dir).status();
-                            let _ = state;
-                        }
-                        Err(e) => eprintln!("Martin reveal failed: {e:#}"),
-                    }
-                }
-                "martin_catalog" => {
-                    let state = app.state::<AppState>();
-                    let mut martin = state.martin.lock().expect("martin lock");
-                    let status = martin.status();
-                    if status.running {
-                        let _ = open_system_browser(&status.catalog_url);
-                    } else {
-                        eprintln!("Martin is not running");
-                        let _ = show_launcher(app.clone());
-                    }
-                }
                 _ => {}
             }
         })
@@ -1069,13 +958,8 @@ pub fn run() {
             host_log_tail,
             reveal_host_log,
             show_launcher,
-            martin_status,
-            martin_ensure_installed,
-            martin_start,
-            martin_stop,
-            martin_pick_mbtiles,
-            martin_reveal,
-            martin_open_catalog
+            home_workspace_path,
+            start_home_workspace
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mei Viewer");

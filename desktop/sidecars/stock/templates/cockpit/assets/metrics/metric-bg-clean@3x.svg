@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="134px" height="80px" viewBox="0 0 134 80" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none">
+    <title>背景-无违规@3x</title>
+    <g id="切图" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-37, -542)">
+            <g id="行政检查" transform="translate(14, 328)">
+                <g id="背景-无违规" transform="translate(24, 214)">
+                    <polyline id="路径-4" stroke="#73879B" stroke-width="0.5" points="1 24 -1.51545443e-14 31 0 49 1 56"></polyline>
+                    <polyline id="路径-4备份" stroke="#73879B" stroke-width="0.5" transform="translate(131.5, 40) scale(-1, 1) translate(-131.5, -40)" points="132 24 131 31 131 49 132 56"></polyline>
+                    <path d="M131.5,0.5 L131.5,19.9384472 L129.5,27.9384472 L129.5,52.0615528 L131.5,60.0615528 L131.5,79.5 L0.5,79.5 L0.5,60.0615528 L2.5,52.0615528 L2.5,27.9384472 L0.5,19.9384472 L0.5,0.5 L131.5,0.5 Z" id="矩形" stroke="#62BEEB" fill-opacity="0.1" fill="#62BEEB"></path>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

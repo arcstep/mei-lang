@@ -1,0 +1,23 @@
+# T2 page_instance local_nav 窄模板（跨应用共享）
+# 应用侧只保留域 filter/row_spec/popup；勿把整页 plane+page+link 收成黑盒。
+# 应用 `shared/drilldown-local-nav` 可经 `use … as t2_nav` 转发本模板（勿省略别名）。
+
+template analytics_drilldown_nav(scene_id):
+    {
+        "kind": "analytics_drilldown_page",
+        "scene_id": scene_id,
+        "host_mode": "scene_page",
+        "max_charts": 3,
+        "overlay_size": "large",
+    }
+
+template analytics_drilldown_nav_with_row(scene_id, row_popup, row_spec):
+    {
+        "kind": "analytics_drilldown_page",
+        "scene_id": scene_id,
+        "host_mode": "scene_page",
+        "max_charts": 3,
+        "overlay_size": "large",
+        "row_drilldown_popup": row_popup,
+        "row_drilldown": row_spec,
+    }

@@ -76,7 +76,6 @@ h1 {
 .recent,
 .actions,
 .logs,
-.martin,
 .resources {
   background: color-mix(in srgb, var(--panel) 92%, black);
   border: 1px solid var(--border);
@@ -103,7 +102,6 @@ h1 {
 
 .logs h2,
 .recent h2,
-.martin h2,
 .resources h2 {
   margin: 0;
   font-size: 0.85rem;
@@ -113,7 +111,6 @@ h1 {
   letter-spacing: 0.06em;
 }
 
-.martin.panel,
 .resources.panel {
   margin: 1.25rem 0;
   padding: 1rem 1.1rem;
@@ -122,7 +119,6 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.martin .sub-inline,
 .resources .sub-inline {
   margin: 0.35rem 0 0.85rem;
   color: var(--muted);
@@ -163,13 +159,6 @@ h1 {
   flex-direction: column;
   gap: 0.35rem;
   flex-shrink: 0;
-}
-
-.martin-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
 }
 
 .follow {

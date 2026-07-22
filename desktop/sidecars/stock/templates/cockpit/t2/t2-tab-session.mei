@@ -1,0 +1,10 @@
+# T2 tab/session 承载默认配置（page_instance 多 tab 栈）
+
+template default_t2_tab_session(size = "large"):
+    {
+        "host": "t2",
+        "tab_policy": "append",
+        "layout": "single",
+        "size": size,
+        "close": "tab_then_stack",
+    }

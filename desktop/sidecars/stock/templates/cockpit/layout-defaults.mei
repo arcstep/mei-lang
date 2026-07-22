@@ -1,0 +1,543 @@
+# Layout constructor defaults（0332 / 金样）
+# 每种外观一个完整宏：调用点只传 id / 数据 / 可选 layout·blocks。
+# 不要再「通用 metric_card + chrome_* props」叠两层。
+# 用法：use template "cockpit/layout-defaults" as ui
+#
+# 尺寸 Fill-down / 层级 1px 边距：由 StageLayoutProfile(cockpit) 在作者省略时注入。
+# 下列宏只保留稳定外观与真正的视觉差异（背景、字段内排、特殊 padding）。
+# 勿再声明与系统默认重复的 width/height/min_height/__mei_layout_fill。
+
+METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
+
+# zhifa card_solid_stack_corner：四角装饰叠在 theme token 底色上（可随配色方案切换）
+CORNER_DECOR_IMAGE = "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left top / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right top / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left bottom / 4px 2px no-repeat,"
+    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right bottom / 4px 2px no-repeat"
+CORNER_DECOR_BG = {
+    "color": "metric_accent_tint",
+    "image": CORNER_DECOR_IMAGE,
+}
+SOLID_PLAIN_BG = {"color": "metric_accent_tint"}
+
+# --- 层级边距规范（0332）：字面 1px；省略时由平台注入 ---
+# plane  gap→region 外边距 1px / padding 1px
+# region gap→section 外边距 1px / padding 1px / border 0 / radius 0
+# section gap→内网格外边距 1px / padding 1px / border 1px / radius 0
+# content（section 内网格）padding 0 / border 0 / align+justify stretch
+# 显式 gap/padding（含 "0"）覆盖系统默认。
+LAYOUT_SPACE_1 = "1px"
+SECTION_MARGIN = "1px"
+REGION_MARGIN = "1px"
+
+template layout_space_1():
+    LAYOUT_SPACE_1
+
+# plane 内边距—— 省略时注入，宏仅覆盖用
+template plane_padding():
+    LAYOUT_SPACE_1
+
+# region 外边距 → 落在父 plane 的 grid.gap
+template region_margin():
+    REGION_MARGIN
+
+# region 内边距
+template region_padding():
+    LAYOUT_SPACE_1
+
+# section 外边距 → 落在父 region 的 grid.gap
+template section_margin():
+    SECTION_MARGIN
+
+# section 内边距
+template section_padding():
+    LAYOUT_SPACE_1
+
+# section 内网格：外边距 → section grid.gap；内边距 → 0
+template area_margin():
+    LAYOUT_SPACE_1
+
+template area_padding():
+    "0"
+
+# T2 page_instance frame（analytics_frame 等）：与 scene 树同单位 1px。
+template frame_padding():
+    LAYOUT_SPACE_1
+
+template frame_gap():
+    LAYOUT_SPACE_1
+
+# 面板半透明底 / 指标卡底：走 theme token，随 ops.themes / theme_selection 整组切换
+PANEL_GLOW_BG = "panel_glow_bg"
+SOLID_METRIC_BG = {"color": "metric_compound_bg"}
+
+template bg_panel_glow():
+    PANEL_GLOW_BG
+
+# --- 窄指标卡（显式 SVG 底；外壳拥有背景）---
+template narrow_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    viewpoint = None,
+    layout = None,
+    placements = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        viewpoint = viewpoint,
+        layout = layout,
+        placements = placements,
+        props = {
+            "background": {
+                "color": "metric_compound_bg",
+                "image": "url(" + METRICS_ASSET + "/metric-bg-normal@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": LAYOUT_SPACE_1,
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+        },
+    )
+
+# --- 纯色窄指标卡（左栏等需要不透底时）---
+template solid_narrow_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    viewpoint = None,
+    layout = None,
+    placements = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        viewpoint = viewpoint,
+        layout = layout,
+        placements = placements,
+        props = {
+            "background": SOLID_METRIC_BG,
+            "padding": LAYOUT_SPACE_1,
+            "radius": "0",
+            "border": "1px solid metric_accent_border",
+        },
+    )
+
+# --- 四角点缀 stack 指标卡（监督预警三联；对齐 zhifa card_solid_stack_corner）---
+# 注意：勿开 __mei_slot_frame_bg，否则会把四角 4px 装饰拉伸成 100%。
+template corner_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = "solid_stack",
+        props = {
+            "background": CORNER_DECOR_BG,
+            "border": "1px solid rgba(98,190,235,0.35)",
+            "padding": "4px 8px",
+            "radius": "0",
+            "label_vertical_align": "center",
+        },
+    )
+
+# --- 纯色 stack 指标卡（监督成效 2×3，无四角装饰）---
+template plain_solid_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = "solid_stack",
+        props = {
+            "background": SOLID_PLAIN_BG,
+            "border": "1px solid rgba(98,190,235,0.35)",
+            "padding": "4px 8px",
+            "radius": "0",
+            "label_vertical_align": "center",
+        },
+    )
+
+# --- 行内指标卡（label|value|unit 水平；嵌在 compound 顶行，不自带底）---
+template row_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    placements = None,
+    gap = "4px",
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        placements = placements,
+        surface = "compound_top_row",
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["max-content", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
+            areas = [["label", "value", "unit"]],
+            gap = gap,
+            align = "center",
+            justify = "stretch",
+        ),
+        props = {
+            "padding": LAYOUT_SPACE_1,
+            "border": "none",
+            "__mei_metric_inline_align": "compact",
+        },
+    )
+
+# --- 透明子卡（嵌在 compound 内，无独立底；字段 stack + 格内居中）---
+template plain_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    layout = None,
+    placements = None,
+    patch = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        layout = layout,
+        placements = placements,
+        patch = patch,
+        surface = "compound_sub_stack",
+        props = {
+            "padding": "0",
+            "border": "none",
+        },
+    )
+
+# --- 复合框 panel（显式 target SVG 底；外壳拥有背景）---
+template compound_panel(
+    id = "panel",
+    area = None,
+    layout = None,
+    blocks = [],
+    padding = LAYOUT_SPACE_1,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        chrome = "bare",
+        show_heading = False,
+        props = {
+            "background": {
+                "image": "url(" + METRICS_ASSET + "/metric-bg-target@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": padding,
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+        },
+        layout = layout,
+        blocks = blocks,
+    )
+
+# --- 长条复合框（zhifa AI 区：metric-bg-long@3x.svg；areas main|rtop / main|rbottom）---
+template long_compound_panel(
+    id = "panel",
+    area = None,
+    layout = None,
+    blocks = [],
+    padding = "2px 6px",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        chrome = "bare",
+        show_heading = False,
+        props = {
+            "background": {
+                "color": "rgba(98,190,235,0.10)",
+                "image": "url(" + METRICS_ASSET + "/metric-bg-long@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": padding,
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+            "__mei_slot_bg_stretch": True,
+        },
+        layout = layout,
+        blocks = blocks,
+    )
+
+# --- 带目标说明的指标卡（stack_desc）---
+template desc_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    metric = None,
+    desc = "",
+    popup = None,
+    viewpoint = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        viewpoint = viewpoint,
+        surface = "stack_desc",
+        desc = desc,
+        props = {
+            "background": {
+                "image": "url(" + METRICS_ASSET + "/metric-bg-mid@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": LAYOUT_SPACE_1,
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+        },
+    )
+
+# --- 左侧图标状态卡（icon_left；图标层保留固有尺寸，不 stretch）---
+template icon_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    icon_css = "",
+    icon_position = "11px center",
+    surface = "icon_left",
+    padding = "10px 8px 10px 70px",
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = surface,
+        props = {
+            "padding": padding,
+            "background": {
+                "color": "rgba(98,190,235,0.10)",
+                "image": icon_css,
+                "size": "48px 48px",
+                "position": icon_position,
+                "repeat": "no-repeat",
+            },
+            "radius": "0",
+            "border": "none",
+        },
+    )
+
+# --- 行式 accent / compact 指标（行政检查/处罚左侧列；横排 label|value|unit，纯色底）---
+# 默认排版原则（无需业务侧重复声明）：
+# 1. 标签定宽约四字；二字/三字两端拉开，四字紧排
+# 2. 数值按小数点对齐：整数部右齐，小数部（含点）占固定槽；无小数时槽位留空
+# 3. 单位左跟；标签与数值之间弹性留白
+# 4. 编排建议：同组内含小数的指标尽量放末行，避免夹在整数指标中间
+template row_accent_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+):
+    row_solid_metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = "solid_row_accent",
+        border = "1px solid rgba(98,190,235,1)",
+    )
+
+template row_accent_sub_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+):
+    row_solid_metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = "solid_row_compact",
+        border = "0.5px solid rgba(115,135,155,1)",
+        variant = "sub",
+    )
+
+template row_solid_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    popup = None,
+    surface = "solid_row_accent",
+    border = "1px solid rgba(98,190,235,1)",
+    variant = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = surface,
+        variant = variant,
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["max-content", "minmax(0, 1fr)", "minmax(1.25em, auto)"],
+            areas = [["label", "value", "unit"]],
+            gap = LAYOUT_SPACE_1,
+            align = "center",
+            justify = "stretch",
+        ),
+        props = {
+            "background": {
+                "color": "rgba(98,190,235,0.10)",
+                "size": "100% 100%",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": "0 2px",
+            "radius": "0",
+            "border": border,
+            "label_vertical_align": "center",
+            "value_vertical_align": "center",
+            "unit_vertical_align": "center",
+        },
+    )
+
+# --- 进度说明卡（stack_progress；desc 槽走进度条）---
+# 显式 background 会跳过 surface chrome 合并，故 progress 相关 props 必须手写齐全。
+PROGRESS_SHELL = {
+    "inset_x": "0px",
+    "extend_x": "10px",
+    "height": "10px",
+    "border_radius": "0",
+    "fill": "tone_cyan",
+}
+
+# zhifa PROGRESS_STACK_ROWS：固定六行，避免 desc 进度条与右侧 donut 重叠
+PROGRESS_STACK_ROWS = ["12px", "20px", "34px", "10px", "18px", "10px"]
+
+template progress_metric_card(
+    id = "metric_card",
+    area = None,
+    source = {"label": "指标", "value": "--", "unit": ""},
+    metric = None,
+    desc = "",
+    popup = None,
+    variant = None,
+    height_px = None,
+):
+    metric_card(
+        id = id,
+        area = area,
+        source = source,
+        metric = metric,
+        popup = popup,
+        surface = "stack_progress",
+        desc = desc,
+        variant = variant,
+        height_px = height_px,
+        layout = grid(
+            rows = PROGRESS_STACK_ROWS,
+            columns = ["auto", "auto"],
+            areas = [
+                [".", "."],
+                ["label", "label"],
+                ["value", "unit"],
+                [".", "."],
+                ["desc", "desc"],
+                [".", "."],
+            ],
+            gap = "0",
+            align = "stretch",
+            justify = "center",
+        ),
+        props = {
+            "max_height": "100%",
+            "overflow": "hidden",
+            "background": {
+                "color": "transparent",
+                "image": "url(" + METRICS_ASSET + "/metric-bg-clean@3x.svg)",
+                "size": "100% 100%",
+                "position": "center",
+                "repeat": "no-repeat",
+                "origin": "border-box",
+                "clip": "border-box",
+            },
+            "padding": "0",
+            "radius": "0",
+            "border": "none",
+            "__mei_slot_frame_bg": True,
+            "__mei_slot_bg_stretch": True,
+            "__mei_metric_template": "stack_desc",
+            "__mei_metric_density": "compact",
+            "__mei_metric_inline_align": "compact",
+            "__mei_metric_desc_mode": "progress",
+            "metric_desc_mode": "progress",
+            "metric_desc_shell": PROGRESS_SHELL,
+            "__mei_metric_label_v_align": "center",
+            "__mei_metric_value_v_align": "end",
+            "__mei_metric_unit_v_align": "end",
+        },
+    )

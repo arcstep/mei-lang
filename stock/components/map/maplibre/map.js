@@ -871,12 +871,12 @@ if (!customElements.get(TAG)) {
           kind: "gis",
           severity: "degrade",
           message: detail,
-          hint: "底图资源未提供或瓦片服务未启动；地图其他要素仍可使用。",
+          hint: "请确认工作区 stock/gis/tiles 含 .mbtiles；Host 会自动托管 Martin。地图其他要素仍可使用。",
           panelId: meta.panel_id || "",
           appId: "",
           id: dedupeKey,
           source: "maplibre",
-          recovery: "start_martin",
+          recovery: "place_mbtiles",
         });
       }
       if (typeof console !== "undefined" && typeof console.error === "function") {

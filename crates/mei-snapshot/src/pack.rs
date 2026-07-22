@@ -379,19 +379,45 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             }
         }
 
-        // GIS dependency (always external for default pack)
+        // GIS: workspace stock/gis is packed once at workspace level (see pack_workspace_gis).
+        // Per-app marker remains for replenish UI when tiles were missing at pack time.
+        let gis_tiles = opts.workspace.join("stock").join("gis").join("tiles");
+        let has_tiles = gis_tiles.is_dir()
+            && std::fs::read_dir(&gis_tiles)
+                .map(|rd| {
+                    rd.filter_map(|e| e.ok()).any(|e| {
+                        e.path()
+                            .extension()
+                            .and_then(|x| x.to_str())
+                            .map(|x| x.eq_ignore_ascii_case("mbtiles"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
         resources.push(ResourceEntry {
             id: format!("{app_id}.gis.basemap"),
             app_id: app_id.clone(),
             kind: "gis".into(),
-            state: ResourceState::External,
-            target_path: "vendor/tiles".into(),
+            state: if has_tiles {
+                ResourceState::Bundled
+            } else {
+                ResourceState::External
+            },
+            target_path: "stock/gis/tiles".into(),
             required_for: Some("basemap".into()),
             severity: ResourceSeverity::Degrade,
             sha256: None,
             bytes: None,
-            hint: Some("底图与 Martin 不在默认包内；无底图时地图其他功能仍可用".into()),
-            recovery: Some("start_martin".into()),
+            hint: Some(if has_tiles {
+                "工作区 stock/gis/tiles 已打入包；Host 启动时自动托管 Martin".into()
+            } else {
+                "工作区缺少 stock/gis/tiles/*.mbtiles；无底图时地图其他功能仍可用".into()
+            }),
+            recovery: if has_tiles {
+                None
+            } else {
+                Some("place_mbtiles".into())
+            },
         });
 
         for remote in &portable.dropped_remote_sources {
@@ -426,6 +452,9 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         &staging,
         &mut resources,
     )?;
+
+    // Workspace GIS tiles (mbtiles) — default bundled for portable demos.
+    pack_workspace_gis(&opts.workspace, &staging, &mut resources)?;
 
     let platform_stock_revision = opts
         .package_root
@@ -537,6 +566,77 @@ fn pack_stock_overlay(
             sha256: None,
             bytes: None,
             hint: Some(format!("已打包 {overlay_count} 个工作区自定义 stock 文件")),
+            recovery: None,
+        });
+    }
+    Ok(())
+}
+
+/// Bundle workspace `stock/gis/**` (primarily `tiles/*.mbtiles`) into the portable zip.
+fn pack_workspace_gis(
+    workspace: &Path,
+    staging: &Path,
+    resources: &mut Vec<ResourceEntry>,
+) -> anyhow::Result<()> {
+    let gis_root = workspace.join("stock").join("gis");
+    if !gis_root.is_dir() {
+        return Ok(());
+    }
+    let mut file_count = 0usize;
+    let mut total_bytes = 0u64;
+    for entry in WalkDir::new(&gis_root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(workspace)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let dest = staging.join(&rel);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(path, &dest)?;
+        let bytes = fs::metadata(path).ok().map(|m| m.len());
+        total_bytes += bytes.unwrap_or(0);
+        file_count += 1;
+        let is_mbtiles = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("mbtiles"))
+            .unwrap_or(false);
+        if is_mbtiles {
+            resources.push(ResourceEntry {
+                id: format!("workspace.gis.{}", rel.replace('/', ".")),
+                app_id: "*".into(),
+                kind: "gis".into(),
+                state: ResourceState::Bundled,
+                target_path: rel,
+                required_for: Some("basemap".into()),
+                severity: ResourceSeverity::Info,
+                sha256: sha256_file(path).ok(),
+                bytes,
+                hint: Some("已打入 portable 包；导入后由 Host managed_martin 自动托管".into()),
+                recovery: None,
+            });
+        }
+    }
+    if file_count > 0 {
+        resources.push(ResourceEntry {
+            id: "workspace.gis.stock".into(),
+            app_id: "*".into(),
+            kind: "gis".into(),
+            state: ResourceState::Bundled,
+            target_path: "stock/gis".into(),
+            required_for: Some("basemap".into()),
+            severity: ResourceSeverity::Info,
+            sha256: None,
+            bytes: Some(total_bytes),
+            hint: Some(format!(
+                "已打包工作区 stock/gis（{file_count} 个文件，约 {} MiB）",
+                total_bytes / (1024 * 1024)
+            )),
             recovery: None,
         });
     }
@@ -791,6 +891,11 @@ path = "upload/t.csv"
             .unwrap();
         }
 
+        // Workspace GIS tiles should be default-bundled into portable packs.
+        let tiles = ws.join("stock").join("gis").join("tiles");
+        fs::create_dir_all(&tiles).unwrap();
+        fs::write(tiles.join("demo.mbtiles"), b"mbtiles-bytes").unwrap();
+
         let out = tmp.join("multi.mei-snapshot.zip");
         let manifest = pack_portable_snapshot(&PortablePackOptions {
             workspace: ws,
@@ -813,6 +918,7 @@ path = "upload/t.csv"
         assert!(dest.join("apps/a/portable-data/upload/t.csv").is_file());
         assert!(dest.join("apps/a/assets/bg.png").is_file());
         assert!(dest.join("resources.json").is_file());
+        assert!(dest.join("stock/gis/tiles/demo.mbtiles").is_file());
         assert_eq!(result.app_bundle_paths.len(), 2);
         let _ = fs::remove_dir_all(&tmp);
     }

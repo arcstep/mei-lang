@@ -80,6 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -92,19 +93,9 @@ jobs:
           # Prefer Martin source build in CI so TARGET matrix is not opaque-bin only.
           MEI_MARTIN_FROM_SOURCE: "1"
         run: ./scripts/desktop/collect-desktop-sidecars.sh --release
-      - name: Verify Martin sidecar present
+      - name: Smoke desktop sidecars
         shell: bash
-        run: test -x desktop/sidecars/bin/martin || test -f desktop/sidecars/bin/martin.exe
-      - name: Verify no libduckdb in sidecars
-        shell: bash
-        run: |
-          set -euo pipefail
-          if compgen -G 'desktop/sidecars/bin/libduckdb.*' >/dev/null \
-            || [[ -f desktop/sidecars/bin/duckdb.dll ]]; then
-            echo "error: libduckdb must not ship (DataFusion query path)" >&2
-            exit 1
-          fi
-          echo "ok: prod query path has no C++ libduckdb"
+        run: ./scripts/desktop/smoke-desktop-sidecars.sh
       - name: Install locked desktop dependencies
         working-directory: desktop
         run: npm ci

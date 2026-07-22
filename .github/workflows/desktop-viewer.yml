@@ -11,83 +11,81 @@ on:
       - "crates/mei-plug-ds/**"
       - "scripts/desktop/collect-desktop-sidecars.sh"
       - "scripts/desktop/fetch-martin-sidecar.sh"
+      - "scripts/desktop/build-martin-from-source.sh"
+      - "scripts/desktop/smoke-desktop-sidecars.sh"
+      - "scripts/build/build-env.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-viewer.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "crates/mei-snapshot/**"
+      - "host-shell/**"
+      - "crates/mei-app-runtime/**"
+      - "crates/mei-plug-ds/**"
+      - "scripts/desktop/collect-desktop-sidecars.sh"
+      - "scripts/desktop/fetch-martin-sidecar.sh"
+      - "scripts/desktop/build-martin-from-source.sh"
+      - "scripts/desktop/smoke-desktop-sidecars.sh"
+      - "scripts/build/build-env.sh"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-viewer.yml"
 
 jobs:
-  macos:
-    runs-on: macos-14
+  viewer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            id: macos-arm64
+          - runner: macos-15-intel
+            id: macos-x64
+          - runner: windows-latest
+            id: windows-x64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install root asset deps
-        run: npm ci || npm install
+          cache: npm
+      - name: Install locked root dependencies
+        run: npm ci
       - name: Collect sidecars (release)
+        shell: bash
+        env:
+          # Prefer Martin source build in CI so TARGET matrix is not opaque-bin only.
+          MEI_MARTIN_FROM_SOURCE: "1"
         run: ./scripts/desktop/collect-desktop-sidecars.sh --release
-      - name: Verify Martin sidecar present
-        run: test -x desktop/sidecars/bin/martin || test -f desktop/sidecars/bin/martin.exe
-      - name: Install desktop deps
+      - name: Smoke desktop sidecars
+        shell: bash
+        run: ./scripts/desktop/smoke-desktop-sidecars.sh
+      - name: Install locked desktop dependencies
         working-directory: desktop
-        run: npm ci || npm install
+        run: npm ci
       - name: Build + versioned package
         working-directory: desktop
         run: npm run build
       - name: Read dist version
         id: meta
         working-directory: desktop
+        shell: bash
         run: |
           VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('dist/MANIFEST.json','utf8')).version)")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "artifact=mei-viewer-${VER}-macos" >> "$GITHUB_OUTPUT"
-      - name: Upload Mac release zip
+          echo "artifact=mei-viewer-${VER}-${{ matrix.id }}" >> "$GITHUB_OUTPUT"
+      - name: Upload Viewer artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.artifact }}
           path: |
             desktop/dist/mei-viewer-*.zip
-            desktop/dist/MANIFEST.json
-          if-no-files-found: error
-
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install root asset deps
-        shell: bash
-        run: npm ci || npm install
-      - name: Collect sidecars (release)
-        shell: bash
-        run: ./scripts/desktop/collect-desktop-sidecars.sh --release
-      - name: Verify Martin sidecar present
-        shell: bash
-        run: test -f desktop/sidecars/bin/martin.exe || test -x desktop/sidecars/bin/martin
-      - name: Install desktop deps
-        working-directory: desktop
-        run: npm ci || npm install
-      - name: Build + versioned package
-        working-directory: desktop
-        run: npm run build
-      - name: Read dist version
-        id: meta
-        working-directory: desktop
-        shell: bash
-        run: |
-          VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('dist/MANIFEST.json','utf8')).version)")
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "artifact=mei-viewer-${VER}-windows" >> "$GITHUB_OUTPUT"
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.meta.outputs.artifact }}
-          path: |
             desktop/dist/mei-viewer-*-setup.exe
+            desktop/dist/mei-viewer-*.manifest.json
             desktop/dist/MANIFEST.json
           if-no-files-found: error

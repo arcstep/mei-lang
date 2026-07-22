@@ -1,0 +1,176 @@
+# 分析型 / 详情 T2 page frame 模板宏（原 cockpit/frames/*，迁入 drilldown）。
+# 0335：标准 analytics 页可由编译器从 plane 拓扑推导 frame（省略本宏）；
+# `analytics_frame` 仍供过渡兼容与特殊页显式 override（case / mechanism / AI）。
+# 间距对齐 0332 / layout-defaults：字面 `1px`（HIERARCHY_PX_1），不是历史「1=4px」。
+
+use template "cockpit/layout-defaults" as ui
+
+# Region / analytics_frame 总体网格：左 filter | 右 main（锁高，禁止内容撑开）。
+template analytics_page_grid():
+    grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "main"]],
+        gap = ui.frame_gap(),
+    )
+
+# main section / chart_detail_stack：上 chart / 下 detail（全部 fr 锁配额，禁止 auto）。
+template analytics_main_stack_grid():
+    grid(
+        columns = ["1fr"],
+        rows = ["minmax(0, 2fr)", "minmax(0, 3fr)"],
+        areas = [["chart"], ["detail"]],
+        gap = ui.frame_gap(),
+    )
+
+template filter_panel():
+    panel(
+        id = "filter",
+        area = "filter",
+        slot = { "kind": "filter", "source": "filter_schema" },
+        blocks = [],
+    )
+
+template chart_panel():
+    panel(
+        id = "chart",
+        area = "chart",
+        slot = { "kind": "slots", "accepts": ["chart"], "max": 3 },
+        blocks = [],
+    )
+
+template detail_panel():
+    panel(
+        id = "detail",
+        area = "detail",
+        slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
+        blocks = [],
+    )
+
+# 右栏：上 chart / 下 detail —— 与 s-main section 网格同构。
+template chart_detail_stack():
+    panel(
+        id = "main",
+        area = "main",
+        layout = analytics_main_stack_grid(),
+        slot = { "kind": "container" },
+        blocks = [chart_panel(), detail_panel()],
+    )
+
+template row_preview_panel(
+    id = "preview",
+    area = "preview",
+):
+    panel(
+        id = id,
+        area = area,
+        slot = { "kind": "row_preview", "accepts": ["summary"] },
+        blocks = [],
+    )
+
+# 分析型金样 frame：镜像 region 的 analytics_page_grid + main stack。
+template analytics_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["filter", "main"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [filter_panel(), chart_detail_stack()],
+    )
+
+template case_detail_card_frame(
+    frame_id = "case_detail_card_frame",
+):
+    frame_export(
+        id = frame_id,
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["preview"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [row_preview_panel()],
+    )
+
+template mechanism_documents_frame():
+    frame_export(
+        id = "mechanism_documents_frame",
+        layout = grid(
+            columns = ["minmax(240px, 1fr)", "minmax(0, 2.4fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["list", "preview"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [
+            panel(
+                id = "list",
+                area = "list",
+                slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
+                blocks = [],
+            ),
+            panel(
+                id = "preview",
+                area = "preview",
+                slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "list" },
+                blocks = [],
+            ),
+        ],
+    )
+
+template filter_detail_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["filter", "detail"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [filter_panel(), detail_panel()],
+    )
+
+template ai_warning_cockpit_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(0, 1fr)", "minmax(0, 1fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["left", "preview"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [
+            panel(
+                id = "left",
+                area = "left",
+                layout = analytics_main_stack_grid(),
+                slot = { "kind": "container" },
+                blocks = [chart_panel(), detail_panel()],
+            ),
+            panel(
+                id = "preview",
+                area = "preview",
+                slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "detail" },
+                blocks = [],
+            ),
+        ],
+    )
+
+template generic_drilldown_frame():
+    frame_export(
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["auto", "minmax(0, 1fr)"],
+            areas = [["tabs"], ["content"]],
+            gap = ui.frame_gap(),
+            padding = ui.frame_padding(),
+        ),
+        panels = [
+            panel(id = "tabs", area = "tabs", slot = { "kind": "tab_bar" }, blocks = []),
+            panel(id = "content", area = "content", slot = { "kind": "tab_content" }, blocks = []),
+        ],
+    )

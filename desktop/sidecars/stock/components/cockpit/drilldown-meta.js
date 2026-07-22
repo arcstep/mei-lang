@@ -628,6 +628,22 @@ function rowDrilldownBinding(props) {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
 }
 
+function objectLocatorBinding(props) {
+  const caps =
+    props?.capabilities && typeof props.capabilities === "object" && !Array.isArray(props.capabilities)
+      ? props.capabilities
+      : null;
+  const rowBinding = rowDrilldownBinding(props);
+  const raw =
+    props?.object_locator ??
+    props?.objectLocator ??
+    caps?.object_locator ??
+    caps?.objectLocator ??
+    rowBinding?.object_locator ??
+    rowBinding?.objectLocator;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
+}
+
 function firstNonEmptyRowValue(row, fields) {
   if (!row || typeof row !== "object") {
     return "";
@@ -655,6 +671,20 @@ function buildRowDrilldownFilters(meta, row = {}, props = {}) {
       return { [filterKey || filterFields[0]]: value };
     }
     return {};
+  }
+
+  const locator = objectLocatorBinding(props);
+  if (locator) {
+    const identityFields = [
+      locator.identity_field,
+      locator.identityField,
+      ...(Array.isArray(locator.identity_aliases ?? locator.identityAliases)
+        ? locator.identity_aliases ?? locator.identityAliases
+        : []),
+    ];
+    const value = firstNonEmptyRowValue(row, identityFields);
+    const filterKey = nonEmptyString(locator.legacy_filter_key, locator.legacyFilterKey);
+    if (value && filterKey) return { [filterKey]: value };
   }
 
   const genericValue = String(row?.value ?? "").trim();
@@ -689,6 +719,22 @@ function buildRowDrilldownLabel(meta, row = {}, filters = {}, props = {}) {
     const fallback = String(binding.label_fallback ?? binding.labelFallback ?? "").trim();
     if (fallback) return fallback;
   }
+  const locator = objectLocatorBinding(props);
+  if (locator) {
+    const identityFields = [
+      locator.identity_field,
+      locator.identityField,
+      ...(Array.isArray(locator.identity_aliases ?? locator.identityAliases)
+        ? locator.identity_aliases ?? locator.identityAliases
+        : []),
+    ];
+    const identityLabel = firstNonEmptyRowValue(row, identityFields);
+    if (identityLabel) return identityLabel;
+  }
+  const filterValues = Object.values(filters || {})
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (filterValues.length) return filterValues[0];
   return String(row?.label ?? row?.value ?? "").trim();
 }
 
@@ -720,6 +766,22 @@ export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
     value,
     desc: label,
   };
+  const locator = objectLocatorBinding(props);
+  if (locator) {
+    const identityFields = [
+      locator.identity_field,
+      locator.identityField,
+      ...(Array.isArray(locator.identity_aliases ?? locator.identityAliases)
+        ? locator.identity_aliases ?? locator.identityAliases
+        : []),
+    ];
+    const objectKey = firstNonEmptyRowValue(row, identityFields);
+    const objectType = nonEmptyString(locator.object_type, locator.objectType);
+    if (objectType && objectKey) {
+      detail.object_locator = { objectType, objectKey };
+      detail.object_intents = ["select", "open_projection"];
+    }
+  }
   if (Object.keys(filters).length) {
     detail.drilldown_filters = filters;
     detail.default_filters = filters;
@@ -730,6 +792,14 @@ export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
 export function emitTableRowDrilldown(host, detail) {
   if (!host || !detail) {
     return;
+  }
+  const locator = detail.object_locator;
+  if (locator?.objectType && locator?.objectKey != null) {
+    const interaction = window.MeiInteraction || window.__meiLangBoot?.interactionRuntime;
+    interaction?.dispatchMany?.(detail.object_intents || ["select", "open_projection"], {
+      ...locator,
+      source: "cockpit.data-table",
+    });
   }
   host.dispatchEvent(
     new CustomEvent(SCENE_OPEN_EVENT_NAME, {
@@ -776,6 +846,198 @@ export function emitTableRowSelect(host, detail) {
   }
   host.dispatchEvent(
     new CustomEvent(TABLE_ROW_SELECT_EVENT_NAME, {
+      bubbles: true,
+      composed: true,
+      detail,
+    }),
+  );
+}
+
+function readPresentationFieldLinks() {
+  if (typeof window === "undefined") return {};
+  const fromBoot = window.__mei?.presentation_map?.objectFieldLinksByObjectType;
+  if (fromBoot && typeof fromBoot === "object") return fromBoot;
+  const node = document.getElementById?.("mei-presentation-map");
+  if (
+    typeof HTMLScriptElement !== "undefined" &&
+    node instanceof HTMLScriptElement &&
+    node.textContent
+  ) {
+    try {
+      return JSON.parse(node.textContent)?.objectFieldLinksByObjectType || {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+export function resolveObjectFieldLinks(props = {}) {
+  const direct =
+    props?.object_field_links ||
+    props?.objectFieldLinks ||
+    props?.capabilities?.object_field_links ||
+    props?.capabilities?.objectFieldLinks;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct;
+  }
+  const locator = objectLocatorBinding(props);
+  const objectType = nonEmptyString(locator?.object_type, locator?.objectType);
+  if (!objectType) return {};
+  const byType = readPresentationFieldLinks();
+  const links = byType?.[objectType];
+  return links && typeof links === "object" && !Array.isArray(links) ? links : {};
+}
+
+function expandMappingTargets(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((value) => String(value ?? "").trim()).filter(Boolean);
+  }
+  const text = String(raw ?? "").trim();
+  return text ? [text] : [];
+}
+
+/** Resolve clickable object targets for one cell from object_field_links IR. */
+export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") {
+  const field = String(columnKey || "").trim();
+  if (!field || !row || typeof row !== "object") return [];
+  const links = resolveObjectFieldLinks(props);
+  const specs = Array.isArray(links[field]) ? links[field] : [];
+  if (!specs.length) return [];
+  const cellValue = String(row[field] ?? "").trim();
+  const out = [];
+  for (const spec of specs) {
+    if (!spec || typeof spec !== "object") continue;
+    const objectType = nonEmptyString(spec.objectType, spec.object_type);
+    if (!objectType) continue;
+    const resolve = String(spec.resolve || "row_value").trim().toLowerCase();
+    const keyMode = String(spec.keyMode || spec.key_mode || "identity")
+      .trim()
+      .toLowerCase();
+    const filterKey = nonEmptyString(spec.filterKey, spec.filter_key);
+    const hasDetail = spec.hasDetail === true || spec.has_detail === true;
+    const openPopup =
+      (spec.openPopup && typeof spec.openPopup === "object" && !Array.isArray(spec.openPopup)
+        ? spec.openPopup
+        : null) ||
+      (spec.open_popup && typeof spec.open_popup === "object" && !Array.isArray(spec.open_popup)
+        ? spec.open_popup
+        : null);
+    const detailPage = nonEmptyString(spec.detailPage, spec.detail_page);
+    const relation = nonEmptyString(spec.relation);
+    const role = nonEmptyString(spec.role, "relation");
+
+    if (resolve === "mapping") {
+      const map = spec.targetsByValue || spec.targets_by_value || {};
+      const mapped = expandMappingTargets(map[cellValue]);
+      for (const objectKey of mapped) {
+        out.push({
+          role,
+          relation,
+          objectType,
+          objectKey,
+          keyMode: "identity",
+          filterKey,
+          hasDetail,
+          openPopup,
+          detailPage,
+          label: `${objectType} · ${objectKey}`,
+        });
+      }
+      continue;
+    }
+
+    if (!cellValue) continue;
+    out.push({
+      role,
+      relation,
+      objectType,
+      objectKey: cellValue,
+      keyMode,
+      filterKey,
+      hasDetail,
+      openPopup,
+      detailPage,
+      label: `${objectType} · ${cellValue}`,
+    });
+  }
+  return out;
+}
+
+export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
+  if (!host || !target) return;
+  const objectType = nonEmptyString(target.objectType, target.object_type);
+  const objectKey = String(target.objectKey ?? target.object_key ?? "").trim();
+  if (!objectType || !objectKey) return;
+
+  const intents =
+    target.hasDetail === false ? ["select"] : ["select", "open_projection"];
+  const interaction = window.MeiInteraction || window.__meiLangBoot?.interactionRuntime;
+  interaction?.dispatchMany?.(intents, {
+    objectType,
+    objectKey,
+    source: "cockpit.data-table.field-link",
+  });
+
+  const filters = {};
+  const filterKey = nonEmptyString(target.filterKey, target.filter_key);
+  const keyMode = String(target.keyMode || target.key_mode || "identity")
+    .trim()
+    .toLowerCase();
+  if (filterKey && (keyMode === "foreign_key" || keyMode === "foreign-key")) {
+    filters[filterKey] = objectKey;
+  } else if (filterKey && keyMode === "identity") {
+    filters[filterKey] = objectKey;
+  }
+
+  const openPopup =
+    (target.openPopup && typeof target.openPopup === "object" ? target.openPopup : null) ||
+    null;
+  const rowMeta = tableDrilldownMeta(props);
+  const isSelf =
+    String(target.role || "").trim() === "self" ||
+    nonEmptyString(objectLocatorBinding(props)?.object_type, objectLocatorBinding(props)?.objectType) ===
+      objectType;
+
+  if (isSelf && rowMeta) {
+    const detail = buildTableRowDrilldownDetail(rowMeta, row, props);
+    if (detail) {
+      if (!nonEmptyString(detail.label) && objectKey) {
+        detail.label = nonEmptyString(target.label, objectKey);
+        detail.desc = detail.label;
+        detail.value = nonEmptyString(detail.value, objectKey);
+      }
+      emitTableRowDrilldown(host, detail);
+      return;
+    }
+  }
+
+  if (!openPopup || !nonEmptyString(openPopup.scene_id, openPopup.sceneId)) {
+    return;
+  }
+
+  const detail = {
+    ...openPopup,
+    popup: openPopup,
+    label: nonEmptyString(target.label, objectKey),
+    value: objectKey,
+    desc: nonEmptyString(target.label, `${objectType}:${objectKey}`),
+    object_locator: { objectType, objectKey },
+    object_intents: intents,
+  };
+  if (Object.keys(filters).length) {
+    detail.drilldown_filters = filters;
+    detail.default_filters = filters;
+  }
+  host.dispatchEvent(
+    new CustomEvent(SCENE_OPEN_EVENT_NAME, {
+      bubbles: true,
+      composed: true,
+      detail,
+    }),
+  );
+  host.dispatchEvent(
+    new CustomEvent(POPUP_OPEN_EVENT_NAME, {
       bubbles: true,
       composed: true,
       detail,

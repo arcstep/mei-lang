@@ -18,8 +18,13 @@ usage() {
   cat <<'EOF'
 Usage: build-martin-from-source.sh --dest DIR [--version VER] [--debug|--release]
 
-Clones maplibre/martin @ tag vVER (shallow) into a cache dir and cargo-installs
+Clones maplibre/martin @ tag martin-vVER (shallow) into a cache dir outside
+mei-lang (avoids inheriting mei-lang/.cargo vendor overlay) and cargo-installs
 the `martin` binary into DEST.
+
+Env:
+  MEI_MARTIN_VERSION      default 1.10.1
+  MEI_MARTIN_CACHE_ROOT   override cache parent (default: $TMPDIR/mei-martin-src)
 EOF
 }
 
@@ -41,14 +46,17 @@ if [[ -z "${DEST}" ]]; then
 fi
 
 mkdir -p "${DEST}"
-CACHE_ROOT="${MEI_LANG_ROOT}/.cache/martin-src/v${MARTIN_VERSION}"
+TAG="martin-v${MARTIN_VERSION}"
+# Keep cache outside mei-lang so mei-lang/.cargo vendor overlay is not inherited.
+CACHE_ROOT="${MEI_MARTIN_CACHE_ROOT:-${TMPDIR:-${TMP:-${TEMP:-/tmp}}}/mei-martin-src}/${TAG}"
+CACHE_ROOT="${CACHE_ROOT//\/\//\/}"
 SRC_DIR="${CACHE_ROOT}/src"
 mkdir -p "${CACHE_ROOT}"
 
 if [[ ! -d "${SRC_DIR}/.git" ]]; then
   rm -rf "${SRC_DIR}"
-  echo "==> cloning maplibre/martin v${MARTIN_VERSION}"
-  git clone --depth 1 --branch "v${MARTIN_VERSION}" \
+  echo "==> cloning maplibre/martin ${TAG}"
+  git clone --depth 1 --branch "${TAG}" \
     https://github.com/maplibre/martin.git "${SRC_DIR}"
 else
   echo "==> reusing martin source cache ${SRC_DIR}"
@@ -59,14 +67,24 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) EXT=".exe" ;;
 esac
 
-CARGO_ARGS=(install --path "${SRC_DIR}/martin" --root "${CACHE_ROOT}/install" --locked --force)
+# Prefer the crate path used by modern martin tags; fall back to repo root.
+MARTIN_CRATE="${SRC_DIR}/martin"
+if [[ ! -f "${MARTIN_CRATE}/Cargo.toml" ]]; then
+  MARTIN_CRATE="${SRC_DIR}"
+fi
+
+CARGO_ARGS=(install --path "${MARTIN_CRATE}" --root "${CACHE_ROOT}/install" --locked --force)
 if [[ "${PROFILE}" != "release" ]]; then
   CARGO_ARGS+=(--debug)
 fi
 
-echo "==> cargo install martin (${PROFILE})"
-cargo "${CARGO_ARGS[@]}"
-
+echo "==> cargo install martin (${PROFILE}) from ${MARTIN_CRATE}"
+# Build outside mei-lang so local vendor replace-with does not apply.
+(
+  cd "${SRC_DIR}"
+  export CARGO_TARGET_DIR="${CACHE_ROOT}/target"
+  cargo "${CARGO_ARGS[@]}"
+)
 SRC_BIN="${CACHE_ROOT}/install/bin/martin${EXT}"
 if [[ ! -f "${SRC_BIN}" ]]; then
   # Some cargo versions place bins under install/bin without forcing path crate name.

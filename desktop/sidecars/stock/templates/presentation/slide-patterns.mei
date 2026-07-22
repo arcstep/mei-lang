@@ -1,0 +1,74 @@
+# Presentation slide_pattern grids（0406）
+# 用法：use template "presentation/slide-patterns" as slide
+# 模板只封装语义 area grid，不隐藏 region/section/content。
+
+template full_bleed_layout():
+    grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["hero"]],
+        gap = "0",
+        align = "stretch",
+    )
+
+template claim_explain_evidence_action_layout():
+    grid(
+        rows = ["auto", "auto", "minmax(0, 1fr)", "auto"],
+        columns = ["1fr"],
+        areas = [["claim"], ["explain"], ["evidence"], ["action"]],
+        gap = "20px",
+        align = "stretch",
+    )
+
+template claim_evidence_layout():
+    grid(
+        rows = ["minmax(0, 1fr)"],
+        columns = ["minmax(0, 1fr)", "minmax(0, 1fr)"],
+        areas = [["claim", "evidence"]],
+        gap = "28px",
+        align = "stretch",
+    )
+
+template three_columns_layout():
+    grid(
+        rows = ["auto", "minmax(0, 1fr)"],
+        columns = ["1fr", "1fr", "1fr"],
+        areas = [
+            ["title", "title", "title"],
+            ["col_a", "col_b", "col_c"],
+        ],
+        gap = "20px",
+        align = "stretch",
+    )
+
+template process_layout():
+    grid(
+        rows = ["auto", "auto", "minmax(0, 1fr)"],
+        columns = ["1fr"],
+        areas = [["title"], ["steps"], ["visual"]],
+        gap = "20px",
+        align = "stretch",
+    )
+
+template matrix_layout():
+    grid(
+        rows = ["auto", "minmax(0, 1fr)", "minmax(0, 1fr)"],
+        columns = ["1fr", "1fr"],
+        areas = [
+            ["title", "title"],
+            ["q1", "q2"],
+            ["q3", "q4"],
+        ],
+        gap = "20px",
+        align = "stretch",
+    )
+
+# slide shell padding — 必须与 StageLayoutProfile(slides).spacing.slide_shell_padding 一致
+# （profile_layout_policy.rs SSOT）；此处只作作者引用 token，勿另开平行数值。
+SLIDE_SHELL_PADDING = "48px 72px"
+
+template slide_shell_padding():
+    SLIDE_SHELL_PADDING
+
+template slide_shell_padding_bleed():
+    "0"
