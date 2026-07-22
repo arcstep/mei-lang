@@ -24,6 +24,7 @@ the `martin` binary into DEST.
 
 Env:
   MEI_MARTIN_VERSION      default 1.10.1
+  MEI_MARTIN_FEATURES     cargo --features for sidecar (default: mbtiles; no webui/npm)
   MEI_MARTIN_CACHE_ROOT   override cache parent (default: $TMPDIR/mei-martin-src)
 EOF
 }
@@ -73,12 +74,15 @@ if [[ ! -f "${MARTIN_CRATE}/Cargo.toml" ]]; then
   MARTIN_CRATE="${SRC_DIR}"
 fi
 
-CARGO_ARGS=(install --path "${MARTIN_CRATE}" --root "${CACHE_ROOT}/install" --locked --force)
+CARGO_ARGS=(install --path "${MARTIN_CRATE}" --root "${CACHE_ROOT}/install" --locked --force \
+  --no-default-features --features "${MARTIN_FEATURES}")
 if [[ "${PROFILE}" != "release" ]]; then
   CARGO_ARGS+=(--debug)
 fi
 
 echo "==> cargo install martin (${PROFILE}) from ${MARTIN_CRATE}"
+# Sidecar only serves MBTiles; skip webui (needs npm) and other default features.
+MARTIN_FEATURES="${MEI_MARTIN_FEATURES:-mbtiles}"
 # Build outside mei-lang so local vendor replace-with does not apply.
 (
   cd "${SRC_DIR}"

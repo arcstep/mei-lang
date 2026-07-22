@@ -58,9 +58,6 @@ jobs:
         run: npm ci
       - name: Collect sidecars (release)
         shell: bash
-        env:
-          # Prefer Martin source build in CI so TARGET matrix is not opaque-bin only.
-          MEI_MARTIN_FROM_SOURCE: "1"
         run: ./scripts/desktop/collect-desktop-sidecars.sh --release
       - name: Smoke desktop sidecars
         shell: bash
