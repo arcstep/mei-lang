@@ -265,10 +265,15 @@ package_product() {
     smoke_binary "${destination}"
   done
 
-  echo "==> fetching Martin sidecar binary"
-  "${SCRIPT_DIR}/../desktop/fetch-martin-sidecar.sh" --dest "${stage}/bin"
+  echo "==> resolving Martin sidecar binary"
+  if [[ "${MEI_MARTIN_FROM_SOURCE:-0}" == "1" ]]; then
+    "${SCRIPT_DIR}/../desktop/build-martin-from-source.sh" --dest "${stage}/bin"
+  else
+    "${SCRIPT_DIR}/../desktop/fetch-martin-sidecar.sh" --dest "${stage}/bin" \
+      || "${SCRIPT_DIR}/../desktop/build-martin-from-source.sh" --dest "${stage}/bin"
+  fi
   if [[ ! -f "${stage}/bin/martin" && ! -f "${stage}/bin/martin.exe" ]]; then
-    echo "error: martin binary missing after fetch-martin-sidecar.sh" >&2
+    echo "error: martin binary missing after fetch/build" >&2
     exit 1
   fi
   local -a manifest_bins=("${bins[@]}" "${MARTIN_SIDECAR_BINS[@]}")
