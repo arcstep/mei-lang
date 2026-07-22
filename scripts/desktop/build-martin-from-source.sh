@@ -74,15 +74,16 @@ if [[ ! -f "${MARTIN_CRATE}/Cargo.toml" ]]; then
   MARTIN_CRATE="${SRC_DIR}"
 fi
 
+# Sidecar only serves MBTiles; skip webui (needs npm) and other default features.
+MARTIN_FEATURES="${MEI_MARTIN_FEATURES:-mbtiles}"
+
 CARGO_ARGS=(install --path "${MARTIN_CRATE}" --root "${CACHE_ROOT}/install" --locked --force \
   --no-default-features --features "${MARTIN_FEATURES}")
 if [[ "${PROFILE}" != "release" ]]; then
   CARGO_ARGS+=(--debug)
 fi
 
-echo "==> cargo install martin (${PROFILE}) from ${MARTIN_CRATE}"
-# Sidecar only serves MBTiles; skip webui (needs npm) and other default features.
-MARTIN_FEATURES="${MEI_MARTIN_FEATURES:-mbtiles}"
+echo "==> cargo install martin (${PROFILE}, features=${MARTIN_FEATURES}) from ${MARTIN_CRATE}"
 # Build outside mei-lang so local vendor replace-with does not apply.
 (
   cd "${SRC_DIR}"

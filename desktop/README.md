@@ -98,17 +98,28 @@ sidecar 收集与 `scripts/build/build.sh` 一样会做 **cargo target hygiene**
 
 ## GitHub Release
 
-打 tag（版本需与 `Cargo.toml` `[workspace.package].version` 一致）会触发
-[`.github/workflows/release.yml`](../.github/workflows/release.yml)，自动发布：
+按场景下载（一人一场景一包）：
+
+| 场景 | 下载什么 |
+|------|----------|
+| 桌面打开工作区 | **mei-viewer**（macOS zip / Windows setup） |
+| 服务器跑 Host | **mei-runtime**（含 linux x64） |
+| 开发 / LSP | **mei-toolchain** |
+| VS Code / Cursor | **mei-lang-*.vsix** |
+
+**何时构建**：`git push` / PR **不会**自动打安装包。正式发版打与
+`Cargo.toml` `[workspace.package].version` 一致的 `v*` tag，触发
+[`.github/workflows/release.yml`](../.github/workflows/release.yml)。
+Actions 中手动执行 `Release` 只构建候选产物、不创建 Release；仅需 Viewer
+候选时手动跑 `desktop-viewer`。
+
+正式 tag 发布内容：
 
 - **mei-viewer**：macOS zip、Windows NSIS setup
-- **mei-runtime**：服务运行所需四个二进制及 app/stock 资源
+- **mei-runtime**：服务运行所需二进制及 app/stock 资源
 - **mei-toolchain**：runtime + `snapshot` / `mei-lsp` / `mei-toolchain` 及 app/stock 资源
 - **VS Code 扩展**：`mei-lang-*.vsix`
 - **发布元数据**：release manifest、SHA-256、SPDX SBOM 与 GitHub attestation
-
-Actions 中手动执行 `Release` 只构建并验收候选产物，不创建 GitHub
-Release；只有来自默认分支、且与 Cargo 版本完全一致的 `v*` tag 才会正式发布。
 
 本地打 runtime + toolchain 归档：
 
@@ -117,6 +128,8 @@ Release；只有来自默认分支、且与 Cargo 版本完全一致的 `v*` tag
 # → dist/bundles/mei-{runtime,toolchain}-<ver>-<triple>.tar.gz|zip
 ```
 
+> macOS Intel（x86_64）无官方 Martin 预编译包时，CI 会在该平台源码编
+> `mbtiles` sidecar；安装包内已含 `martin`，用户无需本机 Rust。
 ## 快照（GUI 与 CLI）
 
 启动器：打开工作区后**多选** app →「导出快照…」（默认 **portable v2**：含可移植配置、parquet、assets、csv/json、**工作区 stock/gis**；视频默认外置，可勾选「包含大媒体」）。对方「导入快照到默认工作区…」即可 merge。  

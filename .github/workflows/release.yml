@@ -91,7 +91,9 @@ jobs:
         shell: bash
         env:
           # Prefer Martin source build in CI so TARGET matrix is not opaque-bin only.
+          # mbtiles-only: skip webui (needs npm). Required on macos-x64 (no official prebuilt).
           MEI_MARTIN_FROM_SOURCE: "1"
+          MEI_MARTIN_FEATURES: mbtiles
         run: ./scripts/desktop/collect-desktop-sidecars.sh --release
       - name: Smoke desktop sidecars
         shell: bash
@@ -146,6 +148,7 @@ jobs:
         shell: bash
         env:
           MEI_MARTIN_FROM_SOURCE: "1"
+          MEI_MARTIN_FEATURES: mbtiles
         run: ./scripts/release/package-release-bundles.sh
       - name: Verify Runtime artifact has no libduckdb
         shell: bash

@@ -1,37 +1,9 @@
 name: desktop-viewer
 
+# Heavy Viewer packaging: run only on explicit instruction (not on every push/PR).
+# Formal multi-product releases use release.yml (v* tag or workflow_dispatch).
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "desktop/**"
-      - "crates/mei-snapshot/**"
-      - "host-shell/**"
-      - "crates/mei-app-runtime/**"
-      - "crates/mei-plug-ds/**"
-      - "scripts/desktop/collect-desktop-sidecars.sh"
-      - "scripts/desktop/fetch-martin-sidecar.sh"
-      - "scripts/desktop/build-martin-from-source.sh"
-      - "scripts/desktop/smoke-desktop-sidecars.sh"
-      - "scripts/build/build-env.sh"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/desktop-viewer.yml"
-  pull_request:
-    paths:
-      - "desktop/**"
-      - "crates/mei-snapshot/**"
-      - "host-shell/**"
-      - "crates/mei-app-runtime/**"
-      - "crates/mei-plug-ds/**"
-      - "scripts/desktop/collect-desktop-sidecars.sh"
-      - "scripts/desktop/fetch-martin-sidecar.sh"
-      - "scripts/desktop/build-martin-from-source.sh"
-      - "scripts/desktop/smoke-desktop-sidecars.sh"
-      - "scripts/build/build-env.sh"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/desktop-viewer.yml"
 
 jobs:
   viewer:
@@ -43,6 +15,8 @@ jobs:
             id: macos-arm64
           - runner: macos-15-intel
             id: macos-x64
+            # Martin v1.10.1 ships no x86_64-apple-darwin prebuilt; compile mbtiles-only.
+            martin_from_source: "1"
           - runner: windows-latest
             id: windows-x64
     runs-on: ${{ matrix.runner }}
@@ -58,6 +32,9 @@ jobs:
         run: npm ci
       - name: Collect sidecars (release)
         shell: bash
+        env:
+          MEI_MARTIN_FEATURES: mbtiles
+          MEI_MARTIN_FROM_SOURCE: ${{ matrix.martin_from_source || '0' }}
         run: ./scripts/desktop/collect-desktop-sidecars.sh --release
       - name: Smoke desktop sidecars
         shell: bash

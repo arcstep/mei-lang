@@ -102,6 +102,13 @@ if [[ -z "${TARGET}" ]]; then
   TARGET="$(detect_host_target)"
 fi
 
+# Martin v1.10.x ships no x86_64-apple-darwin prebuilt; fail fast so callers
+# (collect-desktop-sidecars) can fall back to build-martin-from-source.sh.
+if [[ "${TARGET}" == "macos-x64" ]]; then
+  echo "error: no official Martin prebuilt for macos-x64 (martin-v${MARTIN_VERSION}); use MEI_MARTIN_FROM_SOURCE=1 / build-martin-from-source.sh" >&2
+  exit 1
+fi
+
 ASSET="$(asset_for_target "${TARGET}")"
 URL="https://github.com/maplibre/martin/releases/download/martin-v${MARTIN_VERSION}/${ASSET}"
 CACHE_DIR="${MEI_LANG_ROOT}/dist/martin-sidecar/.cache"

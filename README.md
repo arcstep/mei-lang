@@ -1,5 +1,11 @@
 AI-native scene orchestration language for building apps from world models, UI components, and capability modules.
 
+## 下载安装包
+
+预构建安装包发布在 GitHub Releases：桌面用 **mei-viewer**，服务器用 **mei-runtime**，
+开发/LSP 用 **mei-toolchain**，编辑器用仓库内 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode) 的 VSIX。
+说明见 [`desktop/README.md`](desktop/README.md#github-release)。正式发版推送与 Cargo 版本一致的 `v*` tag；日常 `git push` 不自动打安装包。
+
 ## 本地启动
 
 ### 1. 配置 `.env`（OpenAI 兼容）
