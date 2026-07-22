@@ -196,6 +196,9 @@ function main() {
   const manifestPath = join(distRoot, `${manifestBase}.manifest.json`);
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   wrote.push(manifestPath);
+  const summaryPath = join(distRoot, "MANIFEST.json");
+  writeFileSync(summaryPath, JSON.stringify(manifest, null, 2) + "\n");
+  wrote.push(summaryPath);
 
   console.log("[package-release] wrote:");
   for (const p of wrote) console.log(`  ${p}`);
