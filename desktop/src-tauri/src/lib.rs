@@ -260,6 +260,39 @@ fn list_apps_in_workspace(workspace: &std::path::Path) -> anyhow::Result<Vec<Str
     Ok(ids)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceProbe {
+    path: String,
+    is_workspace: bool,
+}
+
+#[tauri::command]
+fn probe_workspace(path: String) -> Result<WorkspaceProbe, String> {
+    let workspace = PathBuf::from(&path);
+    if !workspace.is_dir() {
+        return Err(format!("不是目录: {path}"));
+    }
+    Ok(WorkspaceProbe {
+        path: workspace.display().to_string(),
+        is_workspace: paths::is_workspace_dir(&workspace),
+    })
+}
+
+/// Create a Mei workspace in an empty/non-workspace folder (confirm in UI first).
+#[tauri::command]
+fn init_workspace(path: String) -> Result<String, String> {
+    let workspace = PathBuf::from(&path);
+    if !workspace.is_dir() {
+        return Err(format!("不是目录: {path}"));
+    }
+    if paths::is_workspace_dir(&workspace) {
+        return Ok(format!("已是 Mei 工作区: {}", workspace.display()));
+    }
+    paths::init_workspace_dir(&workspace, None).map_err(|e| e.to_string())?;
+    Ok(format!("已创建 Mei 工作区: {}", workspace.display()))
+}
+
 #[tauri::command]
 fn start_workspace(path: String, state: State<'_, AppState>) -> Result<(), String> {
     let workspace = PathBuf::from(&path);
@@ -268,7 +301,7 @@ fn start_workspace(path: String, state: State<'_, AppState>) -> Result<(), Strin
     }
     if !paths::is_workspace_dir(&workspace) {
         return Err(format!(
-            "not a Mei workspace (missing workspace.json): {path}"
+            "not_a_mei_workspace:{path}"
         ));
     }
     {
@@ -320,17 +353,13 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
         mei_snapshot::unpack_snapshot(&archive_path, &dest).map_err(|e| e.to_string())?;
 
     materialize_snapshot_workspace(&ws, &unpacked).map_err(|e| e.to_string())?;
+    // Ensure platform stock/templates exist before serve (idempotent). Control-plane
+    // also seeds stock, but doing it here keeps re-import resilient if Host is old.
+    if let Err(error) = paths::init_workspace_dir(&ws, Some("Mei Viewer 默认工作区")) {
+        eprintln!("post-import workspace stock seed failed: {error}");
+    }
 
     let data_ceiling = unpacked.manifest.data_mode_hint.as_str().to_string();
-    let app_ids: Vec<String> = unpacked
-        .app_bundle_paths
-        .iter()
-        .map(|(id, _)| id.clone())
-        .collect();
-    let primary = app_ids
-        .first()
-        .cloned()
-        .unwrap_or_else(|| unpacked.manifest.app_id.clone());
     {
         let mut host = state.host.lock().map_err(|e| e.to_string())?;
         if host.is_running() {
@@ -343,20 +372,10 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
             // the necessary meibundle under env/current (Host start must not prebuild).
             ensure_exchange_bundle(&ws, app_id, bundle_path).map_err(|e| e.to_string())?;
         }
-        // Multi-app: --launch; single-app: --app
-        let launch_all = app_ids.len() > 1;
-        host.start_workspace(
-            &ws,
-            if launch_all {
-                None
-            } else {
-                Some(primary.clone())
-            },
-            Some(data_ceiling),
-            launch_all,
-            None,
-        )
-        .map_err(|e| e.to_string())?;
+        // Viewer default: always --launch so discovered apps are admitted (same as
+        // open-home). Consistent path for re-import into the default workspace.
+        host.start_workspace(&ws, None, Some(data_ceiling), true, None)
+            .map_err(|e| e.to_string())?;
     }
     let mut recent = state.recent.lock().map_err(|e| e.to_string())?;
     recent.push(ws).map_err(|e| e.to_string())?;
@@ -428,6 +447,19 @@ fn materialize_snapshot_workspace(
             if portable_data.is_dir() {
                 copy_dir(&portable_data, &app_root)?;
             }
+
+            // Sealed store (theme / eval slots / panel skins) — under env generation
+            let store_src = app_pack.join("store-content");
+            if store_src.is_dir() {
+                let store_dest = gen_dir.join("build").join("store").join("content");
+                copy_dir(&store_src, &store_dest)?;
+            }
+            // Sealed registries for view-revision assemble (map + scene)
+            let registry_src = app_pack.join("registry");
+            if registry_src.is_dir() {
+                let registry_dest = gen_dir.join("build").join("registry");
+                copy_dir(&registry_src, &registry_dest)?;
+            }
         }
 
         // Bundled workspace stock/gis (mbtiles) — merge overwrite
@@ -445,6 +477,11 @@ fn materialize_snapshot_workspace(
         let resources_src = unpacked.dest.join("resources.json");
         if resources_src.is_file() {
             merge_resources_json(&ws.join("resources.json"), &resources_src)?;
+        }
+        // Workspace scene theme library (ops.sceneThemes …)
+        let workspace_ops = unpacked.dest.join("workspace-ops.json");
+        if workspace_ops.is_file() {
+            merge_workspace_scene_ops(&ws.join("workspace.json"), &workspace_ops)?;
         }
         let readme = unpacked.dest.join("README.txt");
         if readme.is_file() {
@@ -528,6 +565,63 @@ fn merge_resources_json(dest: &std::path::Path, incoming: &std::path::Path) -> a
         }
     }
     std::fs::write(dest, serde_json::to_string_pretty(&existing)?)?;
+    Ok(())
+}
+
+/// Merge packed `workspace-ops.json` (sceneThemes …) into target workspace.json.
+fn merge_workspace_scene_ops(
+    dest_workspace_json: &std::path::Path,
+    incoming_ops_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    let incoming: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(incoming_ops_path)?)?;
+    let Some(incoming_ops) = incoming.as_object() else {
+        return Ok(());
+    };
+    if incoming_ops.is_empty() {
+        return Ok(());
+    }
+
+    let mut doc = if dest_workspace_json.is_file() {
+        serde_json::from_str(&std::fs::read_to_string(dest_workspace_json)?)?
+    } else {
+        serde_json::json!({
+            "id": "mei-viewer-home",
+            "label": "Mei Viewer 默认工作区",
+            "schemaVersion": 2,
+            "workspace": {}
+        })
+    };
+
+    let root = doc
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("workspace.json root must be an object"))?;
+    let ops = root
+        .entry("ops")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("workspace.json ops must be an object"))?;
+
+    for (key, value) in incoming_ops {
+        if key == "sceneThemes" {
+            let dest_themes = ops
+                .entry("sceneThemes")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("ops.sceneThemes must be an object"))?;
+            if let Some(themes) = value.as_object() {
+                for (theme_id, theme_val) in themes {
+                    dest_themes.insert(theme_id.clone(), theme_val.clone());
+                }
+            }
+            continue;
+        }
+        ops.insert(key.clone(), value.clone());
+    }
+
+    std::fs::write(
+        dest_workspace_json,
+        serde_json::to_string_pretty(&doc)?,
+    )?;
     Ok(())
 }
 
@@ -1004,6 +1098,8 @@ pub fn run() {
             list_workspace_apps,
             export_snapshot,
             start_workspace,
+            probe_workspace,
+            init_workspace,
             import_snapshot,
             list_snapshot_resources,
             replenish_snapshot_resource,

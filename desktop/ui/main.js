@@ -177,6 +177,7 @@ async function refreshStatus() {
     }
   }
   el.status.textContent = s.running ? (ready ? "就绪" : "启动中…") : "未启动";
+  el.status.dataset.state = s.running ? (ready ? "ready" : "booting") : "idle";
   el.port.textContent = s.port != null ? String(s.port) : "—";
   el.workspace.textContent = s.workspace || "—";
   if (el.homePath) el.homePath.textContent = s.homeWorkspace || el.homePath.textContent || "—";
@@ -210,10 +211,7 @@ async function refreshRecent() {
     btn.addEventListener("click", async () => {
       setHint("正在启动…");
       try {
-        await invoke("start_workspace", { path });
-        await waitReady("正在打开工作区");
-        await invoke("open_host_ui");
-        setHint("已启动；宿主 UI 已在系统浏览器打开。");
+        await openWorkspacePath(path);
       } catch (e) {
         setHint(String(e), true);
       }
@@ -307,17 +305,37 @@ el.startHome?.addEventListener("click", async () => {
   }
 });
 
+async function openWorkspacePath(selected) {
+  const probe = await invoke("probe_workspace", { path: selected });
+  if (!probe?.isWorkspace) {
+    const ok = window.confirm(
+      `该文件夹还不是 Mei 工作区，是否创建？\n\n${selected}\n\n将写入 workspace.json 并物化平台 stock（components/templates）。`
+    );
+    if (!ok) {
+      setHint("已取消打开。");
+      return;
+    }
+    setHint("正在初始化工作区…");
+    await invoke("init_workspace", { path: selected });
+  }
+  setHint("正在启动工作区…");
+  await invoke("start_workspace", { path: selected });
+  await waitReady("正在打开工作区");
+  await refreshRecent();
+  await invoke("open_host_ui");
+  setHint("工作区已启动（已带 --launch）。");
+}
+
 el.openWs.addEventListener("click", async () => {
   setHint("");
   try {
+    if (typeof open !== "function") {
+      setHint("对话框插件未就绪（__TAURI__.dialog.open）。请重启 mei-viewer。", true);
+      return;
+    }
     const selected = await open({ directory: true, multiple: false });
     if (!selected) return;
-    setHint("正在启动工作区…");
-    await invoke("start_workspace", { path: selected });
-    await waitReady("正在打开工作区");
-    await refreshRecent();
-    await invoke("open_host_ui");
-    setHint("工作区已启动（已带 --launch）。");
+    await openWorkspacePath(selected);
   } catch (e) {
     setHint(String(e), true);
   }

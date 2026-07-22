@@ -301,7 +301,7 @@ pub fn build_portable_app_toml(
             }
         }
 
-        // basemaps — keep relative URLs only
+        // basemaps — relative tile URLs + nested style (colors/zoom; required for map chrome)
         if let Some(basemaps) = ops.get("basemaps").and_then(|v| v.as_table()) {
             for (bid, entry) in basemaps {
                 let Some(bt) = entry.as_table() else { continue };
@@ -318,6 +318,43 @@ pub fn build_portable_app_toml(
                         out.push_str(&format!("{key} = \"{}\"\n", toml_escape(s)));
                     }
                 }
+                if let Some(style) = bt.get("style") {
+                    if let Some(tv) = json_to_toml_value(&toml_value_to_json(style)) {
+                        append_toml_table(&mut out, &format!("ops.basemaps.{bid}.style"), &tv);
+                    }
+                }
+            }
+        }
+
+        // font_scale — cockpit title/metric type ramp (visual, not secrets)
+        if let Some(font_scale) = ops.get("font_scale").or_else(|| ops.get("fontScale")) {
+            if let Some(tv) = json_to_toml_value(&toml_value_to_json(font_scale)) {
+                append_toml_table(&mut out, "ops.font_scale", &tv);
+            }
+        }
+
+        // layout — sectionRows / gaps / headerHeight used by runtime plans
+        if let Some(layout) = ops.get("layout") {
+            if let Some(tv) = json_to_toml_value(&toml_value_to_json(layout)) {
+                if let toml::Value::Table(layout_table) = tv {
+                    for (layout_id, layout_val) in layout_table {
+                        append_toml_table(
+                            &mut out,
+                            &format!("ops.layout.\"{layout_id}\""),
+                            &layout_val,
+                        );
+                    }
+                }
+            }
+        }
+
+        // theme_selection — active theme id when themes table is present
+        if let Some(theme_selection) = ops
+            .get("theme_selection")
+            .or_else(|| ops.get("themeSelection"))
+        {
+            if let Some(tv) = json_to_toml_value(&toml_value_to_json(theme_selection)) {
+                append_toml_table(&mut out, "ops.theme_selection", &tv);
             }
         }
 
@@ -461,6 +498,42 @@ api_token = "secret"
         assert!(!result.toml.contains("postgres"));
         assert!(!result.toml.contains("api_token"));
         assert!(result.toml.contains("home_bg"));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn keeps_basemap_style_font_scale_and_layout() {
+        let tmp = std::env::temp_dir().join(format!("mei-portable-style-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(
+            tmp.join("app.toml"),
+            r##"
+title = "Demo"
+app_id = "demo"
+
+[ops.basemaps.shapingba]
+tilesBaseUrl = "/gis"
+tilejsonPath = "/shapingba-z10-16"
+
+[ops.basemaps.shapingba.style]
+backgroundColor = "#0c2848"
+defaultZoom = 11
+
+[ops.font_scale]
+1 = "16px"
+3 = "26px"
+
+[ops.layout."home/T1"]
+headerHeight = "72px"
+"##,
+        )
+        .unwrap();
+        let result = build_portable_app_toml(&tmp, "demo").unwrap();
+        assert!(result.toml.contains("tilesBaseUrl"));
+        assert!(result.toml.contains("backgroundColor"));
+        assert!(result.toml.contains("ops.font_scale"));
+        assert!(result.toml.contains("headerHeight"));
         let _ = fs::remove_dir_all(&tmp);
     }
 }

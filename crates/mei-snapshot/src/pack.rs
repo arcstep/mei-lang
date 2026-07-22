@@ -199,6 +199,48 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             });
         }
 
+        // Sealed view/eval store — required so Viewer can skip prebuild yet still
+        // serve theme tokens, metric skins, and KPI eval slots (map layers etc.).
+        let store_packed = pack_sealed_store_content(&env_root, &app_stage)?;
+        if store_packed > 0 {
+            resources.push(ResourceEntry {
+                id: format!("{app_id}.sealed-store"),
+                app_id: app_id.clone(),
+                kind: "sealed-store".into(),
+                state: ResourceState::Bundled,
+                target_path: format!("apps/{app_id}/store-content"),
+                required_for: Some("eval".into()),
+                severity: ResourceSeverity::Blocking,
+                sha256: None,
+                bytes: None,
+                hint: Some(format!(
+                    "必要：已打包 {store_packed} 个 sealed store 文件（theme/eval/content_panel/…）"
+                )),
+                recovery: None,
+            });
+        }
+
+        // MCG/MRG registries — view-revision assemble reads these; without them
+        // Access returns assemble unavailable / blank map layers after sealed import.
+        let registry_packed = pack_sealed_registry(&env_root, &app_stage)?;
+        if registry_packed > 0 {
+            resources.push(ResourceEntry {
+                id: format!("{app_id}.sealed-registry"),
+                app_id: app_id.clone(),
+                kind: "sealed-registry".into(),
+                state: ResourceState::Bundled,
+                target_path: format!("apps/{app_id}/registry"),
+                required_for: Some("assemble".into()),
+                severity: ResourceSeverity::Blocking,
+                sha256: None,
+                bytes: None,
+                hint: Some(format!(
+                    "必要：已打包 {registry_packed} 个 registry 文件（mcg/mrg/bridge/admin）"
+                )),
+                recovery: None,
+            });
+        }
+
         // Prototype (if referenced / present)
         let proto_src = app_root.join("prototype");
         if proto_src.is_dir() {
@@ -435,6 +477,11 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
     // Workspace GIS tiles (mbtiles) — default bundled for portable demos.
     pack_workspace_gis(&opts.workspace, &staging, &mut resources)?;
 
+    // Workspace scene theme library (colors / role maps). Without this, Viewer
+    // home workspace.json has no ops.sceneThemes and Access falls back to Host
+    // shell defaults — font_scale in app.toml alone cannot restore cockpit look.
+    pack_workspace_scene_ops(&opts.workspace, &staging, &mut resources)?;
+
     let platform_stock_revision = opts
         .package_root
         .as_ref()
@@ -551,6 +598,66 @@ fn pack_stock_overlay(
     Ok(())
 }
 
+/// Pack workspace-level scene theme library into `workspace-ops.json`.
+/// Scene colors live here (not in app.toml); see docs 0310 / 0540.
+fn pack_workspace_scene_ops(
+    workspace: &Path,
+    staging: &Path,
+    resources: &mut Vec<ResourceEntry>,
+) -> anyhow::Result<()> {
+    let ws_json = workspace.join("workspace.json");
+    if !ws_json.is_file() {
+        return Ok(());
+    }
+    let raw = fs::read_to_string(&ws_json)?;
+    let doc: serde_json::Value = serde_json::from_str(&raw)?;
+    let Some(ops) = doc.get("ops").and_then(|v| v.as_object()) else {
+        return Ok(());
+    };
+    let mut out = serde_json::Map::new();
+    for key in [
+        "sceneThemes",
+        "sceneThemeDefault",
+        "shellTheme",
+        "themes", // legacy shell theme host chrome
+    ] {
+        if let Some(value) = ops.get(key) {
+            if !value.is_null() {
+                out.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    if out.is_empty() {
+        return Ok(());
+    }
+    let scene_count = out
+        .get("sceneThemes")
+        .and_then(|v| v.as_object())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let payload = serde_json::Value::Object(out);
+    fs::write(
+        staging.join("workspace-ops.json"),
+        serde_json::to_vec_pretty(&payload)?,
+    )?;
+    resources.push(ResourceEntry {
+        id: "workspace.scene-ops".into(),
+        app_id: "*".into(),
+        kind: "workspace-ops".into(),
+        state: ResourceState::Bundled,
+        target_path: "workspace-ops.json".into(),
+        required_for: Some("theme".into()),
+        severity: ResourceSeverity::Blocking,
+        sha256: None,
+        bytes: None,
+        hint: Some(format!(
+            "必要：已打包工作区 sceneThemes（{scene_count} 套）供 Viewer 装配 cockpit 外观"
+        )),
+        recovery: None,
+    });
+    Ok(())
+}
+
 /// Bundle workspace `stock/gis/**` (primarily `tiles/*.mbtiles`) into the portable zip.
 fn pack_workspace_gis(
     workspace: &Path,
@@ -657,7 +764,10 @@ fn build_readme(app_ids: &[String], resources: &ResourcesDocument) -> String {
     out.push_str("Necessary (blocking):\n");
     out.push_str("  - exchange/*.meibundle  — scene / metric graph\n");
     out.push_str("  - data-snapshots/*.parquet — table metrics (sealed eval)\n");
-    out.push_str("  - runtime/app.toml — portable config\n\n");
+    out.push_str("  - store-content/** — theme / eval slots / panel skins (no prebuild)\n");
+    out.push_str("  - registry/** — mcg/mrg for view-revision assemble (no prebuild)\n");
+    out.push_str("  - workspace-ops.json — sceneThemes / sceneThemeDefault (cockpit look)\n");
+    out.push_str("  - runtime/app.toml — portable config (basemap style / layout / fonts)\n\n");
     out.push_str("Optional (degrade / info):\n");
     out.push_str("  - upload videos/PDF — only if packed with --include-media\n");
     out.push_str("  - original xlsx — not needed when parquet is present\n");
@@ -695,6 +805,50 @@ fn dir_has_extension(dir: &Path, ext: &str) -> bool {
                 .and_then(|x| x.to_str())
                 .is_some_and(|x| x.eq_ignore_ascii_case(ext))
         })
+}
+
+/// Pack the full sealed `build/store/content` tree (all artifact kinds).
+/// A whitelist missed `manifest_index` / `navigation` / … and left Viewer
+/// with partial digests after import; copy everything present instead.
+fn pack_sealed_store_content(env_root: &Path, app_stage: &Path) -> anyhow::Result<usize> {
+    let content_root = env_root.join("build").join("store").join("content");
+    if !content_root.is_dir() {
+        return Ok(0);
+    }
+    let dest_root = app_stage.join("store-content");
+    copy_dir_contents(&content_root, &dest_root)?;
+    let packed = WalkDir::new(&dest_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .count();
+    Ok(packed)
+}
+
+const SEALED_REGISTRY_FILES: &[&str] = &[
+    "mcg-registry.json",
+    "mrg-registry.json",
+    "bridge.json",
+    "admin-registry.json",
+];
+
+fn pack_sealed_registry(env_root: &Path, app_stage: &Path) -> anyhow::Result<usize> {
+    let registry_root = env_root.join("build").join("registry");
+    if !registry_root.is_dir() {
+        return Ok(0);
+    }
+    let dest_root = app_stage.join("registry");
+    fs::create_dir_all(&dest_root)?;
+    let mut packed = 0usize;
+    for name in SEALED_REGISTRY_FILES {
+        let src = registry_root.join(name);
+        if !src.is_file() {
+            continue;
+        }
+        fs::copy(&src, dest_root.join(name))?;
+        packed += 1;
+    }
+    Ok(packed)
 }
 
 fn tempfile_dir(out: &Path) -> anyhow::Result<PathBuf> {

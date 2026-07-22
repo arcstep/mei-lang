@@ -13,88 +13,154 @@
         <img class="brand-logo" src="mei-logo.svg" width="48" height="48" alt="MeiLang" />
         <div>
           <h1>mei-viewer <span id="viewer-version" class="version-badge">…</span></h1>
-          <p class="sub">默认工作区 · 导出 / 导入快照 · 打开其它工作区</p>
+          <p class="sub">默认工作区 · 快照导入导出 · 打开其它工作区</p>
         </div>
       </header>
 
-      <section class="status" id="status-panel">
-        <div class="row"><span>版本</span><code id="status-version">—</code></div>
-        <div class="row"><span>状态</span><strong id="status-text">未启动</strong></div>
-        <div class="row"><span>端口</span><code id="status-port">—</code></div>
-        <div class="row path-row">
-          <span>当前工作区</span>
-          <div class="path-value">
+      <!-- 1. 运行态信息（独占一行） -->
+      <section class="panel panel-status" id="status-panel" aria-label="运行状态">
+        <div class="panel-head">
+          <div class="panel-title-block">
+            <h2 class="panel-title">运行状态</h2>
+            <p class="panel-desc">版本、宿主端口与工作区路径</p>
+          </div>
+          <div class="status-pills">
+            <div class="pill">
+              <span class="pill-label">状态</span>
+              <strong id="status-text" class="pill-value">未启动</strong>
+            </div>
+            <div class="pill">
+              <span class="pill-label">端口</span>
+              <code id="status-port" class="pill-value">—</code>
+            </div>
+            <div class="pill pill-version">
+              <span class="pill-label">版本</span>
+              <code id="status-version" class="pill-value">—</code>
+            </div>
+            <button type="button" id="btn-stop" class="secondary compact" disabled>停止宿主</button>
+          </div>
+        </div>
+
+        <div class="path-grid">
+          <article class="path-card">
+            <header class="path-card-head">
+              <span class="path-card-label">当前工作区</span>
+              <div class="path-actions">
+                <button type="button" class="secondary compact" data-copy-path="status-workspace">复制</button>
+                <button type="button" class="secondary compact" data-reveal-path="status-workspace">打开</button>
+              </div>
+            </header>
             <code id="status-workspace" class="path-code">—</code>
-            <div class="path-actions">
-              <button type="button" class="secondary compact" data-copy-path="status-workspace">复制路径</button>
-              <button type="button" class="secondary compact" data-reveal-path="status-workspace">打开文件夹</button>
-            </div>
-          </div>
-        </div>
-        <div class="row path-row">
-          <span>默认工作区</span>
-          <div class="path-value">
+          </article>
+          <article class="path-card">
+            <header class="path-card-head">
+              <span class="path-card-label">默认工作区</span>
+              <div class="path-actions">
+                <button type="button" class="secondary compact" data-copy-path="status-home">复制</button>
+                <button type="button" class="secondary compact" data-reveal-path="status-home">打开</button>
+              </div>
+            </header>
             <code id="status-home" class="path-code">—</code>
-            <div class="path-actions">
-              <button type="button" class="secondary compact" data-copy-path="status-home">复制路径</button>
-              <button type="button" class="secondary compact" data-reveal-path="status-home">打开文件夹</button>
-            </div>
-          </div>
-        </div>
-        <div class="row path-row">
-          <span>日志文件</span>
-          <div class="path-value">
+          </article>
+          <article class="path-card">
+            <header class="path-card-head">
+              <span class="path-card-label">日志文件</span>
+              <div class="path-actions">
+                <button type="button" class="secondary compact" data-copy-path="status-log">复制</button>
+                <button type="button" class="secondary compact" data-reveal-path="status-log">打开</button>
+              </div>
+            </header>
             <code id="status-log" class="path-code">—</code>
-            <div class="path-actions">
-              <button type="button" class="secondary compact" data-copy-path="status-log">复制路径</button>
-              <button type="button" class="secondary compact" data-reveal-path="status-log">打开文件夹</button>
-            </div>
-          </div>
+          </article>
         </div>
-        <details class="logs-fold" id="logs-fold">
-          <summary>运行日志（点击展开）</summary>
-          <div class="logs-body">
+
+        <details class="fold" id="logs-fold">
+          <summary>运行日志</summary>
+          <div class="fold-body">
             <div class="logs-actions">
               <label class="follow">
                 <input type="checkbox" id="log-follow" checked />
                 自动刷新
               </label>
               <button type="button" id="btn-copy-log" class="secondary compact">复制全部</button>
-              <button type="button" id="btn-reveal-log" class="secondary compact">在访达中显示文件</button>
+              <button type="button" id="btn-reveal-log" class="secondary compact">在访达中显示</button>
             </div>
             <pre id="log-view" class="log-view" tabindex="0" aria-live="polite">（尚未启动 host）</pre>
           </div>
         </details>
       </section>
 
-      <section class="actions">
-        <button type="button" id="btn-start-home">打开默认工作区</button>
-        <button type="button" id="btn-open-workspace" class="secondary">打开其它工作区…</button>
-        <button type="button" id="btn-import-snapshot" title="无需先打开工作区：始终合并到默认工作区并启动">导入快照到默认工作区…</button>
-        <div class="export-row">
-          <label class="export-app">
-            <span>导出 apps（可多选）</span>
+      <!-- 2. 打开 / 导入 / 打开宿主 -->
+      <section class="panel panel-workspace" aria-label="打开与导入">
+        <div class="panel-head">
+          <div class="panel-title-block">
+            <h2 class="panel-title">打开与导入</h2>
+            <p class="panel-desc">启动工作区，或将快照合并进默认工作区</p>
+          </div>
+        </div>
+        <div class="action-grid action-grid-4">
+          <button type="button" id="btn-start-home" class="action-tile">
+            <span class="action-tile-title">打开默认工作区</span>
+            <span class="action-tile-hint">家目录下的默认 workspace</span>
+          </button>
+          <button type="button" id="btn-open-workspace" class="action-tile secondary">
+            <span class="action-tile-title">打开其它工作区…</span>
+            <span class="action-tile-hint">选择任意文件夹</span>
+          </button>
+          <button
+            type="button"
+            id="btn-import-snapshot"
+            class="action-tile"
+            title="无需先打开工作区：始终合并到默认工作区并启动"
+          >
+            <span class="action-tile-title">导入快照…</span>
+            <span class="action-tile-hint">合并到默认工作区</span>
+          </button>
+          <button type="button" id="btn-open-host" class="action-tile" disabled>
+            <span class="action-tile-title">浏览器打开宿主</span>
+            <span class="action-tile-hint">访问当前 Host UI</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 3. 导出快照 -->
+      <section class="panel panel-export" aria-label="导出快照">
+        <div class="panel-head">
+          <div class="panel-title-block">
+            <h2 class="panel-title">导出快照</h2>
+            <p class="panel-desc">从当前已打开工作区打包可移植快照</p>
+          </div>
+          <button type="button" id="btn-export-snapshot" class="compact-primary" disabled>导出快照…</button>
+        </div>
+        <div class="export-layout">
+          <label class="export-apps">
+            <span class="field-label">导出 apps（可多选）</span>
             <select id="export-app" multiple size="4" disabled>
               <option value="">（未打开工作区）</option>
             </select>
           </label>
-          <label class="follow">
-            <input type="checkbox" id="export-include-data" checked />
-            可移植包（含数据/配置，推荐）
-          </label>
-          <label class="follow">
-            <input type="checkbox" id="export-include-media" />
-            包含大媒体（视频等 upload）
-          </label>
+          <div class="export-options">
+            <span class="field-label">选项</span>
+            <label class="follow option-row">
+              <input type="checkbox" id="export-include-data" checked />
+              可移植包（含数据/配置，推荐）
+            </label>
+            <label class="follow option-row">
+              <input type="checkbox" id="export-include-media" />
+              包含大媒体（视频等 upload）
+            </label>
+          </div>
         </div>
-        <button type="button" id="btn-export-snapshot" disabled>导出快照…</button>
-        <button type="button" id="btn-open-host" disabled>在浏览器打开宿主</button>
-        <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
       </section>
 
-      <section class="recent">
-        <h2>我打开的工作区位置</h2>
-        <ul id="recent-list"></ul>
+      <!-- 4. 补充：最近打开（默认收起） -->
+      <section class="panel panel-recent" aria-label="最近打开">
+        <details class="fold" id="recent-fold">
+          <summary>我打开的工作区位置</summary>
+          <div class="fold-body">
+            <ul id="recent-list"></ul>
+          </div>
+        </details>
       </section>
 
       <p class="hint" id="hint"></p>

@@ -104,9 +104,19 @@ pub async fn workspace_app_asset(
     headers: HeaderMap,
     AxumPath((app_id, path)): AxumPath<(String, String)>,
 ) -> Response {
-    let workspace_root = state.read().expect("state lock").ctx.workspace_root.clone();
+    let (workspace_root, package_root) = {
+        let guard = state.read().expect("state lock");
+        (guard.ctx.workspace_root.clone(), guard.package_root.clone())
+    };
     let asset_root = if app_id == "templates" {
-        resolve_templates_root(workspace_root.as_path()).join(&path)
+        let workspace_asset = resolve_templates_root(workspace_root.as_path()).join(&path);
+        // Same fallback as component_asset: Viewer / thin workspaces may not have
+        // stock/templates materialized yet; platform package still ships the skins.
+        if workspace_asset.exists() {
+            workspace_asset
+        } else {
+            package_root.join("stock/templates").join(&path)
+        }
     } else {
         resolve_app_root(workspace_root.as_path(), &app_id).join(&path)
     };

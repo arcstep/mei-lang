@@ -49,6 +49,47 @@ pub fn ensure_home_workspace() -> anyhow::Result<PathBuf> {
     Ok(ws)
 }
 
+/// Initialize an empty directory as a Mei workspace via `mei-host-shell workspace init`
+/// (writes `workspace.json` when missing and materializes platform stock).
+pub fn init_workspace_dir(path: &Path, label: Option<&str>) -> anyhow::Result<()> {
+    if !path.is_dir() {
+        anyhow::bail!("不是目录: {}", path.display());
+    }
+    let bin = resolve_host_shell_bin()?;
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.arg("workspace")
+        .arg("init")
+        .arg("--dir")
+        .arg(path);
+    if let Some(label) = label.filter(|s| !s.trim().is_empty()) {
+        cmd.arg("--label").arg(label);
+    } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        cmd.arg("--label").arg(name);
+    }
+    if let Some(pkg) = sidecar_package_root() {
+        cmd.env("MEI_PACKAGE_ROOT", &pkg);
+    }
+    if let Ok(bin_dir) = sidecar_bin_dir() {
+        cmd.env("MEI_DESKTOP_BIN", &bin_dir);
+    }
+    let output = cmd.output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!(
+            "workspace init 失败 ({}): {}{}",
+            output.status,
+            stdout.trim(),
+            if stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", stderr.trim())
+            }
+        );
+    }
+    Ok(())
+}
+
 pub fn snapshot_slot_dir() -> anyhow::Result<PathBuf> {
     let dir = app_support_dir()?.join("snapshots");
     std::fs::create_dir_all(&dir)?;

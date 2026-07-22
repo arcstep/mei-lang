@@ -857,6 +857,25 @@ async fn run_serve_control_plane(
     let workspace = args.workspace;
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve-control-plane");
     let package_root = resolve_package_root()?;
+    // Control-plane serve is the product path; it previously skipped stock bootstrap
+    // (only legacy early-bind / workspace init did). Without this, Viewer/home workspaces
+    // keep empty stock/templates and cockpit metric skins 404.
+    if let Some(report) = mei_host_core::ensure_workspace_stock_materialized(
+        workspace.as_path(),
+        package_root.as_path(),
+    )? {
+        if report.components.copied_files > 0
+            || report.templates.copied_files > 0
+            || report.authoring.copied_files > 0
+        {
+            tracing::info!(
+                components = report.components.copied_files,
+                templates = report.templates.copied_files,
+                authoring = report.authoring.copied_files,
+                "refreshed workspace stock during control-plane serve"
+            );
+        }
+    }
     let auth_enforcement = if args.auth {
         mei_host_auth::AuthEnforcement::Required
     } else {
