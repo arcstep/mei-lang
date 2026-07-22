@@ -10,9 +10,10 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
 fn open_host_window(app: &AppHandle, port: u16) -> Result<(), String> {
-    // Open in the system browser — same URL renders correctly in Safari/Chrome, but
-    // Tauri's WKWebView consistently fails host chrome (Shoelace <sl-dropdown> never
-    // upgrades → vertical "mini/其他" bars crush the main pane).
+    // Open in an external Chromium-first browser — not Tauri's WKWebView (Shoelace
+    // <sl-dropdown> never upgrades there → vertical "mini/其他" bars crush the pane).
+    // Prefer Chrome-family so localhost HTTP still works when Safari has "HTTPS Only"
+    // enabled (WebKitErrorDomain:305).
     let url = format!("http://127.0.0.1:{port}/home");
     if let Some(w) = app.get_webview_window("host") {
         let _ = w.close();
@@ -28,6 +29,22 @@ fn open_host_window(app: &AppHandle, port: u16) -> Result<(), String> {
 fn open_system_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // Order: Chromium engines first, then system default (may be Safari).
+        const PREFERRED_APPS: &[&str] = &[
+            "Google Chrome",
+            "Chromium",
+            "Microsoft Edge",
+            "Brave Browser",
+            "Arc",
+        ];
+        for app_name in PREFERRED_APPS {
+            let status = std::process::Command::new("open")
+                .args(["-a", app_name, url])
+                .status();
+            if matches!(status, Ok(s) if s.success()) {
+                return Ok(());
+            }
+        }
         std::process::Command::new("open")
             .arg(url)
             .spawn()
@@ -36,6 +53,15 @@ fn open_system_browser(url: &str) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
+        // Prefer Chrome / Edge if registered; fall back to default handler.
+        for browser in ["chrome", "msedge"] {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "start", "", browser, url])
+                .status();
+            if matches!(status, Ok(s) if s.success()) {
+                return Ok(());
+            }
+        }
         std::process::Command::new("cmd")
             .args(["/C", "start", "", url])
             .spawn()
@@ -44,6 +70,12 @@ fn open_system_browser(url: &str) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
+        for bin in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"] {
+            let status = std::process::Command::new(bin).arg(url).status();
+            if matches!(status, Ok(s) if s.success()) {
+                return Ok(());
+            }
+        }
         std::process::Command::new("xdg-open")
             .arg(url)
             .spawn()
@@ -183,6 +215,25 @@ fn export_snapshot(
         out.set_file_name(format!("{stem}.mei-snapshot.zip"));
     }
 
+    let package_root = std::env::var_os("MEI_PACKAGE_ROOT").map(PathBuf::from);
+
+    // Prefer portable v2 whenever possible (multi-app or single with data closure).
+    let use_portable = ids.len() > 1 || include_data;
+    if use_portable {
+        // Export must prepare sealed products, not blindly copy whatever is on disk.
+        // Author apps: always prebuild first. Sealed imports: never re-prebuild.
+        let host = state.host.lock().map_err(|e| e.to_string())?;
+        for app_id in &ids {
+            if host::app_is_sealed_portable(&workspace, app_id) {
+                continue;
+            }
+            host.prebuild_app(&workspace, app_id).map_err(|e| {
+                format!("导出前预构建失败（{app_id}）：{e}")
+            })?;
+        }
+        drop(host);
+    }
+
     for app_id in &ids {
         match mei_snapshot::resolve_app_env_root(&workspace, app_id)
             .and_then(|env| mei_snapshot::resolve_bundle_path(&env, app_id))
@@ -190,16 +241,12 @@ fn export_snapshot(
             Ok(_) => {}
             Err(err) => {
                 return Err(format!(
-                    "无法导出 {app_id}：{err}（请先 compile，或在宿主 /runtime 执行 reload）"
+                    "无法导出 {app_id}：{err}（可移植导出应已自动 prebuild；请查看宿主日志）"
                 ));
             }
         }
     }
 
-    let package_root = std::env::var_os("MEI_PACKAGE_ROOT").map(PathBuf::from);
-
-    // Prefer portable v2 whenever possible (multi-app or single with data closure).
-    let use_portable = ids.len() > 1 || include_data;
     let manifest = if use_portable {
         mei_snapshot::pack_portable_snapshot(&mei_snapshot::PortablePackOptions {
             workspace,

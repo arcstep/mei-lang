@@ -128,7 +128,7 @@
         <div class="panel-head">
           <div class="panel-title-block">
             <h2 class="panel-title">导出快照</h2>
-            <p class="panel-desc">从当前已打开工作区打包可移植快照</p>
+            <p class="panel-desc">可移植导出前会对所选 app 自动完整预构建，再校验并打包</p>
           </div>
           <button type="button" id="btn-export-snapshot" class="compact-primary" disabled>导出快照…</button>
         </div>
@@ -143,7 +143,7 @@
             <span class="field-label">选项</span>
             <label class="follow option-row">
               <input type="checkbox" id="export-include-data" checked />
-              可移植包（含数据/配置，推荐）
+              可移植包（含数据/配置；导出会先 prebuild，推荐）
             </label>
             <label class="follow option-row">
               <input type="checkbox" id="export-include-media" />

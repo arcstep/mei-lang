@@ -240,6 +240,53 @@ impl HostHandle {
         }
         Ok(())
     }
+
+    /// Author-workspace prepare: compile + import + data snapshots + warmup + finalize.
+    /// Used before portable snapshot export so the pack validates sealed products, not stale files.
+    pub fn prebuild_app(&self, workspace: &Path, app: &str) -> anyhow::Result<()> {
+        let bin = paths::resolve_host_shell_bin()?;
+        let mut cmd = Command::new(&bin);
+        cmd.arg("prebuild")
+            .arg("--workspace")
+            .arg(workspace)
+            .arg("--app")
+            .arg(app)
+            .arg("--policy")
+            .arg("home");
+        apply_sidecar_env(&mut cmd)?;
+        let output = cmd
+            .output()
+            .map_err(|e| anyhow::anyhow!("spawn {}: {e}", bin.display()))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = [stderr.trim(), stdout.trim()]
+                .into_iter()
+                .find(|s| !s.is_empty())
+                .unwrap_or("(no output)");
+            anyhow::bail!(
+                "prebuild failed for `{app}` (status {}): {}",
+                output.status,
+                detail
+            );
+        }
+        Ok(())
+    }
+}
+
+/// True when this app was materialized from a portable snapshot (must not re-prebuild).
+pub fn app_is_sealed_portable(workspace: &Path, app_id: &str) -> bool {
+    let app_root = workspace.join("apps").join(app_id);
+    app_root
+        .join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER)
+        .is_file()
+        || app_root
+            .join("env")
+            .join("current")
+            .join("var")
+            .join("data-snapshots")
+            .join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER)
+            .is_file()
 }
 
 fn workspace_has_portable_snapshot(workspace: &Path) -> bool {

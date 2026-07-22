@@ -416,6 +416,16 @@ el.exportSnap.addEventListener("click", async () => {
     }
     setHint(`正在导出 ${appIds.join(", ")}…`);
     const includeMedia = Boolean(el.exportIncludeMedia?.checked);
+    const includeData = Boolean(el.exportIncludeData?.checked);
+    if (includeData || appIds.length > 1) {
+      const okPrep = window.confirm(
+        "可移植导出会先对所选 app 执行完整预构建（compile/import/data/warmup），可能需要数分钟，然后校验产物并打包。确定继续？"
+      );
+      if (!okPrep) {
+        setHint("已取消导出。");
+        return;
+      }
+    }
     if (includeMedia) {
       const ok = window.confirm(
         "将包含 upload 下的视频等大媒体，体积可能达到数 GB。确定继续导出？"
@@ -425,10 +435,15 @@ el.exportSnap.addEventListener("click", async () => {
         return;
       }
     }
+    setHint(
+      includeData || appIds.length > 1
+        ? `正在预构建并导出 ${appIds.join(", ")}…`
+        : `正在导出 ${appIds.join(", ")}…`
+    );
     const msg = await invoke("export_snapshot", {
       appIds,
       outPath,
-      includeData: Boolean(el.exportIncludeData.checked),
+      includeData,
       includeMedia,
     });
     setHint(msg);

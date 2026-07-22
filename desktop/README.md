@@ -139,7 +139,8 @@ Actions 中手动执行 `Release` 只构建候选产物、不创建 Release；�
 > `mbtiles` sidecar；安装包内已含 `martin`，用户无需本机 Rust。
 ## 快照（GUI 与 CLI）
 
-启动器：打开工作区后**多选** app →「导出快照…」（默认 **portable v2**：含可移植配置、parquet、assets、csv/json、**工作区 stock/gis**；视频默认外置，可勾选「包含大媒体」）。对方「导入快照到默认工作区…」即可 merge。  
+启动器：打开工作区后**多选** app →「导出快照…」（默认 **portable v2**：含可移植配置、parquet、assets、csv/json、**工作区 stock/gis**；视频默认外置，可勾选「包含大媒体」）。  
+可移植导出前会对**作者工作区**所选 app **自动完整 prebuild**，再校验 bundle / 密封产物并打包；从密封导入的 app（带 `.mei-portable-snapshot`）不会再次 prebuild。对方「导入快照到默认工作区…」即可 merge。  
 外置视频等可在导入后手工放入对应 `upload/` 路径，或下次导出时勾选「包含大媒体」。
 
 无 GUI 时：
