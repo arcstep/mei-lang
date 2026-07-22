@@ -1,7 +1,8 @@
 fn main() {
-    let app = std::path::PathBuf::from(
-        "/Users/xuehongwei/codeup/mei-projects/workspaces/ws-demo-v2/apps/zhifa",
-    );
+    let app = std::env::args()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .expect("usage: dump_theme <app-root>");
     let cfg = mei_lang_kernel::load_mei_config_for_app(&app, None);
     let theme = cfg.ops.themes.get("cockpit").cloned().unwrap_or_default();
     let g = theme.pointer("/tokens/gradient/panel_glow_bg");

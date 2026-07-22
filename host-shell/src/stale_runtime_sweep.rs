@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn matches_workspace_runtime_lines_only() {
-        let ws = "/Users/me/codeup/mei-projects/workspaces/ws-demo-v2";
+        let ws = "/tmp/mei-workspace-probe";
         let lines = vec![
             format!("  123 mei-app-runtime serve --workspace {ws} --app zhifa --instance-id a"),
             "  456 mei-app-runtime serve --workspace /other/ws --app zhifa".to_string(),

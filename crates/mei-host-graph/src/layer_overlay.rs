@@ -272,11 +272,13 @@ mod tests {
 
     #[test]
     fn ensure_theme_tokens_cached_honors_theme_id_when_workspace_present() {
-        let workspace = std::env::var("MEI_TEST_WORKSPACE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2")
-            });
+    let workspace = match std::env::var("MEI_TEST_WORKSPACE") {
+        Ok(path) => std::path::PathBuf::from(path),
+        Err(_) => {
+            eprintln!("skip: MEI_TEST_WORKSPACE not set");
+            return;
+        }
+    };
         let app_toml = workspace.join("apps/mini-data/app.toml");
         if !app_toml.is_file() {
             eprintln!(

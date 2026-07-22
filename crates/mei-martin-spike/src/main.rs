@@ -21,14 +21,22 @@ use martin_tile_utils::TileCoord;
 use tokio::process::Command;
 use tokio::time::{sleep, Instant};
 
+fn workspace_tiles_root() -> Option<PathBuf> {
+    std::env::var("MEI_TEST_WORKSPACE")
+        .ok()
+        .map(|root| PathBuf::from(root).join("stock/gis/tiles"))
+        .filter(|path| path.is_dir())
+}
+
 fn default_mbtiles() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2/stock/gis/tiles/huale-z10-16.mbtiles")
+    workspace_tiles_root()
+        .map(|dir| dir.join("huale-z10-16.mbtiles"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("huale-z10-16.mbtiles"))
 }
 
 fn default_tiles_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-demo-v2/stock/gis/tiles")
+    workspace_tiles_root().unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn resolve_martin_bin() -> Result<PathBuf> {
