@@ -152,33 +152,58 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         // Marker for sealed data mode after materialize
         fs::write(app_stage.join(".mei-portable-snapshot"), b"1\n")?;
 
-        let data_mode = DataModeHint::Eval;
         let ds_src = env_root.join("var").join("data-snapshots");
         let has_parquet = dir_has_extension(&ds_src, "parquet");
-        // Portable sealed demos need parquet in-pack. Raw upload xlsx is optional when
-        // parquet exists; videos are always optional (`include_media`).
+        let requires_parquet = app_requires_parquet_snapshots(&app_root);
+        // Portable sealed demos with table metrics need parquet in-pack.
+        // Static/GIS apps (data_mode_ceiling = static) have no table closure — skip.
+        // Raw upload xlsx is optional when parquet exists; videos are always optional.
+        let data_mode = if has_parquet {
+            DataModeHint::Eval
+        } else {
+            DataModeHint::Static
+        };
         if !has_parquet {
-            anyhow::bail!(
-                "portable pack for `{app_id}` requires apps/{app_id}/env/current/var/data-snapshots/*.parquet \
-                 (necessary for sealed eval). Run prebuild on the author workspace first; \
-                 do not rely on upload/ videos or raw xlsx as the runtime data closure."
-            );
+            if requires_parquet {
+                anyhow::bail!(
+                    "portable pack for `{app_id}` requires apps/{app_id}/env/current/var/data-snapshots/*.parquet \
+                     (necessary for sealed eval). Run prebuild on the author workspace first; \
+                     do not rely on upload/ videos or raw xlsx as the runtime data closure."
+                );
+            }
+            if ds_src.is_dir() {
+                copy_dir_contents(&ds_src, &app_stage.join("data-snapshots"))?;
+            }
+            resources.push(ResourceEntry {
+                id: format!("{app_id}.data-snapshots"),
+                app_id: app_id.clone(),
+                kind: "data-snapshots".into(),
+                state: ResourceState::Bundled,
+                target_path: format!("apps/{app_id}/env/current/var/data-snapshots"),
+                required_for: Some("eval".into()),
+                severity: ResourceSeverity::Degrade,
+                sha256: None,
+                bytes: None,
+                hint: Some("本应用为 static/GIS，无表格 parquet；地图等资源仍可密封打包".into()),
+                recovery: None,
+            });
+        } else {
+            copy_dir_contents(&ds_src, &app_stage.join("data-snapshots"))?;
+            overall_hint = DataModeHint::Eval;
+            resources.push(ResourceEntry {
+                id: format!("{app_id}.data-snapshots"),
+                app_id: app_id.clone(),
+                kind: "data-snapshots".into(),
+                state: ResourceState::Bundled,
+                target_path: format!("apps/{app_id}/env/current/var/data-snapshots"),
+                required_for: Some("eval".into()),
+                severity: ResourceSeverity::Blocking,
+                sha256: None,
+                bytes: None,
+                hint: Some("必要：表格指标用包内 parquet；与大媒体无关".into()),
+                recovery: None,
+            });
         }
-        copy_dir_contents(&ds_src, &app_stage.join("data-snapshots"))?;
-        overall_hint = DataModeHint::Eval;
-        resources.push(ResourceEntry {
-            id: format!("{app_id}.data-snapshots"),
-            app_id: app_id.clone(),
-            kind: "data-snapshots".into(),
-            state: ResourceState::Bundled,
-            target_path: format!("apps/{app_id}/env/current/var/data-snapshots"),
-            required_for: Some("eval".into()),
-            severity: ResourceSeverity::Blocking,
-            sha256: None,
-            bytes: None,
-            hint: Some("必要：表格指标用包内 parquet；与大媒体无关".into()),
-            recovery: None,
-        });
 
         // Assets
         let assets_src = app_root.join("assets");
@@ -807,6 +832,23 @@ fn dir_has_extension(dir: &Path, ext: &str) -> bool {
         })
 }
 
+/// Table-metric apps need sealed parquet; `data_mode_ceiling = static` (GIS/UI-only) does not.
+fn app_requires_parquet_snapshots(app_root: &Path) -> bool {
+    let path = app_root.join("app.toml");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return true;
+    };
+    let Ok(value) = text.parse::<toml::Value>() else {
+        return true;
+    };
+    let ceiling = value
+        .get("data_mode_ceiling")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    !ceiling.eq_ignore_ascii_case("static")
+}
+
 /// Pack the full sealed `build/store/content` tree (all artifact kinds).
 /// A whitelist missed `manifest_index` / `navigation` / … and left Viewer
 /// with partial digests after import; copy everything present instead.
@@ -1076,6 +1118,53 @@ path = "upload/t.csv"
         assert!(dest.join("resources.json").is_file());
         assert!(dest.join("stock/gis/tiles/demo.mbtiles").is_file());
         assert_eq!(result.app_bundle_paths.len(), 2);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn pack_portable_static_gis_without_parquet() {
+        let tmp = std::env::temp_dir().join(format!("mei-snap-static-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let ws = tmp.join("ws");
+        let app = "mini-buildings";
+        let app_root = ws.join("apps").join(app);
+        let env = app_root.join("env").join("WS-1");
+        let exchange = env.join("build").join("exchange");
+        fs::create_dir_all(&exchange).unwrap();
+        fs::write(exchange.join(format!("{app}.meibundle")), b"bundle").unwrap();
+        fs::create_dir_all(env.join("var").join("data-snapshots")).unwrap();
+        fs::create_dir_all(app_root.join("assets")).unwrap();
+        fs::write(app_root.join("assets").join("foot.geojson"), b"{}").unwrap();
+        fs::write(
+            app_root.join("app.toml"),
+            r#"
+title = "迷你建筑群"
+app_id = "mini-buildings"
+default_stage = "home"
+data_mode_ceiling = "static"
+
+[ops.sources.huale_footprint]
+kind = "geojson"
+path = "assets/foot.geojson"
+"#,
+        )
+        .unwrap();
+
+        let out = tmp.join("gis.mei-snapshot.zip");
+        let manifest = pack_portable_snapshot(&PortablePackOptions {
+            workspace: ws,
+            app_ids: vec![app.into()],
+            out: out.clone(),
+            default_scene: Some("home".into()),
+            compiler_version: Some("test".into()),
+            workspace_label: Some("demo".into()),
+            package_root: None,
+            include_media: false,
+        })
+        .unwrap();
+        assert_eq!(manifest.format_version, FORMAT_VERSION_V2);
+        assert_eq!(manifest.apps[0].data_mode_hint, DataModeHint::Static);
+        assert_eq!(manifest.data_mode_hint, DataModeHint::Static);
         let _ = fs::remove_dir_all(&tmp);
     }
 }
