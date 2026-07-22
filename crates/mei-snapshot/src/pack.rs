@@ -128,6 +128,20 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         let bundle_name = format!("{app_id}.meibundle");
         fs::copy(&bundle, exchange_dir.join(&bundle_name))?;
         let bundle_rel = format!("apps/{app_id}/exchange/{bundle_name}");
+        // Required runtime closure — without meibundle the receiver cannot load.
+        resources.push(ResourceEntry {
+            id: format!("{app_id}.meibundle"),
+            app_id: app_id.clone(),
+            kind: "meibundle".into(),
+            state: ResourceState::Bundled,
+            target_path: format!("apps/{app_id}/env/current/build/exchange/{bundle_name}"),
+            required_for: Some("runtime".into()),
+            severity: ResourceSeverity::Blocking,
+            sha256: sha256_file(&bundle).ok(),
+            bytes: fs::metadata(&bundle).ok().map(|m| m.len()),
+            hint: Some("必要：场景/指标图结构；导入后禁止再 compile/prebuild 冲掉".into()),
+            recovery: None,
+        });
 
         // Portable runtime config
         let portable = build_portable_app_toml(&app_root, app_id)?;
@@ -138,26 +152,33 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         // Marker for sealed data mode after materialize
         fs::write(app_stage.join(".mei-portable-snapshot"), b"1\n")?;
 
-        let mut data_mode = DataModeHint::Static;
+        let data_mode = DataModeHint::Eval;
         let ds_src = env_root.join("var").join("data-snapshots");
-        if ds_src.is_dir() {
-            copy_dir_contents(&ds_src, &app_stage.join("data-snapshots"))?;
-            data_mode = DataModeHint::Eval;
-            overall_hint = DataModeHint::Eval;
-            resources.push(ResourceEntry {
-                id: format!("{app_id}.data-snapshots"),
-                app_id: app_id.clone(),
-                kind: "data-snapshots".into(),
-                state: ResourceState::Bundled,
-                target_path: format!("apps/{app_id}/env/current/var/data-snapshots"),
-                required_for: Some("eval".into()),
-                severity: ResourceSeverity::Degrade,
-                sha256: None,
-                bytes: None,
-                hint: Some("表格指标使用包内 parquet".into()),
-                recovery: None,
-            });
+        let has_parquet = dir_has_extension(&ds_src, "parquet");
+        // Portable sealed demos need parquet in-pack. Raw upload xlsx is optional when
+        // parquet exists; videos are always optional (`include_media`).
+        if !has_parquet {
+            anyhow::bail!(
+                "portable pack for `{app_id}` requires apps/{app_id}/env/current/var/data-snapshots/*.parquet \
+                 (necessary for sealed eval). Run prebuild on the author workspace first; \
+                 do not rely on upload/ videos or raw xlsx as the runtime data closure."
+            );
         }
+        copy_dir_contents(&ds_src, &app_stage.join("data-snapshots"))?;
+        overall_hint = DataModeHint::Eval;
+        resources.push(ResourceEntry {
+            id: format!("{app_id}.data-snapshots"),
+            app_id: app_id.clone(),
+            kind: "data-snapshots".into(),
+            state: ResourceState::Bundled,
+            target_path: format!("apps/{app_id}/env/current/var/data-snapshots"),
+            required_for: Some("eval".into()),
+            severity: ResourceSeverity::Blocking,
+            sha256: None,
+            bytes: None,
+            hint: Some("必要：表格指标用包内 parquet；与大媒体无关".into()),
+            recovery: None,
+        });
 
         // Assets
         let assets_src = app_root.join("assets");
@@ -196,71 +217,27 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                 .to_ascii_lowercase();
 
             if TABLE_EXTENSIONS.contains(&ext.as_str()) {
-                // Prefer parquet; record xlsx as external unless we have no parquet at all.
-                let has_parquet = ds_src.is_dir()
-                    && WalkDir::new(&ds_src)
-                        .into_iter()
-                        .filter_map(|e| e.ok())
-                        .any(|e| {
-                            e.path()
-                                .extension()
-                                .and_then(|x| x.to_str())
-                                .is_some_and(|x| x == "parquet")
-                        });
-                if has_parquet {
-                    resources.push(ResourceEntry {
-                        id: format!("{app_id}.source.{}", src.id),
-                        app_id: app_id.clone(),
-                        kind: "xlsx".into(),
-                        state: ResourceState::External,
-                        target_path: format!("apps/{app_id}/{rel}"),
-                        required_for: Some("edit-source".into()),
-                        severity: ResourceSeverity::Info,
-                        sha256: abs.is_file().then(|| sha256_file(&abs).ok()).flatten(),
-                        bytes: abs
-                            .is_file()
-                            .then(|| fs::metadata(&abs).ok().map(|m| m.len()))
-                            .flatten(),
-                        hint: Some("演示使用包内 parquet；如需改表可另附原 xlsx".into()),
-                        recovery: Some("import_file".into()),
-                    });
-                } else if abs.is_file() {
-                    // No parquet — bundle the xlsx so demo can still run (non-sealed fallback).
-                    let dest = app_stage.join("portable-data").join(rel);
-                    if let Some(parent) = dest.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    fs::copy(&abs, &dest)?;
-                    resources.push(ResourceEntry {
-                        id: format!("{app_id}.source.{}", src.id),
-                        app_id: app_id.clone(),
-                        kind: "xlsx".into(),
-                        state: ResourceState::Bundled,
-                        target_path: format!("apps/{app_id}/{rel}"),
-                        required_for: Some("eval".into()),
-                        severity: ResourceSeverity::Degrade,
-                        sha256: sha256_file(&abs).ok(),
-                        bytes: fs::metadata(&abs).ok().map(|m| m.len()),
-                        hint: Some("无 parquet，已打包原表文件".into()),
-                        recovery: None,
-                    });
-                    data_mode = DataModeHint::Eval;
-                    overall_hint = DataModeHint::Eval;
-                } else {
-                    resources.push(ResourceEntry {
-                        id: format!("{app_id}.source.{}", src.id),
-                        app_id: app_id.clone(),
-                        kind: "xlsx".into(),
-                        state: ResourceState::Missing,
-                        target_path: format!("apps/{app_id}/{rel}"),
-                        required_for: Some("eval".into()),
-                        severity: ResourceSeverity::Degrade,
-                        sha256: None,
-                        bytes: None,
-                        hint: Some(format!("导出时未找到数据源文件 {rel}")),
-                        recovery: Some("import_file".into()),
-                    });
-                }
+                // Parquet is required above; original xlsx is optional (edit-source only).
+                resources.push(ResourceEntry {
+                    id: format!("{app_id}.source.{}", src.id),
+                    app_id: app_id.clone(),
+                    kind: "xlsx".into(),
+                    state: if abs.is_file() {
+                        ResourceState::External
+                    } else {
+                        ResourceState::Missing
+                    },
+                    target_path: format!("apps/{app_id}/{rel}"),
+                    required_for: Some("edit-source".into()),
+                    severity: ResourceSeverity::Info,
+                    sha256: abs.is_file().then(|| sha256_file(&abs).ok()).flatten(),
+                    bytes: abs
+                        .is_file()
+                        .then(|| fs::metadata(&abs).ok().map(|m| m.len()))
+                        .flatten(),
+                    hint: Some("可选：演示用包内 parquet；改表时再补原 xlsx".into()),
+                    recovery: Some("import_file".into()),
+                });
             } else if STRUCTURED_EXTENSIONS.contains(&ext.as_str()) {
                 if abs.is_file() {
                     let dest = app_stage.join("portable-data").join(rel);
@@ -358,7 +335,7 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                         severity: ResourceSeverity::Degrade,
                         sha256: sha256_file(path).ok(),
                         bytes: fs::metadata(path).ok().map(|m| m.len()),
-                        hint: None,
+                        hint: Some("可选：大媒体（已勾选「包含大媒体」）".into()),
                         recovery: None,
                     });
                 } else {
@@ -369,10 +346,12 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                         state: ResourceState::External,
                         target_path: format!("apps/{app_id}/{rel}"),
                         required_for: Some("media-playback".into()),
-                        severity: ResourceSeverity::Degrade,
+                        severity: ResourceSeverity::Info,
                         sha256: sha256_file(path).ok(),
                         bytes: fs::metadata(path).ok().map(|m| m.len()),
-                        hint: Some("大媒体默认外置；可通过 Viewer「补齐资源」导入".into()),
+                        hint: Some(
+                            "可选：大媒体默认外置，不影响图表；Viewer「补齐资源」可导入".into(),
+                        ),
                         recovery: Some("import_file".into()),
                     });
                 }
@@ -674,7 +653,15 @@ fn build_readme(app_ids: &[String], resources: &ResourcesDocument) -> String {
     out.push_str("==========================\n\n");
     out.push_str(&format!("Apps: {}\n\n", app_ids.join(", ")));
     out.push_str("This archive is a portable demo package (not source).\n");
-    out.push_str("Import it with Mei Viewer. Large media and map tiles may be external.\n\n");
+    out.push_str("Import with Mei Viewer. Host must NOT re-prebuild/compile sealed apps.\n\n");
+    out.push_str("Necessary (blocking):\n");
+    out.push_str("  - exchange/*.meibundle  — scene / metric graph\n");
+    out.push_str("  - data-snapshots/*.parquet — table metrics (sealed eval)\n");
+    out.push_str("  - runtime/app.toml — portable config\n\n");
+    out.push_str("Optional (degrade / info):\n");
+    out.push_str("  - upload videos/PDF — only if packed with --include-media\n");
+    out.push_str("  - original xlsx — not needed when parquet is present\n");
+    out.push_str("  - stock/gis tiles — map basemap; other features still work\n\n");
     let external: Vec<_> = resources
         .resources
         .iter()
@@ -689,10 +676,25 @@ fn build_readme(app_ids: &[String], resources: &ResourcesDocument) -> String {
             }
         }
         out.push_str(
-            "\nUse Viewer 「待补齐资源」 to import files; do not edit env/ paths by hand.\n",
+            "\nUse Viewer 「待补齐资源」 to import optional files; do not edit env/ by hand.\n",
         );
     }
     out
+}
+
+fn dir_has_extension(dir: &Path, ext: &str) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.path()
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case(ext))
+        })
 }
 
 fn tempfile_dir(out: &Path) -> anyhow::Result<PathBuf> {

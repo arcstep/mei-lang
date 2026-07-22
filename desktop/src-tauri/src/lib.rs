@@ -296,6 +296,10 @@ fn start_home_workspace(state: State<'_, AppState>) -> Result<(), String> {
     start_workspace(ws.display().to_string(), state)
 }
 
+/// Merge a `.mei-snapshot.zip` into the **default workspace** and start host on it.
+///
+/// Does **not** require an already-open host workspace: when none is running,
+/// `ensure_home_workspace` creates/uses `MeiViewer/workspace`, then import + serve.
 #[tauri::command]
 fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), String> {
     let archive_path = PathBuf::from(&archive);
@@ -335,6 +339,9 @@ fn import_snapshot(archive: String, state: State<'_, AppState>) -> Result<(), St
         for (app_id, bundle_path) in &unpacked.app_bundle_paths {
             host.import_bundle(&ws, app_id, bundle_path)
                 .map_err(|e| e.to_string())?;
+            // Import reads the bundle but must not leave exchange empty — reassert
+            // the necessary meibundle under env/current (Host start must not prebuild).
+            ensure_exchange_bundle(&ws, app_id, bundle_path).map_err(|e| e.to_string())?;
         }
         // Multi-app: --launch; single-app: --app
         let launch_all = app_ids.len() > 1;
@@ -477,7 +484,7 @@ fn materialize_snapshot_workspace(
             .manifest
             .workspace_label
             .clone()
-            .unwrap_or_else(|| format!("Mei Viewer 家工作区"));
+            .unwrap_or_else(|| format!("Mei Viewer 默认工作区"));
         std::fs::write(
             &ws_json,
             serde_json::json!({
@@ -575,6 +582,27 @@ fn link_env_current(env_root: &std::path::Path, generation: &str) -> anyhow::Res
     Ok(())
 }
 
+/// Ensure `apps/{id}/env/current/build/exchange/{id}.meibundle` exists after import.
+fn ensure_exchange_bundle(
+    ws: &PathBuf,
+    app_id: &str,
+    bundle_src: &std::path::Path,
+) -> anyhow::Result<()> {
+    let exchange = ws
+        .join("apps")
+        .join(app_id)
+        .join("env")
+        .join("current")
+        .join("build")
+        .join("exchange");
+    std::fs::create_dir_all(&exchange)?;
+    let dest = exchange.join(format!("{app_id}.meibundle"));
+    if !dest.is_file() {
+        std::fs::copy(bundle_src, &dest)?;
+    }
+    Ok(())
+}
+
 fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in walkdir_simple(src)? {
@@ -647,32 +675,59 @@ fn reveal_host_log(state: State<'_, AppState>) -> Result<String, String> {
             .append(true)
             .open(&path);
     }
+    reveal_in_file_manager(&path)
+}
+
+/// Reveal a workspace / log path in the OS file manager (Finder / Explorer).
+#[tauri::command]
+fn reveal_path(path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "—" {
+        return Err("路径为空".into());
+    }
+    let p = PathBuf::from(trimmed);
+    if !p.exists() {
+        return Err(format!("路径不存在：{}", p.display()));
+    }
+    reveal_in_file_manager(&p)
+}
+
+fn reveal_in_file_manager(path: &std::path::Path) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
-        let status = std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .status()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = std::process::Command::new("open");
+        if path.is_dir() {
+            cmd.arg(path);
+        } else {
+            cmd.arg("-R").arg(path);
+        }
+        let status = cmd.status().map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err(format!("open -R failed: {status}"));
+            return Err(format!("open failed: {status}"));
         }
     }
     #[cfg(target_os = "windows")]
     {
-        let status = std::process::Command::new("explorer")
-            .arg("/select,")
-            .arg(&path)
-            .status()
-            .map_err(|e| e.to_string())?;
+        let status = if path.is_dir() {
+            std::process::Command::new("explorer")
+                .arg(path)
+                .status()
+                .map_err(|e| e.to_string())?
+        } else {
+            std::process::Command::new("explorer")
+                .arg("/select,")
+                .arg(path)
+                .status()
+                .map_err(|e| e.to_string())?
+        };
         if !status.success() {
-            return Err(format!("explorer select failed: {status}"));
+            return Err(format!("explorer failed: {status}"));
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = path;
-        return Err("reveal log not supported on this OS".into());
+        return Err("reveal path not supported on this OS".into());
     }
     Ok(path.display().to_string())
 }
@@ -865,7 +920,7 @@ fn open_host_ui(app: AppHandle, state: State<'_, AppState>) -> Result<(), String
 
 fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-    let show = MenuItemBuilder::with_id("show_launcher", "显示启动器与运行日志")
+    let show = MenuItemBuilder::with_id("show_launcher", "显示启动器")
         .accelerator("CmdOrCtrl+L")
         .build(app)?;
     let view = SubmenuBuilder::new(app, "查看").item(&show).build()?;
@@ -957,6 +1012,7 @@ pub fn run() {
             open_host_ui,
             host_log_tail,
             reveal_host_log,
+            reveal_path,
             show_launcher,
             home_workspace_path,
             start_home_workspace

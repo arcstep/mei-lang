@@ -36,7 +36,7 @@ pub fn ensure_home_workspace() -> anyhow::Result<PathBuf> {
     if !marker.is_file() {
         let doc = serde_json::json!({
             "id": "mei-viewer-home",
-            "label": "Mei Viewer 家工作区",
+            "label": "Mei Viewer 默认工作区",
             "schemaVersion": 2,
             "workspace": {
                 "defaultApp": ""

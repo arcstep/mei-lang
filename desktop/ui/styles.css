@@ -74,9 +74,7 @@ h1 {
 
 .status,
 .recent,
-.actions,
-.logs,
-.resources {
+.actions {
   background: color-mix(in srgb, var(--panel) 92%, black);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -84,13 +82,71 @@ h1 {
   margin-bottom: 1rem;
 }
 
-.logs-head {
+.status .row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0.55rem 0.85rem;
+  align-items: start;
+  padding: 0.35rem 0;
+  font-size: 0.88rem;
+}
+
+.status .row > span {
+  color: var(--muted);
+}
+
+.path-value {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.55rem;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.path-code {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-size: 0.78rem;
+  color: #9ec1ff;
+}
+
+.path-actions {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.logs-fold {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.logs-fold > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  list-style: none;
+  user-select: none;
+}
+
+.logs-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.logs-fold > summary::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+
+.logs-fold[open] > summary::before {
+  content: "▾ ";
+}
+
+.logs-body {
+  margin-top: 0.65rem;
 }
 
 .logs-actions {
@@ -98,67 +154,16 @@ h1 {
   align-items: center;
   gap: 0.55rem;
   flex-wrap: wrap;
+  margin-bottom: 0.55rem;
 }
 
-.logs h2,
-.recent h2,
-.resources h2 {
-  margin: 0;
+.recent h2 {
+  margin: 0 0 0.6rem;
   font-size: 0.85rem;
   color: var(--muted);
   font-weight: 560;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-
-.resources.panel {
-  margin: 1.25rem 0;
-  padding: 1rem 1.1rem;
-  border-radius: 10px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-}
-
-.resources .sub-inline {
-  margin: 0.35rem 0 0.85rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.resources-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-  font-size: 0.88rem;
-}
-
-.resource-row {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #0b1016;
-}
-
-.resource-meta code {
-  font-size: 0.78rem;
-  color: #9ec1ff;
-}
-
-.resource-meta .muted {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.resource-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  flex-shrink: 0;
 }
 
 .follow {
@@ -179,8 +184,8 @@ button.compact {
 .log-view,
 #log-view {
   margin: 0;
-  min-height: 280px;
-  max-height: min(55vh, 520px);
+  min-height: 220px;
+  max-height: min(45vh, 420px);
   overflow: auto;
   padding: 0.85rem 1rem;
   border-radius: 8px;
@@ -188,8 +193,8 @@ button.compact {
   border: 1px solid var(--border);
   color: #c8d4e0;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 0.78rem;
-  line-height: 1.5;
+  font-size: 0.75rem;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
@@ -197,23 +202,10 @@ button.compact {
   cursor: text;
 }
 
-.row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.35rem 0;
-  font-size: 0.9rem;
-}
-
-.row span {
-  color: var(--muted);
-}
-
 code {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.8rem;
   word-break: break-all;
-  text-align: right;
 }
 
 .actions {
@@ -277,10 +269,6 @@ button.secondary {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
-}
-
-.recent h2 {
-  margin: 0 0 0.6rem;
 }
 
 #recent-list {

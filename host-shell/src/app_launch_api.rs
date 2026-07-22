@@ -617,6 +617,25 @@ async fn prepare_current_launch(
     if !launch_uses_current_generation(&launch.config) {
         return Ok(());
     }
+    // Portable sealed apps (Viewer import / `.mei-portable-snapshot`) must never
+    // enter prebuild: `replace_env_generation` wipes exchange + parquet, then
+    // compile fails without `src/`. Same for apps that already have MCG registry.
+    if app_skips_prebuild_on_start(workspace, app_id) {
+        tracing::info!(
+            target: "mei.host.runtime",
+            app = %app_id,
+            portable = app_is_portable_sealed(workspace, app_id),
+            "skip prebuild — sealed portable or already imported"
+        );
+        crate::startup::try_ensure_app_registry_materialized(workspace, app_id).map_err(
+            |error| {
+                StartStopError::Unavailable(format!(
+                    "portable/imported app missing registry: {error}"
+                ))
+            },
+        )?;
+        return Ok(());
+    }
     {
         let guard = http.shell.read().expect("state lock");
         let _ = guard.events.send(HostEvent::new(
@@ -655,6 +674,40 @@ async fn prepare_current_launch(
     .map_err(|error| StartStopError::Unavailable(format!("app prebuild task failed: {error}")))?
     .map_err(|error| StartStopError::Unavailable(format!("app prebuild failed: {error}")))?;
     Ok(())
+}
+
+fn app_is_portable_sealed(workspace: &std::path::Path, app_id: &str) -> bool {
+    let marker = workspace
+        .join("apps")
+        .join(app_id)
+        .join(mei_snapshot::PORTABLE_SNAPSHOT_MARKER);
+    if marker.is_file() {
+        return true;
+    }
+    let sealed_env = std::env::var("MEI_SNAPSHOT_SEALED_DATA")
+        .map(|v| {
+            let t = v.trim();
+            t == "1" || t.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false);
+    if !sealed_env {
+        return false;
+    }
+    // Workspace-wide sealed flag (Viewer): treat any app with a meibundle as sealed.
+    let bundle = workspace
+        .join("apps")
+        .join(app_id)
+        .join("env")
+        .join("current")
+        .join("build")
+        .join("exchange")
+        .join(format!("{app_id}.meibundle"));
+    bundle.is_file()
+}
+
+fn app_skips_prebuild_on_start(workspace: &std::path::Path, app_id: &str) -> bool {
+    app_is_portable_sealed(workspace, app_id)
+        || crate::landing::app_has_prebuilt_access_entry(workspace, app_id)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

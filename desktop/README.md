@@ -7,12 +7,12 @@
 > **产物不在工作区里。**  
 > 不会生成到 `workspaces/ws-demo-v2/`；固定输出在 `mei-lang/desktop/src-tauri/target/...` 与 `desktop/dist/`。
 
-## 家工作区与导入
+## 默认工作区与导入
 
-- **默认家工作区**：`~/Library/Application Support/MeiViewer/workspace`（Windows：`%AppData%\MeiViewer\workspace`）。
+- **默认工作区**：`~/Library/Application Support/MeiViewer/workspace`（Windows：`%AppData%\MeiViewer\workspace`）。
 - 首次启动自动创建骨架（`workspace.json` + 空 `apps/` + `stock/gis/tiles`）。
-- **导入快照**：合并到家工作区——覆盖包内 app 与同名 stock 文件，**不删除**家中其它 app。
-- 也可手工把工作区文件拷进家目录；「打开其它工作区…」留给开发/高级用户。
+- **导入快照**：合并到默认工作区——覆盖包内 app 与同名 stock 文件，**不删除**其中其它 app。
+- 也可手工把工作区文件拷进该目录；「打开其它工作区…」留给开发/高级用户。
 
 ## 地图瓦片（Martin）
 
@@ -86,7 +86,7 @@ sidecar 收集与 `scripts/build/build.sh` 一样会做 **cargo target hygiene**
 
 行为说明：
 
-- **能力**：启动家工作区 · 打开其它工作区 · 导出快照（`.mei-snapshot.zip`）· 导入合并到家工作区。
+- **能力**：打开默认工作区 · 打开其它工作区 · 导出快照（`.mei-snapshot.zip`）· 导入合并到默认工作区。
 - **端口**：每次启动由 OS 分配空闲端口（`127.0.0.1:0`），不再固定 9527。
 - **工作区直开**：若启动 cwd 或 CLI 参数是含 `workspace.json` 的目录，则跳过启动器，直接起 host；可用 ⌘/Ctrl+L 回到启动器导出快照或看日志。
 - **macOS sidecar 签名**：`collect-desktop-sidecars.sh` 拷贝后会 adhoc resign；否则 `mei-app-runtime` 可能被 SIGKILL，启动 app 返回 503。
@@ -119,8 +119,8 @@ Release；只有来自默认分支、且与 Cargo 版本完全一致的 `v*` tag
 
 ## 快照（GUI 与 CLI）
 
-启动器：打开工作区后**多选** app →「导出快照…」（默认 **portable v2**：含可移植配置、parquet、assets、csv/json、**工作区 stock/gis**；视频默认外置，可勾选「包含大媒体」）。对方「导入快照到家工作区…」即可 merge。  
-导入后若仍有外置资源，用「待补齐资源」面板选择文件自动落位。
+启动器：打开工作区后**多选** app →「导出快照…」（默认 **portable v2**：含可移植配置、parquet、assets、csv/json、**工作区 stock/gis**；视频默认外置，可勾选「包含大媒体」）。对方「导入快照到默认工作区…」即可 merge。  
+外置视频等可在导入后手工放入对应 `upload/` 路径，或下次导出时勾选「包含大媒体」。
 
 无 GUI 时：
 

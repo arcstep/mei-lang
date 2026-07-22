@@ -12,6 +12,7 @@ const el = {
   statusVersion: document.getElementById("status-version"),
   logView: document.getElementById("log-view"),
   logFollow: document.getElementById("log-follow"),
+  logsFold: document.getElementById("logs-fold"),
   copyLog: document.getElementById("btn-copy-log"),
   revealLog: document.getElementById("btn-reveal-log"),
   hint: document.getElementById("hint"),
@@ -25,8 +26,6 @@ const el = {
   exportIncludeMedia: document.getElementById("export-include-media"),
   openHost: document.getElementById("btn-open-host"),
   stop: document.getElementById("btn-stop"),
-  resourcesList: document.getElementById("resources-list"),
-  refreshResources: document.getElementById("btn-refresh-resources"),
   homePath: document.getElementById("status-home"),
   startupOverlay: document.getElementById("startup-overlay"),
   startupLabel: document.getElementById("startup-label"),
@@ -43,6 +42,10 @@ function applyViewerVersion(ver) {
 
 let lastLogText = "";
 let startupDepth = 0;
+
+function logsExpanded() {
+  return Boolean(el.logsFold?.open);
+}
 
 function setStartupVisible(visible, title = "正在启动") {
   if (visible) {
@@ -71,6 +74,13 @@ function setHint(text, isError = false) {
   el.hint.classList.toggle("error", Boolean(isError && text));
 }
 
+function pathText(codeId) {
+  const node = document.getElementById(codeId);
+  const raw = (node?.textContent || "").trim();
+  if (!raw || raw === "—") return null;
+  return raw;
+}
+
 function hasLogSelection() {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
@@ -78,8 +88,8 @@ function hasLogSelection() {
 }
 
 async function refreshLogs({ force = false } = {}) {
+  if (!force && !logsExpanded()) return;
   try {
-    // Avoid wiping user selection / scroll while they copy manually.
     if (!force && hasLogSelection()) return;
     const text = await invoke("host_log_tail", { maxBytes: 256 * 1024 });
     const next = text && text.trim() ? text : "（日志为空）";
@@ -155,75 +165,8 @@ async function refreshExportApps(workspace) {
   }
 }
 
-async function refreshResources() {
-  if (!el.resourcesList) return;
-  try {
-    const doc = await invoke("list_snapshot_resources");
-    const resources = Array.isArray(doc.resources) ? doc.resources : [];
-    const pending = resources.filter(
-      (r) => r.state === "external" || r.state === "missing",
-    );
-    if (!resources.length) {
-      el.resourcesList.textContent = "当前工作区无 resources.json（打开普通工作区或 v1 快照时正常）。";
-      return;
-    }
-    if (!pending.length) {
-      el.resourcesList.textContent = `全部 ${resources.length} 项资源已就绪。`;
-      return;
-    }
-    el.resourcesList.innerHTML = "";
-    for (const r of pending) {
-      const row = document.createElement("div");
-      row.className = "resource-row";
-      const meta = document.createElement("div");
-      meta.className = "resource-meta";
-      meta.innerHTML = `<strong>${r.kind}</strong> · ${r.id}<br/><code>${r.targetPath || ""}</code><br/><span class="muted">${r.hint || ""}</span>`;
-      const actions = document.createElement("div");
-      actions.className = "resource-actions";
-      const pick = document.createElement("button");
-      pick.type = "button";
-      pick.textContent = "选择文件…";
-      pick.addEventListener("click", async () => {
-        try {
-          let selected = await open({ multiple: false });
-          if (!selected) return;
-          if (Array.isArray(selected)) selected = selected[0];
-          const msg = await invoke("replenish_snapshot_resource", {
-            resourceId: r.id,
-            sourceFile: String(selected),
-          });
-          setHint(msg);
-          await refreshResources();
-        } catch (e) {
-          setHint(String(e), true);
-        }
-      });
-      const reveal = document.createElement("button");
-      reveal.type = "button";
-      reveal.className = "secondary compact";
-      reveal.textContent = "打开目录";
-      reveal.addEventListener("click", async () => {
-        try {
-          const dir = await invoke("reveal_snapshot_resource_dir", { resourceId: r.id });
-          setHint(`已打开：${dir}`);
-        } catch (e) {
-          setHint(String(e), true);
-        }
-      });
-      actions.appendChild(pick);
-      actions.appendChild(reveal);
-      row.appendChild(meta);
-      row.appendChild(actions);
-      el.resourcesList.appendChild(row);
-    }
-  } catch (_) {
-    el.resourcesList.textContent = "（无法读取资源清单）";
-  }
-}
-
 async function refreshStatus() {
   const s = await invoke("host_status");
-  // Prefer live readiness so the open button unlocks as soon as control plane is up.
   let ready = Boolean(s.ready);
   if (s.running && !ready) {
     try {
@@ -242,10 +185,9 @@ async function refreshStatus() {
   el.stop.disabled = !s.running;
   if (s.viewerVersion) applyViewerVersion(s.viewerVersion);
   await refreshExportApps(s.workspace || null);
-  await refreshResources();
   if (s.autoOpened && ready) {
     setHint(
-      "已从当前工作区自动启动（含 --launch）。菜单「查看 → 显示启动器与运行日志」或 ⌘/Ctrl+L 可回看日志。"
+      "已从当前工作区自动启动（含 --launch）。菜单「查看 → 显示启动器」或 ⌘/Ctrl+L 可回到本窗口。"
     );
   }
   return { ...s, ready };
@@ -270,11 +212,9 @@ async function refreshRecent() {
       try {
         await invoke("start_workspace", { path });
         await waitReady("正在打开工作区");
-        await refreshLogs();
         await invoke("open_host_ui");
         setHint("已启动；宿主 UI 已在系统浏览器打开。");
       } catch (e) {
-        await refreshLogs({ force: true });
         setHint(String(e), true);
       }
     });
@@ -305,9 +245,6 @@ async function waitReady(title = "正在启动工作区") {
           return readiness;
         }
       }
-      if (i % 2 === 0) {
-        await refreshLogs({ force: i % 6 === 0 });
-      }
       await new Promise((r) => setTimeout(r, 500));
     }
     throw new Error("等待 host 就绪超时（约 4 分钟）");
@@ -316,18 +253,56 @@ async function waitReady(title = "正在启动工作区") {
   }
 }
 
+document.querySelectorAll("[data-copy-path]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-copy-path");
+    const path = pathText(id);
+    if (!path) {
+      setHint("路径为空，无法复制。", true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(path);
+      setHint("已复制路径。");
+    } catch (e) {
+      setHint(String(e), true);
+    }
+  });
+});
+
+document.querySelectorAll("[data-reveal-path]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-reveal-path");
+    const path = pathText(id);
+    if (!path) {
+      setHint("路径为空，无法打开。", true);
+      return;
+    }
+    try {
+      const shown = await invoke("reveal_path", { path });
+      setHint(`已在访达中显示：${shown}`);
+    } catch (e) {
+      setHint(String(e), true);
+    }
+  });
+});
+
+el.logsFold?.addEventListener("toggle", () => {
+  if (logsExpanded()) {
+    refreshLogs({ force: true }).catch(() => {});
+  }
+});
 
 el.startHome?.addEventListener("click", async () => {
   setHint("");
   try {
-    setHint("正在启动家工作区…");
+    setHint("正在打开默认工作区…");
     await invoke("start_home_workspace");
-    await waitReady("正在打开家工作区");
+    await waitReady("正在打开默认工作区");
     await refreshRecent();
     await invoke("open_host_ui");
-    setHint("家工作区已启动。可将快照导入到此目录，或手工拷贝 apps/。");
+    setHint("默认工作区已打开。可将快照导入到此目录，或手工拷贝 apps/。");
   } catch (e) {
-    await refreshLogs();
     setHint(String(e), true);
   }
 });
@@ -344,10 +319,23 @@ el.openWs.addEventListener("click", async () => {
     await invoke("open_host_ui");
     setHint("工作区已启动（已带 --launch）。");
   } catch (e) {
-    await refreshLogs();
     setHint(String(e), true);
   }
 });
+
+function snapshotTimestamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function defaultSnapshotFileName(appIds) {
+  const stamp = snapshotTimestamp();
+  if (appIds.length === 1) {
+    return `${appIds[0]}-${stamp}.mei-snapshot.zip`;
+  }
+  return `multi-${appIds[0]}-${stamp}.mei-snapshot.zip`;
+}
 
 el.importSnap.addEventListener("click", async () => {
   setHint("");
@@ -363,14 +351,26 @@ el.importSnap.addEventListener("click", async () => {
     if (!selected) return;
     if (Array.isArray(selected)) selected = selected[0];
     if (typeof selected !== "string") selected = String(selected);
-    setHint("正在导入快照…");
+    // Always merge into the default workspace (even when no host workspace is open).
+    let home = "";
+    try {
+      home = await invoke("home_workspace_path");
+    } catch (_) {}
+    setHint(
+      home
+        ? `正在导入快照到默认工作区：${home}`
+        : "正在导入快照到默认工作区…"
+    );
     await invoke("import_snapshot", { archive: selected });
-    await waitReady("正在导入并启动快照");
+    await waitReady("正在导入并启动默认工作区");
     await refreshRecent();
     await invoke("open_host_ui");
-    setHint("快照已合并导入到家工作区并启动（未删除家中其它应用）。");
+    setHint(
+      home
+        ? `快照已合并导入到默认工作区并启动：${home}`
+        : "快照已合并导入到默认工作区并启动（未删除其中其它应用）。"
+    );
   } catch (e) {
-    await refreshLogs({ force: true });
     setHint(String(e), true);
   }
 });
@@ -387,8 +387,7 @@ el.exportSnap.addEventListener("click", async () => {
     return;
   }
   try {
-    const defaultName =
-      appIds.length === 1 ? `${appIds[0]}.mei-snapshot.zip` : `multi-${appIds[0]}.mei-snapshot.zip`;
+    const defaultName = defaultSnapshotFileName(appIds);
     let outPath = await save({
       defaultPath: defaultName,
       filters: [{ name: "Mei Snapshot", extensions: ["zip"] }],
@@ -424,11 +423,6 @@ el.exportApp.addEventListener("change", () => {
   el.exportSnap.disabled = el.exportApp.disabled || selectedExportApps().length === 0;
 });
 
-el.refreshResources?.addEventListener("click", async () => {
-  await refreshResources();
-  setHint("已重新检测资源清单。");
-});
-
 el.openHost.addEventListener("click", async () => {
   try {
     await invoke("open_host_ui");
@@ -456,14 +450,11 @@ el.revealLog.addEventListener("click", async () => {
   }
 });
 
-
-
 el.stop.addEventListener("click", async () => {
   try {
     await invoke("stop_host");
     lastWorkspaceForApps = null;
     await refreshStatus();
-    await refreshLogs();
     setHint("已停止。");
   } catch (e) {
     setHint(String(e), true);
@@ -475,22 +466,18 @@ el.stop.addEventListener("click", async () => {
     try {
       applyViewerVersion(await invoke("viewer_version"));
     } catch (_) {}
-    const s = await refreshStatus();
+    await refreshStatus();
     await refreshRecent();
-    await refreshLogs();
-    if (s.autoOpened && s.ready) {
-      // Host window already opened by Rust setup; keep launcher hidden unless user reveals it.
-    }
   } catch (_) {}
   setInterval(() => {
     (async () => {
-  try {
-    const home = await invoke("home_workspace_path");
-    if (el.homePath) el.homePath.textContent = home || "—";
-  } catch (_) {}
-  return refreshStatus();
-})().catch(() => {});
-    if (el.logFollow.checked) {
+      try {
+        const home = await invoke("home_workspace_path");
+        if (el.homePath) el.homePath.textContent = home || "—";
+      } catch (_) {}
+      return refreshStatus();
+    })().catch(() => {});
+    if (logsExpanded() && el.logFollow.checked) {
       refreshLogs().catch(() => {});
     }
   }, 1500);

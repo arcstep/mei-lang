@@ -13,7 +13,7 @@
         <img class="brand-logo" src="mei-logo.svg" width="48" height="48" alt="MeiLang" />
         <div>
           <h1>mei-viewer <span id="viewer-version" class="version-badge">…</span></h1>
-          <p class="sub">家工作区 · 导出 / 导入快照 · 打开其它工作区</p>
+          <p class="sub">默认工作区 · 导出 / 导入快照 · 打开其它工作区</p>
         </div>
       </header>
 
@@ -21,15 +21,56 @@
         <div class="row"><span>版本</span><code id="status-version">—</code></div>
         <div class="row"><span>状态</span><strong id="status-text">未启动</strong></div>
         <div class="row"><span>端口</span><code id="status-port">—</code></div>
-        <div class="row"><span>当前工作区</span><code id="status-workspace">—</code></div>
-        <div class="row"><span>家工作区</span><code id="status-home">—</code></div>
-        <div class="row"><span>日志文件</span><code id="status-log">—</code></div>
+        <div class="row path-row">
+          <span>当前工作区</span>
+          <div class="path-value">
+            <code id="status-workspace" class="path-code">—</code>
+            <div class="path-actions">
+              <button type="button" class="secondary compact" data-copy-path="status-workspace">复制路径</button>
+              <button type="button" class="secondary compact" data-reveal-path="status-workspace">打开文件夹</button>
+            </div>
+          </div>
+        </div>
+        <div class="row path-row">
+          <span>默认工作区</span>
+          <div class="path-value">
+            <code id="status-home" class="path-code">—</code>
+            <div class="path-actions">
+              <button type="button" class="secondary compact" data-copy-path="status-home">复制路径</button>
+              <button type="button" class="secondary compact" data-reveal-path="status-home">打开文件夹</button>
+            </div>
+          </div>
+        </div>
+        <div class="row path-row">
+          <span>日志文件</span>
+          <div class="path-value">
+            <code id="status-log" class="path-code">—</code>
+            <div class="path-actions">
+              <button type="button" class="secondary compact" data-copy-path="status-log">复制路径</button>
+              <button type="button" class="secondary compact" data-reveal-path="status-log">打开文件夹</button>
+            </div>
+          </div>
+        </div>
+        <details class="logs-fold" id="logs-fold">
+          <summary>运行日志（点击展开）</summary>
+          <div class="logs-body">
+            <div class="logs-actions">
+              <label class="follow">
+                <input type="checkbox" id="log-follow" checked />
+                自动刷新
+              </label>
+              <button type="button" id="btn-copy-log" class="secondary compact">复制全部</button>
+              <button type="button" id="btn-reveal-log" class="secondary compact">在访达中显示文件</button>
+            </div>
+            <pre id="log-view" class="log-view" tabindex="0" aria-live="polite">（尚未启动 host）</pre>
+          </div>
+        </details>
       </section>
 
       <section class="actions">
-        <button type="button" id="btn-start-home">启动家工作区</button>
+        <button type="button" id="btn-start-home">打开默认工作区</button>
         <button type="button" id="btn-open-workspace" class="secondary">打开其它工作区…</button>
-        <button type="button" id="btn-import-snapshot">导入快照到家工作区…</button>
+        <button type="button" id="btn-import-snapshot" title="无需先打开工作区：始终合并到默认工作区并启动">导入快照到默认工作区…</button>
         <div class="export-row">
           <label class="export-app">
             <span>导出 apps（可多选）</span>
@@ -51,30 +92,8 @@
         <button type="button" id="btn-stop" class="secondary" disabled>停止</button>
       </section>
 
-      <section class="resources panel" id="resources-panel">
-        <h2>待补齐资源</h2>
-        <p class="sub-inline">portable snapshot 外置的视频等；选择文件后自动放到正确路径。GIS 瓦片默认随包导入到 stock/gis/tiles。</p>
-        <div id="resources-list" class="resources-list">（打开 snapshot 工作区后显示）</div>
-        <button type="button" id="btn-refresh-resources" class="secondary">重新检测</button>
-      </section>
-
-      <section class="logs">
-        <div class="logs-head">
-          <h2>运行日志</h2>
-          <div class="logs-actions">
-            <label class="follow">
-              <input type="checkbox" id="log-follow" checked />
-              自动刷新
-            </label>
-            <button type="button" id="btn-copy-log" class="secondary compact">复制全部</button>
-            <button type="button" id="btn-reveal-log" class="secondary compact">在访达中显示</button>
-          </div>
-        </div>
-        <pre id="log-view" class="log-view" tabindex="0" aria-live="polite">（尚未启动 host）</pre>
-      </section>
-
       <section class="recent">
-        <h2>最近打开</h2>
+        <h2>我打开的工作区位置</h2>
         <ul id="recent-list"></ul>
       </section>
 
