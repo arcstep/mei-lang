@@ -466,9 +466,26 @@ body.access-mode {
   overflow: auto;
   scrollbar-gutter: stable;
 }
-body.access-drilldown-open {
+body.access-drilldown-open,
+body.access-layer2-open {
   overflow: hidden;
   scrollbar-gutter: stable;
+}
+/* Layer2 打开时禁止背景（T0/T1）被滚轮/触控链式滚动带跑 */
+body.access-layer2-open .preview-stage-shell,
+body.access-layer2-open [data-mei-frame-viewport="true"],
+body.access-layer2-open #mei-compose-root,
+body.access-layer2-open main {
+  overscroll-behavior: none;
+}
+#mei-layer2-workspace.is-open,
+#mei-layer2-workspace .access-drilldown-overlay-body,
+#mei-layer2-workspace .access-drilldown-table-shell,
+#mei-layer2-workspace .access-drilldown-table-host,
+#mei-layer2-workspace .access-drilldown-structured-shell,
+#mei-layer2-workspace .mei-layer2-tab-panels,
+#mei-layer2-workspace .mei-layer2-browser-shell {
+  overscroll-behavior: contain;
 }
 body.access-mode.chrome-none {
   overflow: hidden;

@@ -318,6 +318,100 @@
     );
   }
 
+  function layer2BackgroundScrollTargets() {
+    const seen = new Set();
+    const out = [];
+    const push = (el) => {
+      if (!(el instanceof Element) || seen.has(el)) return;
+      seen.add(el);
+      out.push(el);
+    };
+    push(document.scrollingElement);
+    push(document.documentElement);
+    push(document.body);
+    push(document.querySelector(".preview-stage-shell"));
+    push(document.querySelector('[data-mei-frame-viewport="true"]'));
+    push(document.querySelector("#mei-compose-root"));
+    push(document.querySelector("main"));
+    push(document.querySelector(".preview-pane-scroll"));
+    return out;
+  }
+
+  function freezeLayer2BackgroundScroll() {
+    if (boot.__meiLayer2ScrollFreeze) return;
+    const snapshots = layer2BackgroundScrollTargets().map((el) => ({
+      el,
+      top: el.scrollTop,
+      left: el.scrollLeft,
+    }));
+    const pin = () => {
+      for (const entry of snapshots) {
+        const { el, top, left } = entry;
+        if (!(el instanceof Element)) continue;
+        if (el.scrollTop !== top) el.scrollTop = top;
+        if (el.scrollLeft !== left) el.scrollLeft = left;
+      }
+    };
+    const onWheel = (event) => {
+      const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
+      if (!(root instanceof HTMLElement) || !root.classList.contains("is-open")) return;
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      const inside = path.includes(root) || (event.target instanceof Node && root.contains(event.target));
+      if (!inside) {
+        event.preventDefault();
+        pin();
+        return;
+      }
+      // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
+      let scrollPort = null;
+      for (const node of path) {
+        if (node === root) break;
+        if (!(node instanceof HTMLElement)) continue;
+        const style = window.getComputedStyle(node);
+        const oy = style.overflowY;
+        if (
+          (oy === "auto" || oy === "scroll" || oy === "overlay") &&
+          node.scrollHeight > node.clientHeight + 1
+        ) {
+          scrollPort = node;
+          break;
+        }
+      }
+      if (!scrollPort) {
+        // 点在 T2 chrome / 非滚动区：吞掉滚轮，避免落到背景。
+        event.preventDefault();
+        pin();
+        return;
+      }
+      const delta = event.deltaY;
+      const atTop = scrollPort.scrollTop <= 0;
+      const atBottom =
+        scrollPort.scrollTop + scrollPort.clientHeight >= scrollPort.scrollHeight - 1;
+      if ((delta < 0 && atTop) || (delta > 0 && atBottom)) {
+        event.preventDefault();
+        pin();
+      }
+    };
+    boot.__meiLayer2ScrollFreeze = { snapshots, pin, onWheel };
+    window.addEventListener("scroll", pin, true);
+    document.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    pin();
+  }
+
+  function thawLayer2BackgroundScroll() {
+    const freeze = boot.__meiLayer2ScrollFreeze;
+    if (!freeze) return;
+    window.removeEventListener("scroll", freeze.pin, true);
+    document.removeEventListener("wheel", freeze.onWheel, true);
+    for (const entry of freeze.snapshots || []) {
+      const { el, top, left } = entry;
+      if (!(el instanceof Element)) continue;
+      el.scrollTop = top;
+      el.scrollLeft = left;
+    }
+    boot.__meiLayer2ScrollFreeze = null;
+  }
+
   function openLayer2Tab(config) {
     const root = ensureLayer2WorkspaceRoot();
     const session = layer2Session();
@@ -381,6 +475,7 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-layer2-open");
+    freezeLayer2BackgroundScroll();
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
         scope: sceneId,
@@ -446,6 +541,7 @@
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
     document.body.classList.remove("access-layer2-open");
+    thawLayer2BackgroundScroll();
     return true;
   }
 
