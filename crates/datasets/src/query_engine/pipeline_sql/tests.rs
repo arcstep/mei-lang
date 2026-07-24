@@ -1990,3 +1990,458 @@ fn pipeline_sql_page_and_facets_over_large_rowset() {
     assert_eq!(total_count, n as u64);
 }
 
+#[test]
+fn zhifa_map_street_inspection_pipeline_sql_hits() {
+    use super::try_eval_dataframe_metrics_via_sql;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/inspections.xlsx",
+        &[("检查对象名称", DataType::Utf8)],
+        vec![Arc::new(StringArray::from(vec!["企A", "企B", "企A", "企C"]))],
+    );
+    write_parquet_table(
+        app_root,
+        "upload/data/enterprises.xlsx",
+        &[
+            ("企业名称", DataType::Utf8),
+            ("所属街道", DataType::Utf8),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["企A", "企B", "企C"])),
+            Arc::new(StringArray::from(vec!["甲街", "乙街", "甲街"])),
+        ],
+    );
+
+    fn file_view(id: &str, path: &str, cols: &[(&str, &str)]) -> DatasetView {
+        DatasetView {
+            id: id.into(),
+            title: None,
+            purpose: None,
+            schema: cols.iter().map(|(n, t)| col(n, t)).collect(),
+            stage_schema: Vec::new(),
+            columns: cols.iter().map(|(n, _)| (*n).into()).collect(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "file".into(),
+                path: path.into(),
+                sheet: None,
+                header_row: Some(1),
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: AnalysisGraph::default(),
+            runtime_analysis_contracts: BTreeMap::new(),
+        }
+    }
+
+    let mut datasets = BTreeMap::new();
+    datasets.insert(
+        "map_inspections_2025".into(),
+        file_view(
+            "map_inspections_2025",
+            "upload/data/inspections.xlsx",
+            &[("检查对象名称", "string")],
+        ),
+    );
+    datasets.insert(
+        "map_key_enterprises".into(),
+        file_view(
+            "map_key_enterprises",
+            "upload/data/enterprises.xlsx",
+            &[("企业名称", "string"), ("所属街道", "string")],
+        ),
+    );
+
+    let rows = |dataset: &str| {
+        json!({"__ref": "data", "from_dataset": dataset, "id": dataset})
+    };
+    // Mirrors map_street_inspection_count_2025 lower shape.
+    let mut street = rows("map_inspections_2025");
+    street = json!({
+        "__kind": "analysis_expr",
+        "type": "lookup_value",
+        "field": "检查对象名称",
+        "lookup_field": "企业名称",
+        "value_field": "所属街道",
+        "as_field": "街镇名称",
+        "lookup_rowset": rows("map_key_enterprises"),
+        "rowset": street
+    });
+    street = json!({
+        "__kind": "analysis_expr",
+        "type": "where",
+        "predicate": {"__kind":"analysis_expr","type":"not_empty","field":"街镇名称"},
+        "rowset": street
+    });
+    street = json!({
+        "__kind": "analysis_expr",
+        "type": "group_by",
+        "by": "街镇名称",
+        "agg": "count",
+        "rowset": street
+    });
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "map_street_inspection_count_2025".into(),
+        json!({"shape":"dataframe","value": street}),
+    );
+
+    let out = try_eval_dataframe_metrics_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        &["map_street_inspection_count_2025".into()],
+    )
+    .expect("sql ok")
+    .expect("must hit SQL for map street choropleth");
+    let rows = out
+        .get("map_street_inspection_count_2025")
+        .expect("metric")
+        .value
+        .as_array()
+        .expect("array");
+    assert_eq!(rows.len(), 2, "rows={rows:?}");
+}
+
+#[test]
+fn zhifa_map_enterprise_poi_pipeline_sql_hits() {
+    use super::try_eval_dataframe_metrics_via_sql;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/enterprises.xlsx",
+        &[
+            ("企业名称", DataType::Utf8),
+            ("所属园区", DataType::Utf8),
+            ("企业经纬度坐标", DataType::Utf8),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["企A", "企B", "企C"])),
+            Arc::new(StringArray::from(vec!["甲园", "乙园", ""])),
+            Arc::new(StringArray::from(vec![
+                "120.1,30.1",
+                "120.2,30.2",
+                "120.3,30.3",
+            ])),
+        ],
+    );
+    write_parquet_table(
+        app_root,
+        "upload/data/parks.xlsx",
+        &[("园区ID", DataType::Utf8), ("园区名称", DataType::Utf8)],
+        vec![
+            Arc::new(StringArray::from(vec!["P1", "P2"])),
+            Arc::new(StringArray::from(vec!["甲园", "乙园"])),
+        ],
+    );
+    write_parquet_table(
+        app_root,
+        "upload/data/inspections.xlsx",
+        &[("检查对象名称", DataType::Utf8)],
+        vec![Arc::new(StringArray::from(vec!["企A", "企A", "企B"]))],
+    );
+    write_parquet_table(
+        app_root,
+        "upload/data/penalties.xlsx",
+        &[
+            ("当事人", DataType::Utf8),
+            ("罚款金额", DataType::Float64),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["企A", "企B"])),
+            Arc::new(Float64Array::from(vec![100.0, 50.0])),
+        ],
+    );
+
+    fn file_view(id: &str, path: &str, cols: &[(&str, &str)]) -> DatasetView {
+        DatasetView {
+            id: id.into(),
+            title: None,
+            purpose: None,
+            schema: cols.iter().map(|(n, t)| col(n, t)).collect(),
+            stage_schema: Vec::new(),
+            columns: cols.iter().map(|(n, _)| (*n).into()).collect(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "file".into(),
+                path: path.into(),
+                sheet: None,
+                header_row: Some(1),
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: AnalysisGraph::default(),
+            runtime_analysis_contracts: BTreeMap::new(),
+        }
+    }
+
+    let mut datasets = BTreeMap::new();
+    datasets.insert(
+        "map_key_enterprises".into(),
+        file_view(
+            "map_key_enterprises",
+            "upload/data/enterprises.xlsx",
+            &[
+                ("企业名称", "string"),
+                ("所属园区", "string"),
+                ("企业经纬度坐标", "string"),
+            ],
+        ),
+    );
+    datasets.insert(
+        "map_park_vector".into(),
+        file_view(
+            "map_park_vector",
+            "upload/data/parks.xlsx",
+            &[("园区ID", "string"), ("园区名称", "string")],
+        ),
+    );
+    datasets.insert(
+        "map_inspections_2025".into(),
+        file_view(
+            "map_inspections_2025",
+            "upload/data/inspections.xlsx",
+            &[("检查对象名称", "string")],
+        ),
+    );
+    datasets.insert(
+        "map_penalties_2025".into(),
+        file_view(
+            "map_penalties_2025",
+            "upload/data/penalties.xlsx",
+            &[("当事人", "string"), ("罚款金额", "number")],
+        ),
+    );
+
+    let rows = |dataset: &str| {
+        json!({"__ref": "data", "from_dataset": dataset, "id": dataset})
+    };
+    let lookup = |rowset: serde_json::Value,
+                  field: &str,
+                  lookup_rowset: serde_json::Value,
+                  lookup_field: &str,
+                  value_field: &str,
+                  as_field: &str| {
+        json!({
+            "__kind": "analysis_expr",
+            "type": "lookup_value",
+            "field": field,
+            "lookup_field": lookup_field,
+            "value_field": value_field,
+            "as_field": as_field,
+            "lookup_rowset": lookup_rowset,
+            "rowset": rowset
+        })
+    };
+
+    // Mirrors map_enterprise_poi_in_park_2025 (lookup + where + select chain).
+    let mut poi = rows("map_key_enterprises");
+    poi = json!({
+        "__kind": "analysis_expr",
+        "type": "where",
+        "predicate": {"__kind":"analysis_expr","type":"not_empty","field":"所属园区"},
+        "rowset": poi
+    });
+    poi = lookup(
+        poi,
+        "所属园区",
+        rows("map_park_vector"),
+        "园区名称",
+        "园区ID",
+        "园区ID",
+    );
+    poi = lookup(
+        poi,
+        "企业名称",
+        json!({
+            "__kind": "analysis_expr",
+            "type": "group_by",
+            "by": "检查对象名称",
+            "agg": "count",
+            "rowset": rows("map_inspections_2025")
+        }),
+        "检查对象名称",
+        "value",
+        "检查次数",
+    );
+    poi = lookup(
+        poi,
+        "企业名称",
+        json!({
+            "__kind": "analysis_expr",
+            "type": "group_by",
+            "by": "当事人",
+            "agg": "count",
+            "rowset": rows("map_penalties_2025")
+        }),
+        "当事人",
+        "value",
+        "处罚次数",
+    );
+    poi = lookup(
+        poi,
+        "企业名称",
+        json!({
+            "__kind": "analysis_expr",
+            "type": "group_by",
+            "by": "当事人",
+            "value": "罚款金额",
+            "agg": "sum",
+            "rowset": rows("map_penalties_2025")
+        }),
+        "当事人",
+        "value",
+        "处罚金额合计",
+    );
+    poi = json!({
+        "__kind": "analysis_expr",
+        "type": "where",
+        "predicate": {"__kind":"analysis_expr","type":"not_empty","field":"企业经纬度坐标"},
+        "rowset": poi
+    });
+    poi = json!({
+        "__kind": "analysis_expr",
+        "type": "select",
+        "fields": [
+            "企业名称", "所属园区", "园区ID", "企业经纬度坐标",
+            "检查次数", "处罚次数", "处罚金额合计"
+        ],
+        "rowset": poi
+    });
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "map_enterprise_poi_in_park_2025".into(),
+        json!({"shape":"dataframe","value": poi}),
+    );
+
+    let out = try_eval_dataframe_metrics_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        &["map_enterprise_poi_in_park_2025".into()],
+    )
+    .expect("sql ok")
+    .expect("must hit SQL for map POI pipeline");
+    let rows = out
+        .get("map_enterprise_poi_in_park_2025")
+        .expect("metric")
+        .value
+        .as_array()
+        .expect("array");
+    assert_eq!(rows.len(), 2, "in-park POI only: rows={rows:?}");
+}
+
+#[test]
+fn dataframe_sql_paged_artifact_covers_row_limit() {
+    use super::try_eval_dataframe_metrics_via_sql_opts;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    let n = MAX_PIPELINE_SQL_ROWS + 25;
+    let ids: Vec<&str> = (0..n)
+        .map(|i| {
+            let name = format!("id{i}");
+            Box::leak(name.into_boxed_str()) as &str
+        })
+        .collect();
+    write_parquet_table(
+        app_root,
+        "upload/data/poi.xlsx",
+        &[("企业ID", DataType::Utf8)],
+        vec![Arc::new(StringArray::from(ids))],
+    );
+
+    let view = DatasetView {
+        id: "poi".into(),
+        title: None,
+        purpose: None,
+        schema: vec![col("企业ID", "string")],
+        stage_schema: Vec::new(),
+        columns: vec!["企业ID".into()],
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/poi.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert("poi".into(), view);
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "map_enterprise_poi_all".into(),
+        json!({
+            "shape": "dataframe",
+            "value": {"__ref": "data", "id": "poi", "from_dataset": "poi"}
+        }),
+    );
+
+    let blocked = super::try_eval_dataframe_metrics_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        &["map_enterprise_poi_all".into()],
+    );
+    assert!(
+        blocked
+            .as_ref()
+            .err()
+            .map(|e| e.to_string().contains("pipeline_sql_row_limit"))
+            .unwrap_or(false),
+        "non-paged path must trip row limit: {blocked:?}"
+    );
+
+    let out = try_eval_dataframe_metrics_via_sql_opts(
+        app_root,
+        &datasets,
+        &defs,
+        &["map_enterprise_poi_all".into()],
+        true,
+    )
+    .expect("paged sql ok")
+    .expect("must materialize via pages");
+    let rows = out
+        .get("map_enterprise_poi_all")
+        .expect("metric")
+        .value
+        .as_array()
+        .expect("array");
+    assert_eq!(rows.len(), n, "paged artifact must return all rows");
+}
+

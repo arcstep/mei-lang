@@ -107,6 +107,12 @@ impl UiRouteMode {
         self == Self::App
     }
 
+    /// Res-admin / config / upload may use Host-local assemble without app-runtime (0545).
+    /// Access / layout / prototype still prefer or require a running runtime.
+    pub fn allows_host_plane_without_runtime(self) -> bool {
+        matches!(self, Self::Admin | Self::Config | Self::Upload)
+    }
+
     /// 独立演说宿主路由（`/apps/run|copilot/*`）已退役；演说在 app surface 上以 action 执行。
     pub fn is_legacy_presentation_host(self) -> bool {
         matches!(self, Self::Run | Self::Copilot)
@@ -182,6 +188,15 @@ mod tests {
         assert!(UiRouteMode::App.is_access_like());
         assert!(!UiRouteMode::Run.is_access_like());
         assert!(!UiRouteMode::Copilot.is_access_like());
+    }
+
+    #[test]
+    fn res_admin_planes_allow_host_without_runtime() {
+        assert!(UiRouteMode::Admin.allows_host_plane_without_runtime());
+        assert!(UiRouteMode::Config.allows_host_plane_without_runtime());
+        assert!(UiRouteMode::Upload.allows_host_plane_without_runtime());
+        assert!(!UiRouteMode::App.allows_host_plane_without_runtime());
+        assert!(!UiRouteMode::Layout.allows_host_plane_without_runtime());
     }
 
     #[test]

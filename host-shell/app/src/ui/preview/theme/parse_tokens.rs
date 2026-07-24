@@ -31,6 +31,9 @@ pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
     map.insert("table_head".to_string(), theme.table_head.clone());
     map.insert("table_body".to_string(), theme.table_body.clone());
     map.insert("filter_panel".to_string(), theme.filter_panel.clone());
+    map.insert("body".to_string(), theme.body.clone());
+    map.insert("muted".to_string(), theme.muted.clone());
+    map.insert("header_title".to_string(), theme.header_title.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
     if !theme.shared.is_null() {
         map.insert("shared".to_string(), theme.shared.clone());
@@ -40,6 +43,26 @@ pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
     }
     Value::Object(map)
 }
+
+/// Theme-key → CSS var prefix (`mei-…`) → `.mei-text-{kebab}` suffix.
+const TEXT_ROLE_EMIT: &[(&str, &str)] = &[
+    ("metric_label", "mei-metric-label"),
+    ("metric_value", "mei-metric-value"),
+    ("metric_unit", "mei-metric-unit"),
+    ("metric_desc", "mei-metric-desc"),
+    ("metric_sub_label", "mei-metric-sub-label"),
+    ("metric_sub_value", "mei-metric-sub-value"),
+    ("metric_sub_unit", "mei-metric-sub-unit"),
+    ("panel_head", "mei-panel-head"),
+    ("chart_title", "mei-chart-title"),
+    ("chart_label", "mei-chart-label"),
+    ("table_head", "mei-table-head"),
+    ("table_body", "mei-table-body"),
+    ("filter_panel", "mei-filter-panel"),
+    ("body", "mei-body"),
+    ("muted", "mei-muted"),
+    ("header_title", "mei-header-title"),
+];
 
 /// Scene viewport track: color, gradient, typography roles; excludes `tokens.shell`.
 pub(super) fn collect_scene_css_vars(theme: &Value) -> Vec<(String, String)> {
@@ -55,35 +78,10 @@ pub(super) fn collect_scene_css_vars(theme: &Value) -> Vec<(String, String)> {
             }
         }
     }
-    for role in ["label", "value", "unit", "desc"] {
-        let key = format!("metric_{role}");
-        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
-            push_typography_vars(entry, &format!("mei-metric-{role}"), &mut vars, false);
+    for (theme_key, var_prefix) in TEXT_ROLE_EMIT {
+        if let Some(entry) = theme.as_object().and_then(|map| map.get(*theme_key)) {
+            push_typography_vars(entry, var_prefix, &mut vars, false);
         }
-    }
-    for role in ["label", "value", "unit"] {
-        let key = format!("metric_sub_{role}");
-        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
-            push_typography_vars(entry, &format!("mei-metric-sub-{role}"), &mut vars, false);
-        }
-    }
-    if let Some(panel_head) = theme.as_object().and_then(|map| map.get("panel_head")) {
-        push_typography_vars(panel_head, "mei-panel-head", &mut vars, false);
-    }
-    if let Some(chart_title) = theme.as_object().and_then(|map| map.get("chart_title")) {
-        push_typography_vars(chart_title, "mei-chart-title", &mut vars, false);
-    }
-    if let Some(chart_label) = theme.as_object().and_then(|map| map.get("chart_label")) {
-        push_typography_vars(chart_label, "mei-chart-label", &mut vars, false);
-    }
-    if let Some(table_head) = theme.as_object().and_then(|map| map.get("table_head")) {
-        push_typography_vars(table_head, "mei-table-head", &mut vars, false);
-    }
-    if let Some(table_body) = theme.as_object().and_then(|map| map.get("table_body")) {
-        push_typography_vars(table_body, "mei-table-body", &mut vars, false);
-    }
-    if let Some(filter_panel) = theme.as_object().and_then(|map| map.get("filter_panel")) {
-        push_typography_vars(filter_panel, "mei-filter-panel", &mut vars, false);
     }
     if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
         flatten_scene_tokens(tokens, &mut vars);
@@ -205,6 +203,7 @@ fn typography_css_suffix(key: &str) -> Option<&'static str> {
         "font_family" => Some("font-family"),
         "color" => Some("color"),
         "font_weight" => Some("font-weight"),
+        "font_style" | "style" => Some("font-style"),
         "letter_spacing" => Some("letter-spacing"),
         "text_align" | "align" => Some("text-align"),
         "line_height" => Some("line-height"),
@@ -227,6 +226,16 @@ fn resolve_font_size_value(raw: &str, shell: bool) -> String {
         format!("var(--mei-shell-font-{font_key})")
     } else {
         format!("var(--mei-font-{font_key})")
+    }
+}
+
+fn resolve_font_weight_value(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "regular" | "normal" => "var(--mei-typography-weight-regular, 400)".to_string(),
+        "medium" => "var(--mei-typography-weight-medium, 500)".to_string(),
+        "bold" => "var(--mei-typography-weight-bold, 700)".to_string(),
+        other if !other.is_empty() => other.to_string(),
+        _ => String::new(),
     }
 }
 
@@ -255,11 +264,15 @@ fn push_typography_vars(
                     resolve_font_size_value(raw, shell)
                 } else if suffix == "color" {
                     resolve_color_token(raw)
+                } else if suffix == "font-weight" {
+                    resolve_font_weight_value(raw)
                 } else {
                     raw.trim().to_string()
                 }
             }
-            Value::Number(raw) if suffix == "font-size" => raw.to_string(),
+            Value::Number(raw) if suffix == "font-size" || suffix == "font-weight" => {
+                raw.to_string()
+            }
             _ => continue,
         };
         if resolved.is_empty() {
@@ -267,6 +280,70 @@ fn push_typography_vars(
         }
         vars.push((format!("--{var_prefix}-{suffix}"), resolved));
     }
+}
+
+/// Compose `.mei-text-*` utility rules from already-emitted role CSS variables.
+pub fn compose_text_role_utility_css(css_vars: &[(String, String)]) -> String {
+    let present: std::collections::BTreeSet<&str> = css_vars
+        .iter()
+        .filter_map(|(key, _)| key.strip_prefix("--"))
+        .collect();
+    let mut out = String::new();
+    for (_, var_prefix) in TEXT_ROLE_EMIT {
+        let class = format!(
+            ".mei-text-{}",
+            var_prefix
+                .strip_prefix("mei-")
+                .unwrap_or(var_prefix)
+                .replace('_', "-")
+        );
+        let size_key = format!("{var_prefix}-font-size");
+        let color_key = format!("{var_prefix}-color");
+        let weight_key = format!("{var_prefix}-font-weight");
+        let family_key = format!("{var_prefix}-font-family");
+        let style_key = format!("{var_prefix}-font-style");
+        let has_any = [
+            size_key.as_str(),
+            color_key.as_str(),
+            weight_key.as_str(),
+            family_key.as_str(),
+            style_key.as_str(),
+        ]
+        .iter()
+        .any(|k| present.contains(k));
+        if !has_any {
+            continue;
+        }
+        out.push_str(&class);
+        out.push('{');
+        if present.contains(size_key.as_str()) {
+            out.push_str(&format!("font-size:var(--{size_key});"));
+        }
+        if present.contains(color_key.as_str()) {
+            out.push_str(&format!("color:var(--{color_key});"));
+        }
+        out.push_str(&format!(
+            "font-weight:var(--{weight_key},var(--mei-typography-weight-regular,400));"
+        ));
+        out.push_str(&format!(
+            "font-family:var(--{family_key},var(--mei-typography-family,system-ui,sans-serif));"
+        ));
+        out.push_str(&format!("font-style:var(--{style_key},normal);"));
+        out.push('}');
+    }
+    out
+}
+
+/// Full scene theme stylesheet: selector-scoped vars + `.mei-text-*` utilities.
+pub fn scene_theme_stylesheet(theme_id: &str, css_vars: &[(String, String)]) -> String {
+    let mut out = String::new();
+    out.push_str(
+        ":root,.mei-compose-scene-root,#mei-compose-root,.preview-viewport,[data-mei-frame-viewport],body{",
+    );
+    out.push_str(&css_vars_to_style(theme_id, css_vars));
+    out.push('}');
+    out.push_str(&compose_text_role_utility_css(css_vars));
+    out
 }
 
 fn flatten_tokens(value: &Value, prefix: &str, vars: &mut Vec<(String, String)>) {
@@ -309,4 +386,8 @@ pub(crate) fn shell_css_vars_style(theme_id: &str, css_vars: &[(String, String)]
 
 pub(crate) fn scene_css_vars_style(theme: &ThemeResolved) -> String {
     css_vars_to_style(theme.id.as_str(), &theme.css_vars)
+}
+
+pub(crate) fn scene_theme_stylesheet_for_resolved(theme: &ThemeResolved) -> String {
+    scene_theme_stylesheet(theme.id.as_str(), &theme.css_vars)
 }

@@ -172,6 +172,51 @@ const COLOR_GROUPS = [
 
 const FONT_STEPS = ["1", "2", "3", "4", "5", "6", "7"];
 
+/** ThemeDecl text-role recipes (Host emits --mei-{role}-* + .mei-text-*). */
+const TEXT_ROLES = [
+  { key: "header_title", label: "顶栏大标题", prefix: "mei-header-title" },
+  { key: "panel_head", label: "面板标题", prefix: "mei-panel-head" },
+  { key: "body", label: "正文", prefix: "mei-body" },
+  { key: "muted", label: "次要说明", prefix: "mei-muted" },
+  { key: "metric_label", label: "指标标签", prefix: "mei-metric-label" },
+  { key: "metric_value", label: "指标数值", prefix: "mei-metric-value" },
+  { key: "metric_unit", label: "指标单位", prefix: "mei-metric-unit" },
+  { key: "metric_desc", label: "指标说明", prefix: "mei-metric-desc" },
+  { key: "metric_sub_label", label: "子指标标签", prefix: "mei-metric-sub-label" },
+  { key: "metric_sub_value", label: "子指标数值", prefix: "mei-metric-sub-value" },
+  { key: "metric_sub_unit", label: "子指标单位", prefix: "mei-metric-sub-unit" },
+  { key: "chart_title", label: "图表标题", prefix: "mei-chart-title" },
+  { key: "chart_label", label: "图表标签", prefix: "mei-chart-label" },
+  { key: "table_head", label: "表头", prefix: "mei-table-head" },
+  { key: "table_body", label: "表体", prefix: "mei-table-body" },
+  { key: "filter_panel", label: "筛选面板", prefix: "mei-filter-panel" },
+];
+
+const FONT_WEIGHT_OPTIONS = [
+  { value: "regular", label: "常规" },
+  { value: "medium", label: "中等" },
+  { value: "bold", label: "加粗" },
+];
+
+const TEXT_ROLE_DEFAULTS = {
+  header_title: { font: "5", color: "text_primary", font_weight: "bold" },
+  panel_head: { font: "4", color: "panel_title", font_weight: "medium" },
+  body: { font: "2", color: "text_body", font_weight: "regular" },
+  muted: { font: "1", color: "text_muted", font_weight: "regular" },
+  metric_label: { font: "2", color: "text_muted", font_weight: "regular" },
+  metric_value: { font: "4", color: "text_value", font_weight: "bold" },
+  metric_unit: { font: "1", color: "text_unit", font_weight: "regular" },
+  metric_desc: { font: "1", color: "text_muted", font_weight: "regular" },
+  metric_sub_label: { font: "1", color: "text_muted", font_weight: "regular" },
+  metric_sub_value: { font: "3", color: "text_value", font_weight: "bold" },
+  metric_sub_unit: { font: "1", color: "text_unit", font_weight: "regular" },
+  chart_title: { font: "2", color: "text_primary", font_weight: "medium" },
+  chart_label: { font: "1", color: "text_muted", font_weight: "regular" },
+  table_head: { font: "2", color: "text_primary", font_weight: "medium" },
+  table_body: { font: "2", color: "text_body", font_weight: "regular" },
+  filter_panel: { font: "2", color: "text_body", font_weight: "regular" },
+};
+
 /** Gradients edited as structured glow-bar / dual-stop recipes. */
 const STRUCTURED_GRADIENT_KEYS = new Set(["panel_title_bar", "header_band_bg", "panel_glow_bg", "home_frame_bg"]);
 
@@ -218,6 +263,64 @@ function ensureFont(theme) {
       weight_bold: "700",
     };
   }
+  for (const role of TEXT_ROLES) {
+    const defaults = TEXT_ROLE_DEFAULTS[role.key] || {};
+    if (!theme[role.key] || typeof theme[role.key] !== "object") {
+      theme[role.key] = { ...defaults };
+    } else {
+      for (const [k, v] of Object.entries(defaults)) {
+        if (theme[role.key][k] == null || theme[role.key][k] === "") {
+          theme[role.key][k] = v;
+        }
+      }
+    }
+  }
+}
+
+function resolveRoleColorValue(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (
+    value.startsWith("#") ||
+    value.startsWith("rgb") ||
+    value.startsWith("hsl") ||
+    value.startsWith("var(")
+  ) {
+    return value;
+  }
+  return `var(--mei-color-${value.replace(/_/g, "-")})`;
+}
+
+function resolveRoleWeightValue(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "regular" || value === "normal") {
+    return "var(--mei-typography-weight-regular, 400)";
+  }
+  if (value === "medium") return "var(--mei-typography-weight-medium, 500)";
+  if (value === "bold") return "var(--mei-typography-weight-bold, 700)";
+  return value;
+}
+
+function applyTextRoleVars(root, theme) {
+  for (const role of TEXT_ROLES) {
+    const entry = theme?.[role.key];
+    if (!entry || typeof entry !== "object") continue;
+    const font = String(entry.font || "").trim();
+    if (font) {
+      root.style.setProperty(
+        `--${role.prefix}-font-size`,
+        /^\d+(\.\d+)?(px|rem|em|%)$/.test(font) ? font : `var(--mei-font-${font})`,
+      );
+    }
+    const color = resolveRoleColorValue(entry.color);
+    if (color) root.style.setProperty(`--${role.prefix}-color`, color);
+    const weight = resolveRoleWeightValue(entry.font_weight);
+    if (weight) root.style.setProperty(`--${role.prefix}-font-weight`, weight);
+    const family = String(entry.font_family || "").trim();
+    if (family) root.style.setProperty(`--${role.prefix}-font-family`, family);
+    const style = String(entry.font_style || "").trim();
+    if (style) root.style.setProperty(`--${role.prefix}-font-style`, style);
+  }
 }
 
 function applyPreviewVars(root, theme) {
@@ -251,6 +354,7 @@ function applyPreviewVars(root, theme) {
   if (typography.weight_bold) {
     root.style.setProperty("--mei-typography-weight-bold", typography.weight_bold);
   }
+  applyTextRoleVars(root, theme);
   root.style.fontFamily = `var(--mei-typography-family, system-ui, sans-serif)`;
 }
 
@@ -545,6 +649,17 @@ function buildStructuredGradient(model) {
 }
 
 function studioStyles() {
+  const roleUtilityCss = TEXT_ROLES.map((role) => {
+    const cls = `.mei-text-${role.prefix.replace(/^mei-/, "").replace(/_/g, "-")}`;
+    return `
+    ${cls} {
+      font-size: var(--${role.prefix}-font-size, inherit);
+      color: var(--${role.prefix}-color, inherit);
+      font-weight: var(--${role.prefix}-font-weight, var(--mei-typography-weight-regular, 400));
+      font-family: var(--${role.prefix}-font-family, var(--mei-typography-family, system-ui, sans-serif));
+      font-style: var(--${role.prefix}-font-style, normal);
+    }`;
+  }).join("");
   return `
     :host {
       display: block;
@@ -553,7 +668,7 @@ function studioStyles() {
       font-family: var(--mei-typography-family, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif);
       font-weight: var(--mei-typography-weight-regular, 400);
       line-height: 1.45;
-    }
+    }${roleUtilityCss}
     .studio {
       display: grid;
       gap: 14px;
@@ -787,10 +902,73 @@ function studioStyles() {
       padding: 10px; display: grid; gap: 8px;
       color: var(--mei-color-text-body, #c9e9f8);
     }
-    .preview-text-stack .primary { color: var(--mei-color-text-primary, #fff); font-size: var(--mei-font-2, 18px); }
-    .preview-text-stack .body { color: var(--mei-color-text-body, #c9e9f8); font-size: var(--mei-font-1, 16px); }
-    .preview-text-stack .muted { color: var(--mei-color-text-muted, #94a3b8); font-size: calc(var(--mei-font-1, 16px) * 0.9); }
-    .preview-text-stack .value { color: var(--mei-color-text-value, #71f1ea); font-weight: var(--mei-typography-weight-bold, 700); }
+    .mei-text-header-title {
+      font-size: var(--mei-header-title-font-size, var(--mei-font-5, 32px));
+      color: var(--mei-header-title-color, var(--mei-color-text-primary, #fff));
+      font-weight: var(--mei-header-title-font-weight, var(--mei-typography-weight-bold, 700));
+      font-style: var(--mei-header-title-font-style, normal);
+    }
+    .mei-text-panel-head {
+      font-size: var(--mei-panel-head-font-size, var(--mei-font-4, 24px));
+      color: var(--mei-panel-head-color, var(--mei-color-panel-title, #ecfeff));
+      font-weight: var(--mei-panel-head-font-weight, var(--mei-typography-weight-medium, 500));
+      font-style: var(--mei-panel-head-font-style, normal);
+    }
+    .mei-text-body {
+      font-size: var(--mei-body-font-size, var(--mei-font-2, 14px));
+      color: var(--mei-body-color, var(--mei-color-text-body, #c9e9f8));
+      font-weight: var(--mei-body-font-weight, var(--mei-typography-weight-regular, 400));
+      font-style: var(--mei-body-font-style, normal);
+    }
+    .mei-text-muted {
+      font-size: var(--mei-muted-font-size, var(--mei-font-1, 12px));
+      color: var(--mei-muted-color, var(--mei-color-text-muted, #94a3b8));
+      font-weight: var(--mei-muted-font-weight, var(--mei-typography-weight-regular, 400));
+      font-style: var(--mei-muted-font-style, normal);
+    }
+    .mei-text-metric-value {
+      font-size: var(--mei-metric-value-font-size, var(--mei-font-4, 24px));
+      color: var(--mei-metric-value-color, var(--mei-color-text-value, #71f1ea));
+      font-weight: var(--mei-metric-value-font-weight, var(--mei-typography-weight-bold, 700));
+      font-style: var(--mei-metric-value-font-style, normal);
+    }
+    .role-grid { display: grid; gap: 10px; margin-bottom: 12px; }
+    .role-card {
+      padding: 10px; border: 1px solid rgba(56, 160, 240, 0.18);
+      background: rgba(2, 12, 32, 0.35);
+    }
+    .role-card-head {
+      display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .role-card-head code {
+      color: var(--mei-color-text-muted, #94a3b8);
+      font-size: 11px;
+    }
+    .role-sample {
+      margin-top: 6px; padding: 8px 10px;
+      border: 1px dashed rgba(125, 211, 252, 0.25);
+      background: rgba(0, 20, 48, 0.45);
+    }
+    .field select {
+      width: 100%; min-height: 30px; box-sizing: border-box;
+      border-radius: 0; border: 1px solid rgba(56, 160, 240, 0.28);
+      background: rgba(2, 12, 32, 0.65);
+      color: var(--mei-color-text-body, #e2e8f0);
+      padding: 0 8px;
+      font-size: calc(var(--mei-font-1, 16px) * 0.9);
+      font-family: inherit;
+    }
+    .font-advanced {
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid rgba(56, 160, 240, 0.16);
+    }
+    .font-advanced summary {
+      cursor: pointer;
+      color: var(--mei-color-text-muted, #94a3b8);
+      font-size: calc(var(--mei-font-1, 16px) * 0.85);
+      margin-bottom: 8px;
+    }
   `;
 }
 
@@ -915,6 +1093,25 @@ class ThemeStudio extends HTMLElement {
     this.updateDirtyChrome();
   }
 
+  onTextRoleChange(roleKey, field, value) {
+    if (!this._draft) return;
+    ensureFont(this._draft);
+    if (!this._draft[roleKey] || typeof this._draft[roleKey] !== "object") {
+      this._draft[roleKey] = { ...(TEXT_ROLE_DEFAULTS[roleKey] || {}) };
+    }
+    if (field === "font_style") {
+      if (value) this._draft[roleKey].font_style = "italic";
+      else delete this._draft[roleKey].font_style;
+    } else {
+      this._draft[roleKey][field] = value;
+    }
+    this._dirty = true;
+    this._status = "已修改（未保存）";
+    this.applyStudioThemeVars();
+    this.renderPreviewOnly();
+    this.updateDirtyChrome();
+  }
+
   applyStudioThemeVars() {
     if (!this._draft) return;
     applyPreviewVars(this, this._draft);
@@ -955,12 +1152,17 @@ class ThemeStudio extends HTMLElement {
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          label: this._draft.label,
-          font: this._draft.font,
-          tokens: {
-            color: this._draft.tokens?.color || {},
-            gradient: this._draft.tokens?.gradient || {},
-            typography: this._draft.tokens?.typography || {},
+          patch: {
+            label: this._draft.label,
+            font: this._draft.font,
+            tokens: {
+              color: this._draft.tokens?.color || {},
+              gradient: this._draft.tokens?.gradient || {},
+              typography: this._draft.tokens?.typography || {},
+            },
+            ...Object.fromEntries(
+              TEXT_ROLES.map((role) => [role.key, this._draft[role.key] || {}]),
+            ),
           },
         }),
       });
@@ -1232,6 +1434,16 @@ class ThemeStudio extends HTMLElement {
         this.onTypographyChange(input.getAttribute("data-typo"), input.value);
       });
     });
+    root.querySelectorAll("[data-text-role]").forEach((input) => {
+      const apply = () => {
+        const role = input.getAttribute("data-text-role");
+        const field = input.getAttribute("data-text-field");
+        const value =
+          input.type === "checkbox" ? (input.checked ? "italic" : "") : input.value;
+        this.onTextRoleChange(role, field, value);
+      };
+      input.addEventListener("change", apply);
+    });
   }
 
   renderGroupFields(group) {
@@ -1268,6 +1480,64 @@ class ThemeStudio extends HTMLElement {
 
   renderFontFields() {
     ensureFont(this._draft);
+    const colorKeys = Object.keys(this._draft.tokens?.color || {}).sort();
+    const roleFields = TEXT_ROLES.map((role) => {
+      const entry = this._draft[role.key] || {};
+      const colorOptions = colorKeys
+        .map(
+          (key) =>
+            `<option value="${escapeAttr(key)}" ${
+              entry.color === key ? "selected" : ""
+            }>${escapeAttr(key)}</option>`,
+        )
+        .join("");
+      const fontOptions = FONT_STEPS.map(
+        (step) =>
+          `<option value="${step}" ${String(entry.font) === step ? "selected" : ""}>字阶 ${step}</option>`,
+      ).join("");
+      const weightOptions = FONT_WEIGHT_OPTIONS.map(
+        (opt) =>
+          `<option value="${opt.value}" ${
+            String(entry.font_weight || "regular") === opt.value ? "selected" : ""
+          }>${opt.label}</option>`,
+      ).join("");
+      const italic = String(entry.font_style || "").toLowerCase() === "italic";
+      const className = `.mei-text-${role.prefix.replace(/^mei-/, "").replace(/_/g, "-")}`;
+      return `
+        <div class="role-card">
+          <div class="role-card-head">
+            <strong>${role.label}</strong>
+            <code>${className}</code>
+          </div>
+          <div class="field">
+            <label>字阶</label>
+            <select data-text-role="${role.key}" data-text-field="font">${fontOptions}</select>
+            <span></span>
+          </div>
+          <div class="field">
+            <label>字色</label>
+            <select data-text-role="${role.key}" data-text-field="color">
+              <option value="">（继承）</option>
+              ${colorOptions}
+            </select>
+            <span></span>
+          </div>
+          <div class="field">
+            <label>字重</label>
+            <select data-text-role="${role.key}" data-text-field="font_weight">${weightOptions}</select>
+            <span></span>
+          </div>
+          <div class="field role-italic">
+            <label>斜体</label>
+            <input type="checkbox" data-text-role="${role.key}" data-text-field="font_style" ${
+              italic ? "checked" : ""
+            } />
+            <span></span>
+          </div>
+          <div class="role-sample ${className.slice(1)}">示例 Aa 监督 12,580</div>
+        </div>
+      `;
+    }).join("");
     const steps = FONT_STEPS.map(
       (step) => `
       <div class="field">
@@ -1279,27 +1549,31 @@ class ThemeStudio extends HTMLElement {
     ).join("");
     const typo = this._draft.tokens.typography;
     return `
-      ${steps}
-      <div class="field">
-        <label>字体族</label>
-        <input type="text" data-typo="family" value="${escapeAttr(typo.family || "")}" />
-        <span></span>
-      </div>
-      <div class="field">
-        <label>常规字重</label>
-        <input type="text" data-typo="weight_regular" value="${escapeAttr(typo.weight_regular || "")}" />
-        <span></span>
-      </div>
-      <div class="field">
-        <label>中等字重</label>
-        <input type="text" data-typo="weight_medium" value="${escapeAttr(typo.weight_medium || "")}" />
-        <span></span>
-      </div>
-      <div class="field">
-        <label>加粗字重</label>
-        <input type="text" data-typo="weight_bold" value="${escapeAttr(typo.weight_bold || "")}" />
-        <span></span>
-      </div>
+      <div class="role-grid">${roleFields}</div>
+      <details class="font-advanced">
+        <summary>基线字阶与全局字体（高级）</summary>
+        ${steps}
+        <div class="field">
+          <label>字体族</label>
+          <input type="text" data-typo="family" value="${escapeAttr(typo.family || "")}" />
+          <span></span>
+        </div>
+        <div class="field">
+          <label>常规字重</label>
+          <input type="text" data-typo="weight_regular" value="${escapeAttr(typo.weight_regular || "")}" />
+          <span></span>
+        </div>
+        <div class="field">
+          <label>中等字重</label>
+          <input type="text" data-typo="weight_medium" value="${escapeAttr(typo.weight_medium || "")}" />
+          <span></span>
+        </div>
+        <div class="field">
+          <label>加粗字重</label>
+          <input type="text" data-typo="weight_bold" value="${escapeAttr(typo.weight_bold || "")}" />
+          <span></span>
+        </div>
+      </details>
     `;
   }
 
@@ -1343,15 +1617,20 @@ class ThemeStudio extends HTMLElement {
       chart_text: `
         <div class="preview-charts">${charts}</div>
         <div class="preview-text-stack">
-          <div class="primary">主文字 · 标题强调</div>
-          <div class="body">正文内容 · 指标说明</div>
-          <div class="muted">次要文字 · 辅助说明</div>
-          <div class="value">数值强调 12,580</div>
+          <div class="mei-text-header-title">顶栏大标题</div>
+          <div class="mei-text-panel-head">面板标题</div>
+          <div class="mei-text-body">正文内容 · 指标说明</div>
+          <div class="mei-text-muted">次要文字 · 辅助说明</div>
+          <div class="mei-text-metric-value">数值强调 12,580</div>
         </div>
       `,
       typography: `
         <div class="preview-type">
-          <div class="value" style="font-size: var(--mei-font-5); font-weight: var(--mei-typography-weight-bold, 700);">数值强调</div>
+          <div class="mei-text-header-title">顶栏大标题</div>
+          <div class="mei-text-panel-head">面板标题</div>
+          <div class="mei-text-metric-value">指标数值 12,580</div>
+          <div class="mei-text-body">正文示例</div>
+          <div class="mei-text-muted">次要说明</div>
           ${typeSteps}
         </div>
       `,
@@ -1382,7 +1661,7 @@ class ThemeStudio extends HTMLElement {
     const colorSections = COLOR_GROUPS.map((group) =>
       this.renderSection(group.title, group.id, this.renderGroupFields(group)),
     ).join("");
-    const fontSection = this.renderSection("字体排版", "typography", this.renderFontFields());
+    const fontSection = this.renderSection("文字样式", "typography", this.renderFontFields());
     return `<div class="sections">${colorSections}${fontSection}</div>`;
   }
 

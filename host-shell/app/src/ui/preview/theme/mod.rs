@@ -13,7 +13,8 @@ pub(crate) use merge::{
 pub(crate) use merge::resolve_panel_props;
 pub use parse::{
     default_shell_body_theme_style, page_body_theme_style, scene_live_config_for_compiled,
-    scene_theme_style_for_theme_id, scene_viewport_theme_style, shell_body_theme_style,
+    scene_theme_css_vars_for_theme_id, scene_theme_style_for_theme_id, scene_viewport_theme_style,
+    shell_body_theme_style,
 };
 pub(crate) use parse::{resolve_theme, ThemeResolved};
 pub(crate) use parse_tokens::theme_css_vars_style;

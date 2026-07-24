@@ -289,7 +289,27 @@ pub async fn app_request_gateway(
     }
 }
 
+/// Surfaces that may fall through to Host in-process assemble when runtime is down.
+pub fn surface_allows_host_without_runtime(surface: Option<&str>) -> bool {
+    let slug = surface
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_else(|| "app".to_string());
+    mei_lang_app::UiRouteMode::from_slug(slug.as_str()).allows_host_plane_without_runtime()
+}
+
+fn response_indicates_runtime_unavailable(response: &Response) -> bool {
+    matches!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT
+    )
+}
+
 /// When an active App Runtime route exists for `app_id`, proxy an arbitrary request.
+///
+/// For res-admin / config / upload (`surface`), missing or unreachable runtime falls
+/// through to Host (`None`) so pages work while the app is enabled-but-unloaded.
 pub async fn maybe_proxy_app_request(
     http: &crate::state::HostHttpState,
     app_id: &str,
@@ -298,7 +318,10 @@ pub async fn maybe_proxy_app_request(
     headers: &HeaderMap,
     body: Option<Vec<u8>>,
     principal: Option<AuthPrincipal>,
+    surface: Option<&str>,
 ) -> Option<Response> {
+    let host_ok = surface_allows_host_without_runtime(surface);
+    let surface_label = surface.unwrap_or("app-api");
     match app_request_gateway(
         http,
         app_id,
@@ -307,12 +330,33 @@ pub async fn maybe_proxy_app_request(
         headers,
         body,
         principal,
-        "app-api",
+        surface_label,
     )
     .await
     {
-        GatewayProxyOutcome::Proxied(response) => Some(response),
-        GatewayProxyOutcome::RequiredUnavailable(response) => Some(response),
+        GatewayProxyOutcome::Proxied(response) => {
+            if host_ok && response_indicates_runtime_unavailable(&response) {
+                tracing::info!(
+                    app_id = %app_id,
+                    surface = %surface_label,
+                    status = %response.status(),
+                    "res-admin host plane: runtime proxy unavailable — Host assemble fallback"
+                );
+                return None;
+            }
+            Some(response)
+        }
+        GatewayProxyOutcome::RequiredUnavailable(response) => {
+            if host_ok {
+                tracing::info!(
+                    app_id = %app_id,
+                    surface = %surface_label,
+                    "res-admin host plane: app-runtime not loaded — Host assemble fallback"
+                );
+                return None;
+            }
+            Some(response)
+        }
         GatewayProxyOutcome::LegacyFallback => None,
     }
 }
@@ -499,6 +543,36 @@ mod tests {
                 session_exp: 0,
             }),
         }
+    }
+
+    #[test]
+    fn surface_allows_host_without_runtime_for_res_admin_planes() {
+        assert!(surface_allows_host_without_runtime(Some("admin")));
+        assert!(surface_allows_host_without_runtime(Some("config")));
+        assert!(surface_allows_host_without_runtime(Some("upload")));
+        assert!(surface_allows_host_without_runtime(Some("Admin")));
+        assert!(!surface_allows_host_without_runtime(Some("app")));
+        assert!(!surface_allows_host_without_runtime(None));
+        assert!(!surface_allows_host_without_runtime(Some("layout")));
+    }
+
+    #[test]
+    fn response_indicates_runtime_unavailable_statuses() {
+        let unavailable = Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .body(Body::empty())
+            .expect("response");
+        assert!(response_indicates_runtime_unavailable(&unavailable));
+        let timeout = Response::builder()
+            .status(StatusCode::GATEWAY_TIMEOUT)
+            .body(Body::empty())
+            .expect("response");
+        assert!(response_indicates_runtime_unavailable(&timeout));
+        let ok = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .expect("response");
+        assert!(!response_indicates_runtime_unavailable(&ok));
     }
 
     #[test]

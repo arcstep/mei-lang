@@ -381,6 +381,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
 
     // Non-bulk KPI path: DataFusion SQL — no whole-table JSON / __scalar_rowset__.
     let mut sql_partial_for_merge: BTreeMap<String, MetricContract> = BTreeMap::new();
+    let mut sql_partial_miss_reasons: BTreeMap<String, String> = BTreeMap::new();
     if !needs_bulk && matches!(mode, RuntimeMetricEvalMode::WithDag) {
         let sql_datasets = build_compiled_datasets_map(
             compiled,
@@ -417,7 +418,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             let qe_before = snapshot_query_engine_io_stats();
             let pipe_before = snapshot_pipeline_sql_stats();
             let sql_started = Instant::now();
-            let sql_partial = try_eval_metrics_via_sql_partial(
+            let sql_partial_result = try_eval_metrics_via_sql_partial(
                 app_root,
                 &sql_datasets,
                 &owner_dataset.runtime_metric_defs,
@@ -425,6 +426,8 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                 sql_filters,
                 sql_search,
             )?;
+            let sql_miss_reasons = sql_partial_result.miss_reasons;
+            let sql_partial = sql_partial_result.metrics;
             // Full coverage → skip hydrate/row eval entirely.
             if sql_partial.len() == sql_ids.len()
                 && sql_ids.iter().all(|id| sql_partial.contains_key(id))
@@ -516,6 +519,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             }
             // Partial hits merged after row-eval.
             sql_partial_for_merge = sql_partial;
+            sql_partial_miss_reasons = sql_miss_reasons;
         }
     }
 
@@ -584,12 +588,12 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     }
     // Non-bulk: never whole-table hydrate for SQL-uncovered metrics (same RSS rule as dataframe).
     if !needs_bulk && !remaining_for_hydrate.is_empty() {
-        let missing_request: Vec<&str> = eval_plan
+        let missing_request: Vec<String> = eval_plan
             .request_metric_ids
             .iter()
             .filter(|id| !metric_id_is_scalar_rowset(id))
             .filter(|id| !sql_partial_for_merge.contains_key(id.as_str()))
-            .map(String::as_str)
+            .cloned()
             .collect();
         let detail = if missing_request.is_empty() {
             remaining_for_hydrate
@@ -601,8 +605,28 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         } else {
             missing_request.join(",")
         };
+        let miss_ids: Vec<&str> = if missing_request.is_empty() {
+            remaining_for_hydrate
+                .keys()
+                .take(12)
+                .map(String::as_str)
+                .collect()
+        } else {
+            missing_request.iter().take(12).map(String::as_str).collect()
+        };
+        let miss_detail = miss_ids
+            .iter()
+            .map(|id| {
+                let reason = sql_partial_miss_reasons
+                    .get(*id)
+                    .map(String::as_str)
+                    .unwrap_or("pipeline_sql_lower_failed");
+                format!("{id}:{reason}")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
         return Err(anyhow!(
-            "pipeline_sql_fallback: metric_ids=[{detail}] dataset={} reason=uncovered_kpi — whole-table JSON hydrate is disabled for non-bulk",
+            "pipeline_sql_fallback: metric_ids=[{detail}] misses=[{miss_detail}] dataset={} reason=uncovered_kpi — whole-table JSON hydrate is disabled for non-bulk",
             eval_plan.owner.id
         ));
     }

@@ -141,6 +141,14 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         report.cpu_user_ms,
         report.cpu_system_ms,
     );
+    if report.failed_count > 0 {
+        anyhow::bail!(
+            "warmup failed: {} metric slots (policy={} tier={}); fix pipeline SQL / row limit / map.bundle before shipping",
+            report.failed_count,
+            args.policy,
+            args.tier
+        );
+    }
     Ok(())
 }
 

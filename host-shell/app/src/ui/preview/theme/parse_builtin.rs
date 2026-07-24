@@ -151,53 +151,99 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "height": "44px",
                 "align": "center",
                 "color": "panel_title",
-                "font": "4"
+                "font": "4",
+                "font_weight": "medium"
             },
             "panel_body": {
                 "min_height": "0"
             },
             "heading": {},
+            "header_title": {
+                "font": "5",
+                "color": "text_primary",
+                "font_weight": "bold"
+            },
+            "body": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
+            },
+            "muted": {
+                "font": "1",
+                "color": "text_muted",
+                "font_weight": "regular"
+            },
             "metric_label": {
                 "font": "2",
                 "color": "text_value",
-                "font_weight": "400",
+                "font_weight": "regular",
                 "text_align": "left",
                 "line_height": "1.15"
             },
             "metric_value": {
                 "font": "4",
                 "color": "text_value",
-                "font_weight": "700",
+                "font_weight": "bold",
                 "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_unit": {
                 "font": "2",
                 "color": "text_value",
-                "font_weight": "400",
+                "font_weight": "regular",
                 "text_align": "right",
                 "line_height": "1.05"
+            },
+            "metric_desc": {
+                "font": "1",
+                "color": "text_muted",
+                "font_weight": "regular"
             },
             "metric_sub_label": {
                 "font": "1",
                 "color": "text_value",
-                "font_weight": "400",
+                "font_weight": "regular",
                 "text_align": "left",
                 "line_height": "1.05"
             },
             "metric_sub_value": {
                 "font": "3",
                 "color": "text_value",
-                "font_weight": "700",
+                "font_weight": "bold",
                 "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_sub_unit": {
                 "font": "1",
                 "color": "text_value",
-                "font_weight": "400",
+                "font_weight": "regular",
                 "text_align": "right",
                 "line_height": "1.05"
+            },
+            "chart_title": {
+                "font": "2",
+                "color": "text_primary",
+                "font_weight": "medium"
+            },
+            "chart_label": {
+                "font": "1",
+                "color": "text_muted",
+                "font_weight": "regular"
+            },
+            "table_head": {
+                "font": "2",
+                "color": "text_primary",
+                "font_weight": "medium"
+            },
+            "table_body": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
+            },
+            "filter_panel": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
             },
             "font": {
                 "1": "12px",
@@ -281,12 +327,28 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "height": "40px",
                 "align": "center",
                 "color": "text_primary",
-                "font": "3"
+                "font": "3",
+                "font_weight": "medium"
             },
             "panel_body": {
                 "min_height": "0"
             },
             "heading": {},
+            "header_title": {
+                "font": "4",
+                "color": "text_primary",
+                "font_weight": "bold"
+            },
+            "body": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
+            },
+            "muted": {
+                "font": "1",
+                "color": "text_muted",
+                "font_weight": "regular"
+            },
             "font": {
                 "1": "12px",
                 "2": "14px",
@@ -343,12 +405,28 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "height": "40px",
                 "align": "center",
                 "color": "text_primary",
-                "font": "3"
+                "font": "3",
+                "font_weight": "medium"
             },
             "panel_body": {
                 "min_height": "0"
             },
             "heading": {},
+            "header_title": {
+                "font": "4",
+                "color": "text_primary",
+                "font_weight": "bold"
+            },
+            "body": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
+            },
+            "muted": {
+                "font": "1",
+                "color": "text_muted",
+                "font_weight": "regular"
+            },
             "font": {
                 "1": "16px",
                 "2": "14px",

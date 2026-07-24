@@ -25,11 +25,11 @@ export function gradient(name) {
   return `var(--mei-gradient-${key})`;
 }
 
-/** Typography role → CSS var chain from COCKPIT_TYPE. */
+/** Typography role → size CSS var (and optional weight/color via class `.mei-text-*`). */
 export function font(role) {
   const key = String(role ?? "").trim();
   if (!key) {
-    return `var(--mei-font-2, ${fallbackFont("2")})`;
+    return `var(--mei-body-font-size, var(--mei-font-2, ${fallbackFont("2")}))`;
   }
   if (COCKPIT_TYPE[key]) {
     return COCKPIT_TYPE[key];
@@ -37,7 +37,26 @@ export function font(role) {
   if (/^\d+$/.test(key)) {
     return `var(--mei-font-${key}, ${fallbackFont(key)})`;
   }
-  return `var(--mei-metric-${key}-font-size, var(--mei-font-2, ${fallbackFont("2")}))`;
+  const kebab = key.replace(/_/g, "-");
+  return `var(--mei-${kebab}-font-size, var(--mei-font-2, ${fallbackFont("2")}))`;
+}
+
+/** Apply composed text-role appearance (size + color + weight + style). */
+export function textRoleStyle(role) {
+  const kebab = String(role ?? "")
+    .trim()
+    .replace(/_/g, "-");
+  if (!kebab) {
+    return font("body");
+  }
+  const prefix = kebab.startsWith("mei-") ? kebab : `mei-${kebab}`;
+  return [
+    `font-size: var(--${prefix}-font-size, inherit)`,
+    `color: var(--${prefix}-color, inherit)`,
+    `font-weight: var(--${prefix}-font-weight, var(--mei-typography-weight-regular, 400))`,
+    `font-family: var(--${prefix}-font-family, var(--mei-typography-family, system-ui, sans-serif))`,
+    `font-style: var(--${prefix}-font-style, normal)`,
+  ].join("; ");
 }
 
 export { color as themeColorStrict };

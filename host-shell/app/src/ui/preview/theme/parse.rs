@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use super::parse_builtin::builtin_theme;
 use super::parse_tokens::{
-    collect_scene_css_vars, collect_shell_css_vars, scene_css_vars_style, shell_css_vars_style,
-    theme_decl_value,
+    collect_scene_css_vars, collect_shell_css_vars, scene_css_vars_style,
+    scene_theme_stylesheet_for_resolved, shell_css_vars_style, theme_decl_value,
 };
 use super::{deep_merge_value, resolve_shared_refs};
 
@@ -133,12 +133,37 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
     shell_css_vars_style(theme_id.as_str(), &vars)
 }
 
-/// Scene CSS variables for a theme id using workspace sceneThemes ⊕ app overlay.
+/// Scene theme stylesheet for `/api/ops/theme/style` (scoped vars + `.mei-text-*`).
 pub fn scene_theme_style_for_theme_id(
     theme_id: &str,
     live_config: Option<&MeiConfig>,
     workspace: Option<&WorkspaceConfig>,
 ) -> String {
+    scene_theme_stylesheet_for_resolved(&resolve_theme_for_style_id(
+        theme_id,
+        live_config,
+        workspace,
+    ))
+}
+
+/// Property-declaration-only scene vars (for SSR inline `style=` attributes).
+pub fn scene_theme_css_vars_for_theme_id(
+    theme_id: &str,
+    live_config: Option<&MeiConfig>,
+    workspace: Option<&WorkspaceConfig>,
+) -> String {
+    scene_css_vars_style(&resolve_theme_for_style_id(
+        theme_id,
+        live_config,
+        workspace,
+    ))
+}
+
+fn resolve_theme_for_style_id(
+    theme_id: &str,
+    live_config: Option<&MeiConfig>,
+    workspace: Option<&WorkspaceConfig>,
+) -> ThemeResolved {
     let theme_id = theme_id.trim();
     let contract = SceneContract {
         scene: SceneDecl {
@@ -168,7 +193,7 @@ pub fn scene_theme_style_for_theme_id(
         frame: None,
         panels: vec![],
     };
-    scene_css_vars_style(&resolve_theme(&contract, live_config, workspace))
+    resolve_theme(&contract, live_config, workspace)
 }
 
 /// Shell vars on `<body>` plus scene vars for body-mounted cockpit/access overlays.
@@ -263,6 +288,7 @@ mod tests {
     use super::*;
     use mei_lang_kernel::ThemeDecl;
     use serde_json::json;
+    use super::super::parse_tokens::scene_theme_stylesheet;
 
     #[test]
     fn theme_decl_value_preserves_metric_role_fonts() {
@@ -288,6 +314,9 @@ mod tests {
             table_head: json!({}),
             table_body: json!({}),
             filter_panel: json!({}),
+            body: json!({}),
+            muted: json!({}),
+            header_title: json!({}),
             tokens: json!({}),
             shared: json!({}),
             components: json!({}),
@@ -361,6 +390,65 @@ mod tests {
     }
 
     #[test]
+    fn text_role_emits_weight_style_aliases_and_utility_css() {
+        let theme = json!({
+            "font": {"4": "24px", "2": "14px"},
+            "panel_head": {
+                "font": "4",
+                "color": "panel_title",
+                "font_weight": "medium",
+                "font_style": "italic"
+            },
+            "body": {
+                "font": "2",
+                "color": "text_body",
+                "font_weight": "regular"
+            },
+            "header_title": {
+                "font": "4",
+                "color": "text_primary",
+                "font_weight": "bold"
+            },
+            "tokens": {
+                "color": {
+                    "panel_title": "#ecfeff",
+                    "text_body": "#cbd5e1",
+                    "text_primary": "#e0f2fe"
+                }
+            }
+        });
+        let vars = collect_scene_css_vars(&theme);
+        assert!(vars.iter().any(|(k, v)| {
+            k == "--mei-panel-head-font-weight" && v.contains("--mei-typography-weight-medium")
+        }));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-panel-head-font-style" && v == "italic"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-body-font-size" && v.contains("--mei-font-2")));
+        assert!(vars.iter().any(|(k, v)| {
+            k == "--mei-header-title-font-weight" && v.contains("--mei-typography-weight-bold")
+        }));
+        let css = scene_theme_stylesheet("cockpit", &vars);
+        assert!(css.contains(".mei-text-panel-head{"));
+        assert!(css.contains(".mei-text-body{"));
+        assert!(css.contains(".mei-text-header-title{"));
+        assert!(css.contains("font-size:var(--mei-panel-head-font-size)"));
+        assert!(css.contains("font-style:var(--mei-panel-head-font-style,normal)"));
+    }
+
+    #[test]
+    fn scene_theme_css_vars_for_theme_id_stays_property_declarations() {
+        let style = scene_theme_css_vars_for_theme_id("cockpit", None, None);
+        assert!(!style.contains('{'), "SSR inline style must not contain rules");
+        assert!(style.contains("--mei-theme-id"));
+        let sheet = scene_theme_style_for_theme_id("cockpit", None, None);
+        assert!(sheet.contains('{'));
+        assert!(sheet.contains(".mei-text-"));
+    }
+
+    #[test]
     fn live_ops_theme_overlay_overrides_artifact_theme_tokens() {
         use mei_lang_kernel::{MeiConfig, SceneContract, SceneDecl, ThemeDecl};
 
@@ -408,6 +496,9 @@ mod tests {
                 table_head: json!({}),
                 table_body: json!({}),
                 filter_panel: json!({}),
+                body: json!({}),
+                muted: json!({}),
+                header_title: json!({}),
                 shared: json!({}),
                 components: json!({}),
             }],

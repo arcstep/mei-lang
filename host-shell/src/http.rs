@@ -627,6 +627,7 @@ async fn gateway_host_view_revision(
             &headers,
             None,
             principal.as_ref().map(|p| (**p).clone()),
+            query.surface.as_deref(),
         )
         .await
         {
@@ -661,6 +662,7 @@ async fn gateway_host_scene_manifest(
             &headers,
             None,
             principal.as_ref().map(|p| (**p).clone()),
+            query.surface.as_deref(),
         )
         .await
         {
@@ -684,6 +686,7 @@ async fn gateway_host_layer_batch(
     axum::Json(body): axum::Json<crate::scene_manifest::LayerBatchRequest>,
 ) -> Response {
     let app_id = body.app_id.trim().to_string();
+    let surface = body.surface.clone();
     if !app_id.is_empty() {
         let bytes = serde_json::to_vec(&body).unwrap_or_default();
         if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
@@ -696,6 +699,7 @@ async fn gateway_host_layer_batch(
             &headers,
             Some(bytes),
             principal.as_ref().map(|p| (**p).clone()),
+            surface.as_deref(),
         )
         .await
         {
@@ -720,6 +724,7 @@ async fn gateway_scene_bootstrap(
 ) -> Response {
     let app_id = query.app.trim();
     if !app_id.is_empty() {
+        // Access bootstrap: still runtime-gated (no admin surface).
         if let Some(response) = crate::app_runtime_proxy::maybe_proxy_app_request(
             &http,
             app_id,
@@ -730,6 +735,7 @@ async fn gateway_scene_bootstrap(
             &headers,
             None,
             principal.as_ref().map(|p| (**p).clone()),
+            Some("app"),
         )
         .await
         {
@@ -758,6 +764,7 @@ async fn gateway_scene_eval_pack(
             &headers,
             None,
             principal.as_ref().map(|p| (**p).clone()),
+            Some("app"),
         )
         .await
         {

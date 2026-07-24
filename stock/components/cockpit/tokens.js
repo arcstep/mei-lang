@@ -100,9 +100,9 @@ export const MEI_Z_LAYERS = {
   host: { min: 5800, max: 99999, default: HOST_Z_INDEX.feedback },
 };
 
-/** 字号由 theme 语义角色（--mei-metric-*）与 font 档位（--mei-font-*）驱动，此处仅作 fallback */
+/** 字号由 theme 文字角色配方（--mei-*-font-size / .mei-text-*）驱动，字阶仅作 fallback */
 export const COCKPIT_TYPE = {
-  headerTitle: "var(--mei-font-5, var(--mei-font-4, 32px))",
+  headerTitle: "var(--mei-header-title-font-size, var(--mei-font-5, var(--mei-font-4, 32px)))",
   panelTitle: "var(--mei-panel-head-font-size, var(--mei-font-4, 32px))",
   panelTitleCompact: "var(--mei-panel-head-font-size, var(--mei-font-4, 32px))",
   panelTitleLetterSpacing: "0.12em",
@@ -115,6 +115,24 @@ export const COCKPIT_TYPE = {
   tableHead: "var(--mei-table-head-font-size, var(--mei-font-2, 18px))",
   tableBody: "var(--mei-table-body-font-size, var(--mei-font-2, 18px))",
   filterPanel: "var(--mei-filter-panel-font-size, var(--mei-font-2, 18px))",
+  body: "var(--mei-body-font-size, var(--mei-font-2, 14px))",
+  muted: "var(--mei-muted-font-size, var(--mei-font-1, 12px))",
+};
+
+/** Utility class names for composed text roles (prefer over ad-hoc font-size). */
+export const COCKPIT_TEXT_CLASS = {
+  headerTitle: "mei-text-header-title",
+  panelHead: "mei-text-panel-head",
+  body: "mei-text-body",
+  muted: "mei-text-muted",
+  metricLabel: "mei-text-metric-label",
+  metricValue: "mei-text-metric-value",
+  metricUnit: "mei-text-metric-unit",
+  chartTitle: "mei-text-chart-title",
+  chartLabel: "mei-text-chart-label",
+  tableHead: "mei-text-table-head",
+  tableBody: "mei-text-table-body",
+  filterPanel: "mei-text-filter-panel",
 };
 
 const CHART_COLOR_KEYS = ["chart_1", "chart_2", "chart_3", "chart_4", "chart_5", "chart_6"];
@@ -193,20 +211,27 @@ export function readThemeRoleFontPx(host, roleCssVar, fontTokenKey, fallback) {
   return readThemeFontPx(host, fontTokenKey, fallback);
 }
 
-/** ECharts / 运行时排版：读 theme metric_* / chart_title 语义角色，再回退 font 档位 */
+/** ECharts / 运行时排版：读 theme 文字角色配方，再回退 font 档位 */
 export function readThemeTypography(host) {
   let chartTitle = 18;
+  let body = 18;
   if (typeof window !== "undefined" && host instanceof Element) {
     const style = window.getComputedStyle(host);
     chartTitle = parseThemeFontPx(style.getPropertyValue("--mei-chart-title-font-size"), 0);
     if (chartTitle <= 0) {
       chartTitle = readThemeFontPx(host, "2", 18);
     }
+    body = parseThemeFontPx(style.getPropertyValue("--mei-body-font-size"), 0);
+    if (body <= 0) {
+      body = readThemeFontPx(host, "2", 18);
+    }
+  } else {
+    body = 18;
   }
   return {
     unit: readThemeRoleFontPx(host, "--mei-metric-unit-font-size", "1", 16),
     label: readThemeRoleFontPx(host, "--mei-chart-label-font-size", "1", 16),
-    body: readThemeFontPx(host, "2", 18),
+    body,
     value: readThemeRoleFontPx(host, "--mei-metric-value-font-size", "3", 26),
     chartTitle,
   };

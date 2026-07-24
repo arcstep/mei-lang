@@ -291,6 +291,12 @@ pub struct ThemeDecl {
     #[serde(default)]
     pub filter_panel: Value,
     #[serde(default)]
+    pub body: Value,
+    #[serde(default)]
+    pub muted: Value,
+    #[serde(default)]
+    pub header_title: Value,
+    #[serde(default)]
     pub tokens: Value,
     /// 与 CSS tokens 分轨的只读共享参数默认值。
     #[serde(default)]

@@ -73,7 +73,10 @@ pub(crate) fn clear_eval_node_cache() -> usize {
     removed
 }
 
-#[derive(Debug, Default)]
+/// Max nested `with_eval_node` frames (symmetric with `pipeline_sql` `depth > 32`).
+pub(crate) const MAX_METRIC_EVAL_DEPTH: usize = 32;
+
+#[derive(Debug)]
 pub(crate) struct EvalContext {
     pub(crate) scope: RuntimeMetricEvalScope,
     /// Runtime metric defs available for `{"__ref":"metric"}` rowset resolution.
@@ -90,6 +93,27 @@ pub(crate) struct EvalContext {
     pub(crate) eval_node_cache_misses: u64,
     pub(crate) eval_stack: Vec<String>,
     pub(crate) in_progress: BTreeSet<String>,
+    /// Caps `eval_stack` growth; overridable in tests (default [`MAX_METRIC_EVAL_DEPTH`]).
+    pub(crate) max_eval_depth: usize,
+}
+
+impl Default for EvalContext {
+    fn default() -> Self {
+        Self {
+            scope: RuntimeMetricEvalScope::default(),
+            metric_defs: BTreeMap::new(),
+            resolved_metric_rowsets: BTreeMap::new(),
+            rowset_cache: BTreeMap::new(),
+            scalar_cache: BTreeMap::new(),
+            request_dag: RequestDag::default(),
+            request_cache_hits: 0,
+            eval_node_cache_hits: 0,
+            eval_node_cache_misses: 0,
+            eval_stack: Vec::new(),
+            in_progress: BTreeSet::new(),
+            max_eval_depth: MAX_METRIC_EVAL_DEPTH,
+        }
+    }
 }
 
 fn scope_cache_key(scope: &RuntimeMetricEvalScope) -> String {

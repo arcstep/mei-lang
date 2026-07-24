@@ -289,11 +289,24 @@ pub fn try_agg_analysis_expr_via_sql(
 ///
 /// Best-effort: each metric is attempted independently. Unsupported ops are
 /// skipped (caller must fail-fast — no whole-table JSON hydrate).
+/// When `allow_paged` is true, results exceeding [`MAX_PIPELINE_SQL_ROWS`] are
+/// materialized via SQL pagination (artifact / warmup Pack-First path).
 pub fn try_eval_dataframe_metrics_via_sql(
     app_root: &Path,
     datasets: &BTreeMap<String, DatasetView>,
     metric_defs: &BTreeMap<String, Value>,
     metric_ids: &[String],
+) -> Result<Option<BTreeMap<String, MetricContract>>> {
+    try_eval_dataframe_metrics_via_sql_opts(app_root, datasets, metric_defs, metric_ids, false)
+}
+
+/// Like [`try_eval_dataframe_metrics_via_sql`], with optional paged oversize materialize.
+pub fn try_eval_dataframe_metrics_via_sql_opts(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    metric_defs: &BTreeMap<String, Value>,
+    metric_ids: &[String],
+    allow_paged: bool,
 ) -> Result<Option<BTreeMap<String, MetricContract>>> {
     let mut out = BTreeMap::new();
     for metric_id in metric_ids {
@@ -301,7 +314,14 @@ pub fn try_eval_dataframe_metrics_via_sql(
             record_pipeline_sql_fallback();
             continue;
         };
-        match try_eval_one_dataframe_metric(app_root, datasets, metric_defs, raw, metric_id)? {
+        match try_eval_one_dataframe_metric(
+            app_root,
+            datasets,
+            metric_defs,
+            raw,
+            metric_id,
+            allow_paged,
+        )? {
             Some(contract) => {
                 out.insert(metric_id.clone(), contract);
             }
@@ -398,6 +418,7 @@ fn try_eval_one_dataframe_metric(
     metric_defs: &BTreeMap<String, Value>,
     raw: &Value,
     metric_id: &str,
+    allow_paged: bool,
 ) -> Result<Option<MetricContract>> {
     let Some(map) = raw.as_object() else {
         return Ok(None);
@@ -418,8 +439,29 @@ fn try_eval_one_dataframe_metric(
     let Some(inlined) = inline_metric_refs_for_sql(expr, metric_defs, 0, &mut stack) else {
         return Ok(None);
     };
-    let Some(rows) = try_eval_analysis_expr_via_sql(app_root, datasets, &inlined)? else {
-        return Ok(None);
+    let rows = if allow_paged {
+        match try_eval_analysis_expr_via_sql(app_root, datasets, &inlined) {
+            Ok(Some(rows)) => rows,
+            Ok(None) => return Ok(None),
+            Err(err) if err.to_string().contains("pipeline_sql_row_limit") => {
+                let Some(rows) = materialize_dataframe_metric_via_sql_pages(
+                    app_root,
+                    datasets,
+                    metric_defs,
+                    metric_id,
+                )?
+                else {
+                    return Err(err);
+                };
+                rows
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        let Some(rows) = try_eval_analysis_expr_via_sql(app_root, datasets, &inlined)? else {
+            return Ok(None);
+        };
+        rows
     };
     let schema = map
         .get("schema")
@@ -454,7 +496,65 @@ fn try_eval_one_dataframe_metric(
     }))
 }
 
+/// Page through a dataframe metric until exhausted (artifact / warmup oversize path).
+fn materialize_dataframe_metric_via_sql_pages(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    metric_defs: &BTreeMap<String, Value>,
+    metric_id: &str,
+) -> Result<Option<Vec<Value>>> {
+    let empty_filters = BTreeMap::new();
+    let page_size = MAX_PIPELINE_SQL_ROWS.max(1);
+    let mut page = 1usize;
+    let mut all_rows = Vec::new();
+    // Hard cap pages so a runaway total cannot loop forever (~2M rows).
+    const MAX_PAGES: usize = 1024;
+    for _ in 0..MAX_PAGES {
+        let Some(paged) = try_page_dataframe_metric_via_sql(
+            app_root,
+            datasets,
+            metric_defs,
+            metric_id,
+            &empty_filters,
+            None,
+            page,
+            page_size,
+            &[],
+            &[],
+        )?
+        else {
+            return Ok(None);
+        };
+        all_rows.extend(paged.rows);
+        if !paged.has_more {
+            tracing::info!(
+                metric_id = %metric_id,
+                rows = all_rows.len(),
+                pages = page,
+                "pipeline_sql_paged_artifact_materialize"
+            );
+            return Ok(Some(all_rows));
+        }
+        page = page.saturating_add(1);
+    }
+    bail!(
+        "pipeline_sql_row_limit: paged materialize exceeded {} pages for metric_id={}",
+        MAX_PAGES,
+        metric_id
+    );
+}
+
+/// Outcome of best-effort SQL KPI/dataframe eval (partial hits + miss diagnostics).
+#[derive(Debug, Default)]
+pub struct PipelineSqlPartialResult {
+    pub metrics: BTreeMap<String, MetricContract>,
+    /// metric_id → short reason (`pipeline_sql_lower_failed`, `pipeline_sql_row_limit`, …)
+    pub miss_reasons: BTreeMap<String, String>,
+}
+
 /// Best-effort SQL eval: returns contracts for every metric that lowered successfully.
+/// Dataframe metrics use paged materialize when the whole-table row gate trips
+/// (warmup / lite-artifact cold path).
 pub fn try_eval_metrics_via_sql_partial(
     app_root: &Path,
     datasets: &BTreeMap<String, DatasetView>,
@@ -462,12 +562,14 @@ pub fn try_eval_metrics_via_sql_partial(
     metric_ids: &[String],
     global_filters: &BTreeMap<String, String>,
     search: Option<&str>,
-) -> Result<BTreeMap<String, MetricContract>> {
+) -> Result<PipelineSqlPartialResult> {
     use super::metric_sql::{try_eval_metrics_via_sql, SqlMetricEvalInput};
 
-    let mut out = BTreeMap::new();
+    let mut out = PipelineSqlPartialResult::default();
     for id in metric_ids {
         let Some(raw) = metric_defs.get(id) else {
+            out.miss_reasons
+                .insert(id.clone(), "metric_def_missing".to_string());
             continue;
         };
         let shape = raw.get("shape").and_then(Value::as_str).unwrap_or_else(|| {
@@ -478,23 +580,63 @@ pub fn try_eval_metrics_via_sql_partial(
             }
         });
         if matches!(shape, "scalar_map" | "scalar") {
-            if let Some(scalars) = try_eval_metrics_via_sql(SqlMetricEvalInput {
+            match try_eval_metrics_via_sql(SqlMetricEvalInput {
                 app_root,
                 datasets,
                 metric_defs,
                 metric_ids: std::slice::from_ref(id),
                 global_filters,
                 search,
-            })? {
-                out.extend(scalars);
+            }) {
+                Ok(Some(scalars)) if scalars.contains_key(id) => {
+                    out.metrics.extend(scalars);
+                }
+                Ok(_) => {
+                    out.miss_reasons
+                        .insert(id.clone(), "pipeline_sql_lower_failed".to_string());
+                }
+                Err(err) => {
+                    let reason = if err.to_string().contains("pipeline_sql_row_limit") {
+                        "pipeline_sql_row_limit"
+                    } else {
+                        "pipeline_sql_eval_failed"
+                    };
+                    out.miss_reasons.insert(id.clone(), reason.to_string());
+                }
             }
-        } else if let Some(frames) = try_eval_dataframe_metrics_via_sql(
-            app_root,
-            datasets,
-            metric_defs,
-            std::slice::from_ref(id),
-        )? {
-            out.extend(frames);
+        } else {
+            match try_eval_one_dataframe_metric(
+                app_root,
+                datasets,
+                metric_defs,
+                raw,
+                id,
+                true, // KPI/artifact path: page oversize instead of aborting the batch
+            ) {
+                Ok(Some(contract)) => {
+                    out.metrics.insert(id.clone(), contract);
+                }
+                Ok(None) => {
+                    out.miss_reasons
+                        .insert(id.clone(), "pipeline_sql_lower_failed".to_string());
+                    record_pipeline_sql_fallback();
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    let reason = if message.contains("pipeline_sql_row_limit") {
+                        "pipeline_sql_row_limit"
+                    } else {
+                        "pipeline_sql_eval_failed"
+                    };
+                    out.miss_reasons.insert(id.clone(), reason.to_string());
+                    // Do not fail the whole partial batch — caller fail-fasts uncovered ids.
+                    tracing::warn!(
+                        metric_id = %id,
+                        error = %message,
+                        "pipeline_sql dataframe metric failed during partial eval"
+                    );
+                }
+            }
         }
     }
     Ok(out)

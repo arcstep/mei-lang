@@ -1,6 +1,6 @@
 use super::cache::{
     eval_node_cache_enabled, expr_cache_key, store_cached_eval_node, take_cached_eval_node,
-    CachedEvalValue, EvalContext,
+    CachedEvalValue, EvalContext, MAX_METRIC_EVAL_DEPTH,
 };
 use super::scope::{EvalNodeKind, RequestDag, RequestDagMetrics, RuntimeMetricEvalScope};
 
@@ -32,6 +32,7 @@ impl EvalContext {
             eval_node_cache_misses: 0,
             eval_stack: Vec::new(),
             in_progress: BTreeSet::new(),
+            max_eval_depth: MAX_METRIC_EVAL_DEPTH,
         }
     }
 
@@ -75,6 +76,13 @@ impl EvalContext {
     }
 
     pub(crate) fn begin_eval_node(&mut self, key: &str) -> Result<()> {
+        // Symmetric with pipeline_sql `depth > 32`: allow len 0..=max, reject next.
+        if self.eval_stack.len() > self.max_eval_depth {
+            return Err(anyhow!(
+                "metric_eval_recursion_guard_tripped: eval depth > {} at node `{key}`",
+                self.max_eval_depth
+            ));
+        }
         self.register_node_access(key, false);
         if self.in_progress.contains(key) {
             return Err(anyhow!(

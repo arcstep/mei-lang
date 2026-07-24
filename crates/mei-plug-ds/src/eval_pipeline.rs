@@ -382,6 +382,26 @@ fn record_eval_failures(
     data_source_revision: &str,
     error_message: &str,
 ) {
+    let diagnostic_code = if error_message.contains("metric_eval_recursion_guard_tripped")
+        || error_message.contains("cyclic_eval_dependency")
+    {
+        "metric_eval_recursion_guard_tripped"
+    } else if error_message.contains("pipeline_sql_row_limit") {
+        "pipeline_sql_row_limit"
+    } else if error_message.contains("uncovered_kpi")
+        || error_message.contains("pipeline_sql_fallback")
+    {
+        "pipeline_sql_fallback"
+    } else {
+        "metric_eval_failed"
+    };
+    tracing::warn!(
+        app_id = %ctx.app_id,
+        owner = %request.owner_resource_id,
+        diagnostic_code,
+        error = %error_message,
+        "metric eval pipeline failed"
+    );
     let bundle_revision = if request.bundle_key.is_empty() {
         request.owner_resource_id.as_str()
     } else {

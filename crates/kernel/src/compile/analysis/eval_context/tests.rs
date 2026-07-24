@@ -55,6 +55,37 @@ fn eval_context_cycle_guard_rejects_reentry() {
 }
 
 #[test]
+fn eval_context_depth_guard_rejects_deep_nesting() {
+    let scope = RuntimeMetricEvalScope {
+        base_dataset_id: "warning_list".to_string(),
+        scene_id: "home".to_string(),
+        target: "scenes/home.mei".to_string(),
+        search: String::new(),
+        query_state: QueryState::default(),
+        filter_intents: Vec::new(),
+        dimension_bindings: Vec::new(),
+        filters_fingerprint: "{}".to_string(),
+        dependency_revision_key: "deps=a".to_string(),
+    };
+    let mut ctx = EvalContext::with_scope(scope);
+    ctx.max_eval_depth = 2;
+    // depth > 2 ⇒ 4th begin fails (len 0..=2 ok after three pushes → len=3 > 2).
+    for i in 0..3 {
+        ctx.begin_eval_node(&format!("node-{i}"))
+            .unwrap_or_else(|err| panic!("begin {i} should pass: {err}"));
+    }
+    let err = ctx
+        .begin_eval_node("node-3")
+        .expect_err("depth over max should fail");
+    let message = err.to_string();
+    assert!(
+        message.contains("metric_eval_recursion_guard_tripped"),
+        "unexpected error: {message}"
+    );
+    assert!(message.contains("eval depth > 2"), "unexpected error: {message}");
+}
+
+#[test]
 fn eval_context_canonicalizes_expr_key_order() {
     let scope = RuntimeMetricEvalScope {
         base_dataset_id: "warning_list".to_string(),

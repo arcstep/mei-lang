@@ -390,4 +390,75 @@ mod tests {
         assert_eq!(row_string(&rows[1], "agency"), "B");
         assert_eq!(row_number(&rows[1], "value"), Some(1.0));
     }
+
+    #[test]
+    fn eval_rowset_metric_ref_chain_trips_depth_guard() {
+        // m0 → m1 → m2 → m3 (leaf rows). With max_eval_depth=1, nested metric_ref
+        // frames overflow before the leaf can evaluate.
+        let mut metric_defs = BTreeMap::new();
+        for i in 0..3 {
+            let id = format!("m{i}");
+            let next = format!("m{}", i + 1);
+            metric_defs.insert(
+                id,
+                json!({
+                    "shape": "dataframe",
+                    "value": {"__ref": "metric", "id": next}
+                }),
+            );
+        }
+        metric_defs.insert(
+            "m3".to_string(),
+            json!({
+                "shape": "dataframe",
+                "value": {
+                    "__kind": "analysis_expr",
+                    "type": "rows",
+                    "dataset": "sales"
+                }
+            }),
+        );
+        let mut datasets = BTreeMap::new();
+        datasets.insert(
+            "sales".to_string(),
+            DatasetView {
+                id: "sales".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: vec![json!({"agency": "A"})],
+                source: SourceDecl {
+                    kind: "inline".to_string(),
+                    path: "test".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: BTreeMap::new(),
+            },
+        );
+        let mut ctx =
+            EvalContext::with_scope_and_metric_defs(RuntimeMetricEvalScope::default(), metric_defs);
+        ctx.max_eval_depth = 1;
+        let root = json!({"__ref": "metric", "id": "m0"});
+        let err = eval_rowset_with_ctx(&root, &datasets, &mut ctx)
+            .expect_err("deep metric_ref chain should trip depth guard");
+        let message = err.to_string();
+        assert!(
+            message.contains("metric_eval_recursion_guard_tripped"),
+            "unexpected error: {message}"
+        );
+    }
 }

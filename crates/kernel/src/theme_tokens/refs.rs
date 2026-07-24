@@ -51,6 +51,9 @@ pub(super) fn validate_theme_value_refs(
                     | "panel"
                     | "panel_bare"
                     | "panel_body"
+                    | "body"
+                    | "muted"
+                    | "header_title"
             ) {
                 walk_value_for_token_refs(
                     entry,

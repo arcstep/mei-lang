@@ -158,10 +158,13 @@ pub async fn api_host_view_revision(
         }
     };
     let gate_started = Instant::now();
+    let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
     {
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
-        if !guard.imported {
+        // Access data-plane `imported` gates cockpit; res-admin may assemble from
+        // app registry while the app is enabled-but-unloaded (0545).
+        if !guard.imported && !route_mode.allows_host_plane_without_runtime() {
             return Json(json!({
                 "ready": false,
                 "startup_phase": guard.startup_phase,
@@ -173,7 +176,6 @@ pub async fn api_host_view_revision(
         }
     }
     let gate_ms = gate_started.elapsed().as_millis();
-    let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
     let scene_id = if route_mode.is_build() {
         query
             .node

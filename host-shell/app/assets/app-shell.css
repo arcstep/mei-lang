@@ -2146,6 +2146,59 @@ sl-button:not(:defined) {
   max-height: min(72vh, 760px);
 }
 /* shell chrome end — body/scene overlays below use scene track (--mei-color-*) */
+
+/* Scene text-role utilities (Host theme style also emits these; dual-track with --mei-font-N). */
+.mei-text-header-title {
+  font-size: var(--mei-header-title-font-size, var(--mei-font-5, 32px));
+  color: var(--mei-header-title-color, var(--mei-color-text-primary, inherit));
+  font-weight: var(--mei-header-title-font-weight, var(--mei-typography-weight-bold, 700));
+  font-family: var(--mei-header-title-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-header-title-font-style, normal);
+}
+.mei-text-panel-head {
+  font-size: var(--mei-panel-head-font-size, var(--mei-font-4, 24px));
+  color: var(--mei-panel-head-color, var(--mei-color-panel-title, inherit));
+  font-weight: var(--mei-panel-head-font-weight, var(--mei-typography-weight-medium, 500));
+  font-family: var(--mei-panel-head-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-panel-head-font-style, normal);
+}
+.mei-compose-scene-root .mei-text-body,
+#mei-compose-root .mei-text-body,
+.preview-viewport .mei-text-body {
+  font-size: var(--mei-body-font-size, var(--mei-font-2, 14px));
+  color: var(--mei-body-color, var(--mei-color-text-body, inherit));
+  font-weight: var(--mei-body-font-weight, var(--mei-typography-weight-regular, 400));
+  font-family: var(--mei-body-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-body-font-style, normal);
+}
+.mei-compose-scene-root .mei-text-muted,
+#mei-compose-root .mei-text-muted,
+.preview-viewport .mei-text-muted {
+  font-size: var(--mei-muted-font-size, var(--mei-font-1, 12px));
+  color: var(--mei-muted-color, var(--mei-color-text-muted, inherit));
+  font-weight: var(--mei-muted-font-weight, var(--mei-typography-weight-regular, 400));
+  font-family: var(--mei-muted-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-muted-font-style, normal);
+}
+.mei-text-metric-label {
+  font-size: var(--mei-metric-label-font-size, var(--mei-font-2, 14px));
+  color: var(--mei-metric-label-color, inherit);
+  font-weight: var(--mei-metric-label-font-weight, var(--mei-typography-weight-regular, 400));
+  font-style: var(--mei-metric-label-font-style, normal);
+}
+.mei-text-metric-value {
+  font-size: var(--mei-metric-value-font-size, var(--mei-font-4, 24px));
+  color: var(--mei-metric-value-color, inherit);
+  font-weight: var(--mei-metric-value-font-weight, var(--mei-typography-weight-bold, 700));
+  font-style: var(--mei-metric-value-font-style, normal);
+}
+.mei-text-metric-unit {
+  font-size: var(--mei-metric-unit-font-size, var(--mei-font-1, 12px));
+  color: var(--mei-metric-unit-color, inherit);
+  font-weight: var(--mei-metric-unit-font-weight, var(--mei-typography-weight-regular, 400));
+  font-style: var(--mei-metric-unit-font-style, normal);
+}
+
 /* 访问侧：悬浮按钮 + 悬浮对话框模式，不依赖主布局宽度。 */
 .access-chat-floating-root {
   z-index: var(--mei-z-access-chat);
@@ -7564,7 +7617,10 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   min-width: 0;
   margin: 0;
   font-size: var(--mei-panel-head-font-size, var(--mei-font-4, 32px));
-  color: var(--mei-color-text-primary, #ecfeff);
+  color: var(--mei-panel-head-color, var(--mei-color-text-primary, #ecfeff));
+  font-weight: var(--mei-panel-head-font-weight, var(--mei-typography-weight-medium, 500));
+  font-family: var(--mei-panel-head-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-panel-head-font-style, normal);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

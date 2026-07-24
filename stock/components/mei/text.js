@@ -451,6 +451,11 @@ function fontSizeVar(props) {
     if (/^\d+(\.\d+)?(px|rem|em|%)$/.test(key)) {
       return key;
     }
+    // Named text role (panel_head / body / muted / header_title / …)
+    if (!/^\d+$/.test(key)) {
+      const kebab = key.replace(/_/g, "-");
+      return `var(--mei-${kebab}-font-size, var(--mei-font-2, 14px))`;
+    }
     return `var(--mei-font-${key}, 14px)`;
   }
   const explicitSize = String(props.font_size ?? props.fontSize ?? "").trim();
@@ -466,6 +471,32 @@ function fontSizeVar(props) {
     return `var(--mei-${tier}-${role}-font-size, var(--mei-font-${fallback}, 14px))`;
   }
   return "var(--mei-panel-head-font-size, inherit)";
+}
+
+function textRoleCss(props) {
+  const key = String(props.font || "").trim();
+  if (key && !/^\d+$/.test(key) && !/^\d+(\.\d+)?(px|rem|em|%)$/.test(key)) {
+    const kebab = key.replace(/_/g, "-");
+    return [
+      `font-size: var(--mei-${kebab}-font-size, inherit)`,
+      `color: var(--mei-${kebab}-color, inherit)`,
+      `font-weight: var(--mei-${kebab}-font-weight, var(--mei-typography-weight-regular, 400))`,
+      `font-family: var(--mei-${kebab}-font-family, var(--mei-typography-family, inherit))`,
+      `font-style: var(--mei-${kebab}-font-style, normal)`,
+    ].join("; ");
+  }
+  const role = String(props.metric_role || "").trim().toLowerCase();
+  if (role === "label" || role === "value" || role === "unit" || role === "desc") {
+    const isSub = String(props.metric_variant || "").trim().toLowerCase() === "sub";
+    const tier = isSub ? "metric-sub" : "metric";
+    return [
+      `font-size: var(--mei-${tier}-${role}-font-size, inherit)`,
+      `color: var(--mei-${tier}-${role}-color, inherit)`,
+      `font-weight: var(--mei-${tier}-${role}-font-weight, var(--mei-typography-weight-regular, 400))`,
+      `font-style: var(--mei-${tier}-${role}-font-style, normal)`,
+    ].join("; ");
+  }
+  return `font-size: ${fontSizeVar(props)}`;
 }
 
 /** Slides: detect deck context + semantic slot leaf (hero/claim/…) for typography. */
@@ -837,6 +868,7 @@ function metricTypographyCss(props) {
     font-family: var(${prefix}-font-family, inherit);
     color: var(${prefix}-color, var(--mei-color-text-primary, #e2e8f0));
     font-weight: var(${prefix}-font-weight, inherit);
+    font-style: var(${prefix}-font-style, normal);
     letter-spacing: var(${prefix}-letter-spacing, normal);
     line-height: ${lineHeight || `var(${prefix}-line-height, 1.2)`};
     text-align: ${cssAlign};
@@ -1100,6 +1132,12 @@ class MeiText extends HTMLElement {
     const typography = metricRole ? metricTypographyCss(props) : "";
     const hostLayout = metricRole ? metricHostLayoutCss(props, { descShell: hasDescShell }) : "";
     const fontSize = metricRole ? "" : fontSizeVar(props);
+    const namedTextRole =
+      !metricRole &&
+      (() => {
+        const key = String(props.font || "").trim();
+        return key && !/^\d+$/.test(key) && !/^\d+(\.\d+)?(px|rem|em|%)$/.test(key);
+      })();
     const textAlign = metricRole ? "" : textAlignCss(props);
     const lineHeightRaw = String(props.lineHeight ?? props.line_height ?? "").trim();
     const lineHeight =
@@ -1192,6 +1230,19 @@ class MeiText extends HTMLElement {
       ? typography
       : slidesCss
         ? ""
+        : namedTextRole
+          ? `
+          line-height: ${effectiveLineHeight};
+          ${textRoleCss(props)};
+          ${textAlign ? `text-align: ${textAlign};` : ""}
+          ${plainWhiteSpace ? `white-space: ${plainWhiteSpace};` : ""}
+          ${plainPadding && !fillChip ? `padding: ${plainPadding};` : ""}
+          ${plainBackground && !fillChip ? `background: ${plainBackground};` : ""}
+          ${plainBorder && !fillChip ? `border: ${plainBorder};` : ""}
+          ${plainRadius && !fillChip ? `border-radius: ${plainRadius};` : ""}
+          ${overflowExpand ? "" : previewCss}
+          box-sizing: border-box;
+        `
         : `
           line-height: ${effectiveLineHeight};
           font-size: ${fontSize};

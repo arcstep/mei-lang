@@ -7567,7 +7567,10 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   min-width: 0;
   margin: 0;
   font-size: var(--mei-panel-head-font-size, var(--mei-font-4, 32px));
-  color: var(--mei-color-text-primary, #ecfeff);
+  color: var(--mei-panel-head-color, var(--mei-color-text-primary, #ecfeff));
+  font-weight: var(--mei-panel-head-font-weight, var(--mei-typography-weight-medium, 500));
+  font-family: var(--mei-panel-head-font-family, var(--mei-typography-family, inherit));
+  font-style: var(--mei-panel-head-font-style, normal);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

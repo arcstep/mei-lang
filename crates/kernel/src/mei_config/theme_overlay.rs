@@ -155,6 +155,24 @@ pub fn scene_theme_studio_editable_keys() -> Value {
             "text_highlight",
             "text_inverse"
         ],
+        "text_roles": [
+            "header_title",
+            "panel_head",
+            "body",
+            "muted",
+            "metric_label",
+            "metric_value",
+            "metric_unit",
+            "metric_desc",
+            "metric_sub_label",
+            "metric_sub_value",
+            "metric_sub_unit",
+            "chart_title",
+            "chart_label",
+            "table_head",
+            "table_body",
+            "filter_panel"
+        ],
         "gradient": [
             "home_frame_bg",
             "frame_cockpit",
@@ -347,8 +365,28 @@ pub fn resolve_assembled_scene_theme(
     Some(theme)
 }
 
+/// Text-role keys editable from theme studio (typography recipes).
+const STUDIO_TEXT_ROLE_KEYS: &[&str] = &[
+    "panel_head",
+    "metric_label",
+    "metric_value",
+    "metric_unit",
+    "metric_desc",
+    "metric_sub_label",
+    "metric_sub_value",
+    "metric_sub_unit",
+    "chart_title",
+    "chart_label",
+    "table_head",
+    "table_body",
+    "filter_panel",
+    "body",
+    "muted",
+    "header_title",
+];
+
 /// Merge a studio patch into an existing workspace scene theme value.
-/// Patch shape: `{ label?, font?, tokens?: { color?, gradient?, typography? } }`.
+/// Patch shape: `{ label?, font?, <textRole>?, tokens?: { color?, gradient?, typography? } }`.
 pub fn merge_scene_theme_studio_patch(base: &Value, patch: &Value) -> Value {
     let mut out = base.clone();
     if let Some(label) = patch.get("label").and_then(Value::as_str) {
@@ -356,6 +394,11 @@ pub fn merge_scene_theme_studio_patch(base: &Value, patch: &Value) -> Value {
     }
     if let Some(font) = patch.get("font") {
         out = deep_merge_value(&out, &json!({ "font": font }));
+    }
+    for role in STUDIO_TEXT_ROLE_KEYS {
+        if let Some(entry) = patch.get(*role) {
+            out = deep_merge_value(&out, &json!({ *role: entry }));
+        }
     }
     if let Some(tokens) = patch.get("tokens").and_then(Value::as_object) {
         let mut token_overlay = serde_json::Map::new();
@@ -609,6 +652,50 @@ mod tests {
                 .pointer("/swatches/surface_bg")
                 .and_then(Value::as_str),
             Some("#111")
+        );
+    }
+
+    #[test]
+    fn studio_patch_merges_text_role_fields() {
+        let base = json!({
+            "label": "经典",
+            "panel_head": {"font": "4", "color": "panel_title"},
+            "font": {"4": "24px"},
+            "tokens": {"color": {"panel_title": "#fff"}}
+        });
+        let merged = merge_scene_theme_studio_patch(
+            &base,
+            &json!({
+                "panel_head": {"font_weight": "medium", "font_style": "italic"},
+                "body": {"font": "2", "color": "text_body", "font_weight": "regular"},
+                "header_title": {"font": "5", "color": "text_primary", "font_weight": "bold"}
+            }),
+        );
+        assert_eq!(
+            merged.pointer("/panel_head/font").and_then(Value::as_str),
+            Some("4")
+        );
+        assert_eq!(
+            merged
+                .pointer("/panel_head/font_weight")
+                .and_then(Value::as_str),
+            Some("medium")
+        );
+        assert_eq!(
+            merged
+                .pointer("/panel_head/font_style")
+                .and_then(Value::as_str),
+            Some("italic")
+        );
+        assert_eq!(
+            merged.pointer("/body/font").and_then(Value::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            merged
+                .pointer("/header_title/font_weight")
+                .and_then(Value::as_str),
+            Some("bold")
         );
     }
 }
