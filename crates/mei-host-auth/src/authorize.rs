@@ -339,6 +339,12 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
         return Ok(());
     }
+    if path.starts_with("/api/ops/scene-themes") {
+        if !caps.config_upload {
+            anyhow::bail!("current role cannot access scene theme studio api");
+        }
+        return Ok(());
+    }
     if path.starts_with("/api/ops/themes/layout/overlay/") {
         if !(caps.build_view || caps.access_view) {
             anyhow::bail!("current role cannot access theme layout overlay api");

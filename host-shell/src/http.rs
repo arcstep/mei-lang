@@ -350,6 +350,11 @@ pub fn router(state: HostHttpState) -> Router {
             get(crate::ops_scene_themes_api::api_ops_scene_themes_get),
         )
         .route(
+            "/api/ops/scene-themes/:theme_id",
+            get(crate::ops_scene_themes_api::api_ops_scene_theme_get)
+                .put(crate::ops_scene_themes_api::api_ops_scene_theme_put),
+        )
+        .route(
             "/api/ops/themes/layout/overlay/:app_id",
             get(crate::ops_theme_layout_api::api_ops_theme_layout_overlay_get),
         )

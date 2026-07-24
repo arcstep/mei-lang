@@ -8,6 +8,10 @@
       "tag": "mei-admin-grouped-form",
       "script": "runtime.js"
     },
+    "admin.theme-studio": {
+      "tag": "mei-admin-theme-studio",
+      "script": "runtime.js"
+    },
     "admin.data-grid": {
       "tag": "mei-admin-data-grid",
       "script": "runtime.js"

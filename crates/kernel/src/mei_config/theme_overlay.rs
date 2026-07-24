@@ -27,7 +27,56 @@ pub fn resolve_workspace_scene_theme_value(
     workspace.ops.scene_themes.get(id).cloned()
 }
 
-/// Catalog entries for Admin theme select (`id` + display `label`).
+/// Key color / gradient tokens exposed in Admin theme studio swatches & editors.
+pub fn scene_theme_studio_swatch_keys() -> &'static [&'static str] {
+    &[
+        "surface_bg",
+        "viewport_canvas",
+        "panel_title",
+        "section_border",
+        "drilldown_backdrop",
+        "drilldown_panel_top",
+        "drilldown_panel_bottom",
+        "drilldown_body_bg",
+        "drilldown_tab_bg",
+        "filter_panel_bg",
+        "table_head_bg",
+        "table_row_hover",
+        "chart_1",
+        "chart_2",
+        "chart_3",
+        "text_primary",
+        "text_body",
+        "text_muted",
+    ]
+}
+
+fn theme_swatches(theme: &Value) -> Value {
+    let colors = theme
+        .pointer("/tokens/color")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let gradients = theme
+        .pointer("/tokens/gradient")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut swatches = serde_json::Map::new();
+    for key in scene_theme_studio_swatch_keys() {
+        if let Some(value) = colors.get(*key).and_then(Value::as_str) {
+            swatches.insert((*key).to_string(), Value::String(value.to_string()));
+        }
+    }
+    for key in ["home_frame_bg", "panel_title_bar", "header_band_bg", "panel_glow_bg"] {
+        if let Some(value) = gradients.get(key).and_then(Value::as_str) {
+            swatches.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+    Value::Object(swatches)
+}
+
+/// Catalog entries for Admin theme select (`id` + display `label` + swatches).
 pub fn list_workspace_scene_theme_catalog(workspace: &WorkspaceConfig) -> Vec<Value> {
     workspace
         .ops
@@ -40,9 +89,82 @@ pub fn list_workspace_scene_theme_catalog(workspace: &WorkspaceConfig) -> Vec<Va
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .unwrap_or(id.as_str());
-            json!({ "id": id, "label": label, "value": id })
+            json!({
+                "id": id,
+                "label": label,
+                "value": id,
+                "swatches": theme_swatches(theme),
+            })
         })
         .collect()
+}
+
+fn promote_typography_scale_to_font(theme: &mut Value) {
+    let has_font = theme
+        .get("font")
+        .and_then(Value::as_object)
+        .map(|map| !map.is_empty())
+        .unwrap_or(false);
+    if has_font {
+        return;
+    }
+    if let Some(scale) = theme
+        .pointer("/tokens/typography/scale")
+        .cloned()
+        .filter(|value| value.as_object().map(|map| !map.is_empty()).unwrap_or(false))
+    {
+        *theme = deep_merge_value(theme, &json!({ "font": scale }));
+    }
+}
+
+/// Editable key lists for Admin theme studio (colors + gradients).
+pub fn scene_theme_studio_editable_keys() -> Value {
+    json!({
+        "color": [
+            "surface_bg",
+            "viewport_canvas",
+            "panel_title",
+            "section_border",
+            "section_border_soft",
+            "drilldown_backdrop",
+            "drilldown_panel_top",
+            "drilldown_panel_bottom",
+            "drilldown_body_bg",
+            "drilldown_panel_border",
+            "drilldown_shell_bg",
+            "drilldown_shell_border",
+            "drilldown_tab_bg",
+            "drilldown_tab_border",
+            "filter_panel_bg",
+            "filter_panel_border",
+            "table_head_bg",
+            "table_head_border",
+            "table_row_hover",
+            "table_row_zebra",
+            "chart_1",
+            "chart_2",
+            "chart_3",
+            "chart_4",
+            "chart_5",
+            "chart_6",
+            "text_primary",
+            "text_body",
+            "text_muted",
+            "text_value",
+            "text_unit",
+            "text_highlight",
+            "text_inverse"
+        ],
+        "gradient": [
+            "home_frame_bg",
+            "frame_cockpit",
+            "panel_title_bar",
+            "header_band_bg",
+            "header_cap_bg",
+            "panel_glow_bg",
+            "panel_cockpit"
+        ]
+    })
 }
 
 fn theme_library_keys(
@@ -170,7 +292,8 @@ fn app_layout_value(app: &MeiConfig) -> Option<Value> {
 }
 
 /// Assemble the effective scene theme:
-/// workspace sceneThemes[id] (colors) ⊕ app layout ⊕ app font_scale.
+/// workspace sceneThemes[id] (colors + typography) ⊕ app layout
+/// ⊕ transitional app font_scale only when theme.font is absent.
 /// Falls back to app.ops.themes[id] when workspace library is empty.
 pub fn resolve_assembled_scene_theme(
     workspace: Option<&WorkspaceConfig>,
@@ -192,6 +315,8 @@ pub fn resolve_assembled_scene_theme(
         resolve_live_ops_theme_value(app, id)
     }?;
 
+    promote_typography_scale_to_font(&mut theme);
+
     if let Some(layout) = app_layout_value(app) {
         theme = deep_merge_value(&theme, &json!({ "layout": layout }));
     }
@@ -206,12 +331,44 @@ pub fn resolve_assembled_scene_theme(
             if let Some(layout) = app_layout_value(app) {
                 theme = deep_merge_value(&theme, &json!({ "layout": layout }));
             }
+            promote_typography_scale_to_font(&mut theme);
         }
     }
-    if let Some(scale) = app_font_scale(app) {
-        theme = deep_merge_value(&theme, &json!({ "font": scale }));
+    let theme_has_font = theme
+        .get("font")
+        .and_then(Value::as_object)
+        .map(|map| !map.is_empty())
+        .unwrap_or(false);
+    if !theme_has_font {
+        if let Some(scale) = app_font_scale(app) {
+            theme = deep_merge_value(&theme, &json!({ "font": scale }));
+        }
     }
     Some(theme)
+}
+
+/// Merge a studio patch into an existing workspace scene theme value.
+/// Patch shape: `{ label?, font?, tokens?: { color?, gradient?, typography? } }`.
+pub fn merge_scene_theme_studio_patch(base: &Value, patch: &Value) -> Value {
+    let mut out = base.clone();
+    if let Some(label) = patch.get("label").and_then(Value::as_str) {
+        out = deep_merge_value(&out, &json!({ "label": label }));
+    }
+    if let Some(font) = patch.get("font") {
+        out = deep_merge_value(&out, &json!({ "font": font }));
+    }
+    if let Some(tokens) = patch.get("tokens").and_then(Value::as_object) {
+        let mut token_overlay = serde_json::Map::new();
+        for key in ["color", "gradient", "typography"] {
+            if let Some(part) = tokens.get(key) {
+                token_overlay.insert(key.to_string(), part.clone());
+            }
+        }
+        if !token_overlay.is_empty() {
+            out = deep_merge_value(&out, &json!({ "tokens": Value::Object(token_overlay) }));
+        }
+    }
+    out
 }
 
 /// Theme tokens revision: workspace library + app selection + font_scale + layout.
@@ -363,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn assembled_theme_applies_font_scale_and_layout() {
+    fn assembled_theme_applies_font_scale_fallback_and_layout() {
         let mut scene_themes = BTreeMap::new();
         scene_themes.insert(
             "cockpit".to_string(),
@@ -404,15 +561,54 @@ mod tests {
     }
 
     #[test]
-    fn catalog_exposes_labels() {
+    fn assembled_theme_prefers_workspace_font_over_app_font_scale() {
         let mut scene_themes = BTreeMap::new();
-        scene_themes.insert("tech-bright".to_string(), json!({"label": "亮色科技蓝"}));
+        scene_themes.insert(
+            "cockpit".to_string(),
+            json!({
+                "font": {"1": "14px", "7": "20px"},
+                "tokens": {"color": {"surface_bg": "#002168"}}
+            }),
+        );
+        let workspace = sample_workspace(scene_themes);
+        let mut app = sample_app(BTreeMap::new());
+        app.ops
+            .extensions
+            .insert("font_scale".to_string(), json!({"1": "99px", "7": "99px"}));
+        let theme =
+            resolve_assembled_scene_theme(Some(&workspace), &app, "cockpit").expect("theme");
+        assert_eq!(
+            theme.pointer("/font/1").and_then(Value::as_str),
+            Some("14px")
+        );
+        assert_eq!(
+            theme.pointer("/font/7").and_then(Value::as_str),
+            Some("20px")
+        );
+    }
+
+    #[test]
+    fn catalog_exposes_labels_and_swatches() {
+        let mut scene_themes = BTreeMap::new();
+        scene_themes.insert(
+            "tech-bright".to_string(),
+            json!({
+                "label": "亮色科技蓝",
+                "tokens": {"color": {"surface_bg": "#111", "chart_1": "#0ff"}}
+            }),
+        );
         let workspace = sample_workspace(scene_themes);
         let catalog = list_workspace_scene_theme_catalog(&workspace);
         assert_eq!(catalog.len(), 1);
         assert_eq!(
             catalog[0].get("label").and_then(Value::as_str),
             Some("亮色科技蓝")
+        );
+        assert_eq!(
+            catalog[0]
+                .pointer("/swatches/surface_bg")
+                .and_then(Value::as_str),
+            Some("#111")
         );
     }
 }

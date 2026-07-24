@@ -116,10 +116,12 @@ pub use theme_layout_overlay::{
 };
 pub use theme_overlay::{
     list_workspace_scene_theme_catalog, mei_config_compile_revision_digest,
-    ops_active_theme_revision_digest, ops_active_theme_revision_digest_app_only,
-    ops_themes_revision_digest, resolve_active_scene_theme_id,
-    resolve_active_scene_theme_id_app_only, resolve_assembled_scene_theme,
-    resolve_live_ops_theme_value, resolve_workspace_scene_theme_value,
+    merge_scene_theme_studio_patch, ops_active_theme_revision_digest,
+    ops_active_theme_revision_digest_app_only, ops_themes_revision_digest,
+    resolve_active_scene_theme_id, resolve_active_scene_theme_id_app_only,
+    resolve_assembled_scene_theme, resolve_live_ops_theme_value,
+    resolve_workspace_scene_theme_value, scene_theme_studio_editable_keys,
+    scene_theme_studio_swatch_keys,
 };
 pub use types::{
     AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig,

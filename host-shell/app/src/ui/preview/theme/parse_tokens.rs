@@ -148,6 +148,22 @@ fn flatten_scene_tokens(tokens: &Value, vars: &mut Vec<(String, String)>) {
         if key == "shell" {
             continue;
         }
+        // typography.scale is promoted to theme.font; only emit family/weight leaves.
+        if key == "typography" {
+            if let Some(typo) = entry.as_object() {
+                for (typo_key, typo_value) in typo {
+                    if typo_key == "scale" {
+                        continue;
+                    }
+                    push_token_leaf(
+                        typo_value,
+                        &format!("--mei-typography-{}", typo_key.replace('_', "-")),
+                        vars,
+                    );
+                }
+            }
+            continue;
+        }
         let path = format!("mei-{}", key.replace('_', "-"));
         flatten_tokens(entry, path.as_str(), vars);
     }
