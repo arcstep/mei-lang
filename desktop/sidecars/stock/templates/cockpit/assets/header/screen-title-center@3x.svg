@@ -66,8 +66,8 @@
         <g id="首页" transform="translate(-641, -8)">
             <g id="大标题-中心" transform="translate(641, 8)">
                 <g id="左翼">
-                    <path d="M52.0903662,0.9 L91.0226242,45.6 L20.8172033,45.6 L0.9,29.5690802 L0.9,0.9 L52.0903662,0.9 Z" id="矩形" stroke="url(#linearGradient-2)" stroke-width="1.8" fill="url(#linearGradient-1)"></path>
-                    <polygon id="矩形" fill-opacity="0.420724295" fill="#18418B" points="14.2750463 35 81 35 87 42 23 42"></polygon>
+                    <path d="M52.0903662,0.9 L91.0226242,45.6 L20.8172033,45.6 L0.9,29.5690802 L0.9,0.9 L52.0903662,0.9 Z" id="矩形" stroke="url(#linearGradient-2)" stroke-width="1.8" fill="none"></path>
+                    <polygon id="矩形" fill="none" points="14.2750463 35 81 35 87 42 23 42"></polygon>
                 </g>
                 <g id="黄1">
                     <use fill="black" fill-opacity="1" filter="url(#filter-4)" xlink:href="#path-3"></use>
@@ -82,8 +82,8 @@
                     <use fill="#FFE07C" fill-rule="evenodd" xlink:href="#path-7"></use>
                 </g>
                 <g id="左翼" transform="translate(586.5, 23.25) scale(-1, 1) translate(-586.5, -23.25)translate(540, 0)">
-                    <path d="M52.0903662,0.9 L91.0226242,45.6 L20.8172033,45.6 L0.9,29.5690802 L0.9,0.9 L52.0903662,0.9 Z" id="矩形" stroke="url(#linearGradient-2)" stroke-width="1.8" fill="url(#linearGradient-1)"></path>
-                    <polygon id="矩形" fill-opacity="0.420724295" fill="#18418B" points="14.2750463 35 81 35 87 42 23 42"></polygon>
+                    <path d="M52.0903662,0.9 L91.0226242,45.6 L20.8172033,45.6 L0.9,29.5690802 L0.9,0.9 L52.0903662,0.9 Z" id="矩形" stroke="url(#linearGradient-2)" stroke-width="1.8" fill="none"></path>
+                    <polygon id="矩形" fill="none" points="14.2750463 35 81 35 87 42 23 42"></polygon>
                 </g>
                 <g id="黄1" transform="translate(558.79, 53.0838) scale(-1, 1) translate(-558.79, -53.0838)">
                     <use fill="black" fill-opacity="1" filter="url(#filter-10)" xlink:href="#path-9"></use>
@@ -97,7 +97,7 @@
                     <use fill="black" fill-opacity="1" filter="url(#filter-14)" xlink:href="#path-13"></use>
                     <use fill="#FFE07C" fill-rule="evenodd" xlink:href="#path-13"></use>
                 </g>
-                <path d="M586.136934,0.9 L535.09224,59.1 L359.998281,59.1 L355.539274,54.1 L278.732771,54.1 L274.272778,59.1 L103.031157,59.1 L51.986462,0.9 L586.136934,0.9 Z" id="形状结合" stroke="url(#linearGradient-16)" stroke-width="1.8" fill="url(#linearGradient-15)"></path>
+                <path d="M586.136934,0.9 L535.09224,59.1 L359.998281,59.1 L355.539274,54.1 L278.732771,54.1 L274.272778,59.1 L103.031157,59.1 L51.986462,0.9 L586.136934,0.9 Z" id="形状结合" stroke="url(#linearGradient-16)" stroke-width="1.8" fill="none"></path>
                 <g id="矩形">
                     <use fill="black" fill-opacity="1" filter="url(#filter-18)" xlink:href="#path-17"></use>
                     <use fill="#A0D4FF" fill-rule="evenodd" xlink:href="#path-17"></use>

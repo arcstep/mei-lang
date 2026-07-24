@@ -37,7 +37,15 @@ function isMapLibrePaintColor(value) {
 }
 
 export function mapLibrePaintColor(value, tokenName, fallback = "#cbd5e1") {
-  const host = typeof document !== "undefined" ? document.documentElement : null;
+  // Theme CSS vars are applied on the scene root (applyThemeAndOverlay), not <html>.
+  const host =
+    typeof document !== "undefined"
+      ? document.querySelector(".mei-compose-scene-root") ||
+        document.querySelector(".mei-compose-frame") ||
+        document.getElementById("mei-compose-root") ||
+        document.body ||
+        document.documentElement
+      : null;
   const resolved = resolveRuntimeColor(host, value, tokenName);
   if (isMapLibrePaintColor(resolved)) {
     return String(resolved).trim();
@@ -1164,12 +1172,26 @@ export function buildBasemapStyle(basemap) {
   const tilesJson = basemap.tilesJsonPath || hostDefaults.tilesJsonPath || "";
   const roadClasses = resolveBasemapRoadClasses(basemap);
   const roadClassFilter = filterByRoadClasses(roadClasses);
-  const backgroundColor = basemapPaintColorLiteral(
+  // Live theme viewport_canvas wins over baked mapSpec literals (legacy #0c2848),
+  // so cockpit plane / map clear color stay aligned with ops.sceneThemes.
+  const themedCanvas = mapLibrePaintColor(
+    color("viewport_canvas"),
+    "viewport_canvas",
+    "",
+  );
+  const configured = basemapPaintColorLiteral(
     basemap,
     "backgroundColor",
     "background_color",
-    "#0a1628",
+    "#002168",
   );
+  const legacyConfigured = ["#0c2848", "#0a1628", "#0b1730"].includes(
+    String(configured || "").trim().toLowerCase(),
+  );
+  const backgroundColor =
+    themedCanvas && (!configured || legacyConfigured)
+      ? themedCanvas
+      : configured || themedCanvas || "#002168";
   const omitVectorBasemap =
     basemap.omitVectorBasemap === true ||
     basemap.omit_vector_basemap === true ||

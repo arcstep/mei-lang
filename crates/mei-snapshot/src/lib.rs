@@ -2,6 +2,7 @@
 //!
 //! See docs/mei-lang-v2/05-host/0541-desktop-viewer-implementation-plan.md.
 
+mod export_scope;
 mod manifest;
 mod pack;
 mod paths;
@@ -9,6 +10,10 @@ mod portable_config;
 mod resources;
 mod unpack;
 
+pub use export_scope::{
+    app_ids_from_selection, list_export_scope_tree, normalize_rel_path, path_is_selected,
+    ExportScopeTree, ExportTreeNode,
+};
 pub use manifest::{
     DataModeHint, ManifestFileEntry, SnapshotAppEntry, SnapshotManifest, FORMAT_NAME,
     FORMAT_VERSION, FORMAT_VERSION_V1, FORMAT_VERSION_V2,

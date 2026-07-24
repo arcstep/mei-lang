@@ -92,9 +92,11 @@ function renderProgress(host, percent, shell) {
       .track {
         width: 100%;
         height: ${shell.height};
-        background: rgba(201, 233, 248, 0.18);
+        background: transparent;
+        border: 1px solid rgba(201, 233, 248, 0.28);
         border-radius: ${shell.radius};
         overflow: hidden;
+        box-sizing: border-box;
       }
       .fill {
         width: ${Math.max(0, Math.min(100, pct))}%;

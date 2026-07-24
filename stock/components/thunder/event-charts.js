@@ -345,7 +345,7 @@ class MeiThunderEventCharts extends HTMLElement {
           max-height: 100%;
           padding: 4px 6px 2px;
           border-radius: 4px;
-          background: rgba(10, 40, 78, 0.72);
+          background: transparent;
           border: 1px solid rgba(56, 160, 240, 0.28);
           box-sizing: border-box;
           overflow: hidden;

@@ -2549,7 +2549,7 @@ body > .mei-floating-text-pop-backdrop {
 .access-drilldown-overlay-backdrop {
   position: absolute;
   inset: 0;
-  background: var(--mei-color-drilldown-backdrop, rgba(2, 6, 23, 0.62));
+  background: var(--mei-color-drilldown-backdrop, rgba(0, 33, 104, 0.58));
   backdrop-filter: blur(2px);
 }
 .access-drilldown-overlay-panel {
@@ -3308,8 +3308,12 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   flex-shrink: 0;
   min-height: 36px;
   padding: 0 8px 0 6px;
-  border-bottom: 1px solid rgba(98, 190, 235, 0.28);
-  background: linear-gradient(180deg, rgba(14, 42, 78, 0.96), rgba(8, 28, 52, 0.98));
+  border-bottom: 1px solid var(--mei-color-drilldown-shell-border, rgba(98, 190, 235, 0.28));
+  background: linear-gradient(
+    180deg,
+    var(--mei-color-drilldown-panel-top, rgba(14, 42, 78, 0.96)),
+    var(--mei-color-drilldown-panel-bottom, rgba(8, 28, 52, 0.98))
+  );
   z-index: 2;
 }
 .mei-layer2-tab-bar {
@@ -3333,17 +3337,17 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   flex: 0 1 auto;
   max-width: 200px;
   min-width: 88px;
-  border: 1px solid rgba(98, 190, 235, 0.28);
+  border: 1px solid var(--mei-color-drilldown-tab-border, rgba(98, 190, 235, 0.28));
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  background: rgba(8, 24, 40, 0.55);
+  background: color-mix(in srgb, var(--mei-color-drilldown-tab-bg, #094194) 55%, transparent);
   overflow: hidden;
   margin-right: 2px;
 }
 .mei-layer2-tab-item.is-active {
-  background: rgba(18, 56, 98, 0.95);
-  border-color: rgba(98, 190, 235, 0.5);
-  box-shadow: inset 0 -2px 0 rgba(56, 189, 248, 0.75);
+  background: var(--mei-color-drilldown-tab-bg, rgba(18, 56, 98, 0.95));
+  border-color: var(--mei-color-drilldown-panel-border, rgba(98, 190, 235, 0.5));
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--mei-color-chart-1, #71f1ea) 75%, transparent);
 }
 .mei-layer2-tab {
   border: none;
@@ -3378,7 +3382,7 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
 }
 .mei-layer2-tab-close:hover,
 .mei-layer2-tab-close:focus-visible {
-  background: rgba(32, 96, 168, 0.38);
+  background: var(--mei-color-table-row-hover, rgba(32, 96, 168, 0.38));
   color: #fff;
 }
 .mei-layer2-chrome-actions {
@@ -3401,8 +3405,8 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   gap: 4px;
   padding: 2px;
   border-radius: 6px;
-  border: 1px solid rgba(56, 160, 240, 0.28);
-  background: rgba(10, 40, 78, 0.55);
+  border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.28));
+  background: color-mix(in srgb, var(--mei-color-drilldown-tab-bg, #094194) 55%, transparent);
 }
 .mei-layer2-size-btn {
   border: none;
@@ -3417,13 +3421,13 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
 .mei-layer2-size-btn.is-active,
 .mei-layer2-size-btn:hover,
 .mei-layer2-size-btn:focus-visible {
-  background: rgba(56, 189, 248, 0.22);
+  background: var(--mei-color-table-row-hover, rgba(56, 189, 248, 0.22));
   color: #fff;
 }
 .mei-layer2-window-close {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(10, 40, 78, 0.55);
-  color: rgba(226, 232, 240, 0.9);
+  border: 1px solid var(--mei-color-drilldown-tab-border, rgba(148, 163, 184, 0.35));
+  background: color-mix(in srgb, var(--mei-color-drilldown-tab-bg, #094194) 55%, transparent);
+  color: var(--mei-color-text-body, rgba(226, 232, 240, 0.9));
   border-radius: 6px;
   width: 28px;
   height: 28px;
@@ -6455,6 +6459,11 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 .mei-compose-section-head > .panel-head-cell {
   min-height: 36px;
   border-radius: 0;
+  /* Live theme token — overrides stale baked head_chrome literals until slots are rewarmed. */
+  background-image: var(--mei-gradient-panel-title-bar);
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .mei-compose-section-head > .panel-head-cell h3 {
   margin: 0;
@@ -7220,15 +7229,24 @@ body[data-mei-stage-surface="paged"] .mei-compose-scene-root,
   width: 100%;
   height: 100%;
   min-height: 0;
-  background-color: #0c2848;
+  /* Plane / 大背景：跟随 ops.sceneThemes（home_frame_bg + viewport_canvas） */
+  background-color: var(--mei-color-viewport-canvas, #002168);
+  background-image: var(--mei-gradient-home-frame-bg, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   background-image: none;
-  background-color: var(--mei-frame-letterbox, #070d14);
+  background-color: var(--mei-frame-letterbox, var(--mei-color-surface-bg, #002168));
 }
 .mei-compose-scene-root,
 .mei-compose-scene-root .mei-compose-node.mei-compose-scene {
-  background-color: #0c2848;
+  background-color: var(--mei-color-viewport-canvas, #002168);
+  background-image: var(--mei-gradient-home-frame-bg, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .preview-surface.preview-board-mounted [data-mei-panel-id="chart"] .panel-body-cell,
 .preview-surface.preview-board-mounted [data-mei-panel-id="chart"] [data-mei-panel-body="true"],

@@ -1,5 +1,6 @@
-/** 驾驶舱大屏标题：全宽底图 + 居中帽檐（随标题宽度）+ 主标题。1920×72 设计稿逻辑尺寸。 */
-import { color } from "../mei/theme-style.js";
+/** 驾驶舱大屏标题：主题底色层 + SVG 装饰线/帽檐 + 主标题。1920×72 设计稿逻辑尺寸。 */
+import { color, gradient } from "../mei/theme-style.js";
+import { COCKPIT_SHADOW } from "./tokens.js";
 
 import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 
@@ -21,6 +22,53 @@ function wantsTitleLayer(p, key, flag) {
   if (p[flag] === false || p[flag] === "false") return false;
   if (p[flag] === true || p[flag] === "true") return true;
   return !!cockpitAsset(p, key);
+}
+
+function resolveBandBackground(p) {
+  if (
+    p.bandBackground === false ||
+    p.bandBackground === "false" ||
+    p.band_background === false ||
+    p.band_background === "false"
+  ) {
+    return "transparent";
+  }
+  const raw = p.bandBackground ?? p.band_background;
+  if (raw === undefined || raw === null || raw === "") {
+    return gradient("header_band_bg");
+  }
+  const value = String(raw).trim();
+  if (!value || value === "transparent") {
+    return "transparent";
+  }
+  // Token name (no css function / url) → gradient var
+  if (!/[#(]|url\(/i.test(value) && !value.includes(" ")) {
+    return gradient(value);
+  }
+  return value;
+}
+
+function resolveCapBackground(p) {
+  if (
+    p.capBackground === false ||
+    p.capBackground === "false" ||
+    p.cap_background === false ||
+    p.cap_background === "false"
+  ) {
+    return "transparent";
+  }
+  const raw = p.capBackground ?? p.cap_background;
+  if (raw === undefined || raw === null || raw === "") {
+    return gradient("header_cap_bg");
+  }
+  const value = String(raw).trim();
+  if (!value || value === "transparent") {
+    return "transparent";
+  }
+  if (!/[#(]|url\(/i.test(value) && !value.includes(" ")) {
+    return gradient(value);
+  }
+  return value;
 }
 
 class MeiCockpitHeaderBrand extends HTMLElement {
@@ -73,24 +121,15 @@ class MeiCockpitHeaderBrand extends HTMLElement {
       ? cockpitAsset(p, "title_mid")
       : "";
     const chromeless = !titleBg && !titleMid;
-    const titleColor = p.titleColor || color("text_highlight");
+    const titleColor = p.titleColor || color("text_inverse");
     const titleLineHeight = p.titleLineHeight || "68px";
     const titleLetterSpacing =
       p.titleLetterSpacing !== undefined && p.titleLetterSpacing !== null
         ? String(p.titleLetterSpacing)
         : "0";
     const titleFontSize = p.titleFontSize || "36px";
-    const bandBg =
-      p.bandBackground === false ||
-      p.bandBackground === "false" ||
-      p.band_background === false ||
-      p.band_background === "false"
-        ? "transparent"
-        : String(
-            p.bandBackground ??
-              p.band_background ??
-              "rgba(10, 36, 72, 0.68)",
-          );
+    const bandBg = resolveBandBackground(p);
+    const capBg = resolveCapBackground(p);
 
     this._ro?.disconnect();
     this._ro = null;
@@ -119,6 +158,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           object-fit: fill;
           object-position: center bottom;
           pointer-events: none;
+          z-index: 1;
         }
         .wrap {
           position: absolute;
@@ -129,6 +169,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           height: 100%;
           max-width: calc(100% - 32px);
           --cap-width: ${CAP_MIN_WIDTH_PX}px;
+          z-index: 2;
         }
         .cap {
           position: absolute;
@@ -138,7 +179,17 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           width: var(--cap-width);
           height: ${CAP_HEIGHT_PX}px;
         }
+        .cap-fill {
+          position: absolute;
+          inset: 0;
+          background: ${capBg};
+          /* 近似「大标题-中心」主体梯形：上宽下窄；翼线留在未裁切的 SVG 层 */
+          clip-path: polygon(8.2% 0%, 92.6% 0%, 84.5% 100%, 16.3% 100%);
+          pointer-events: none;
+        }
         .cap img {
+          position: absolute;
+          inset: 0;
           width: 100%;
           height: 100%;
           object-fit: fill;
@@ -150,7 +201,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           left: 50%;
           top: 50%;
           transform: translate(-50%, -50%);
-          z-index: 2;
+          z-index: 3;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -177,6 +228,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           line-height: ${titleLineHeight};
           max-height: 68px;
           color: ${titleColor};
+          text-shadow: ${COCKPIT_SHADOW.headerTitle};
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -194,6 +246,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           </div>`
             : `<div class="wrap">
           <div class="cap" aria-hidden="true">
+            <div class="cap-fill"></div>
             ${titleMid ? `<img src="${titleMid}" alt="" />` : ""}
           </div>
           <div class="title-row">

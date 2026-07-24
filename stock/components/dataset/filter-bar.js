@@ -1378,14 +1378,21 @@ function ensureFilterFloatingStyles() {
     }
     [data-mei-filter-floating="1"] .multi-option,
     [data-mei-filter-floating="1"] .field-picker-option {
+      appearance: none;
+      -webkit-appearance: none;
       display: flex;
       align-items: center;
       gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
       padding: 6px 8px;
       border-radius: 6px;
+      border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.28));
+      background: var(--mei-color-drilldown-tab-bg, rgba(10, 36, 68, 0.92));
       cursor: pointer;
       font-size: ${FILTER_PANEL_FONT};
       color: var(--mei-color-text-body, #e2e8f0);
+      text-align: left;
       line-height: 1.4;
       white-space: normal;
       word-break: break-word;
@@ -1396,7 +1403,9 @@ function ensureFilterFloatingStyles() {
     }
     [data-mei-filter-floating="1"] .multi-option:hover,
     [data-mei-filter-floating="1"] .field-picker-option:hover {
-      background: var(--mei-color-table-row-hover, rgba(56, 160, 240, 0.12));
+      background: var(--mei-color-table-row-hover, rgba(56, 160, 240, 0.18));
+      border-color: var(--mei-color-table-btn-hover-border, rgba(113, 241, 234, 0.55));
+      color: var(--mei-color-text-inverse, #ffffff);
     }
     [data-mei-filter-floating="1"] .multi-option input {
       margin: 0;
@@ -1479,6 +1488,21 @@ function resolveFloatingPanelWidth(panel, triggerWidth) {
   return Math.min(maxWidth, Math.max(minWidth, measured));
 }
 
+function copyThemeCssVarsOnto(panel, host) {
+  if (!(panel instanceof HTMLElement) || typeof document === "undefined") return;
+  // Tokens are set as inline --mei-* on compose root; layer2 inherits but has no own declarations.
+  const themeRoot =
+    document.getElementById("mei-compose-root") ||
+    (host instanceof Element && host.closest?.("#mei-compose-root")) ||
+    document.getElementById("mei-layer2-workspace");
+  if (!(themeRoot instanceof HTMLElement)) return;
+  for (const name of themeRoot.style) {
+    if (!String(name).startsWith("--mei-")) continue;
+    const value = themeRoot.style.getPropertyValue(name);
+    if (value) panel.style.setProperty(name, value);
+  }
+}
+
 function positionFloatingPanel(trigger, panel, options = {}) {
   const { preferDropUp = false } = options;
   const triggerRect = trigger.getBoundingClientRect();
@@ -1518,6 +1542,7 @@ function positionFloatingPanel(trigger, panel, options = {}) {
   if (typeof boot.mountRuntimeOverlay === "function") {
     boot.mountRuntimeOverlay(panel, { role: "text_popover", anchor: trigger });
   }
+  copyThemeCssVarsOnto(panel, host instanceof Element ? host : null);
   panel.style.overflow = "auto";
 
   const spaceBelow = window.innerHeight - triggerRect.bottom - FLOATING_PANEL_VIEWPORT_PADDING;
@@ -2588,13 +2613,16 @@ function additiveStyles() {
       gap: 2px;
     }
     .field-picker-option {
+      appearance: none;
+      -webkit-appearance: none;
       display: block;
       width: 100%;
+      box-sizing: border-box;
       min-height: 34px;
       padding: 7px 10px;
-      border: 0;
+      border: 1px solid ${color("drilldown_tab_border")};
       border-radius: 6px;
-      background: transparent;
+      background: ${color("drilldown_tab_bg")};
       color: ${color("text_body")};
       font-size: ${FILTER_PANEL_FONT};
       text-align: left;
@@ -2602,6 +2630,7 @@ function additiveStyles() {
     }
     .field-picker-option:hover {
       background: ${color("table_row_hover")};
+      border-color: ${color("table_btn_hover_border")};
       color: ${color("text_inverse")};
     }
     .field-picker-option[hidden] { display: none !important; }

@@ -74,6 +74,7 @@ fn run_snapshot_pack(args: SnapshotPackArgs) -> anyhow::Result<()> {
             workspace_label: None,
             package_root: args.package_root,
             include_media: args.include_media,
+            include_paths: None,
         })?
     } else {
         mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {

@@ -14,7 +14,7 @@
     </defs>
     <g id="切图" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
         <g id="大标题-背景">
-            <rect id="矩形" x="0" y="0" width="1920" height="72" fill="#04377D"></rect>
+            <rect id="矩形" x="0" y="0" width="1920" height="72" fill="none"></rect>
             <g id="左线" transform="translate(0, 49)">
                 <polyline id="路径-2" stroke="url(#linearGradient-1)" stroke-width="1.8" points="486.157703 5.5 319.997812 5.5 314.77031 0 276.684223 0"></polyline>
                 <polygon id="矩形" fill="#0954B6" points="466.741267 2 483.170559 2 486.170829 5 463.740997 5"></polygon>

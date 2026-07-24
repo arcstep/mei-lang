@@ -36,6 +36,10 @@ enum Commands {
         portable: bool,
         #[arg(long, default_value_t = false)]
         include_media: bool,
+        /// Workspace-relative folder to include (repeatable), e.g. stock/gis, apps/zhifa/upload.
+        /// When set, overrides legacy full-app + stock/gis defaults.
+        #[arg(long = "include-path")]
+        include_path: Vec<String>,
         #[arg(long)]
         package_root: Option<PathBuf>,
         #[arg(long)]
@@ -67,15 +71,21 @@ fn main() -> anyhow::Result<()> {
             include_cache,
             portable,
             include_media,
+            include_path,
             package_root,
             default_scene,
             compiler_version,
             json,
         } => {
-            if app.is_empty() {
-                anyhow::bail!("at least one --app is required");
+            if app.is_empty() && include_path.is_empty() {
+                anyhow::bail!("at least one --app or --include-path is required");
             }
-            let manifest = if portable || app.len() > 1 {
+            let include_paths = if include_path.is_empty() {
+                None
+            } else {
+                Some(include_path)
+            };
+            let manifest = if portable || app.len() > 1 || include_paths.is_some() {
                 pack_portable_snapshot(&PortablePackOptions {
                     workspace,
                     app_ids: app,
@@ -85,6 +95,7 @@ fn main() -> anyhow::Result<()> {
                     workspace_label: None,
                     package_root,
                     include_media,
+                    include_paths,
                 })?
             } else {
                 pack_snapshot(&PackOptions {

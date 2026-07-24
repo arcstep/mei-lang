@@ -93,6 +93,9 @@ template screen_header(
     title = "标题占位",
     assets = screen_header_assets(),
     cap_min_width = 633,
+    # 主题色板 token（ops.sceneThemes.*.tokens.gradient.header_band_bg）。
+    # 全幅地图 bleed 时可改传 home_frame_bg 等不透底。
+    background = "header_band_bg",
 ):
     content_panel(
         variant = "container",
@@ -100,7 +103,7 @@ template screen_header(
         chrome = "bare",
         props = {
             "padding": "0",
-            "background": "rgba(10, 36, 72, 0.68)",
+            "background": background,
             "border": "none",
             "width": "100%",
             # 高度由 plane header 行（如 72px）fill-down；禁止 section 手写固定 height。
@@ -117,7 +120,8 @@ template screen_header(
                     "title": title,
                     "assets": assets,
                     "capMinWidth": cap_min_width,
-                    "titleColor": "#E8F0FF",
+                    # 底色由外层 content_panel(header_band_bg) 提供；brand 内 band 透明以免叠两次
+                    "bandBackground": "transparent",
                     "titleLineHeight": "68px",
                     "titleLetterSpacing": "0",
                 },

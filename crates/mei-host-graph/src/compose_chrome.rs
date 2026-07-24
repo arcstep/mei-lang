@@ -87,6 +87,51 @@ impl ThemeResolveContext {
             .unwrap_or_else(|| trimmed.to_string())
     }
 
+    /// Prefer live CSS vars for gradient **token names** so `ops.sceneThemes` overlay
+    /// updates head_chrome / panel_shell without rewarming baked literals.
+    pub fn resolve_gradient_css(&self, raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+        if is_literal_gradient(trimmed)
+            || is_literal_color(trimmed)
+            || trimmed.starts_with('/')
+            || trimmed.starts_with("url(")
+        {
+            return self.resolve_gradient_literal(trimmed);
+        }
+        if trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            let css_key = trimmed.replace('_', "-");
+            return format!("var(--mei-gradient-{css_key})");
+        }
+        self.resolve_gradient_literal(trimmed)
+    }
+
+    pub fn resolve_color_css(&self, raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+        if trimmed.eq_ignore_ascii_case("transparent") {
+            return "transparent".to_string();
+        }
+        if is_literal_color(trimmed) {
+            return trimmed.to_string();
+        }
+        if trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            let css_key = trimmed.replace('_', "-");
+            return format!("var(--mei-color-{css_key})");
+        }
+        trimmed.to_string()
+    }
+
     pub fn resolve_font_literal(&self, raw: &str) -> String {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -164,7 +209,7 @@ fn append_background_style(style: &mut String, background: &Value, ctx: &ThemeRe
             } else {
                 style.push_str(&format!(
                     "background:{};",
-                    ctx.resolve_gradient_literal(trimmed)
+                    ctx.resolve_gradient_css(trimmed)
                 ));
             }
         }
@@ -172,13 +217,13 @@ fn append_background_style(style: &mut String, background: &Value, ctx: &ThemeRe
             if let Some(value) = bg.get("color").and_then(Value::as_str) {
                 style.push_str(&format!(
                     "background-color:{};",
-                    ctx.resolve_color_literal(value)
+                    ctx.resolve_color_css(value)
                 ));
             }
             if let Some(value) = bg.get("image").and_then(Value::as_str) {
                 style.push_str(&format!(
                     "background-image:{};",
-                    ctx.resolve_gradient_literal(value)
+                    ctx.resolve_gradient_css(value)
                 ));
             }
             for (key, css) in [
@@ -482,18 +527,18 @@ pub fn build_panel_shell(panel: &UiNodeDecl, ctx: &ThemeResolveContext) -> Value
     }
     if let Some(background) = props.get("background").cloned() {
         let resolved = match background {
-            Value::String(raw) => Value::String(ctx.resolve_gradient_literal(raw.as_str())),
+            Value::String(raw) => Value::String(ctx.resolve_gradient_css(raw.as_str())),
             Value::Object(mut map) => {
                 if let Some(image) = map.get("image").and_then(Value::as_str) {
                     map.insert(
                         "image".to_string(),
-                        Value::String(ctx.resolve_gradient_literal(image)),
+                        Value::String(ctx.resolve_gradient_css(image)),
                     );
                 }
                 if let Some(color) = map.get("color").and_then(Value::as_str) {
                     map.insert(
                         "color".to_string(),
-                        Value::String(ctx.resolve_color_literal(color)),
+                        Value::String(ctx.resolve_color_css(color)),
                     );
                 }
                 Value::Object(map)
@@ -576,7 +621,10 @@ mod tests {
         assert_eq!(chrome["title"], "监督预警");
         assert_eq!(chrome["heading_variant"], "plain");
         let cell_style = chrome["cell_style"].as_str().unwrap_or("");
-        assert!(cell_style.contains("linear-gradient(90deg, #245284"));
+        assert!(
+            cell_style.contains("var(--mei-gradient-panel-title-bar)"),
+            "expected live CSS var for panel_title_bar, got {cell_style}"
+        );
         assert!(cell_style.contains("height:54px"));
         assert_eq!(chrome["caret"]["enabled"], true);
         assert_eq!(chrome["heading_typography"]["font_size"], "32px");
@@ -642,7 +690,10 @@ mod tests {
         let shell = build_panel_shell(&panel, &ctx);
         assert_eq!(shell["mount_role"], "panel-shell");
         let bg = shell["props"]["background"].as_str().unwrap_or("");
-        assert!(bg.contains("rgba(32, 96, 168"));
+        assert_eq!(
+            bg, "var(--mei-gradient-panel-glow-bg)",
+            "expected live CSS var for panel_glow_bg, got {bg}"
+        );
     }
 
     #[test]

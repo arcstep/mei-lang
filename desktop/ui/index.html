@@ -128,29 +128,50 @@
         <div class="panel-head">
           <div class="panel-title-block">
             <h2 class="panel-title">导出快照</h2>
-            <p class="panel-desc">可移植导出前会对所选 app 自动完整预构建，再校验并打包</p>
+            <p class="panel-desc">按目录范围打包；导出会先 prebuild，并自动补齐运行必需项</p>
           </div>
           <button type="button" id="btn-export-snapshot" class="compact-primary" disabled>导出快照…</button>
         </div>
-        <div class="export-layout">
-          <label class="export-apps">
-            <span class="field-label">导出 apps（可多选）</span>
-            <select id="export-app" multiple size="4" disabled>
-              <option value="">（未打开工作区）</option>
-            </select>
-          </label>
-          <div class="export-options">
-            <span class="field-label">选项</span>
-            <label class="follow option-row">
-              <input type="checkbox" id="export-include-data" checked />
-              可移植包（含数据/配置；导出会先 prebuild，推荐）
-            </label>
-            <label class="follow option-row">
-              <input type="checkbox" id="export-include-media" />
-              包含大媒体（视频等 upload）
-            </label>
+        <details class="fold export-scope-fold" id="export-scope-fold">
+          <summary>
+            选择导出范围
+            <span id="export-scope-summary" class="scope-summary">（未打开工作区）</span>
+          </summary>
+          <div class="fold-body export-scope-body">
+            <div class="export-trees">
+              <div class="export-tree-pane">
+                <div class="export-tree-head">
+                  <div>
+                    <span class="field-label">工作区 stock</span>
+                    <span class="tree-hint">默认不选 · 可多选</span>
+                  </div>
+                  <div class="tree-actions">
+                    <button type="button" id="btn-stock-all" class="secondary compact">全选</button>
+                    <button type="button" id="btn-stock-none" class="secondary compact">全不选</button>
+                  </div>
+                </div>
+                <div id="export-tree-stock" class="export-tree" role="tree" aria-label="工作区 stock"></div>
+              </div>
+              <div class="export-tree-pane">
+                <div class="export-tree-head">
+                  <div>
+                    <span class="field-label">应用清单 apps</span>
+                    <span class="tree-hint">默认全选 · 通常选一个</span>
+                  </div>
+                  <div class="tree-actions">
+                    <button type="button" id="btn-apps-all" class="secondary compact">全选</button>
+                    <button type="button" id="btn-apps-none" class="secondary compact">全不选</button>
+                  </div>
+                </div>
+                <div id="export-tree-apps" class="export-tree" role="tree" aria-label="应用清单"></div>
+              </div>
+            </div>
+            <p class="export-note">
+              勾选目录即导出范围（不再单独开关 upload/媒体）。导出时会自动补齐 meibundle、parquet、
+              registry、store-content、可移植 app.toml 与路径修正；底图请勾选 <code>stock/gis</code>。
+            </p>
           </div>
-        </div>
+        </details>
       </section>
 
       <!-- 4. 补充：最近打开（默认收起） -->

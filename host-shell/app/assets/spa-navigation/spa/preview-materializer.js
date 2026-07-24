@@ -845,6 +845,22 @@
     );
   }
 
+  /** Prefer live theme gradient so ops.sceneThemes updates title bars without rewarming baked literals. */
+  function livePanelTitleBarCellStyle(cellStyle) {
+    let style = String(cellStyle || "").trim();
+    style = style
+      .replace(/background-image\s*:[^;]*;?/gi, "")
+      .replace(/background-size\s*:[^;]*;?/gi, "")
+      .replace(/background-position\s*:[^;]*;?/gi, "")
+      .replace(/background-repeat\s*:[^;]*;?/gi, "")
+      .replace(/;;+/g, ";")
+      .replace(/^;|;$/g, "");
+    const liveBg =
+      "background-image:var(--mei-gradient-panel-title-bar);" +
+      "background-size:100% 100%;background-position:center;background-repeat:no-repeat;";
+    return style ? `${style};${liveBg}` : liveBg;
+  }
+
   function applyHeadChromeFromSlot(headEl, headChrome) {
     if (!(headEl instanceof HTMLElement) || !headChrome || typeof headChrome !== "object") {
       return false;
@@ -853,7 +869,7 @@
     const classes = Array.isArray(headChrome.heading_classes)
       ? headChrome.heading_classes.filter(Boolean).join(" ")
       : "panel-heading panel-heading-plain panel-heading-compact";
-    const cellStyle = String(headChrome.cell_style || "").trim();
+    const cellStyle = livePanelTitleBarCellStyle(headChrome.cell_style);
     const caret = headChrome.caret && typeof headChrome.caret === "object" ? headChrome.caret : {};
     const caretEnabled = caret.enabled === true;
     const caretStyle = String(caret.style || "").trim();

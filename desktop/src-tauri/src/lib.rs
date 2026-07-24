@@ -174,12 +174,23 @@ fn list_workspace_apps(state: State<'_, AppState>) -> Result<Vec<String>, String
     list_apps_in_workspace(&workspace).map_err(|e| e.to_string())
 }
 
+/// Scan workspace `stock/` and `apps/` folder trees for export scope UI.
+#[tauri::command]
+fn list_export_scope(state: State<'_, AppState>) -> Result<mei_snapshot::ExportScopeTree, String> {
+    let host = state.host.lock().map_err(|e| e.to_string())?;
+    let workspace = host
+        .workspace()
+        .ok_or_else(|| "未打开工作区，无法列出导出范围".to_string())?
+        .to_path_buf();
+    drop(host);
+    mei_snapshot::list_export_scope_tree(&workspace).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn export_snapshot(
     app_ids: Vec<String>,
     out_path: String,
-    include_data: bool,
-    include_media: bool,
+    include_paths: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let host = state.host.lock().map_err(|e| e.to_string())?;
@@ -189,16 +200,29 @@ fn export_snapshot(
         .to_path_buf();
     drop(host);
 
+    let paths: Vec<String> = include_paths
+        .into_iter()
+        .map(|s| mei_snapshot::normalize_rel_path(&s))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if paths.is_empty() {
+        return Err("请至少选择一个应用目录".into());
+    }
+
     let mut ids: Vec<String> = app_ids
         .into_iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    if ids.is_empty() {
+        ids = mei_snapshot::app_ids_from_selection(&paths);
+    }
     ids.sort();
     ids.dedup();
     if ids.is_empty() {
-        return Err("请至少选择一个 app".into());
+        return Err("请至少选择一个应用目录（apps/<id> 或其子文件夹）".into());
     }
+
     let mut out = PathBuf::from(&out_path);
     if out.as_os_str().is_empty() {
         return Err("输出路径不能为空".into());
@@ -217,11 +241,9 @@ fn export_snapshot(
 
     let package_root = std::env::var_os("MEI_PACKAGE_ROOT").map(PathBuf::from);
 
-    // Prefer portable v2 whenever possible (multi-app or single with data closure).
-    let use_portable = ids.len() > 1 || include_data;
-    if use_portable {
-        // Export must prepare sealed products, not blindly copy whatever is on disk.
-        // Author apps: always prebuild first. Sealed imports: never re-prebuild.
+    // Export must prepare sealed products, not blindly copy whatever is on disk.
+    // Author apps: always prebuild first. Sealed imports: never re-prebuild.
+    {
         let host = state.host.lock().map_err(|e| e.to_string())?;
         for app_id in &ids {
             if host::app_is_sealed_portable(&workspace, app_id) {
@@ -231,7 +253,6 @@ fn export_snapshot(
                 format!("导出前预构建失败（{app_id}）：{e}")
             })?;
         }
-        drop(host);
     }
 
     for app_id in &ids {
@@ -247,30 +268,18 @@ fn export_snapshot(
         }
     }
 
-    let manifest = if use_portable {
-        mei_snapshot::pack_portable_snapshot(&mei_snapshot::PortablePackOptions {
-            workspace,
-            app_ids: ids.clone(),
-            out: out.clone(),
-            default_scene: None,
-            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            workspace_label: None,
-            package_root,
-            include_media,
-        })
-        .map_err(|e| e.to_string())?
-    } else {
-        mei_snapshot::pack_snapshot(&mei_snapshot::PackOptions {
-            workspace,
-            app_id: ids[0].clone(),
-            out: out.clone(),
-            include_data: false,
-            include_cache: false,
-            default_scene: None,
-            compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        })
-        .map_err(|e| e.to_string())?
-    };
+    let manifest = mei_snapshot::pack_portable_snapshot(&mei_snapshot::PortablePackOptions {
+        workspace,
+        app_ids: ids.clone(),
+        out: out.clone(),
+        default_scene: None,
+        compiler_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        workspace_label: None,
+        package_root,
+        include_media: false,
+        include_paths: Some(paths),
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(format!(
         "已导出 v{} [{}] → {}（files={}, dataHint={}）",
@@ -1143,6 +1152,7 @@ pub fn run() {
             wait_host_ready,
             list_recent,
             list_workspace_apps,
+            list_export_scope,
             export_snapshot,
             start_workspace,
             probe_workspace,

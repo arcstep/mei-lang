@@ -21,9 +21,13 @@ const el = {
   startHome: document.getElementById("btn-start-home"),
   importSnap: document.getElementById("btn-import-snapshot"),
   exportSnap: document.getElementById("btn-export-snapshot"),
-  exportApp: document.getElementById("export-app"),
-  exportIncludeData: document.getElementById("export-include-data"),
-  exportIncludeMedia: document.getElementById("export-include-media"),
+  exportScopeSummary: document.getElementById("export-scope-summary"),
+  exportTreeStock: document.getElementById("export-tree-stock"),
+  exportTreeApps: document.getElementById("export-tree-apps"),
+  btnStockAll: document.getElementById("btn-stock-all"),
+  btnStockNone: document.getElementById("btn-stock-none"),
+  btnAppsAll: document.getElementById("btn-apps-all"),
+  btnAppsNone: document.getElementById("btn-apps-none"),
   openHost: document.getElementById("btn-open-host"),
   stop: document.getElementById("btn-stop"),
   homePath: document.getElementById("status-home"),
@@ -106,66 +110,209 @@ async function refreshLogs({ force = false } = {}) {
   }
 }
 
-let lastWorkspaceForApps = null;
+let lastWorkspaceForScope = null;
+/** @type {Map<string, HTMLInputElement>} */
+const exportChecks = new Map();
 
-function selectedExportApps() {
-  return Array.from(el.exportApp.selectedOptions || [])
-    .map((o) => o.value)
-    .filter(Boolean);
+function selectedExportPaths() {
+  const paths = [];
+  for (const [path, input] of exportChecks) {
+    if (input.checked && !input.indeterminate) paths.push(path);
+  }
+  // Also include partially-checked? No — partial means some children; only fully checked folders.
+  // But wait: if parent is indeterminate, children may be checked individually — those are already in map.
+  // If parent is fully checked, parent path is enough (covers descendants). We can send all checked paths.
+  return paths;
 }
 
-async function refreshExportApps(workspace) {
+function selectedExportApps() {
+  const ids = new Set();
+  for (const path of selectedExportPaths()) {
+    if (!path.startsWith("apps/")) continue;
+    const id = path.slice("apps/".length).split("/")[0];
+    if (id) ids.add(id);
+  }
+  return Array.from(ids).sort();
+}
+
+function selectionCoversUploadMedia() {
+  return selectedExportPaths().some((p) => {
+    if (p === "apps") return true;
+    if (/^apps\/[^/]+$/.test(p)) return true;
+    return p.includes("/upload");
+  });
+}
+
+function updateScopeSummary() {
+  const apps = selectedExportApps();
+  const paths = selectedExportPaths();
+  const stockPaths = paths.filter((p) => p === "stock" || p.startsWith("stock/"));
+  if (!el.exportScopeSummary) return;
+  if (!lastWorkspaceForScope) {
+    el.exportScopeSummary.textContent = "（未打开工作区）";
+    return;
+  }
+  const appLabel = apps.length ? apps.join(", ") : "未选应用";
+  const stockLabel = stockPaths.length
+    ? stockPaths.length <= 2
+      ? stockPaths.join(", ")
+      : `${stockPaths.length} 项 stock`
+    : "stock 未选";
+  el.exportScopeSummary.textContent = `${appLabel} · ${stockLabel}`;
+  el.exportSnap.disabled = apps.length === 0;
+}
+
+function setSubtreeChecked(rootInput, checked) {
+  const node = rootInput.closest(".tree-node");
+  if (!node) return;
+  node.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.checked = checked;
+    input.indeterminate = false;
+  });
+}
+
+function syncAncestors(input) {
+  let node = input.closest(".tree-node")?.parentElement?.closest(".tree-node");
+  while (node) {
+    const rowInput = node.querySelector(":scope > .tree-node-row input[type='checkbox']");
+    const childInputs = Array.from(
+      node.querySelectorAll(":scope > .tree-children > .tree-node > .tree-node-row input[type='checkbox']")
+    );
+    if (rowInput && childInputs.length) {
+      const allChecked = childInputs.every((c) => c.checked && !c.indeterminate);
+      const noneChecked = childInputs.every((c) => !c.checked && !c.indeterminate);
+      rowInput.checked = allChecked;
+      rowInput.indeterminate = !allChecked && !noneChecked;
+    }
+    node = node.parentElement?.closest(".tree-node");
+  }
+}
+
+function onExportCheckChange(input) {
+  if (!input.indeterminate) {
+    setSubtreeChecked(input, input.checked);
+  }
+  syncAncestors(input);
+  updateScopeSummary();
+}
+
+function setTreeAll(container, checked) {
+  if (!container) return;
+  container.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.checked = checked;
+    input.indeterminate = false;
+  });
+  updateScopeSummary();
+}
+
+function renderTreeNode(node, depth = 0) {
+  const wrap = document.createElement("div");
+  wrap.className = "tree-node";
+  wrap.dataset.path = node.path;
+
+  const row = document.createElement("div");
+  row.className = "tree-node-row";
+
+  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "tree-toggle" + (hasChildren ? "" : " is-leaf");
+  toggle.textContent = "▸";
+  toggle.setAttribute("aria-expanded", depth < 1 ? "true" : "false");
+  toggle.tabIndex = hasChildren ? 0 : -1;
+
+  const label = document.createElement("label");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = Boolean(node.defaultChecked);
+  input.dataset.path = node.path;
+  exportChecks.set(node.path, input);
+  input.addEventListener("change", () => onExportCheckChange(input));
+
+  const name = document.createElement("span");
+  name.className = "tree-node-name";
+  name.textContent = node.name;
+  name.title = node.path;
+
+  label.appendChild(input);
+  label.appendChild(name);
+  row.appendChild(toggle);
+  row.appendChild(label);
+  wrap.appendChild(row);
+
+  if (hasChildren) {
+    const kids = document.createElement("div");
+    kids.className = "tree-children";
+    if (depth >= 1) kids.hidden = true;
+    for (const child of node.children) {
+      kids.appendChild(renderTreeNode(child, depth + 1));
+    }
+    wrap.appendChild(kids);
+    toggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      const open = kids.hidden;
+      kids.hidden = !open;
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  return wrap;
+}
+
+function renderTree(container, nodes, emptyText) {
+  if (!container) return;
+  container.innerHTML = "";
+  container.classList.toggle("is-empty", !nodes?.length);
+  if (!nodes?.length) {
+    container.textContent = emptyText;
+    return;
+  }
+  for (const node of nodes) {
+    container.appendChild(renderTreeNode(node, 0));
+  }
+}
+
+async function refreshExportScope(workspace, options = {}) {
+  const force = Boolean(options.force);
   const hasWorkspace = Boolean(workspace);
-  if (workspace === lastWorkspaceForApps && hasWorkspace) {
-    el.exportSnap.disabled = el.exportApp.disabled || selectedExportApps().length === 0;
+  if (
+    !force &&
+    workspace === lastWorkspaceForScope &&
+    hasWorkspace &&
+    exportChecks.size > 0
+  ) {
+    updateScopeSummary();
     return;
   }
-  lastWorkspaceForApps = workspace;
-  const prev = selectedExportApps();
-  el.exportApp.innerHTML = "";
+  lastWorkspaceForScope = workspace || null;
+  exportChecks.clear();
+
   if (!hasWorkspace) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "（未打开工作区）";
-    el.exportApp.appendChild(opt);
-    el.exportApp.disabled = true;
-    el.exportSnap.disabled = true;
+    renderTree(el.exportTreeStock, [], "未打开工作区");
+    renderTree(el.exportTreeApps, [], "未打开工作区");
+    updateScopeSummary();
     return;
   }
+
   try {
-    const apps = await invoke("list_workspace_apps");
-    if (!apps.length) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "（工作区无 app）";
-      el.exportApp.appendChild(opt);
-      el.exportApp.disabled = true;
-      el.exportSnap.disabled = true;
-      return;
+    const tree = await invoke("list_export_scope");
+    renderTree(el.exportTreeStock, tree.stock || [], "（无 stock 目录）");
+    renderTree(el.exportTreeApps, tree.apps || [], "（无 apps 目录）");
+    // Sync parent indeterminate states after defaults applied.
+    for (const input of exportChecks.values()) {
+      syncAncestors(input);
     }
-    for (const id of apps) {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = id;
-      if (prev.includes(id) || (prev.length === 0 && apps.length === 1)) {
-        opt.selected = true;
-      }
-      el.exportApp.appendChild(opt);
-    }
-    el.exportApp.disabled = false;
-    el.exportSnap.disabled = selectedExportApps().length === 0;
+    updateScopeSummary();
   } catch (e) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "（无法列出 app）";
-    el.exportApp.appendChild(opt);
-    el.exportApp.disabled = true;
+    renderTree(el.exportTreeStock, [], "无法加载");
+    renderTree(el.exportTreeApps, [], "无法加载");
     el.exportSnap.disabled = true;
+    if (el.exportScopeSummary) el.exportScopeSummary.textContent = "（加载失败）";
     setHint(String(e), true);
   }
 }
 
-async function refreshStatus() {
+async function refreshStatus(options = {}) {
   const s = await invoke("host_status");
   let ready = Boolean(s.ready);
   if (s.running && !ready) {
@@ -185,7 +332,9 @@ async function refreshStatus() {
   el.openHost.disabled = !ready;
   el.stop.disabled = !s.running;
   if (s.viewerVersion) applyViewerVersion(s.viewerVersion);
-  await refreshExportApps(s.workspace || null);
+  await refreshExportScope(s.workspace || null, {
+    force: Boolean(options.forceExportScope),
+  });
   if (s.autoOpened && ready) {
     setHint(
       "已从当前工作区自动启动（含 --launch）。菜单「查看 → 显示启动器」或 ⌘/Ctrl+L 可回到本窗口。"
@@ -239,7 +388,8 @@ async function waitReady(title = "正在启动工作区") {
         }
         if (readiness.hostReady && readiness.controlReady) {
           updateStartupProgress(100, "控制面已就绪");
-          await refreshStatus();
+          // 打开/导入完成后强制重拉导出范围（路径可能不变但 apps/stock 已变）
+          await refreshStatus({ forceExportScope: true });
           return readiness;
         }
       }
@@ -396,8 +546,9 @@ el.importSnap.addEventListener("click", async () => {
 el.exportSnap.addEventListener("click", async () => {
   setHint("");
   const appIds = selectedExportApps();
+  const includePaths = selectedExportPaths();
   if (!appIds.length) {
-    setHint("请先选择要导出的 app（可多选）。", true);
+    setHint("请先在「选择导出范围」中勾选至少一个应用目录。", true);
     return;
   }
   if (typeof save !== "function") {
@@ -414,37 +565,27 @@ el.exportSnap.addEventListener("click", async () => {
     if (typeof outPath !== "string") {
       outPath = String(outPath);
     }
-    setHint(`正在导出 ${appIds.join(", ")}…`);
-    const includeMedia = Boolean(el.exportIncludeMedia?.checked);
-    const includeData = Boolean(el.exportIncludeData?.checked);
-    if (includeData || appIds.length > 1) {
-      const okPrep = window.confirm(
-        "可移植导出会先对所选 app 执行完整预构建（compile/import/data/warmup），可能需要数分钟，然后校验产物并打包。确定继续？"
-      );
-      if (!okPrep) {
-        setHint("已取消导出。");
-        return;
-      }
+    const okPrep = window.confirm(
+      "导出会先对所选 app 执行完整预构建（compile/import/data/warmup），可能需要数分钟，然后按勾选目录打包，并自动补齐运行必需配置。确定继续？"
+    );
+    if (!okPrep) {
+      setHint("已取消导出。");
+      return;
     }
-    if (includeMedia) {
+    if (selectionCoversUploadMedia()) {
       const ok = window.confirm(
-        "将包含 upload 下的视频等大媒体，体积可能达到数 GB。确定继续导出？"
+        "当前范围包含 upload（或整个应用目录），可能打入视频等大媒体，体积可达数 GB。若只需图表数据请取消后展开范围并去掉 upload。确定继续？"
       );
       if (!ok) {
         setHint("已取消导出。");
         return;
       }
     }
-    setHint(
-      includeData || appIds.length > 1
-        ? `正在预构建并导出 ${appIds.join(", ")}…`
-        : `正在导出 ${appIds.join(", ")}…`
-    );
+    setHint(`正在预构建并导出 ${appIds.join(", ")}…`);
     const msg = await invoke("export_snapshot", {
       appIds,
       outPath,
-      includeData,
-      includeMedia,
+      includePaths,
     });
     setHint(msg);
   } catch (e) {
@@ -452,9 +593,10 @@ el.exportSnap.addEventListener("click", async () => {
   }
 });
 
-el.exportApp.addEventListener("change", () => {
-  el.exportSnap.disabled = el.exportApp.disabled || selectedExportApps().length === 0;
-});
+el.btnStockAll?.addEventListener("click", () => setTreeAll(el.exportTreeStock, true));
+el.btnStockNone?.addEventListener("click", () => setTreeAll(el.exportTreeStock, false));
+el.btnAppsAll?.addEventListener("click", () => setTreeAll(el.exportTreeApps, true));
+el.btnAppsNone?.addEventListener("click", () => setTreeAll(el.exportTreeApps, false));
 
 el.openHost.addEventListener("click", async () => {
   try {
@@ -486,8 +628,9 @@ el.revealLog.addEventListener("click", async () => {
 el.stop.addEventListener("click", async () => {
   try {
     await invoke("stop_host");
-    lastWorkspaceForApps = null;
-    await refreshStatus();
+    lastWorkspaceForScope = null;
+    exportChecks.clear();
+    await refreshStatus({ forceExportScope: true });
     setHint("已停止。");
   } catch (e) {
     setHint(String(e), true);

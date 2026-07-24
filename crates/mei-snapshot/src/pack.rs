@@ -7,6 +7,7 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
+use crate::export_scope::{app_ids_from_selection, normalize_rel_path, path_is_selected};
 use crate::manifest::{
     DataModeHint, ManifestFileEntry, SnapshotAppEntry, SnapshotManifest, FORMAT_NAME,
     FORMAT_VERSION_V1, FORMAT_VERSION_V2,
@@ -36,6 +37,7 @@ pub struct PackOptions {
 #[derive(Debug, Clone)]
 pub struct PortablePackOptions {
     pub workspace: PathBuf,
+    /// Explicit app ids. When empty and `include_paths` is set, derived from selection.
     pub app_ids: Vec<String>,
     pub out: PathBuf,
     pub default_scene: Option<String>,
@@ -43,8 +45,77 @@ pub struct PortablePackOptions {
     pub workspace_label: Option<String>,
     /// Optional path to platform package root (for stock revision / overlay diff).
     pub package_root: Option<PathBuf>,
-    /// When true, also bundle media files under upload/ (default false).
+    /// Legacy: when `include_paths` is `None`, media under upload/ is gated by this flag.
+    /// Prefer path selection (`apps/<id>/upload/…`) instead.
     pub include_media: bool,
+    /// Workspace-relative folder paths to include (e.g. `stock/gis`, `apps/zhifa/upload`).
+    /// When `Some`, authoring content and stock follow selection; sealed runtime artifacts
+    /// (meibundle / parquet / registry / store-content / portable app.toml) and
+    /// workspace-ops are always auto-supplemented for each exported app.
+    /// When `None`, legacy defaults apply: full selected apps, `stock/gis`, media via `include_media`.
+    pub include_paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedSelection {
+    app_ids: Vec<String>,
+    paths: Vec<String>,
+    /// True when caller provided explicit `include_paths` (Viewer tree).
+    explicit: bool,
+    include_media_legacy: bool,
+}
+
+fn resolve_selection(opts: &PortablePackOptions) -> anyhow::Result<ResolvedSelection> {
+    if let Some(raw_paths) = &opts.include_paths {
+        let paths: Vec<String> = raw_paths
+            .iter()
+            .map(|p| normalize_rel_path(p))
+            .filter(|p| !p.is_empty())
+            .collect();
+        let mut app_ids = app_ids_from_selection(&paths);
+        if !opts.app_ids.is_empty() {
+            app_ids.retain(|id| opts.app_ids.iter().any(|x| x == id));
+        }
+        if app_ids.is_empty() {
+            anyhow::bail!("请至少选择一个应用目录（apps/<id> 或其子文件夹）");
+        }
+        Ok(ResolvedSelection {
+            app_ids,
+            paths,
+            explicit: true,
+            include_media_legacy: false,
+        })
+    } else {
+        if opts.app_ids.is_empty() {
+            anyhow::bail!("portable pack requires at least one app id");
+        }
+        let mut paths: Vec<String> = opts
+            .app_ids
+            .iter()
+            .map(|id| format!("apps/{id}"))
+            .collect();
+        // Legacy portable packs always bundled workspace GIS tiles.
+        paths.push("stock/gis".into());
+        Ok(ResolvedSelection {
+            app_ids: opts.app_ids.clone(),
+            paths,
+            explicit: false,
+            include_media_legacy: opts.include_media,
+        })
+    }
+}
+
+fn app_file_selected(selection: &ResolvedSelection, app_id: &str, rel: &str) -> bool {
+    let full = format!("apps/{app_id}/{}", normalize_rel_path(rel));
+    path_is_selected(&selection.paths, &full)
+}
+
+fn media_file_included(selection: &ResolvedSelection, app_id: &str, rel: &str) -> bool {
+    if selection.explicit {
+        app_file_selected(selection, app_id, rel)
+    } else {
+        selection.include_media_legacy
+    }
 }
 
 /// Legacy v1 pack: single app, exchange/ + optional data-snapshots.
@@ -106,15 +177,13 @@ pub fn pack_snapshot(opts: &PackOptions) -> anyhow::Result<SnapshotManifest> {
 
 /// Portable v2 pack: multi-app, portable config, sealed data, resources manifest.
 pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<SnapshotManifest> {
-    if opts.app_ids.is_empty() {
-        anyhow::bail!("portable pack requires at least one app id");
-    }
+    let selection = resolve_selection(opts)?;
     let staging = tempfile_dir(&opts.out)?;
     let mut resources: Vec<ResourceEntry> = Vec::new();
     let mut app_entries: Vec<SnapshotAppEntry> = Vec::new();
     let mut overall_hint = DataModeHint::Static;
 
-    for app_id in &opts.app_ids {
+    for app_id in &selection.app_ids {
         let app_root = opts.workspace.join("apps").join(app_id);
         if !app_root.is_dir() {
             anyhow::bail!("app directory missing: {}", app_root.display());
@@ -143,7 +212,7 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             recovery: None,
         });
 
-        // Portable runtime config
+        // Portable runtime config (always auto-supplemented + path-fixed)
         let portable = build_portable_app_toml(&app_root, app_id)?;
         let runtime_dir = app_stage.join("runtime");
         fs::create_dir_all(&runtime_dir)?;
@@ -205,23 +274,44 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             });
         }
 
-        // Assets
+        // Assets — selection-driven; referenced structured files auto-supplemented below.
         let assets_src = app_root.join("assets");
         if assets_src.is_dir() {
-            copy_dir_contents(&assets_src, &app_stage.join("assets"))?;
-            resources.push(ResourceEntry {
-                id: format!("{app_id}.assets"),
-                app_id: app_id.clone(),
-                kind: "assets".into(),
-                state: ResourceState::Bundled,
-                target_path: format!("apps/{app_id}/assets"),
-                required_for: Some("ui".into()),
-                severity: ResourceSeverity::Degrade,
-                sha256: None,
-                bytes: None,
-                hint: None,
-                recovery: None,
-            });
+            let mut packed_any = false;
+            for entry in WalkDir::new(&assets_src).into_iter().filter_map(|e| e.ok()) {
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+                let path = entry.path();
+                let rel = path
+                    .strip_prefix(&app_root)?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if !app_file_selected(&selection, app_id, &rel) {
+                    continue;
+                }
+                let dest = app_stage.join(&rel);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::copy(path, &dest)?;
+                packed_any = true;
+            }
+            if packed_any {
+                resources.push(ResourceEntry {
+                    id: format!("{app_id}.assets"),
+                    app_id: app_id.clone(),
+                    kind: "assets".into(),
+                    state: ResourceState::Bundled,
+                    target_path: format!("apps/{app_id}/assets"),
+                    required_for: Some("ui".into()),
+                    severity: ResourceSeverity::Degrade,
+                    sha256: None,
+                    bytes: None,
+                    hint: None,
+                    recovery: None,
+                });
+            }
         }
 
         // Sealed view/eval store — required so Viewer can skip prebuild yet still
@@ -266,9 +356,9 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             });
         }
 
-        // Prototype (if referenced / present)
+        // Prototype (selection-driven)
         let proto_src = app_root.join("prototype");
-        if proto_src.is_dir() {
+        if proto_src.is_dir() && app_file_selected(&selection, app_id, "prototype") {
             copy_dir_contents(&proto_src, &app_stage.join("prototype"))?;
         }
 
@@ -285,11 +375,21 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
 
             if TABLE_EXTENSIONS.contains(&ext.as_str()) {
                 // Parquet is required above; original xlsx is optional (edit-source only).
+                let selected = app_file_selected(&selection, app_id, rel);
+                if selected && abs.is_file() {
+                    let dest = app_stage.join("portable-data").join(rel);
+                    if let Some(parent) = dest.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::copy(&abs, &dest)?;
+                }
                 resources.push(ResourceEntry {
                     id: format!("{app_id}.source.{}", src.id),
                     app_id: app_id.clone(),
                     kind: "xlsx".into(),
-                    state: if abs.is_file() {
+                    state: if selected && abs.is_file() {
+                        ResourceState::Bundled
+                    } else if abs.is_file() {
                         ResourceState::External
                     } else {
                         ResourceState::Missing
@@ -306,12 +406,19 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                     recovery: Some("import_file".into()),
                 });
             } else if STRUCTURED_EXTENSIONS.contains(&ext.as_str()) {
+                // Auto-supplement structured sources for eval (portable config path fix).
                 if abs.is_file() {
-                    let dest = app_stage.join("portable-data").join(rel);
+                    let dest = if rel.starts_with("assets/") {
+                        app_stage.join(rel)
+                    } else {
+                        app_stage.join("portable-data").join(rel)
+                    };
                     if let Some(parent) = dest.parent() {
                         fs::create_dir_all(parent)?;
                     }
-                    fs::copy(&abs, &dest)?;
+                    if !dest.is_file() {
+                        fs::copy(&abs, &dest)?;
+                    }
                     resources.push(ResourceEntry {
                         id: format!("{app_id}.source.{}", src.id),
                         app_id: app_id.clone(),
@@ -322,7 +429,7 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                         severity: ResourceSeverity::Degrade,
                         sha256: sha256_file(&abs).ok(),
                         bytes: fs::metadata(&abs).ok().map(|m| m.len()),
-                        hint: None,
+                        hint: Some("自动补充：配置引用的结构化数据源".into()),
                         recovery: None,
                     });
                 } else {
@@ -341,11 +448,21 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                     });
                 }
             } else {
+                let selected = app_file_selected(&selection, app_id, rel);
+                if selected && abs.is_file() {
+                    let dest = app_stage.join("portable-data").join(rel);
+                    if let Some(parent) = dest.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::copy(&abs, &dest)?;
+                }
                 resources.push(ResourceEntry {
                     id: format!("{app_id}.source.{}", src.id),
                     app_id: app_id.clone(),
                     kind: src.kind.clone(),
-                    state: if abs.is_file() {
+                    state: if selected && abs.is_file() {
+                        ResourceState::Bundled
+                    } else if abs.is_file() {
                         ResourceState::External
                     } else {
                         ResourceState::Missing
@@ -358,13 +475,17 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                         .is_file()
                         .then(|| fs::metadata(&abs).ok().map(|m| m.len()))
                         .flatten(),
-                    hint: Some("该数据源未自动入包，需另行补齐".into()),
+                    hint: Some(if selected {
+                        "已按导出范围入包".into()
+                    } else {
+                        "该数据源未在导出范围内，需另行补齐".into()
+                    }),
                     recovery: Some("import_file".into()),
                 });
             }
         }
 
-        // Scan upload for media → external by default
+        // Pack other selected upload files + media classification
         if upload_root.is_dir() {
             for entry in WalkDir::new(&upload_root)
                 .into_iter()
@@ -383,52 +504,65 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                if !MEDIA_EXTENSIONS.contains(&ext.as_str()) {
-                    continue;
-                }
-                if opts.include_media {
+                let is_media = MEDIA_EXTENSIONS.contains(&ext.as_str());
+                let already = app_stage.join("portable-data").join(&rel).is_file();
+
+                if is_media {
+                    if media_file_included(&selection, app_id, &rel) {
+                        if !already {
+                            let dest = app_stage.join("portable-data").join(&rel);
+                            if let Some(parent) = dest.parent() {
+                                fs::create_dir_all(parent)?;
+                            }
+                            fs::copy(path, &dest)?;
+                        }
+                        resources.push(ResourceEntry {
+                            id: format!("{app_id}.media.{}", rel.replace('/', ".")),
+                            app_id: app_id.clone(),
+                            kind: if ext == "pdf" { "pdf" } else { "video" }.into(),
+                            state: ResourceState::Bundled,
+                            target_path: format!("apps/{app_id}/{rel}"),
+                            required_for: Some("media-playback".into()),
+                            severity: ResourceSeverity::Degrade,
+                            sha256: sha256_file(path).ok(),
+                            bytes: fs::metadata(path).ok().map(|m| m.len()),
+                            hint: Some("已按导出范围打包大媒体".into()),
+                            recovery: None,
+                        });
+                    } else {
+                        resources.push(ResourceEntry {
+                            id: format!("{app_id}.media.{}", rel.replace('/', ".")),
+                            app_id: app_id.clone(),
+                            kind: if ext == "pdf" { "pdf" } else { "video" }.into(),
+                            state: ResourceState::External,
+                            target_path: format!("apps/{app_id}/{rel}"),
+                            required_for: Some("media-playback".into()),
+                            severity: ResourceSeverity::Info,
+                            sha256: sha256_file(path).ok(),
+                            bytes: fs::metadata(path).ok().map(|m| m.len()),
+                            hint: Some(
+                                "大媒体未在导出范围内，不影响图表；Viewer「补齐资源」可导入".into(),
+                            ),
+                            recovery: Some("import_file".into()),
+                        });
+                    }
+                } else if app_file_selected(&selection, app_id, &rel) && !already {
                     let dest = app_stage.join("portable-data").join(&rel);
                     if let Some(parent) = dest.parent() {
                         fs::create_dir_all(parent)?;
                     }
                     fs::copy(path, &dest)?;
-                    resources.push(ResourceEntry {
-                        id: format!("{app_id}.media.{}", rel.replace('/', ".")),
-                        app_id: app_id.clone(),
-                        kind: "video".into(),
-                        state: ResourceState::Bundled,
-                        target_path: format!("apps/{app_id}/{rel}"),
-                        required_for: Some("media-playback".into()),
-                        severity: ResourceSeverity::Degrade,
-                        sha256: sha256_file(path).ok(),
-                        bytes: fs::metadata(path).ok().map(|m| m.len()),
-                        hint: Some("可选：大媒体（已勾选「包含大媒体」）".into()),
-                        recovery: None,
-                    });
-                } else {
-                    resources.push(ResourceEntry {
-                        id: format!("{app_id}.media.{}", rel.replace('/', ".")),
-                        app_id: app_id.clone(),
-                        kind: if ext == "pdf" { "pdf" } else { "video" }.into(),
-                        state: ResourceState::External,
-                        target_path: format!("apps/{app_id}/{rel}"),
-                        required_for: Some("media-playback".into()),
-                        severity: ResourceSeverity::Info,
-                        sha256: sha256_file(path).ok(),
-                        bytes: fs::metadata(path).ok().map(|m| m.len()),
-                        hint: Some(
-                            "可选：大媒体默认外置，不影响图表；Viewer「补齐资源」可导入".into(),
-                        ),
-                        recovery: Some("import_file".into()),
-                    });
                 }
             }
         }
 
-        // GIS: workspace stock/gis is packed once at workspace level (see pack_workspace_gis).
-        // Per-app marker remains for replenish UI when tiles were missing at pack time.
+        // GIS marker: bundled only when stock/gis tiles are in selection and present.
         let gis_tiles = opts.workspace.join("stock").join("gis").join("tiles");
-        let has_tiles = gis_tiles.is_dir()
+        let gis_selected = path_is_selected(&selection.paths, "stock/gis")
+            || path_is_selected(&selection.paths, "stock/gis/tiles")
+            || path_is_selected(&selection.paths, "stock");
+        let has_tiles = gis_selected
+            && gis_tiles.is_dir()
             && std::fs::read_dir(&gis_tiles)
                 .map(|rd| {
                     rd.filter_map(|e| e.ok()).any(|e| {
@@ -456,8 +590,10 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
             bytes: None,
             hint: Some(if has_tiles {
                 "工作区 stock/gis/tiles 已打入包；Host 启动时自动托管 Martin".into()
-            } else {
+            } else if gis_selected {
                 "工作区缺少 stock/gis/tiles/*.mbtiles；无底图时地图其他功能仍可用".into()
+            } else {
+                "未选择 stock/gis；无底图时地图其他功能仍可用".into()
             }),
             recovery: if has_tiles {
                 None
@@ -491,16 +627,17 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         });
     }
 
-    // Stock overlay: workspace stock files that differ from package (when package_root set)
+    // Stock overlay: only files under selected stock paths
     pack_stock_overlay(
         &opts.workspace,
         opts.package_root.as_deref(),
         &staging,
+        &selection.paths,
         &mut resources,
     )?;
 
-    // Workspace GIS tiles (mbtiles) — default bundled for portable demos.
-    pack_workspace_gis(&opts.workspace, &staging, &mut resources)?;
+    // Selected stock folders (e.g. stock/gis) — no longer always-on.
+    pack_selected_stock(&opts.workspace, &staging, &selection.paths, &mut resources)?;
 
     // Workspace scene theme library (colors / role maps). Without this, Viewer
     // home workspace.json has no ops.sceneThemes and Access falls back to Host
@@ -518,13 +655,13 @@ pub fn pack_portable_snapshot(opts: &PortablePackOptions) -> anyhow::Result<Snap
         serde_json::to_vec_pretty(&resources_doc)?,
     )?;
 
-    let readme = build_readme(&opts.app_ids, &resources_doc);
+    let readme = build_readme(&selection.app_ids, &resources_doc);
     fs::write(staging.join("README.txt"), readme.as_bytes())?;
 
     let mut files = collect_file_entries(&staging)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let primary = opts.app_ids[0].clone();
+    let primary = selection.app_ids[0].clone();
     let manifest = SnapshotManifest {
         format: FORMAT_NAME.to_string(),
         format_version: FORMAT_VERSION_V2,
@@ -558,6 +695,7 @@ fn pack_stock_overlay(
     workspace: &Path,
     package_root: Option<&Path>,
     staging: &Path,
+    selected_paths: &[String],
     resources: &mut Vec<ResourceEntry>,
 ) -> anyhow::Result<()> {
     let ws_stock = workspace.join("stock");
@@ -576,12 +714,19 @@ fn pack_stock_overlay(
             }
             let path = entry.path();
             let rel = path
+                .strip_prefix(workspace)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            if !path_is_selected(selected_paths, &rel) {
+                continue;
+            }
+            let stock_rel = path
                 .strip_prefix(&ws_stock)?
                 .to_string_lossy()
                 .replace('\\', "/");
             let include = match package_root {
                 Some(pkg) => {
-                    let platform = pkg.join("stock").join(&rel);
+                    let platform = pkg.join("stock").join(&stock_rel);
                     if !platform.is_file() {
                         true
                     } else {
@@ -597,7 +742,7 @@ fn pack_stock_overlay(
             if !include {
                 continue;
             }
-            let dest = staging.join("stock-overlay").join(&rel);
+            let dest = staging.join("stock-overlay").join(&stock_rel);
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -683,19 +828,21 @@ fn pack_workspace_scene_ops(
     Ok(())
 }
 
-/// Bundle workspace `stock/gis/**` (primarily `tiles/*.mbtiles`) into the portable zip.
-fn pack_workspace_gis(
+/// Bundle selected workspace `stock/**` folders into the portable zip.
+fn pack_selected_stock(
     workspace: &Path,
     staging: &Path,
+    selected_paths: &[String],
     resources: &mut Vec<ResourceEntry>,
 ) -> anyhow::Result<()> {
-    let gis_root = workspace.join("stock").join("gis");
-    if !gis_root.is_dir() {
+    let stock_root = workspace.join("stock");
+    if !stock_root.is_dir() {
         return Ok(());
     }
     let mut file_count = 0usize;
     let mut total_bytes = 0u64;
-    for entry in WalkDir::new(&gis_root).into_iter().filter_map(|e| e.ok()) {
+    let mut packed_gis = false;
+    for entry in WalkDir::new(&stock_root).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -704,6 +851,9 @@ fn pack_workspace_gis(
             .strip_prefix(workspace)?
             .to_string_lossy()
             .replace('\\', "/");
+        if !path_is_selected(selected_paths, &rel) {
+            continue;
+        }
         let dest = staging.join(&rel);
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
@@ -712,6 +862,9 @@ fn pack_workspace_gis(
         let bytes = fs::metadata(path).ok().map(|m| m.len());
         total_bytes += bytes.unwrap_or(0);
         file_count += 1;
+        if rel.starts_with("stock/gis/") {
+            packed_gis = true;
+        }
         let is_mbtiles = path
             .extension()
             .and_then(|e| e.to_str())
@@ -735,17 +888,17 @@ fn pack_workspace_gis(
     }
     if file_count > 0 {
         resources.push(ResourceEntry {
-            id: "workspace.gis.stock".into(),
+            id: "workspace.stock.selected".into(),
             app_id: "*".into(),
-            kind: "gis".into(),
+            kind: if packed_gis { "gis" } else { "stock" }.into(),
             state: ResourceState::Bundled,
-            target_path: "stock/gis".into(),
-            required_for: Some("basemap".into()),
+            target_path: "stock".into(),
+            required_for: Some(if packed_gis { "basemap" } else { "stock" }.into()),
             severity: ResourceSeverity::Info,
             sha256: None,
             bytes: Some(total_bytes),
             hint: Some(format!(
-                "已打包工作区 stock/gis（{file_count} 个文件，约 {} MiB）",
+                "已按导出范围打包 stock（{file_count} 个文件，约 {} MiB）",
                 total_bytes / (1024 * 1024)
             )),
             recovery: None,
@@ -1104,6 +1257,7 @@ path = "upload/t.csv"
             workspace_label: Some("demo".into()),
             package_root: None,
             include_media: false,
+            include_paths: None,
         })
         .unwrap();
         assert_eq!(manifest.format_version, FORMAT_VERSION_V2);
@@ -1160,11 +1314,83 @@ path = "assets/foot.geojson"
             workspace_label: Some("demo".into()),
             package_root: None,
             include_media: false,
+            include_paths: None,
         })
         .unwrap();
         assert_eq!(manifest.format_version, FORMAT_VERSION_V2);
         assert_eq!(manifest.apps[0].data_mode_hint, DataModeHint::Static);
         assert_eq!(manifest.data_mode_hint, DataModeHint::Static);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn pack_portable_respects_include_paths_selection() {
+        let tmp = std::env::temp_dir().join(format!("mei-snap-sel-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let ws = tmp.join("ws");
+        let app = "a";
+        let app_root = ws.join("apps").join(app);
+        let env = app_root.join("env").join("WS-1");
+        let exchange = env.join("build").join("exchange");
+        fs::create_dir_all(&exchange).unwrap();
+        fs::write(exchange.join(format!("{app}.meibundle")), b"bundle").unwrap();
+        fs::create_dir_all(env.join("var").join("data-snapshots")).unwrap();
+        fs::write(
+            env.join("var")
+                .join("data-snapshots")
+                .join("import-manifest.json"),
+            br#"{"schema_version":"mei-dataset-import-manifest-v1","entries":[]}"#,
+        )
+        .unwrap();
+        fs::write(
+            env.join("var").join("data-snapshots").join("x.parquet"),
+            b"pq",
+        )
+        .unwrap();
+        fs::create_dir_all(app_root.join("upload").join("videos")).unwrap();
+        fs::write(app_root.join("upload").join("t.csv"), b"c\n1\n").unwrap();
+        fs::write(app_root.join("upload").join("videos").join("clip.mp4"), b"mp4").unwrap();
+        fs::create_dir_all(app_root.join("assets")).unwrap();
+        fs::write(app_root.join("assets").join("bg.png"), b"png").unwrap();
+        fs::write(
+            app_root.join("app.toml"),
+            r#"
+title = "a"
+app_id = "a"
+default_stage = "home"
+
+[ops.sources.table]
+kind = "csv"
+path = "upload/t.csv"
+"#,
+        )
+        .unwrap();
+        let tiles = ws.join("stock").join("gis").join("tiles");
+        fs::create_dir_all(&tiles).unwrap();
+        fs::write(tiles.join("demo.mbtiles"), b"mbtiles-bytes").unwrap();
+
+        let out = tmp.join("sel.mei-snapshot.zip");
+        // Only assets selected — no stock/gis, no upload videos; csv auto-supplemented.
+        let manifest = pack_portable_snapshot(&PortablePackOptions {
+            workspace: ws,
+            app_ids: vec![],
+            out: out.clone(),
+            default_scene: Some("home".into()),
+            compiler_version: Some("test".into()),
+            workspace_label: None,
+            package_root: None,
+            include_media: false,
+            include_paths: Some(vec!["apps/a/assets".into()]),
+        })
+        .unwrap();
+        assert_eq!(manifest.format_version, FORMAT_VERSION_V2);
+
+        let dest = tmp.join("unpacked");
+        let _ = unpack_snapshot(&out, &dest).unwrap();
+        assert!(dest.join("apps/a/assets/bg.png").is_file());
+        assert!(dest.join("apps/a/portable-data/upload/t.csv").is_file());
+        assert!(!dest.join("apps/a/portable-data/upload/videos/clip.mp4").is_file());
+        assert!(!dest.join("stock/gis/tiles/demo.mbtiles").is_file());
         let _ = fs::remove_dir_all(&tmp);
     }
 }

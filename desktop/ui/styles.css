@@ -269,11 +269,11 @@ h1 {
   opacity: 1;
 }
 
-.export-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 0.85rem 1rem;
-  align-items: start;
+.export-scope-fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  flex-wrap: wrap;
 }
 
 .field-label {
@@ -286,40 +286,149 @@ h1 {
   margin-bottom: 0.4rem;
 }
 
-.export-apps,
-.export-options {
+.scope-summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 450;
+}
+
+.export-scope-body {
+  padding-top: 0.75rem;
+}
+
+.export-trees {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.9rem 1rem;
+  align-items: stretch;
+}
+
+.export-tree-pane {
   min-width: 0;
-}
-
-.export-apps select {
-  width: 100%;
-  appearance: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #0b1016;
-  color: var(--text);
-  font: inherit;
-  padding: 0.45rem 0.65rem;
-  min-height: 6.5rem;
-}
-
-.export-apps select:disabled {
-  opacity: 0.45;
-}
-
-.export-options {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 10px;
-  background: var(--panel-soft);
-  border: 1px solid var(--border);
-  min-height: 6.5rem;
 }
 
-.option-row {
-  width: 100%;
+.export-tree-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.export-tree-head .field-label {
+  margin-bottom: 0.15rem;
+}
+
+.tree-hint {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.tree-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.export-tree {
+  min-height: 280px;
+  height: min(52vh, 480px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0b1016;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.86rem;
+}
+
+.export-tree.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.tree-node {
+  user-select: none;
+}
+
+.tree-node-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.2rem;
+  border-radius: 6px;
+}
+
+.tree-node-row:hover {
+  background: color-mix(in srgb, var(--panel-soft) 80%, transparent);
+}
+
+.tree-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tree-toggle.is-leaf {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tree-toggle[aria-expanded="true"] {
+  transform: rotate(90deg);
+}
+
+.tree-node-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  cursor: pointer;
+  flex: 1;
+}
+
+.tree-node-row input[type="checkbox"] {
+  flex-shrink: 0;
+}
+
+.tree-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-children {
+  margin-left: 1.05rem;
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  padding-left: 0.35rem;
+}
+
+.tree-children[hidden] {
+  display: none;
+}
+
+.export-note {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.export-note code {
+  font-size: 0.78em;
+  color: #9ecbff;
 }
 
 .compact-primary {
@@ -559,7 +668,7 @@ body.startup-busy .panel-export {
 @media (max-width: 860px) {
   .path-grid,
   .action-grid-4,
-  .export-layout {
+  .export-trees {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -572,7 +681,7 @@ body.startup-busy .panel-export {
 @media (max-width: 560px) {
   .path-grid,
   .action-grid-4,
-  .export-layout {
+  .export-trees {
     grid-template-columns: 1fr;
   }
 
@@ -582,5 +691,9 @@ body.startup-busy .panel-export {
 
   .panel-head {
     flex-direction: column;
+  }
+
+  .export-tree {
+    height: min(40vh, 360px);
   }
 }

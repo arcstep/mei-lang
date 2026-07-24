@@ -846,7 +846,8 @@ function chartShellHtml(defaultTitle, props = {}) {
         padding: ${compact ? "0" : "14px"};
         border-radius: 0;
         border: ${compact ? "none" : "1px solid rgba(148,163,184,.2)"};
-        background: ${compact ? "transparent" : "rgba(15,23,42,.64)"};
+        /* Chart chrome stays transparent so section/panel theme tokens show through. */
+        background: transparent;
         box-sizing: border-box;
         min-height: 0;
       }
@@ -945,7 +946,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         height: 5px;
         border-radius: 0;
         overflow: hidden;
-        background: rgba(148, 163, 184, 0.14);
+        background: transparent;
         border: 1px solid rgba(100, 116, 139, 0.35);
         box-sizing: border-box;
       }
@@ -1625,8 +1626,8 @@ function canvasThemeColor(host, token) {
   return readThemeColor(host, token);
 }
 
-/** 驾驶舱紧凑柱/线图：浅灰绘图区底 + 低对比网格线（避免默认白线抢眼） */
-const COCKPIT_CARTESIAN_GRID_BG = "rgba(148, 163, 184, 0.12)";
+/** 驾驶舱紧凑柱/线图：绘图区透明，背景交给外层 section/panel theme。 */
+const COCKPIT_CARTESIAN_GRID_BG = "transparent";
 const COCKPIT_CARTESIAN_SPLIT_LINE = {
   show: true,
   lineStyle: {
@@ -2008,7 +2009,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     : resolveCompactCartesianGrid(chartProps, legacy, categoryAxisRotate);
   const categoryAxisLabel = buildCategoryAxisLabel(chartProps, themeTypography);
   const option = {
-    backgroundColor: legacy.compact ? "transparent" : undefined,
+    backgroundColor: "transparent",
     tooltip: echartsTooltip(themeTypography, "axis", {}, host),
     legend: legacy.showLegend
       ? {
@@ -2421,7 +2422,7 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
     chartEl.parentElement.style.overflow = pullUp > 0 ? "visible" : "hidden";
   }
   const barColor = theme.barColor || canvasThemeColor(props.__host, "chart_2");
-  const trackBg = theme.barBackground || "rgba(148, 163, 184, 0.14)";
+  const trackBg = theme.barBackground || "transparent";
   const trackBorder = theme.barBackgroundBorder || "rgba(100, 116, 139, 0.35)";
   const valueUnit = String(model.valueName || "").trim();
   const showValueUnit = valueUnit.length > 0 && valueUnit.length <= 4;
@@ -2466,7 +2467,7 @@ function resolveRankingTheme(props) {
       canvasThemeColor(host, "chart_2"),
     barBackground:
       String(props.barBackground || props.bar_background || "").trim() ||
-      "rgba(148, 163, 184, 0.14)",
+      "transparent",
     barBackgroundBorder:
       String(props.barBackgroundBorder || props.bar_background_border || "").trim() ||
       "rgba(100, 116, 139, 0.35)",
