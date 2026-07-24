@@ -75,6 +75,7 @@ mod startup_banner;
 mod state;
 mod thin_shell_page_cache;
 mod tool_exec;
+mod training_api;
 mod upload_api;
 mod upload_support;
 mod view_revision;

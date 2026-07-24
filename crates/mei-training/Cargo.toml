@@ -1,0 +1,16 @@
+[package]
+name = "mei-training"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Built-in item-based mastery training kernel (SM-2 + file progress store)"
+
+[dependencies]
+anyhow.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

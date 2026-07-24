@@ -296,7 +296,8 @@ pub use warmup_t2_page_autogen::{
 };
 pub use workspace::{
     audit_component_preview_coverage, discover_apps, discover_apps_with_config,
-    discover_build_apps, load_component_assets, read_source_file, source_tree,
+    discover_build_apps, load_component_assets, load_component_assets_for_app, read_source_file,
+    source_tree,
 };
 pub use workspace_profile::{
     RuntimePlanAppDryRun, RuntimePlanReferenceCheck, WorkspaceProfileDocument,

@@ -21,6 +21,7 @@ mei-lang-app = { path = "app" }
 mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-snapshot = { path = "../crates/mei-snapshot" }
+mei-training = { path = "../crates/mei-training" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

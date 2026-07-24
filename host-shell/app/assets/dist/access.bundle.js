@@ -42996,13 +42996,9 @@
         normalized.includes("center_top")
       );
     }
-    return (
-      normalized.includes("right_rail") ||
-      normalized.includes("left_rail") ||
-      normalized.includes("header") ||
-      normalized.includes("center_top") ||
-      normalized.includes("realtime_center")
-    );
+    // Default allow for T1 app content (e.g. t1/main/practice for wubi).
+    // Historical cockpit rails/header remain clickable; map scopes already denied above.
+    return true;
   }
 
   function normalizeT1InteractivePointerEvents(root) {

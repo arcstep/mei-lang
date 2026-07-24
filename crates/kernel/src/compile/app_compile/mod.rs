@@ -19,7 +19,7 @@ use crate::{
     },
     model::{AppDecl, CompiledApp, CompiledSceneRoute, Diagnostic, SceneContract, Severity},
     typed_refs::SceneRegistry,
-    workspace::load_component_assets,
+    workspace::load_component_assets_for_app,
 };
 
 use super::app_decl::decode_app_decl;
@@ -149,7 +149,7 @@ pub fn compile_app_from_root_with_options_and_revision(
     let mut route_registry =
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 
-    let asset_map = load_component_assets(source_root)?;
+    let asset_map = load_component_assets_for_app(source_root, app_decl.id.as_str())?;
     let preview_only = is_manage_preview_only_compile(&options, app_entry_main.as_str());
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     inject_discovered_entry_scene_routes(

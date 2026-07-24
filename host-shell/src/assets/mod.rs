@@ -218,6 +218,13 @@ pub async fn component_asset(
     let workspace_asset = resolve_component_asset_path(&components_root, &path);
     let asset_path = if workspace_asset.exists() {
         workspace_asset
+    } else if is_safe_workspace_component_rel(path.as_str()) {
+        let from_workspace_root = workspace_root.join(&path);
+        if from_workspace_root.exists() {
+            from_workspace_root
+        } else {
+            package_root.join("stock/components").join(&path)
+        }
     } else {
         package_root.join("stock/components").join(&path)
     };
@@ -385,4 +392,13 @@ fn resolve_component_asset_path(components_root: &Path, request_path: &str) -> P
         }
     }
     requested
+}
+
+fn is_safe_workspace_component_rel(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    !normalized.is_empty()
+        && !normalized.starts_with('/')
+        && !normalized.contains("..")
+        && normalized.starts_with("apps/")
+        && normalized.contains("/stock/components/")
 }

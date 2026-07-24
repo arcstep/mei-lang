@@ -44,6 +44,8 @@ fn is_public_path(path: &str) -> bool {
         || path == "/api/auth/login"
         || path == "/api/auth/session"
         || path == "/api/auth/logout"
+        // Training progress APIs: anonymous allowed (handler falls back to learner `dev`).
+        || path.starts_with("/api/training/")
 }
 
 fn extract_wildcard_app_id(path: &str, prefix: &str) -> Option<String> {

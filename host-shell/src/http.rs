@@ -59,6 +59,7 @@ use crate::shell_redirects::{
     redirect_root_to_home,
 };
 use crate::state::{HostHttpState, SharedState};
+use crate::training_api::{api_training_next, api_training_review, api_training_session};
 use crate::upload_api::{
     upload_chunk_complete_post, upload_chunk_init_post, upload_chunk_put, upload_chunk_status_get,
     upload_dir_create_post, upload_entry_rename_post, upload_file_delete, upload_file_download_get,
@@ -333,6 +334,12 @@ pub fn router(state: HostHttpState) -> Router {
             "/api/auth/change-password",
             post(mei_host_auth::auth_change_password),
         )
+        .route(
+            "/api/training/:app_id/session",
+            get(api_training_session),
+        )
+        .route("/api/training/:app_id/next", post(api_training_next))
+        .route("/api/training/:app_id/review", post(api_training_review))
         .route("/api/agent/config", get(api_agent_config_stub))
         .route("/api/agent/runtime", get(api_agent_runtime_stub))
         .route("/api/agent/skill", get(api_agent_skill_stub))

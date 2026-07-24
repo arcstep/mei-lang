@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    apply_cockpit_stage_decl, load_component_assets, load_mei_config_for_app,
+    apply_cockpit_stage_decl, load_component_assets_for_app, load_mei_config_for_app,
     normalize_panel_slots_with_options, resolve_app_root, CockpitFillDecl, CockpitStageDecl,
     CockpitStepDecl, CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic,
     LayoutBudgetValidateOptions, LoadedResource, ObjectCatalog, ObjectResolver, SceneContract,
@@ -444,7 +444,7 @@ fn assemble_scope_from_registry_uncached(
     let world_exchange =
         build_world_exchange(app_root.as_path(), &registry, app_id).unwrap_or_default();
     let (component_assets, component_diagnostics) =
-        collect_component_assets_for_panels(source_root, &panels)?;
+        collect_component_assets_for_panels(source_root, app_id, &panels)?;
     panel_diagnostics.extend(component_diagnostics);
     panel_diagnostics.extend(lower_diags.take());
     panel_diagnostics.extend(collect_unresolved_link_diagnostics(&panels));
@@ -1776,9 +1776,10 @@ fn extract_assembly_ref(payload: &Value) -> Option<String> {
 
 fn collect_component_assets_for_panels(
     source_root: &Path,
+    app_id: &str,
     panels: &[UiNodeDecl],
 ) -> Result<(Vec<ComponentAsset>, Vec<Diagnostic>)> {
-    let asset_map = load_component_assets(source_root)?;
+    let asset_map = load_component_assets_for_app(source_root, app_id)?;
     let mut asset_keys = BTreeSet::new();
     let mut asset_scopes = BTreeMap::<String, Option<String>>::new();
     for panel in panels {
@@ -1794,7 +1795,7 @@ fn collect_component_assets_for_panels(
                 severity: mei_lang_kernel::Severity::Error,
                 code: "unknown_component".to_string(),
                 message: format!(
-                    "component `{key}` is not registered in stock/components manifests"
+                    "component `{key}` is not registered in stock/components or apps/{app_id}/stock/components manifests"
                 ),
                 source_path: asset_scopes.get(&key).cloned().flatten(),
             });
