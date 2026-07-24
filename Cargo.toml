@@ -18,6 +18,7 @@ members = [
   "crates/mei-plug-ds",
   "crates/mei-app-runtime",
   "crates/mei-snapshot",
+  "crates/mei-training",
   "crates/mei-test-support",
   "host-shell",
   "server",
@@ -29,7 +30,7 @@ exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "2.7.14"
+version = "2.7.15"
 license = "MIT"
 
 [workspace.dependencies]
