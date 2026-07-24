@@ -1,6 +1,6 @@
 {
   "name": "mei-viewer",
-  "version": "2.7.15",
+  "version": "2.7.16",
   "private": true,
   "type": "module",
   "description": "mei-viewer — Tauri shell over mei-host-shell",
