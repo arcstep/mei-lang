@@ -12,8 +12,8 @@ use axum::{
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::resolve_app_root;
 use mei_training::{
-    load_wubi_catalog, next_item, now_millis, review_item, session_summary, LearnerStore,
-    NextRequest, ReviewRequest, TrainingMode, WubiCatalog,
+    load_wubi_catalog, next_item, now_millis, review_item, session_summary, LadderStage,
+    LearnerStore, NextRequest, PracticeIntent, ReviewRequest, TrainingMode, WubiCatalog,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -101,6 +101,12 @@ pub struct NextBody {
     pub show_hint: bool,
     #[serde(default)]
     pub open_d2: bool,
+    #[serde(default)]
+    pub intent: Option<String>,
+    #[serde(default)]
+    pub pack_id: Option<String>,
+    #[serde(default)]
+    pub target_ladder: Option<String>,
 }
 
 pub async fn api_training_next(
@@ -128,11 +134,23 @@ pub async fn api_training_next(
         Ok(c) => c,
         Err(resp) => return resp,
     };
+    let intent = body
+        .intent
+        .as_deref()
+        .and_then(PracticeIntent::parse)
+        .unwrap_or(PracticeIntent::Steady);
+    let target_ladder = body
+        .target_ladder
+        .as_deref()
+        .and_then(LadderStage::parse);
     let store = LearnerStore::open(workspace.as_path(), app_id.as_str(), username.as_str());
     let req = NextRequest {
         mode,
         show_hint: body.show_hint,
         open_d2: body.open_d2,
+        intent,
+        pack_id: body.pack_id,
+        target_ladder,
     };
     match next_item(&store, &catalog, &req, now_millis()) {
         Ok(Ok(item)) => Json(item).into_response(),
@@ -155,6 +173,15 @@ pub struct ReviewBody {
     pub correct: Option<bool>,
     #[serde(default)]
     pub latency_ms: u64,
+    /// Optional fluency threshold (ms). Correct-but-slow → Hard when set.
+    #[serde(default)]
+    pub time_target_ms: Option<u64>,
+    #[serde(default)]
+    pub intent: Option<String>,
+    #[serde(default)]
+    pub pack_id: Option<String>,
+    #[serde(default)]
+    pub target_ladder: Option<String>,
 }
 
 pub async fn api_training_review(
@@ -182,6 +209,15 @@ pub async fn api_training_review(
         Ok(c) => c,
         Err(resp) => return resp,
     };
+    let intent = body
+        .intent
+        .as_deref()
+        .and_then(PracticeIntent::parse)
+        .unwrap_or(PracticeIntent::Steady);
+    let target_ladder = body
+        .target_ladder
+        .as_deref()
+        .and_then(LadderStage::parse);
     let store = LearnerStore::open(workspace.as_path(), app_id.as_str(), username.as_str());
     let req = ReviewRequest {
         mode,
@@ -189,6 +225,10 @@ pub async fn api_training_review(
         answer: body.answer,
         correct: body.correct,
         latency_ms: body.latency_ms,
+        time_target_ms: body.time_target_ms,
+        intent,
+        pack_id: body.pack_id,
+        target_ladder,
     };
     match review_item(&store, &catalog, &req, now_millis()) {
         Ok(result) => Json(result).into_response(),

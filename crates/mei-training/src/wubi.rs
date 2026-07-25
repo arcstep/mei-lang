@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -6,6 +6,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::packs::{load_pack_catalog, PackCatalog};
 use crate::queue::TrainingMode;
 
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub struct WubiRadicalItem {
 pub struct WubiCatalog {
     pub chars: BTreeMap<String, WubiCharItem>,
     pub radicals: BTreeMap<String, WubiRadicalItem>,
+    pub packs: PackCatalog,
 }
 
 impl WubiCatalog {
@@ -41,12 +43,13 @@ impl WubiCatalog {
                 .map(|k| format!("radical:{k}"))
                 .collect(),
             TrainingMode::CharToCode => {
+                // Legacy path: keep for tests without packs; prefer pack-based pools in queue.
                 let mut ids: Vec<String> = self
                     .chars
                     .values()
                     .filter(|c| match char_pool {
-                        "d2" => true,
-                        _ => c.tier == "d1",
+                        "d2" | "all" => true,
+                        _ => c.tier == "d1" || c.tier == "pack",
                     })
                     .map(|c| format!("char:{}", c.ch))
                     .collect();
@@ -56,15 +59,34 @@ impl WubiCatalog {
         }
     }
 
+    pub fn all_char_item_ids(&self) -> Vec<String> {
+        self.chars.keys().map(|ch| format!("char:{ch}")).collect()
+    }
+
+    pub fn radical_item_ids(&self) -> Vec<String> {
+        self.radicals
+            .keys()
+            .map(|k| format!("radical:{k}"))
+            .collect()
+    }
+
     pub fn payload_for(&self, item_id: &str, show_hint: bool) -> Value {
         if let Some(c) = self.resolve_char(item_id) {
+            let brief = level1_brief_key(&c.ch);
             let mut obj = json!({
                 "kind": "char",
                 "char": c.ch,
                 "tier": c.tier,
+                "full_code": c.code,
             });
+            if let Some(b) = brief {
+                obj["brief_code"] = json!(b);
+                obj["code_mode"] = json!("level1_brief");
+            }
             if show_hint {
-                let hint = c.code.chars().next().map(|ch| ch.to_string());
+                let hint = brief
+                    .map(|s| s.to_string())
+                    .or_else(|| c.code.chars().next().map(|ch| ch.to_string()));
                 obj["hint"] = json!(hint);
             }
             return obj;
@@ -87,9 +109,17 @@ impl WubiCatalog {
         client_correct: Option<bool>,
     ) -> (bool, Option<String>) {
         if let Some(c) = self.resolve_char(item_id) {
-            let expected = c.code.to_ascii_lowercase();
+            let full = c.code.to_ascii_lowercase();
             let got = answer.unwrap_or("").trim().to_ascii_lowercase();
-            return (got == expected, Some(expected));
+            // 一级简码：练习目标为单键；全码也接受。
+            if let Some(brief) = level1_brief_key(&c.ch) {
+                let brief = brief.to_ascii_lowercase();
+                if got == brief || got == full {
+                    return (true, Some(brief));
+                }
+                return (false, Some(brief));
+            }
+            return (got == full, Some(full));
         }
         if let Some(r) = self.resolve_radical(item_id) {
             let expected = r.key.to_ascii_lowercase();
@@ -118,10 +148,6 @@ struct CharBundleFile {
 #[derive(Debug, Deserialize)]
 struct CharBundleEntry {
     code: String,
-    #[serde(default)]
-    tier: Option<String>,
-    #[serde(default)]
-    level: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,6 +176,57 @@ fn is_practice_han(ch: &str) -> bool {
     // CJK Unified Ideographs only. Excludes 〇 (U+3007) and Extension A (U+3400+)
     // which Unicode-sort to the front and look like empty / unreadable glyphs.
     matches!(c as u32, 0x4E00..=0x9FFF)
+}
+
+/// 新世纪常用一级简码（键 → 字）。练习目标为单键；与 `build_training_packs.py` 对齐。
+pub fn level1_brief_key(ch: &str) -> Option<&'static str> {
+    Some(match ch {
+        "一" => "g",
+        "地" => "f",
+        "在" => "d",
+        "要" => "s",
+        "工" => "a",
+        "上" => "h",
+        "是" => "j",
+        "中" => "k",
+        "国" => "l",
+        "同" => "m",
+        "和" => "t",
+        "的" => "r",
+        "有" => "e",
+        "人" => "w",
+        "我" => "q",
+        "主" => "y",
+        "产" => "u",
+        "不" => "i",
+        "为" => "o",
+        "这" => "p",
+        "民" => "n",
+        "了" => "b",
+        "发" => "v",
+        "以" => "c",
+        "经" => "x",
+        _ => return None,
+    })
+}
+
+/// Single-stroke 成字字根 — often absent from 通规8105 Rime export; still required by Pack A.
+const SINGLE_STROKE_EXTRAS: &[(&str, &str)] = &[
+    ("一", "ggll"),
+    ("丨", "hhll"),
+    ("丿", "ttll"),
+    ("丶", "yyll"),
+    ("乙", "nnll"),
+];
+
+fn ensure_single_stroke_chars(chars: &mut BTreeMap<String, WubiCharItem>) {
+    for (ch, code) in SINGLE_STROKE_EXTRAS {
+        chars.entry((*ch).to_string()).or_insert_with(|| WubiCharItem {
+            ch: (*ch).to_string(),
+            code: (*code).to_string(),
+            tier: "pack".to_string(),
+        });
+    }
 }
 
 fn parse_radicals_file(raw: &str) -> Result<BTreeMap<String, RadicalEntry>> {
@@ -193,7 +270,7 @@ pub fn load_wubi_catalog(app_root: &Path) -> Result<WubiCatalog> {
     let bundle: CharBundleFile =
         serde_json::from_str(&raw).with_context(|| format!("parse {}", bundle_path.display()))?;
 
-    // Prefer CJK Unified Ideographs; order by codepoint so intro starts near 一/丁/七…
+    // Prefer CJK Unified Ideographs. Tier is informational; curriculum uses packs.
     let mut ordered: Vec<(String, CharBundleEntry)> = bundle
         .chars
         .into_iter()
@@ -201,16 +278,33 @@ pub fn load_wubi_catalog(app_root: &Path) -> Result<WubiCatalog> {
         .collect();
     ordered.sort_by(|a, b| a.0.cmp(&b.0));
 
+    let packs = load_pack_catalog(app_root).unwrap_or_else(|err| {
+        eprintln!(
+            "[mei-training] pack catalog load failed ({}): {err:#}",
+            app_root.display()
+        );
+        PackCatalog::empty()
+    });
+
+    let pack_chars: BTreeSet<String> = packs
+        .packs
+        .values()
+        .flat_map(|p| p.chars.iter().cloned())
+        .collect();
+
     let mut chars = BTreeMap::new();
-    for (idx, (ch, entry)) in ordered.into_iter().enumerate() {
-        // Re-tier by filtered order: first 3500 ≈ 一级常用；忽略码表里被 Unicode 排序污染的 tier。
-        let tier = if idx < 3500 { "d1" } else { "d2" };
+    for (ch, entry) in ordered {
+        let tier = if pack_chars.contains(&ch) {
+            "pack".to_string()
+        } else {
+            "extra".to_string()
+        };
         chars.insert(
             ch.clone(),
             WubiCharItem {
                 ch,
                 code: entry.code.to_ascii_lowercase(),
-                tier: tier.to_string(),
+                tier,
             },
         );
     }
@@ -241,5 +335,59 @@ pub fn load_wubi_catalog(app_root: &Path) -> Result<WubiCatalog> {
         bail!("wubi char bundle is empty: {}", bundle_path.display());
     }
 
-    Ok(WubiCatalog { chars, radicals })
+    ensure_single_stroke_chars(&mut chars);
+
+    Ok(WubiCatalog {
+        chars,
+        radicals,
+        packs,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn catalog_with(chars: &[(&str, &str)]) -> WubiCatalog {
+        let mut map = BTreeMap::new();
+        for (ch, code) in chars {
+            map.insert(
+                (*ch).to_string(),
+                WubiCharItem {
+                    ch: (*ch).to_string(),
+                    code: (*code).to_string(),
+                    tier: "pack".into(),
+                },
+            );
+        }
+        WubiCatalog {
+            chars: map,
+            radicals: BTreeMap::new(),
+            packs: PackCatalog::empty(),
+        }
+    }
+
+    #[test]
+    fn level1_brief_accepts_single_key_and_full() {
+        let cat = catalog_with(&[("地", "fbn")]);
+        let (ok, exp) = cat.judge("char:地", Some("f"), None);
+        assert!(ok);
+        assert_eq!(exp.as_deref(), Some("f"));
+        let (ok2, _) = cat.judge("char:地", Some("fbn"), None);
+        assert!(ok2);
+        let (bad, exp_bad) = cat.judge("char:地", Some("g"), None);
+        assert!(!bad);
+        assert_eq!(exp_bad.as_deref(), Some("f"));
+    }
+
+    #[test]
+    fn non_brief_still_requires_full_code() {
+        let cat = catalog_with(&[("王", "gggg")]);
+        let (ok, exp) = cat.judge("char:王", Some("g"), None);
+        assert!(!ok);
+        assert_eq!(exp.as_deref(), Some("gggg"));
+        let (ok2, _) = cat.judge("char:王", Some("gggg"), None);
+        assert!(ok2);
+    }
 }

@@ -7961,7 +7961,12 @@
     }
     const pointerEvents = props.pointer_events ?? props["pointer-events"];
     if (typeof pointerEvents === "string" && pointerEvents.trim()) {
-      style.pointerEvents = pointerEvents.trim();
+      const pe = pointerEvents.trim();
+      style.pointerEvents = pe;
+      // Author-declared hit target; normalizeT1 must not overwrite with scope heuristics.
+      if (el instanceof HTMLElement) {
+        el.setAttribute("data-mei-pointer-events", pe);
+      }
     }
     if (props.__mei_metric_template != null) {
       el.setAttribute("data-mei-metric-template", String(props.__mei_metric_template));
@@ -10051,7 +10056,8 @@
     ) {
       return false;
     }
-    // 中栏仅上下业务 section 可点；观察窗保持透传。
+    // 中栏仅已知可点业务 section；其余中栏默认透传。
+    // 非地图交互内容应通过作者 pointer_events / data-mei-pointer-events 声明，勿在此加业务名。
     if (normalized.includes("center_rail")) {
       return (
         normalized.includes("playback") ||
@@ -10061,9 +10067,28 @@
         normalized.includes("center_top")
       );
     }
-    // Default allow for T1 app content (e.g. t1/main/practice for wubi).
+    // Default allow for T1 app content outside center_rail.
     // Historical cockpit rails/header remain clickable; map scopes already denied above.
     return true;
+  }
+
+  function authorPointerEventsDeclaration(el) {
+    if (!(el instanceof HTMLElement)) return "";
+    const attr = String(el.getAttribute("data-mei-pointer-events") || "").trim();
+    if (attr) return attr;
+    return "";
+  }
+
+  /** Self or nearest ancestor author declaration (non-map center_rail content). */
+  function resolveAuthorPointerEvents(el) {
+    if (!(el instanceof HTMLElement)) return "";
+    const self = authorPointerEventsDeclaration(el);
+    if (self) return self;
+    const anc = el.closest?.("[data-mei-pointer-events]");
+    if (anc instanceof HTMLElement && anc !== el) {
+      return authorPointerEventsDeclaration(anc);
+    }
+    return "";
   }
 
   function normalizeT1InteractivePointerEvents(root) {
@@ -10083,7 +10108,32 @@
             el.style.pointerEvents = "none";
             return;
           }
+          const authorPe = resolveAuthorPointerEvents(el);
+          if (authorPe) {
+            el.style.pointerEvents = authorPe;
+            return;
+          }
           el.style.pointerEvents = shouldT1UnitReceivePointerEvents(scope) ? "auto" : "none";
+        });
+        // Author-declared hit targets inside center_rail (panels / hosts / WCs).
+        plane.querySelectorAll("[data-mei-pointer-events]").forEach((el) => {
+          if (!(el instanceof HTMLElement)) return;
+          if (el.classList.contains("mei-compose-section") || el.classList.contains("mei-compose-slot") || el.classList.contains("mei-compose-region")) {
+            return; // already handled above
+          }
+          const pe = authorPointerEventsDeclaration(el);
+          if (pe) el.style.pointerEvents = pe;
+        });
+        // Descendants under an author-auto ancestor (e.g. component-host under drill section).
+        plane.querySelectorAll("[data-mei-pointer-events='auto']").forEach((anc) => {
+          if (!(anc instanceof HTMLElement)) return;
+          anc.querySelectorAll(".component-host, .preview-card, .mei-compose-block").forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            if (el.hasAttribute("data-mei-pointer-events")) return;
+            const scope = el.getAttribute("data-preview-scope") || "";
+            if (scope && isMapViewportPointerTransparentScope(scope)) return;
+            el.style.pointerEvents = "auto";
+          });
         });
         // 观察窗透传子树（含 aperture / interaction surface / frame）强制 none
         plane

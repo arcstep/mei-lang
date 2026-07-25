@@ -6342,6 +6342,13 @@ body:not([data-mei-stage-surface="paged"]):not([data-mei-stage-profile="slides"]
   .mei-compose-slot[data-preview-scope*="center_rail"][data-preview-scope*="realtime_table"] {
   pointer-events: auto;
 }
+/* Author-declared hit targets (non-map center_rail content, etc.) */
+.mei-compose-scene-root [data-mei-pointer-events="auto"] {
+  pointer-events: auto;
+}
+.mei-compose-scene-root [data-mei-pointer-events="none"] {
+  pointer-events: none;
+}
 /* T1 嵌套 region（如 t1/t1 > right_rail > warning）内的板块也需接收事件，避免点击穿透到 T0 地图 */
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]

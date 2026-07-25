@@ -140,6 +140,8 @@ mod tests {
             due_after: 1,
             scheduler: SCHEDULER_ID.into(),
             mode: Some("char_to_code".into()),
+            intent: None,
+            ladder_after: None,
         };
         store.append_log(&entry).unwrap();
         let log = fs::read_to_string(store.log_path()).unwrap();

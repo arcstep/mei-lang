@@ -156,6 +156,7 @@ mod tests {
             lapses: 0,
             introduced: true,
             suspended: false,
+            ladder_stage: crate::model::LadderStage::L1,
         };
         let now = 10_000_i64;
         apply_rating(&mut s, Rating::Good, now);
