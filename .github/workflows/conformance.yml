@@ -10,6 +10,8 @@ on:
       - "crates/mei-test-support/**"
       - "crates/mei-host-graph/**"
       - "crates/mei-plug-ds/**"
+      # Sibling-literal gate scans crates/**/*.rs (incl. kernel workspace probes).
+      - "crates/kernel/**"
       - "host-shell/**"
       - "stock/templates/**"
       - "mei-compiler/**"
@@ -20,6 +22,7 @@ on:
       - "crates/mei-test-support/**"
       - "crates/mei-host-graph/**"
       - "crates/mei-plug-ds/**"
+      - "crates/kernel/**"
       - "host-shell/**"
       - "stock/templates/**"
       - "mei-compiler/**"

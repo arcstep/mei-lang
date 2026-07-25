@@ -5,9 +5,12 @@ name: Layout Policy
 # tests that need that tree must skip when absent — they are not CI gates.
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "crates/kernel/src/compile/layout_budget/**"
+      # Sibling-literal gate scans all crates/**/*.rs; keep kernel coverage broad.
+      - "crates/kernel/**"
       - "crates/mei-host-graph/src/theme_layout_merge.rs"
       - "crates/mei-host-graph/src/assemble.rs"
       - "crates/mei-host-graph/src/artifact_biz_macros.rs"
