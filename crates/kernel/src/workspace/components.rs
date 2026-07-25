@@ -214,23 +214,33 @@ mod app_local_tests {
 
     #[test]
     fn loads_app_local_wubi_practice_when_present() {
-        let ws = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+        let Some(raw) = std::env::var("MEI_TEST_WORKSPACE").ok() else {
+            eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+            return;
+        };
+        let ws = PathBuf::from(raw.trim());
+        if ws.as_os_str().is_empty() || !ws.is_dir() {
+            eprintln!("skip: MEI_TEST_WORKSPACE is not a directory");
+            return;
+        }
         if !ws
             .join("apps/wubi/stock/components/wubi/manifest.json")
             .is_file()
         {
-            eprintln!("skip: ws-demo-v2 wubi app stock not present");
+            eprintln!("skip: apps/wubi stock missing under MEI_TEST_WORKSPACE");
             return;
         }
         let assets = load_component_assets_for_app(ws.as_path(), "wubi").expect("load");
-        let practice = assets.get("wubi.practice").expect("wubi.practice registered");
-        assert_eq!(practice.tag, "mei-wubi-practice");
+        let drill = assets
+            .get("wubi.practice-drill")
+            .expect("wubi.practice-drill registered");
+        assert_eq!(drill.tag, "mei-wubi-practice-drill");
         assert!(
-            practice
+            drill
                 .script
-                .contains("apps/wubi/stock/components/wubi/practice.js"),
+                .contains("apps/wubi/stock/components/wubi/practice-drill.js"),
             "script={}",
-            practice.script
+            drill.script
         );
     }
 }
