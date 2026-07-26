@@ -976,7 +976,8 @@ function buildPresetFilterRows(catalog, count, nextRowId) {
     if (!queryKey || usedKeys.has(queryKey)) continue;
     usedKeys.add(queryKey);
     const row = createEmptyFilterRow(nextRowId);
-    row.column = queryKey;
+    // 预置行绑定数据列名（如「风险事项」），避免只用逻辑 key（matter）导致查询维度错位。
+    row.column = String(field?.column || queryKey).trim();
     row.operator = defaultOperatorForProfile(null, field);
     row.status = "active";
     rows.push(row);
@@ -2181,7 +2182,7 @@ function renderAdditiveValueMarkup(
   }
   const inputType = profile?.kind === "number" ? "number" : "text";
   const valuePlaceholder =
-    operator === "contains" ? placeholder || "包含…" : operator === "eq" ? "等于…" : "输入数值…";
+    operator === "contains" ? placeholder || "输入关键字…" : operator === "eq" ? "等于…" : "输入数值…";
   return `<input
     class="cockpit-filter-control"
     type="${inputType}"
@@ -3135,7 +3136,8 @@ function encodeSchemaFieldValue(field, row) {
   }
   const value = String(row?.value || "").trim();
   if (!value) return "";
-  if (control === "text" && value.includes(":")) {
+  if (control === "text") {
+    // 文本控件默认关键字过滤；SQL 仅识别 contains: 前缀。
     return `contains:${value}`;
   }
   return value;
@@ -3180,7 +3182,7 @@ function readSchemaFieldValueFromDom(shadowRoot, field) {
     shadowRoot.querySelector(`[data-schema-text="${CSS.escape(key)}"]`)?.value || "",
   ).trim();
   if (!value) return "";
-  return value.includes(":") ? `contains:${value}` : value;
+  return `contains:${value}`;
 }
 
 function collectSchemaFilters(shadowRoot, schemaFields) {
@@ -3358,6 +3360,9 @@ function selectedValuesForField(filters, queryKey, control, field = null) {
   const column = field ? String(field?.column || "").trim() : "";
   const raw = String(filters?.[queryKey] ?? (column ? filters?.[column] : "") ?? "");
   if (!raw) return [];
+  if (control === "text" && raw.startsWith("contains:")) {
+    return [raw.slice("contains:".length)];
+  }
   if (control === "month_multi_select" && raw.startsWith("m:")) {
     return raw
       .slice(2)

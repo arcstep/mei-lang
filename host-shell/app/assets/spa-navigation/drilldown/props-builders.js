@@ -159,6 +159,14 @@
         : null) ||
       (rowSpec?.objectLocator && typeof rowSpec.objectLocator === "object"
         ? rowSpec.objectLocator
+        : null) ||
+      (config?.sceneLocalNav?.object_locator &&
+      typeof config.sceneLocalNav.object_locator === "object"
+        ? config.sceneLocalNav.object_locator
+        : null) ||
+      (config?.sceneLocalNav?.objectLocator &&
+      typeof config.sceneLocalNav.objectLocator === "object"
+        ? config.sceneLocalNav.objectLocator
         : null);
     const objectType = nonEmptyString(locator?.object_type, locator?.objectType);
     const links = readPresentationObjectFieldLinks(objectType);
@@ -335,6 +343,20 @@
         : null) ||
       (rowSpec?.objectLocator && typeof rowSpec.objectLocator === "object"
         ? rowSpec.objectLocator
+        : null) ||
+      (config?.sceneLocalNav?.object_locator &&
+      typeof config.sceneLocalNav.object_locator === "object"
+        ? config.sceneLocalNav.object_locator
+        : null) ||
+      (config?.sceneLocalNav?.objectLocator &&
+      typeof config.sceneLocalNav.objectLocator === "object"
+        ? config.sceneLocalNav.objectLocator
+        : null) ||
+      (config?.object_locator && typeof config.object_locator === "object"
+        ? config.object_locator
+        : null) ||
+      (config?.objectLocator && typeof config.objectLocator === "object"
+        ? config.objectLocator
         : null);
     const objectType = nonEmptyString(locator?.object_type, locator?.objectType);
     let objectFieldLinks = props.object_field_links || props.objectFieldLinks || undefined;

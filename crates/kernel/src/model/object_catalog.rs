@@ -214,6 +214,8 @@ pub struct ObjectIndexEntry {
 pub enum ObjectFieldLinkResolve {
     /// Cell value is the target object's identity key.
     RowValue,
+    /// Clickable cell (e.g. `序号`); object key comes from another field on the same row.
+    RowSibling,
     /// Cell value looks up `targets_by_value` from an inlined mapping contract.
     Mapping,
 }
@@ -242,6 +244,9 @@ pub struct ObjectFieldLinkTarget {
         rename = "sourceField"
     )]
     pub source_field: Option<String>,
+    /// For `resolve=row_sibling`: row field that supplies the object identity key.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "keyField")]
+    pub key_field: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -324,10 +329,14 @@ pub fn derive_object_field_links(
         }
     });
     let self_has_detail = self_detail.is_some();
+    let mut primary_identity: Option<String> = None;
     for field in identity_fields {
         let field = field.trim();
         if field.is_empty() {
             continue;
+        }
+        if primary_identity.is_none() {
+            primary_identity = Some(field.to_string());
         }
         links
             .entry(field.to_string())
@@ -338,6 +347,7 @@ pub fn derive_object_field_links(
                 resolve: ObjectFieldLinkResolve::RowValue,
                 relation: None,
                 source_field: Some(field.to_string()),
+                key_field: None,
                 mapping_ref: None,
                 targets_by_value: BTreeMap::new(),
                 key_mode: ObjectFieldLinkKeyMode::Identity,
@@ -346,6 +356,69 @@ pub fn derive_object_field_links(
                 detail_page: self_detail.clone(),
                 open_popup: None,
             });
+    }
+    // 明细表默认入口：
+    // - identity 为 *ID/编号 时额外开放「序号」列（序号→身份字段 sibling）；
+    // - identity 本身为「序号」时，额外开放 label 槽位列（如「风险事项」→序号 sibling），
+    //   保持可读名称可点，但 objectKey 仍走唯一序号。
+    if let Some(identity_field) = primary_identity.as_deref() {
+        if identity_wants_serial_entry(identity_field)
+            && !identity_fields
+                .iter()
+                .any(|field| field.trim() == "序号")
+        {
+            links
+                .entry("序号".to_string())
+                .or_default()
+                .push(ObjectFieldLinkTarget {
+                    role: "self".to_string(),
+                    object_type: object_type_id.to_string(),
+                    resolve: ObjectFieldLinkResolve::RowSibling,
+                    relation: None,
+                    source_field: Some("序号".to_string()),
+                    key_field: Some(identity_field.to_string()),
+                    mapping_ref: None,
+                    targets_by_value: BTreeMap::new(),
+                    key_mode: ObjectFieldLinkKeyMode::Identity,
+                    filter_key: heuristic_filter_key(identity_field),
+                    has_detail: Some(self_has_detail),
+                    detail_page: self_detail.clone(),
+                    open_popup: None,
+                });
+        }
+        if identity_field == "序号" {
+            if let Some(label_field) = slots.get("label").and_then(|slot| {
+                if slot.kind == "field_ref" {
+                    let id = slot.id.trim();
+                    if !id.is_empty() && id != "序号" {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }) {
+                links
+                    .entry(label_field.clone())
+                    .or_default()
+                    .push(ObjectFieldLinkTarget {
+                        role: "self".to_string(),
+                        object_type: object_type_id.to_string(),
+                        resolve: ObjectFieldLinkResolve::RowSibling,
+                        relation: None,
+                        source_field: Some(label_field),
+                        key_field: Some("序号".to_string()),
+                        mapping_ref: None,
+                        targets_by_value: BTreeMap::new(),
+                        key_mode: ObjectFieldLinkKeyMode::Identity,
+                        filter_key: heuristic_filter_key("序号"),
+                        has_detail: Some(self_has_detail),
+                        detail_page: self_detail.clone(),
+                        open_popup: None,
+                    });
+            }
+        }
     }
 
     for (relation_name, refs) in relations {
@@ -383,6 +456,7 @@ pub fn derive_object_field_links(
                     resolve: ObjectFieldLinkResolve::RowValue,
                     relation: Some(relation_name.clone()),
                     source_field: Some(field.to_string()),
+                    key_field: None,
                     mapping_ref: None,
                     targets_by_value: BTreeMap::new(),
                     key_mode: ObjectFieldLinkKeyMode::Identity,
@@ -411,6 +485,7 @@ pub fn derive_object_field_links(
                     resolve: ObjectFieldLinkResolve::Mapping,
                     relation: Some(relation_name.clone()),
                     source_field: None,
+                    key_field: None,
                     mapping_ref: Some(mapping_id.to_string()),
                     targets_by_value: BTreeMap::new(),
                     key_mode: ObjectFieldLinkKeyMode::Identity,
@@ -424,12 +499,28 @@ pub fn derive_object_field_links(
     links
 }
 
+/// 仅当身份字段本身像主键/编号时，才额外把「序号」列做成打开入口。
+/// 名称型 identity（如「风险事项」）应点身份列本身，避免序号列变成链接并破坏居中。
+fn identity_wants_serial_entry(identity_field: &str) -> bool {
+    let field = identity_field.trim();
+    if field.is_empty() || field == "序号" {
+        return false;
+    }
+    let lower = field.to_ascii_lowercase();
+    field.ends_with("ID")
+        || field.ends_with("Id")
+        || lower.ends_with("_id")
+        || field.ends_with("编号")
+        || field.ends_with("代码")
+}
+
 fn heuristic_filter_key(field: &str) -> Option<String> {
     match field.trim() {
         "预警ID" | "warning_id" | "warningId" => Some("warningId".to_string()),
         "处理结果ID" | "result_id" | "resultId" => Some("resultId".to_string()),
         "模型ID" | "model_id" | "modelId" => Some("modelId".to_string()),
-        "监督事项" | "matter" => Some("matter".to_string()),
+        "序号" | "matterId" | "matter_id" => Some("matterId".to_string()),
+        "监督事项" | "风险事项" | "matter" => Some("matter".to_string()),
         "问题分类名称" | "category" => Some("category".to_string()),
         other if !other.is_empty() => None,
         _ => None,
@@ -1571,6 +1662,70 @@ mod tests {
         assert_eq!(targets[0].role, "self");
         assert_eq!(targets[0].object_type, "zhifa.Warning");
         assert_eq!(targets[0].has_detail, Some(true));
+        let serial = links.get("序号").expect("序号 open affordance");
+        assert_eq!(serial.len(), 1);
+        assert_eq!(serial[0].resolve, ObjectFieldLinkResolve::RowSibling);
+        assert_eq!(serial[0].key_field.as_deref(), Some("预警ID"));
+    }
+
+    #[test]
+    fn derive_object_field_links_name_identity_skips_serial_entry() {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "detail".to_string(),
+            ObjectProjectionRef {
+                role: "slot:detail".to_string(),
+                kind: "page_ref".to_string(),
+                id: "zhifa/home/matter-detail".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        let links = derive_object_field_links(
+            "zhifa.SupervisionMatter",
+            &["风险事项".to_string()],
+            &slots,
+            &BTreeMap::new(),
+        );
+        assert!(links.get("序号").is_none(), "name identity must not link 序号");
+        let matter = links.get("风险事项").expect("identity column");
+        assert_eq!(matter.len(), 1);
+        assert_eq!(matter[0].resolve, ObjectFieldLinkResolve::RowValue);
+    }
+
+    #[test]
+    fn derive_object_field_links_seq_identity_opens_label_sibling() {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "detail".to_string(),
+            ObjectProjectionRef {
+                role: "slot:detail".to_string(),
+                kind: "page_ref".to_string(),
+                id: "zhifa/home/matter-detail".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        slots.insert(
+            "label".to_string(),
+            ObjectProjectionRef {
+                role: "slot:label".to_string(),
+                kind: "field_ref".to_string(),
+                id: "风险事项".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        let links = derive_object_field_links(
+            "zhifa.SupervisionMatter",
+            &["序号".to_string()],
+            &slots,
+            &BTreeMap::new(),
+        );
+        let seq = links.get("序号").expect("identity column");
+        assert_eq!(seq[0].resolve, ObjectFieldLinkResolve::RowValue);
+        assert_eq!(seq[0].filter_key.as_deref(), Some("matterId"));
+        let matter = links.get("风险事项").expect("label entry");
+        assert_eq!(matter[0].resolve, ObjectFieldLinkResolve::RowSibling);
+        assert_eq!(matter[0].key_field.as_deref(), Some("序号"));
+        assert_eq!(matter[0].filter_key.as_deref(), Some("matterId"));
     }
 
     #[test]

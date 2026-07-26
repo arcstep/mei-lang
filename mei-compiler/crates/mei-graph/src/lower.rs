@@ -675,6 +675,44 @@ fn derive_object_field_links_json(
                 "hasDetail": self_has_detail,
                 "detailPage": self_detail,
             }));
+        if identity_wants_serial_entry_json(identity_field) {
+            links.entry("序号".to_string()).or_default().push(json!({
+                "role": "self",
+                "objectType": object_type_id,
+                "resolve": "row_sibling",
+                "sourceField": "序号",
+                "keyField": identity_field,
+                "keyMode": "identity",
+                "filterKey": heuristic_filter_key_json(identity_field),
+                "hasDetail": self_has_detail,
+                "detailPage": self_detail,
+            }));
+        }
+        if identity_field == "序号" {
+            if let Some(label_field) = slots.get("label").and_then(|slot| {
+                if slot.get("kind").and_then(JsonValue::as_str) == Some("field_ref") {
+                    slot.get("id")
+                        .and_then(JsonValue::as_str)
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty() && *id != "序号")
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            }) {
+                links.entry(label_field.clone()).or_default().push(json!({
+                    "role": "self",
+                    "objectType": object_type_id,
+                    "resolve": "row_sibling",
+                    "sourceField": label_field,
+                    "keyField": "序号",
+                    "keyMode": "identity",
+                    "filterKey": heuristic_filter_key_json("序号"),
+                    "hasDetail": self_has_detail,
+                    "detailPage": self_detail,
+                }));
+            }
+        }
     }
 
     for (relation_name, refs) in relations {
@@ -750,12 +788,26 @@ fn derive_object_field_links_json(
     links
 }
 
+fn identity_wants_serial_entry_json(identity_field: &str) -> bool {
+    let field = identity_field.trim();
+    if field.is_empty() || field == "序号" {
+        return false;
+    }
+    let lower = field.to_ascii_lowercase();
+    field.ends_with("ID")
+        || field.ends_with("Id")
+        || lower.ends_with("_id")
+        || field.ends_with("编号")
+        || field.ends_with("代码")
+}
+
 fn heuristic_filter_key_json(field: &str) -> JsonValue {
     match field.trim() {
         "预警ID" | "warning_id" | "warningId" => json!("warningId"),
         "处理结果ID" | "result_id" | "resultId" => json!("resultId"),
         "模型ID" | "model_id" | "modelId" => json!("modelId"),
-        "监督事项" | "matter" => json!("matter"),
+        "序号" | "matterId" | "matter_id" => json!("matterId"),
+        "监督事项" | "风险事项" | "matter" => json!("matter"),
         "问题分类名称" | "category" => json!("category"),
         _ => JsonValue::Null,
     }

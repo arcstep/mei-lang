@@ -321,7 +321,13 @@ class MeiDatasetTable extends HTMLElement {
         .tone-green { color: #86efac; }
         .tone-blue { color: ${color("text_unit")}; }
         .tone-slate { color: ${color("text_body")}; }
-        .cell-tag { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; background: rgba(15,23,42,.25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+        .cell-tag { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; padding: 1px 8px; border-radius: 999px; border: 1px solid ${color("chart_5")}; background: transparent; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+        .cell-tag.tone-red,
+        .cell-tag.tone-orange,
+        .cell-tag.tone-yellow,
+        .cell-tag.tone-green,
+        .cell-tag.tone-blue,
+        .cell-tag.tone-slate { border-color: ${color("chart_5")}; }
         .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 4px 2px; border-top: 1px solid rgba(148,163,184,.14); color: ${color("text_muted")}; font-size: 12px; min-height: 32px; }
         .row-total { flex: 0 0 auto; color: ${color("text_body")}; white-space: nowrap; }
         .table-footer .pager { flex: 1 1 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

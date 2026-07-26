@@ -251,11 +251,13 @@
         merged[normalizedKey] = normalizedValue;
       });
     });
-    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID resolve.
+    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
     if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
     if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
+    if (merged.matterId && !merged["序号"]) merged["序号"] = merged.matterId;
+    if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
     return merged;
   }
 
@@ -270,6 +272,8 @@
           : {};
     const warningId = String(filters.warningId ?? filters["预警ID"] ?? "").trim();
     const resultId = String(filters.resultId ?? filters["处理结果ID"] ?? "").trim();
+    const matterId = String(filters.matterId ?? filters["序号"] ?? "").trim();
+    const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
     if (warningId) {
       const hit = list.find((row) => {
         const id = String(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId ?? "").trim();
@@ -281,6 +285,20 @@
       const hit = list.find((row) => {
         const id = String(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId ?? "").trim();
         return id === resultId;
+      });
+      if (hit) return hit;
+    }
+    if (matterId) {
+      const hit = list.find((row) => {
+        const id = String(row?.["序号"] ?? row?.matterId ?? row?.seq ?? "").trim();
+        return id === matterId;
+      });
+      if (hit) return hit;
+    }
+    if (matterName) {
+      const hit = list.find((row) => {
+        const name = String(row?.["风险事项"] ?? row?.["监督事项"] ?? row?.matter ?? "").trim();
+        return name === matterName;
       });
       if (hit) return hit;
     }

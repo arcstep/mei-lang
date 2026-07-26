@@ -246,6 +246,7 @@
     if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
     const rowDrilldownPopup = raw.row_drilldown_popup ?? raw.rowDrilldownPopup ?? null;
     const rowDrilldown = raw.row_drilldown ?? raw.rowDrilldown ?? null;
+    const objectLocator = raw.object_locator ?? raw.objectLocator ?? null;
     return {
       kind,
       sceneId,
@@ -260,6 +261,9 @@
         : {}),
       ...(rowDrilldown && typeof rowDrilldown === "object" && !Array.isArray(rowDrilldown)
         ? { rowDrilldown, row_drilldown: rowDrilldown }
+        : {}),
+      ...(objectLocator && typeof objectLocator === "object" && !Array.isArray(objectLocator)
+        ? { objectLocator, object_locator: objectLocator }
         : {}),
     };
   }

@@ -314,13 +314,31 @@ export function syncOverflowPreviewButtons(shadowRoot, cellTextMap, props = {}) 
     const full = cellTextMap?.get(key);
     if (full == null || full === "") return;
     if ([...String(full)].length <= minChars) return;
+    const objectLink = host.matches(".cell-object-link")
+      ? host
+      : host.querySelector(".cell-object-link");
     const probe =
+      (objectLink instanceof HTMLElement ? objectLink : null) ||
       host.querySelector(".cell-preview-text") ||
       host.querySelector(".cell-shell") ||
       host.firstElementChild ||
       host;
     if (!isHorizontallyOverflowing(probe) && !isHorizontallyOverflowing(host)) return;
     const previewText = String(host.textContent || "").trim() || String(full);
+    if (objectLink instanceof HTMLElement) {
+      const tip = String(objectLink.getAttribute("title") || "").trim();
+      const field = String(
+        objectLink.getAttribute("data-object-field") || host.getAttribute("data-object-field") || column,
+      ).trim();
+      host.innerHTML = `<span class="cell-shell"><button type="button" class="cell-object-link cell-preview-text" title="${escapeHtmlAttr(
+        tip || "打开智能对象",
+      )}" data-object-field="${escapeHtmlAttr(field)}" data-r="${rowIndex}" data-c="${escapeHtmlAttr(
+        column,
+      )}">${escapeHtml(previewText)}</button><button type="button" class="cell-ellipsis cell-expand-btn cell-more" data-r="${rowIndex}" data-c="${escapeHtmlAttr(
+        column,
+      )}" aria-label="${escapeHtmlAttr(expandLabel)}">…</button></span>`;
+      return;
+    }
     host.innerHTML = formatOverflowCellInnerHtml(previewText, rowIndex, column, expandLabel);
   });
 }

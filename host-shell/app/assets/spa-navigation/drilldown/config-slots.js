@@ -340,10 +340,13 @@
     const rowPreviewZone = sceneShellZonesByRole(sceneShell, "row_preview")[0] || null;
     const rowPreviewZoneId = rowPreviewZone?.id || "";
     const rowPreviewSlot = rowPreviewZoneId ? (slotsByZone[rowPreviewZoneId] || [])[0] || null : null;
-    const rowPreviewSourceZoneId = nonEmptyString(
-      rowPreviewZone?.selectionSource,
-      sceneShellFirstSlotZone(sceneShell, "data_table")?.id,
-    );
+    // 仅在真有 row_preview 区时才启用“点行刷新预览”；分析表不要回退成整表 selectable。
+    const rowPreviewSourceZoneId = rowPreviewZone
+      ? nonEmptyString(
+          rowPreviewZone?.selectionSource,
+          sceneShellFirstSlotZone(sceneShell, "data_table")?.id,
+        )
+      : "";
     const tabBarZoneId = sceneShellZonesByRole(sceneShell, "tab_bar")[0]?.id || "";
     const tabContentZoneId = sceneShellZonesByRole(sceneShell, "tab_content")[0]?.id || "";
     const genericSceneShell = sceneShell?.layoutMode === "generic_tabs";

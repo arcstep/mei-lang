@@ -133,6 +133,15 @@
     const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
+    const previewMode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();
+    // 纯行级表单：跳过案例卡头/统计带/meta，只渲染 label-value 表单。
+    if (previewMode === "row_form") {
+      host.classList.remove("access-drilldown-case-detail-host--hybrid");
+      host.classList.add("access-drilldown-case-detail-host--row-form");
+      appendRowFormFields(panel, enrichedRow, mapping);
+      host.appendChild(panel);
+      return;
+    }
     const hybridStats = mappingHasTypicalCaseStats(mapping);
     if (hybridStats) {
       host.classList.add("access-drilldown-case-detail-host--hybrid");
@@ -161,6 +170,9 @@
     appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { wrapBand: hybridStats });
     if (mappingShowsMeta(mapping)) {
       appendCaseDetailMetaRow(panel, enrichedRow, mapping);
+    }
+    if (mappingWantsRowForm(mapping)) {
+      appendRowFormFields(panel, enrichedRow, mapping);
     }
     const columnsRoot = document.createElement("div");
     columnsRoot.className = "access-drilldown-case-detail-columns";

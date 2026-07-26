@@ -116,6 +116,8 @@ function isTagField(colKey) {
 function resolveTagToneClass(colKey, raw) {
   const field = String(colKey || "").trim();
   const text = String(raw ?? "").trim();
+  // 类别/类型标签：只保留胶囊外形，不按 value 上色（避免与红/黄/蓝业务色板混淆）。
+  if (/类型|类别/.test(field)) return "";
   if (!text) return "tone-slate";
   if (text.includes("红")) return "tone-red";
   if (text.includes("橙")) return "tone-orange";
@@ -126,12 +128,7 @@ function resolveTagToneClass(colKey, raw) {
   if (/(否|未|无|待完善|\/)/.test(text)) return "tone-slate";
   if (/个案/.test(text)) return "tone-violet";
   if (/趋势/.test(text)) return "tone-cyan";
-  if (/行政处罚|处罚/.test(text)) return "tone-orange";
-  if (/行政检查|检查/.test(text)) return "tone-blue";
-  if (/执法主体/.test(text)) return "tone-violet";
-  if (/其他/.test(text)) return "tone-slate";
-  if (/类型|类别/.test(field)) return "tone-cyan";
-  return "tone-cyan";
+  return "tone-slate";
 }
 
 function formatCellValue(raw, descriptor, layoutPreset) {
@@ -433,11 +430,14 @@ function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displa
   )}"`;
   if (Array.isArray(objectLinkTargets) && objectLinkTargets.length > 0) {
     const tip = objectLinkTargets.map((target) => target.label || target.objectType).join(" / ");
-    return `<button type="button" class="cell-object-link${cell.tipClass}" title="${escapeAttr(
+    // 外层保留 data-cell-preview-key，供溢出「…」全文预览；内层按钮只负责打开智能对象。
+    return `<span class="cell-object-link-host${cell.tipClass}"${previewAttrs} data-object-field="${escapeAttr(
+      descriptor.key,
+    )}"><button type="button" class="cell-object-link" title="${escapeAttr(
       tip || "打开智能对象",
     )}" data-object-field="${escapeAttr(descriptor.key)}" data-r="${rowIndex}" data-c="${escapeAttr(
       descriptor.key,
-    )}">${cell.html}</button>`;
+    )}">${cell.html}</button></span>`;
   }
   if (descriptor?.tag || isTagField(descriptor?.key)) {
     const tone = toneClass || resolveTagToneClass(descriptor?.key, displayOverride);
@@ -965,6 +965,9 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   onRowDrilldownClick(event) {
+    if (event?.target?.closest?.(".cell-expand-btn, .cell-more, .cell-preview-trigger")) {
+      return;
+    }
     const fieldLink = eventComposedPath(event).find(
       (node) => node instanceof HTMLElement && node.classList.contains("cell-object-link"),
     );
@@ -980,7 +983,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger, .cell-object-link, .object-field-chooser")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger, .cell-expand-btn, .cell-more, .cell-object-link, .object-field-chooser")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);
@@ -1326,8 +1329,23 @@ export class MeiCockpitDataTable extends HTMLElement {
     const hasObjectFieldLinks = Object.keys(fieldLinks).some(
       (key) => Array.isArray(fieldLinks[key]) && fieldLinks[key].length > 0,
     );
-    // Field-level object links own navigation; do not also treat the whole row as a link.
-    const drilldownEnabled = Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks;
+    const locatorHint =
+      p?.object_locator ||
+      p?.objectLocator ||
+      p?.capabilities?.object_locator ||
+      p?.capabilities?.objectLocator ||
+      p?.row_drilldown?.object_locator ||
+      p?.rowDrilldown?.object_locator ||
+      p?.row_drilldown?.objectLocator ||
+      p?.rowDrilldown?.objectLocator;
+    const hasObjectLocator = Boolean(
+      locatorHint &&
+        typeof locatorHint === "object" &&
+        String(locatorHint.object_type || locatorHint.objectType || "").trim(),
+    );
+    // Field-level object links own navigation; never treat the whole row as a link.
+    const drilldownEnabled =
+      Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks && !hasObjectLocator;
     const selectionMode = tableRowSelectionMode(p);
     const selectableRows = selectionMode === "single";
     const body = rows
@@ -1568,13 +1586,25 @@ export class MeiCockpitDataTable extends HTMLElement {
           min-width: 0;
           padding: 2px 10px;
           border-radius: 999px;
-          border: 1px solid currentColor;
-          background: rgba(15, 23, 42, 0.34);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+          border: 1px solid ${color("chart_5")};
+          background: transparent;
+          color: inherit;
+          box-shadow: none;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
           vertical-align: middle;
+        }
+        /* 类别/类型标签保持正文色；其它 tag 若带 tone-* 仅改文字色，边线仍用图表主色 */
+        .cell-tag.tone-blue,
+        .cell-tag.tone-yellow,
+        .cell-tag.tone-red,
+        .cell-tag.tone-orange,
+        .cell-tag.tone-green,
+        .cell-tag.tone-slate,
+        .cell-tag.tone-cyan,
+        .cell-tag.tone-violet {
+          border-color: ${color("chart_5")};
         }
         .cell-action-link {
           display: inline-flex;
@@ -1594,6 +1624,13 @@ export class MeiCockpitDataTable extends HTMLElement {
           opacity: 0.72;
           cursor: default;
           text-decoration: none;
+        }
+        .cell-object-link-host {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          max-width: 100%;
+          min-width: 0;
         }
         .cell-object-link {
           display: inline;

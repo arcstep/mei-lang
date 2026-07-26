@@ -285,7 +285,19 @@ fn zhifa_warnings_analytics_local_nav_resolves_row_popup_and_field_links() {
         "预警ID must open Warning detail only (no IssueResult chooser): {links}"
     );
     assert!(
-        links.get("问题分类名称").is_some(),
-        "问题分类名称 mapping links required: {links}"
+        links.get("预警模型").is_some(),
+        "预警模型 mapping links required: {links}"
+    );
+    let category_links = links
+        .get("预警模型")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        category_links.iter().any(|link| {
+            link.get("objectType").and_then(|v| v.as_str()) == Some("zhifa.SupervisionMatter")
+                && link.get("filterKey").and_then(|v| v.as_str()) == Some("matter")
+        }),
+        "预警模型 → 风险事项 mapping must filter by matter: {links}"
     );
 }

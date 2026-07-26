@@ -1046,7 +1046,15 @@ export function inlineStyleForColumn(descriptor, target = "cell", options = {}) 
   } else if (max && descriptor?.layoutClamp) {
     parts.push(`max-width:${max}px`);
   }
-  if (align) parts.push(`text-align:${align}`);
+  if (align) {
+    parts.push(`text-align:${align}`);
+    // .td-cell 是 flex；仅 text-align 无法居中/右齐子节点。
+    if (target === "cell" || target === "header") {
+      if (align === "center") parts.push("justify-content:center");
+      else if (align === "right" || align === "end") parts.push("justify-content:flex-end");
+      else if (align === "left" || align === "start") parts.push("justify-content:flex-start");
+    }
+  }
   if (valign) parts.push(`vertical-align:${valign === "middle" ? "middle" : valign}`);
   if (wrap) {
     parts.push("white-space:normal");

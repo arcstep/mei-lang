@@ -960,6 +960,31 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
       continue;
     }
 
+    if (resolve === "row_sibling" || resolve === "row-sibling" || resolve === "identity_field") {
+      // 入口列本身需有展示值（如序号），objectKey 取同行身份字段。
+      if (!cellValue) continue;
+      const keyField = nonEmptyString(spec.keyField, spec.key_field);
+      if (!keyField) continue;
+      const siblingText = String(row[keyField] ?? "").trim();
+      if (!siblingText) continue;
+      const objectKeys = splitMultiObjectKeys(siblingText);
+      for (const objectKey of objectKeys) {
+        out.push({
+          role,
+          relation,
+          objectType,
+          objectKey,
+          keyMode,
+          filterKey,
+          hasDetail,
+          openPopup,
+          detailPage,
+          label: `${objectType} · ${objectKey}`,
+        });
+      }
+      continue;
+    }
+
     if (!cellValue) continue;
     const objectKeys = splitMultiObjectKeys(cellValue);
     for (const objectKey of objectKeys) {
@@ -986,8 +1011,18 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   const objectKey = String(target.objectKey ?? target.object_key ?? "").trim();
   if (!objectType || !objectKey) return;
 
+  const openPopup =
+    (target.openPopup && typeof target.openPopup === "object" ? target.openPopup : null) ||
+    null;
+  // 字段链接自带详情页 openPopup 时只走页面弹层，避免再派 open_projection
+  //（会打开 recipe/alert 默认卡，盖住作者配置的 row_form）。
+  const hasObjectDetailPopup = Boolean(
+    openPopup && nonEmptyString(openPopup.scene_id, openPopup.sceneId),
+  );
   const intents =
-    target.hasDetail === false ? ["select"] : ["select", "open_projection"];
+    target.hasDetail === false || hasObjectDetailPopup
+      ? ["select"]
+      : ["select", "open_projection"];
   const interaction = window.MeiInteraction || window.__meiLangBoot?.interactionRuntime;
   interaction?.dispatchMany?.(intents, {
     objectType,
@@ -1006,16 +1041,14 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
     filters[filterKey] = objectKey;
   }
 
-  const openPopup =
-    (target.openPopup && typeof target.openPopup === "object" ? target.openPopup : null) ||
-    null;
   const rowMeta = tableDrilldownMeta(props);
   const isSelf =
     String(target.role || "").trim() === "self" ||
     nonEmptyString(objectLocatorBinding(props)?.object_type, objectLocatorBinding(props)?.objectType) ===
       objectType;
 
-  if (isSelf && rowMeta) {
+  // 无详情页时才回退表级 row_drilldown；有 openPopup 时绝不能走它（会像刷新分析列表）。
+  if (!hasObjectDetailPopup && isSelf && rowMeta) {
     const detail = buildTableRowDrilldownDetail(rowMeta, row, props);
     if (detail) {
       if (!nonEmptyString(detail.label) && objectKey) {
@@ -1028,16 +1061,26 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
     }
   }
 
-  if (!openPopup || !nonEmptyString(openPopup.scene_id, openPopup.sceneId)) {
+  if (!hasObjectDetailPopup) {
     return;
   }
 
   const detail = {
     ...openPopup,
     popup: openPopup,
-    label: nonEmptyString(target.label, objectKey),
+    // 页签标题优先用行内业务名称（如风险事项），避免序号类主键直接当标题。
+    label: nonEmptyString(
+      firstNonEmptyRowValue(row, ["风险事项", "监督事项", "预警ID", "处理结果ID", "label", "title"]),
+      objectKey,
+      target.label,
+    ),
     value: objectKey,
-    desc: nonEmptyString(target.label, `${objectType}:${objectKey}`),
+    desc: nonEmptyString(
+      firstNonEmptyRowValue(row, ["风险事项", "监督事项", "预警ID", "处理结果ID", "label", "title"]),
+      objectKey,
+      target.label,
+      `${objectType}:${objectKey}`,
+    ),
     object_locator: { objectType, objectKey },
     object_intents: intents,
   };

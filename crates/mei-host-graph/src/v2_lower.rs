@@ -2874,6 +2874,16 @@ impl MetricPageAdjacencyIndex {
             let Some(payload) = artifact.get("payload") else {
                 continue;
             };
+            // 行级对象详情卡不得参与 metric→分析页邻接；否则会与 analytics page
+            // 共用 examples.metric 导致歧义，首页指标卡下钻链接丢失。
+            if payload
+                .get("local_nav")
+                .and_then(|nav| nav.get("kind"))
+                .and_then(Value::as_str)
+                == Some("object_focus_detail_page")
+            {
+                continue;
+            }
             let Some(target) = page_target_from_payload(&node.id.key, payload) else {
                 continue;
             };

@@ -171,7 +171,12 @@ export function buildColumnProfiles(catalog, rows) {
       entry?.column || entry?.options_field || entry?.optionsField || queryKey,
     ).trim();
     if (!queryKey) continue;
-    profiles.set(queryKey, inferColumnProfile(dataColumn, rows, entry));
+    const profile = inferColumnProfile(dataColumn, rows, entry);
+    profiles.set(queryKey, profile);
+    // 同时按数据列名建档，预置/回填行用「风险事项」等中文列名时也能命中 text/contains。
+    if (dataColumn && dataColumn !== queryKey) {
+      profiles.set(dataColumn, profile);
+    }
   }
   return profiles;
 }
@@ -201,7 +206,7 @@ export function defaultOperatorForProfile(profile, hint = null) {
 const OPERATOR_LABELS = {
   in: "属于（多选）",
   contains_any: "包含任一（多选）",
-  contains: "包含",
+  contains: "关键字过滤",
   eq: "等于",
   gt: "大于",
   gte: "大于等于",

@@ -18,7 +18,20 @@
 
   function isCaseDetailCardPreview(config) {
     const mapping = resolveListPreviewMapping(config);
-    return String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "case_detail_card";
+    const mode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();
+    return mode === "case_detail_card" || mode === "row_form";
+  }
+
+  function mappingWantsRowForm(mapping) {
+    if (!mapping || typeof mapping !== "object") return false;
+    const mode = String(mapping.preview_mode || mapping.previewMode || "").trim();
+    return (
+      mode === "row_form" ||
+      mapping.auto_fields === true ||
+      mapping.autoFields === true ||
+      mapping.form_fields === "all" ||
+      mapping.formFields === "all"
+    );
   }
 
   function isTypicalCaseCardPreview(config) {
@@ -112,6 +125,19 @@
         enriched.resultId = text;
         enriched["处理结果ID"] = text;
       }
+      if (key === "matterId" || key === "序号") {
+        enriched.matterId = text;
+        enriched["序号"] = text;
+      }
+      if (key === "matter" || key === "风险事项" || key === "监督事项") {
+        enriched.matter = text;
+        enriched["风险事项"] = text;
+        enriched["监督事项"] = text;
+      }
+      if (key === "modelId" || key === "模型ID") {
+        enriched.modelId = text;
+        enriched["模型ID"] = text;
+      }
     });
     return applyExternalCaseDetailRowEnricher(enriched, detail);
   }
@@ -180,6 +206,127 @@
       appendCaseDetailMetaItem(meta, label, resolveCaseDetailFieldValue(row, spec));
     });
     if (meta.childElementCount) panel.appendChild(meta);
+  }
+
+  /** 与明细表一致：风险等级三色块 / 预警等级单色块 */
+  function appendWarningLevelBlocks(valueEl, fieldName, rawValue) {
+    const colors = {
+      红: "var(--mei-color-warning_level_red, #E53935)",
+      黄: "var(--mei-color-warning_level_yellow, #FFB300)",
+      蓝: "var(--mei-color-warning_level_blue, #1E88E5)",
+      灰: "var(--mei-color-warning_level_grey, #90A4AE)",
+    };
+    const order = ["红", "黄", "蓝"];
+    const text = String(rawValue ?? "").trim();
+    const active = new Set(order.filter((key) => text.includes(key)));
+    const multi = fieldName === "风险等级";
+    const root = document.createElement("span");
+    root.className = `mei-warning-level-blocks ${multi ? "is-multi" : "is-single"}`;
+    root.title = text;
+    if (multi) {
+      order.forEach((key) => {
+        const on = active.has(key);
+        const item = document.createElement("span");
+        item.className = `mei-warning-level-item${on ? " is-on" : " is-off"}`;
+        item.style.background = on ? colors[key] : "transparent";
+        item.style.borderColor = on ? colors[key] : colors.灰;
+        const label = document.createElement("span");
+        label.className = "mei-warning-level-label";
+        label.textContent = key;
+        item.appendChild(label);
+        root.appendChild(item);
+      });
+    } else {
+      const top = order.find((key) => active.has(key)) || "";
+      const on = Boolean(top);
+      const item = document.createElement("span");
+      item.className = `mei-warning-level-item${on ? " is-on" : " is-off"}`;
+      item.style.background = on ? colors[top] : "transparent";
+      item.style.borderColor = on ? colors[top] : colors.灰;
+      const label = document.createElement("span");
+      label.className = "mei-warning-level-label";
+      label.textContent = on ? top : "";
+      item.appendChild(label);
+      root.appendChild(item);
+    }
+    valueEl.appendChild(root);
+  }
+
+  /** 表单风格：按 field_order 展开行字段；排除注入噪音键，避免英文 title/matter 污染。 */
+  function appendRowFormFields(panel, row, mapping) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return;
+    const exclude = new Set(
+      [
+        "title",
+        "label",
+        "matter",
+        "matterId",
+        "监督事项",
+        "warningId",
+        "resultId",
+        "modelId",
+        ...cloneArray(mapping?.exclude_fields || mapping?.excludeFields),
+      ]
+        .map((name) => String(name || "").trim())
+        .filter(Boolean),
+    );
+    const preferred = cloneArray(mapping?.field_order || mapping?.fieldOrder)
+      .map((name) => String(name || "").trim())
+      .filter(Boolean);
+    const labelMap =
+      mapping?.field_labels && typeof mapping.field_labels === "object"
+        ? mapping.field_labels
+        : mapping?.fieldLabels && typeof mapping.fieldLabels === "object"
+          ? mapping.fieldLabels
+          : {};
+    const seen = new Set();
+    const keys = [];
+    preferred.forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(row, key) || seen.has(key)) return;
+      seen.add(key);
+      keys.push(key);
+    });
+    // 仅当未声明 field_order 时才回退到全字段；默认行级详情卡应用 field_order。
+    if (!preferred.length) {
+      Object.keys(row).forEach((key) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        keys.push(key);
+      });
+    }
+    const form = document.createElement("div");
+    form.className = "access-drilldown-row-form";
+    form.setAttribute("role", "list");
+    keys.forEach((key) => {
+      const name = String(key || "").trim();
+      if (!name || name.startsWith("__") || exclude.has(name)) return;
+      // 过滤英文/内部别名，行级详情只展示业务中文列。
+      if (/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) return;
+      const raw = row[name];
+      if (raw != null && typeof raw === "object") return;
+      const value = String(raw ?? "").trim();
+      const item = document.createElement("div");
+      item.className = "access-drilldown-row-form-item";
+      item.setAttribute("role", "listitem");
+      if (value.length >= 28 || name === "存在的问题" || name === "表现形式" || name === "问题描述") {
+        item.classList.add("access-drilldown-row-form-item--long");
+      }
+      const labelEl = document.createElement("div");
+      labelEl.className = "access-drilldown-row-form-label";
+      labelEl.textContent = String(labelMap[name] || name).trim() || name;
+      const valueEl = document.createElement("div");
+      valueEl.className = "access-drilldown-row-form-value";
+      if (name === "风险等级" || name === "预警等级") {
+        valueEl.classList.add("access-drilldown-row-form-value--level");
+        appendWarningLevelBlocks(valueEl, name, value);
+      } else {
+        valueEl.textContent = value || "—";
+      }
+      item.appendChild(labelEl);
+      item.appendChild(valueEl);
+      form.appendChild(item);
+    });
+    if (form.childElementCount) panel.appendChild(form);
   }
 
   function appendCaseDetailSection(block, section, row, mapping) {

@@ -95,7 +95,12 @@ pub fn enrich_object_catalogs_field_links(
                         }
                     }
                     if target.filter_key.is_none() {
-                        if let Some(field) = target.source_field.as_deref() {
+                        let field = target
+                            .key_field
+                            .as_deref()
+                            .filter(|value| !value.trim().is_empty())
+                            .or_else(|| target.source_field.as_deref());
+                        if let Some(field) = field {
                             target.filter_key = heuristic_filter_key(field);
                         }
                     }
@@ -204,11 +209,16 @@ fn apply_mapping_to_target(target: &mut ObjectFieldLinkTarget, mapping_doc: &Val
     {
         target.source_field = Some(source_field.to_string());
     }
+    // filterKey 应对准目标对象身份/过滤字段，不能落到 sourceField（如预警模型→category）。
     if target.filter_key.is_none() {
         if let Some(identity_field) = entry
             .get("targetIdentityField")
             .or_else(|| entry.get("target_identity_field"))
+            .or_else(|| entry.get("targetField"))
+            .or_else(|| entry.get("target_field"))
             .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
         {
             target.filter_key = heuristic_filter_key(identity_field);
         }
@@ -308,6 +318,7 @@ fn heuristic_filter_key(field: &str) -> Option<String> {
         "预警ID" | "关联预警ID" | "warning_id" | "warningId" => Some("warningId".to_string()),
         "处理结果ID" | "result_id" | "resultId" => Some("resultId".to_string()),
         "模型ID" | "model_id" | "modelId" => Some("modelId".to_string()),
+        "序号" | "matterId" | "matter_id" => Some("matterId".to_string()),
         "监督事项" | "风险事项" | "matter" => Some("matter".to_string()),
         "问题分类名称" | "预警模型" | "category" => Some("category".to_string()),
         _ => None,
@@ -366,6 +377,7 @@ mod tests {
             resolve: ObjectFieldLinkResolve::Mapping,
             relation: Some("alertModel.reference.byCategoryName".to_string()),
             source_field: None,
+            key_field: None,
             mapping_ref: Some("relations/x.json".to_string()),
             targets_by_value: BTreeMap::new(),
             key_mode: ObjectFieldLinkKeyMode::Identity,

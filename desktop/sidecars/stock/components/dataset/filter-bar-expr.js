@@ -66,7 +66,8 @@ export function encodeFilterRow(row, profile) {
   } else if (operator === "contains") {
     const value = String(row?.value || "").trim();
     if (!value) return "";
-    body = value.includes(":") ? `contains:${value}` : value;
+    // 必须带 contains: 前缀：SQL 路径对裸值走等值匹配，关键字过滤会失效。
+    body = `contains:${value}`;
   } else if (["eq", "gt", "gte", "lt", "lte"].includes(operator)) {
     const value = String(row?.value ?? "").trim();
     if (!value) return "";
@@ -178,8 +179,15 @@ export function filtersToRows(filters, catalog, profiles, nextRowId) {
   }
   return entries.map(([stateKey, raw]) => {
     const field = findCatalogFieldByStateKey(catalog, stateKey);
-    const rowColumn = field ? fieldQueryKey(field) : stateKey;
-    const profile = profiles?.get(rowColumn) || profiles?.get(stateKey) || null;
+    // 行绑定优先数据列名，保证与 SQL/明细列一致（勿回写成 matter 这类逻辑 key）。
+    const rowColumn = field
+      ? String(field?.column || fieldQueryKey(field)).trim()
+      : stateKey;
+    const profile =
+      profiles?.get(rowColumn) ||
+      profiles?.get(fieldQueryKey(field)) ||
+      profiles?.get(stateKey) ||
+      null;
     const row = decodeFilterRow(String(raw ?? ""), rowColumn, profile);
     row.id = nextRowId();
     row.status = "active";
