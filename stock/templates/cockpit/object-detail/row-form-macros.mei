@@ -1,0 +1,101 @@
+# 通用行级属性表单详情卡（默认形态）
+# 每个对象/明细表至少应有这种详情：统一 mapping、统一 local_nav、统一 case_detail frame。
+# 作者可传入 field_order / exclude_fields 微调；默认 auto_fields 展示全部业务中文列。
+#
+# 警告：在 app page_instance 里写 `row_form.object_row_form_*()` 时，投影装配可能保留
+# `__call` 而不内联。frame / local_nav / mapping / regions 请按风险事项详情卡写展开形态
+# （`frame_ref(template = case_detail_card_frame())` + 字面 local_nav/mapping）。
+
+use template "cockpit/drilldown/plane-macros" as pm
+use template "cockpit/drilldown/frame-macros"
+
+# 默认 mapping：纯属性表单，无案例卡头/摘要。
+# - auto_fields=True 且 field_order 为空 → 展示行内全部中文业务列
+# - auto_fields=False 且给出 field_order → 仅展示指定列（事项金样可这样收窄）
+template object_row_form_mapping(
+    field_order = [],
+    exclude_fields = [],
+    auto_fields = True,
+    preview_only = True,
+):
+    {
+        "preview_mode": "row_form",
+        "preview_only": preview_only,
+        "show_header": False,
+        "show_summary": False,
+        "show_meta": False,
+        "auto_fields": auto_fields,
+        "field_order": field_order,
+        "exclude_fields": exclude_fields,
+    }
+
+# object_focus 详情页 local_nav（勿用 analytics 导航，避免被邻接成分析页）
+template object_row_form_local_nav(
+    scene_id,
+    object_type,
+    identity_field,
+    overlay_size = "large",
+):
+    {
+        "kind": "object_focus_detail_page",
+        "scene_id": scene_id,
+        "object_type": object_type,
+        "identity_field": identity_field,
+        "overlay_size": overlay_size,
+    }
+
+# 分析表字段级打开详情：绑 object_locator，不要整行 row_drilldown_popup。
+template object_focus_table_nav(
+    scene_id,
+    object_type,
+    identity_field,
+    identity_aliases = [],
+    filter_fields = [],
+    legacy_filter_key = "",
+    label_fields = [],
+    label_fallback = "详情",
+    overlay_size = "large",
+):
+    {
+        "kind": "analytics_drilldown_page",
+        "scene_id": scene_id,
+        "host_mode": "scene_page",
+        "max_charts": 3,
+        "overlay_size": overlay_size,
+        "object_locator": {
+            "object_type": object_type,
+            "identity_field": identity_field,
+            "identity_aliases": identity_aliases,
+            "legacy_filter_key": legacy_filter_key,
+        },
+        "row_drilldown": {
+            "filter_key": legacy_filter_key,
+            "filter_fields": filter_fields,
+            "label_fields": label_fields,
+            "label_fallback": label_fallback,
+            "object_locator": {
+                "object_type": object_type,
+                "identity_field": identity_field,
+                "identity_aliases": identity_aliases,
+                "legacy_filter_key": legacy_filter_key,
+            },
+        },
+    }
+
+# 详情页 plane region（单 preview 槽）
+template object_row_form_plane_regions(
+    plane_key,
+    section_id = "object_row_form_preview",
+    body_id = "object_row_form_preview_body",
+):
+    [
+        pm.case_detail_t2_region(
+            plane_key = plane_key,
+            section_id = section_id,
+            body_id = body_id,
+        ),
+    ]
+
+# 详情页 frame 引用（override 掉分析页默认 frame）
+template object_row_form_frame():
+    frame_ref(template = case_detail_card_frame())

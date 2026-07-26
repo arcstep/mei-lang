@@ -14,6 +14,7 @@ import { ensureEChartsGlobal } from "../vendor/runtime-libs.js";
 import {
   COCKPIT_FONT,
   COCKPIT_TYPE,
+  clampThemeFontPx,
   cockpitCssVars,
   readThemeTypography,
   readThemeColor,
@@ -159,9 +160,12 @@ function buildProgressDonutOption(rate, sliceLabels, host) {
           position: "center",
           formatter: `${pct}%`,
           color: readThemeColor(host, "text_highlight"),
-          fontSize: typography.body,
+          fontSize: clampThemeFontPx(host, typography.body),
           fontWeight: 700,
           fontFamily: readThemeUiFontFamily(host),
+          // 中心百分比：浅字配深描边，深浅背景都可读
+          textBorderColor: "rgba(8, 28, 52, 0.88)",
+          textBorderWidth: 2,
         },
         labelLine: { show: false },
         data: [

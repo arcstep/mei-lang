@@ -16113,7 +16113,9 @@
 /* ===== spa-navigation/primitives.js ===== */
   function nonEmptyString(...values) {
     for (const value of values) {
-      const text = String(value || "").trim();
+      // Skip unresolved IR (param_ref / maps); String({}) === "[object Object]".
+      if (value == null || typeof value === "object") continue;
+      const text = String(value).trim();
       if (text) return text;
     }
     return "";
@@ -17578,6 +17580,23 @@
     return grouped;
   }
 
+  /** Merge author bindings.filter_schema onto resolved assembly.filter_schema. */
+  function mergeAnalyticsFilterSchemaPreference(resolved, author) {
+    const resolvedOk = resolved && typeof resolved === "object" && !Array.isArray(resolved);
+    const authorOk = author && typeof author === "object" && !Array.isArray(author);
+    if (!resolvedOk && !authorOk) return null;
+    if (!authorOk) return resolved;
+    if (!resolvedOk) return author;
+    const resolvedRowset = nonEmptyString(resolved.rowset_dataset_id, resolved.rowsetDatasetId);
+    const authorRowset = nonEmptyString(author.rowset_dataset_id, author.rowsetDatasetId);
+    return {
+      ...resolved,
+      ...author,
+      rowset_dataset_id: authorRowset || resolvedRowset || undefined,
+      rowsetDatasetId: authorRowset || resolvedRowset || undefined,
+    };
+  }
+
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       return {
@@ -17707,11 +17726,16 @@
       structuredBoard,
       sceneShell,
     });
+    // Prefer author fields/preset from bindings, but keep resolved string rowset_dataset_id
+    // (bindings often still hold unresolved `{__ref:"param_ref"}`).
     const filterSchema = normalizeAnalyticsFilterSchema(
-      popup?.filter_schema ||
-        popup?.filterSchema ||
-        sceneAssembly?.filter_schema ||
-        sceneAssembly?.filterSchema,
+      mergeAnalyticsFilterSchemaPreference(
+        popup?.filter_schema ||
+          popup?.filterSchema ||
+          sceneAssembly?.filter_schema ||
+          sceneAssembly?.filterSchema,
+        sceneAssembly?.bindings?.filter_schema || sceneAssembly?.bindings?.filterSchema,
+      ),
     );
     const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
     const rawRowsetDatasetId = nonEmptyString(filterSchema.rowsetDatasetId, paramRowsetDatasetId);
@@ -18800,14 +18824,35 @@
         merged[normalizedKey] = normalizedValue;
       });
     });
-    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 resolve.
+    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
     if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
     if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
     if (merged.matterId && !merged["序号"]) merged["序号"] = merged.matterId;
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
+    if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
+    if (merged["模型ID"] && !merged.modelId) merged.modelId = merged["模型ID"];
     return merged;
+  }
+
+  /** Excel/Parquet 常把整型 ID 存成 2025001 / "2025001.0"；比较与展示时归一成无小数文本。 */
+  function normalizeIdentityText(value) {
+    if (value == null) return "";
+    if (typeof value === "number" && Number.isFinite(value)) {
+      if (Math.abs(value % 1) < Number.EPSILON) return String(Math.trunc(value));
+      return String(value);
+    }
+    const text = String(value).trim();
+    if (!text) return "";
+    if (/^-?\d+\.0+$/.test(text)) return text.replace(/\.0+$/, "");
+    return text;
+  }
+
+  function identityTextEquals(left, right) {
+    const a = normalizeIdentityText(left);
+    const b = normalizeIdentityText(right);
+    return Boolean(a) && a === b;
   }
 
   function pickRowMatchingDrilldownFilters(rows, detail) {
@@ -18819,29 +18864,33 @@
         : detail?.default_filters && typeof detail.default_filters === "object"
           ? detail.default_filters
           : {};
-    const warningId = String(filters.warningId ?? filters["预警ID"] ?? "").trim();
-    const resultId = String(filters.resultId ?? filters["处理结果ID"] ?? "").trim();
-    const matterId = String(filters.matterId ?? filters["序号"] ?? "").trim();
+    const warningId = normalizeIdentityText(filters.warningId ?? filters["预警ID"]);
+    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]);
+    const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
+    const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
     if (warningId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId ?? "").trim();
-        return id === warningId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId, warningId),
+      );
       if (hit) return hit;
     }
     if (resultId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId ?? "").trim();
-        return id === resultId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId, resultId),
+      );
+      if (hit) return hit;
+    }
+    if (modelId) {
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["模型ID"] ?? row?.model_id ?? row?.modelId, modelId),
+      );
       if (hit) return hit;
     }
     if (matterId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["序号"] ?? row?.matterId ?? row?.seq ?? "").trim();
-        return id === matterId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["序号"] ?? row?.matterId ?? row?.seq, matterId),
+      );
       if (hit) return hit;
     }
     if (matterName) {
@@ -19848,10 +19897,15 @@
       : inferredFormats;
     const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
     const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
-    // Only a full column_template is a complete layout. Partial column_state must still
-    // run fitColumnsFromSample so every column gets a shared px track; otherwise
-    // tableScrollX falls back to per-row max-content and thead/tbody diverge.
-    const hasFullColumnTemplate = Boolean(columnTemplate);
+    // column_template 仅作无测宽/回退布局；默认始终样本测宽（标签/日期等内容列自动够宽）。
+    // 作者可显式 fitColumnsFromSample/autoFitColumns=false 关闭。
+    const fitColumnsFromSample =
+      config?.fitColumnsFromSample === false ||
+      config?.fit_columns_from_sample === false ||
+      config?.autoFitColumns === false ||
+      config?.auto_fit_columns === false
+        ? false
+        : true;
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -19894,8 +19948,8 @@
       rowSelectionMode:
         nonEmptyString(config?.rowSelectionMode) || (autoSelectFirstRow ? "single" : ""),
       tableScrollX,
-      autoFitColumns: hasFullColumnTemplate ? false : true,
-      fitColumnsFromSample: hasFullColumnTemplate ? false : true,
+      autoFitColumns: fitColumnsFromSample,
+      fitColumnsFromSample,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
@@ -20307,6 +20361,8 @@
     const detailFields = Array.isArray(config?.detailSlot?.fields) ? config.detailSlot.fields : [];
     const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
     const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
+    const allowExtra =
+      config?.filterSchema?.allowExtra === true || config?.filterSchema?.allow_extra === true;
     const byColumn = new Map();
     // 作者声明字段优先（含 control / contains_any 等），并占 catalog 前部 → 默认预置取前 N 个
     for (const field of schemaFields) {
@@ -20315,20 +20371,23 @@
       if (!column) continue;
       byColumn.set(column, mapped);
     }
-    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置
-    for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
-      const column = String(raw || "").trim();
-      if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
-      const control = inferDefaultControlForColumn(column);
-      byColumn.set(column, {
-        key: column,
-        label: column,
-        column,
-        control,
-        options_from: control === "text" ? undefined : "rowset",
-        options_field: column,
-        visible: true,
-      });
+    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置。
+    // allow_extra=false 时只保留作者 fields，避免表列（或旧契约列名）抢预置位。
+    if (allowExtra || schemaFields.length === 0) {
+      for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
+        const column = String(raw || "").trim();
+        if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
+        const control = inferDefaultControlForColumn(column);
+        byColumn.set(column, {
+          key: column,
+          label: column,
+          column,
+          control,
+          options_from: control === "text" ? undefined : "rowset",
+          options_field: column,
+          visible: true,
+        });
+      }
     }
     return Array.from(byColumn.values());
   }
@@ -20934,11 +20993,193 @@
         enriched["监督事项"] = text;
       }
       if (key === "modelId" || key === "模型ID") {
-        enriched.modelId = text;
-        enriched["模型ID"] = text;
+        // Excel 浮点整型常变成 2025001.0 / number；详情卡统一成无小数文本。
+        const normalized = (() => {
+          if (typeof value === "number" && Number.isFinite(value) && Math.abs(value % 1) < Number.EPSILON) {
+            return String(Math.trunc(value));
+          }
+          const raw = String(value ?? "").trim();
+          return /^-?\d+\.0+$/.test(raw) ? raw.replace(/\.0+$/, "") : raw;
+        })();
+        if (!normalized) return;
+        enriched.modelId = normalized;
+        enriched["模型ID"] = normalized;
+        return;
       }
     });
+    deriveWarningHandlingStatusFlags(enriched);
     return applyExternalCaseDetailRowEnricher(enriched, detail);
+  }
+
+  function caseDetailFieldPresent(value) {
+    const text = String(value ?? "").trim();
+    return Boolean(text) && text !== "—" && text !== "-" && text !== "－";
+  }
+
+  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办 */
+  function deriveWarningHandlingStatusFlags(row) {
+    if (!row || typeof row !== "object") return row;
+    const hasExplicit =
+      caseDetailFieldPresent(row["是否待办"]) ||
+      caseDetailFieldPresent(row["是否在办"]) ||
+      caseDetailFieldPresent(row["是否已办"]);
+    if (hasExplicit) return row;
+    const tracking = caseDetailFieldPresent(row["问题跟踪ID"]);
+    const dept = caseDetailFieldPresent(row["承办部门"]);
+    const closed = caseDetailFieldPresent(row["办结时间"]);
+    let pending = "否";
+    let inProgress = "否";
+    let done = "否";
+    if (tracking && dept && closed) {
+      done = "是";
+    } else if (tracking && dept) {
+      inProgress = "是";
+    } else {
+      pending = "是";
+    }
+    row["是否待办"] = pending;
+    row["是否在办"] = inProgress;
+    row["是否已办"] = done;
+    return row;
+  }
+
+  function caseCardObjectProps(config) {
+    const locator =
+      (config?.sceneLocalNav?.object_locator &&
+      typeof config.sceneLocalNav.object_locator === "object"
+        ? config.sceneLocalNav.object_locator
+        : null) ||
+      (config?.sceneLocalNav?.objectLocator && typeof config.sceneLocalNav.objectLocator === "object"
+        ? config.sceneLocalNav.objectLocator
+        : null) ||
+      (config?.object_locator && typeof config.object_locator === "object"
+        ? config.object_locator
+        : null) ||
+      (config?.objectLocator && typeof config.objectLocator === "object"
+        ? config.objectLocator
+        : null) ||
+      {
+        object_type: "zhifa.Warning",
+        identity_field: "预警ID",
+      };
+    return {
+      object_locator: locator,
+      objectLocator: locator,
+    };
+  }
+
+  async function loadCaseCardDrilldownMeta() {
+    if (typeof window !== "undefined" && window.MeiDrilldownMeta) {
+      return window.MeiDrilldownMeta;
+    }
+    try {
+      const mod = await import("/workspace-components/cockpit/drilldown-meta.js");
+      const api = {
+        resolveObjectFieldTargets: mod.resolveObjectFieldTargets,
+        emitObjectFieldOpen: mod.emitObjectFieldOpen,
+        resolveObjectFieldLinks: mod.resolveObjectFieldLinks,
+        splitMultiObjectKeys: mod.splitMultiObjectKeys,
+      };
+      if (typeof window !== "undefined") {
+        window.MeiDrilldownMeta = api;
+      }
+      return api;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function filterCaseCardObjectTargets(targets, spec) {
+    const allowed = cloneArray(spec?.object_types || spec?.objectTypes)
+      .map((type) => String(type || "").trim())
+      .filter(Boolean);
+    let list = Array.isArray(targets) ? targets : [];
+    if (allowed.length) {
+      list = list.filter((target) =>
+        allowed.includes(String(target?.objectType || target?.object_type || "").trim()),
+      );
+    }
+    if (window.MeiDrilldownMeta?.preferUniqueObjectTargets) {
+      return window.MeiDrilldownMeta.preferUniqueObjectTargets(list, allowed);
+    }
+    return list;
+  }
+
+  function bindCaseCardObjectOpen(el, host, row, field, spec, config) {
+    if (!(el instanceof HTMLElement) || !field) return;
+    el.classList.add("is-object-link");
+    el.setAttribute("role", "button");
+    el.tabIndex = 0;
+    el.title = el.title || "打开智能对象";
+    const open = async (event) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const meta = await loadCaseCardDrilldownMeta();
+      if (!meta?.resolveObjectFieldTargets || !meta?.emitObjectFieldOpen) return;
+      const props = caseCardObjectProps(config);
+      let targets = filterCaseCardObjectTargets(
+        meta.resolveObjectFieldTargets(props, row, field),
+        spec,
+      );
+      // 多值 ID 芯片：仅打开当前 chip 对应 identity
+      const chipKey = String(el.dataset?.objectKey || "").trim();
+      if (chipKey) {
+        targets = targets.filter(
+          (target) => String(target?.objectKey || target?.object_key || "").trim() === chipKey,
+        );
+      }
+      if (!targets.length) return;
+      const emitHost = host instanceof HTMLElement ? host : el;
+      if (targets.length === 1) {
+        meta.emitObjectFieldOpen(emitHost, targets[0], row, props);
+        return;
+      }
+      openCaseCardObjectChooser(el, targets, (target) => {
+        meta.emitObjectFieldOpen(emitHost, target, row, props);
+      });
+    };
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") open(event);
+    });
+  }
+
+  function openCaseCardObjectChooser(anchor, targets, onPick) {
+    const existing = document.querySelector(".access-drilldown-object-chooser");
+    if (existing) existing.remove();
+    const menu = document.createElement("div");
+    menu.className = "access-drilldown-object-chooser";
+    menu.setAttribute("role", "menu");
+    const title = document.createElement("div");
+    title.className = "access-drilldown-object-chooser-title";
+    title.textContent = "选择智能对象";
+    menu.appendChild(title);
+    targets.forEach((target) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "access-drilldown-object-chooser-item";
+      button.setAttribute("role", "menuitem");
+      button.textContent =
+        target?.label || `${target?.objectType || ""} · ${target?.objectKey || ""}`;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        menu.remove();
+        onPick?.(target);
+      });
+      menu.appendChild(button);
+    });
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 260))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 8)}px`;
+    const close = (event) => {
+      if (menu.contains(event.target) || anchor.contains?.(event.target)) return;
+      menu.remove();
+      document.removeEventListener("mousedown", close, true);
+    };
+    setTimeout(() => document.addEventListener("mousedown", close, true), 0);
   }
 
   function mappingShowsHeader(mapping) {
@@ -21051,6 +21292,18 @@
     valueEl.appendChild(root);
   }
 
+  function mappingAllowsAutoFields(mapping) {
+    if (!mapping || typeof mapping !== "object") return true;
+    // 定制卡可显式关闭：仅展示 field_order。
+    if (mapping.auto_fields === false || mapping.autoFields === false) return false;
+    return true;
+  }
+
+  function isLongRowFormField(name, value) {
+    if (value.length >= 28) return true;
+    return /依据|规则|描述|问题|表现|政策|数据|情况|说明|附件/.test(String(name || ""));
+  }
+
   /** 表单风格：按 field_order 展开行字段；排除注入噪音键，避免英文 title/matter 污染。 */
   function appendRowFormFields(panel, row, mapping) {
     if (!row || typeof row !== "object" || Array.isArray(row)) return;
@@ -21085,8 +21338,9 @@
       seen.add(key);
       keys.push(key);
     });
-    // 仅当未声明 field_order 时才回退到全字段；默认行级详情卡应用 field_order。
-    if (!preferred.length) {
+    // 通用默认：无 field_order → 全字段；有 field_order 且 auto_fields≠false → 顺序优先后补齐。
+    // 定制卡：auto_fields=false + field_order → 仅展示指定列。
+    if (!preferred.length || mappingAllowsAutoFields(mapping)) {
       Object.keys(row).forEach((key) => {
         if (seen.has(key)) return;
         seen.add(key);
@@ -21103,11 +21357,17 @@
       if (/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) return;
       const raw = row[name];
       if (raw != null && typeof raw === "object") return;
-      const value = String(raw ?? "").trim();
+      let value = String(raw ?? "").trim();
+      // 模型/预警等 ID：去掉 Excel 浮点旁路留下的 ".0"
+      if ((name.endsWith("ID") || name.endsWith("Id") || name === "序号") && /^-?\d+\.0+$/.test(value)) {
+        value = value.replace(/\.0+$/, "");
+      } else if (typeof raw === "number" && Number.isFinite(raw) && Math.abs(raw % 1) < Number.EPSILON) {
+        value = String(Math.trunc(raw));
+      }
       const item = document.createElement("div");
       item.className = "access-drilldown-row-form-item";
       item.setAttribute("role", "listitem");
-      if (value.length >= 28 || name === "存在的问题" || name === "表现形式" || name === "问题描述") {
+      if (isLongRowFormField(name, value)) {
         item.classList.add("access-drilldown-row-form-item--long");
       }
       const labelEl = document.createElement("div");
@@ -21128,14 +21388,16 @@
     if (form.childElementCount) panel.appendChild(form);
   }
 
-  function appendCaseDetailSection(block, section, row, mapping) {
+  function appendCaseDetailSection(block, section, row, mapping, config = null) {
     const label = String(section?.label || "").trim();
     const kind = String(section?.kind || "").trim();
+    const field = String(section?.field || "").trim();
+    const hideLabel = section?.hide_label === true || section?.hideLabel === true;
     let value = resolveCaseDetailFieldValue(row, section);
     if (kind === "situation") {
       value = resolveCaseDetailSituationText(row, mapping);
     }
-    if (!label) return;
+    if (!label && !hideLabel && kind !== "situation" && !field) return;
     const sectionEl = document.createElement("div");
     sectionEl.className = "access-drilldown-case-detail-section";
     if (kind === "id") {
@@ -21144,19 +21406,45 @@
       const idLabel = document.createElement("span");
       idLabel.className = "access-drilldown-case-detail-id-label";
       idLabel.textContent = label;
-      const idValue = document.createElement("span");
-      idValue.className = "access-drilldown-case-detail-id-chip";
-      idValue.textContent = value || "—";
       idRow.appendChild(idLabel);
-      idRow.appendChild(idValue);
+      const rawKeys = (() => {
+        if (window.MeiDrilldownMeta?.splitMultiObjectKeys) {
+          return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
+        }
+        return String(value ?? "")
+          .split(/[\n\r\s]+/)
+          .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
+          .filter(Boolean);
+      })();
+      const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+      if (!keys.length) {
+        const empty = document.createElement("span");
+        empty.className = "access-drilldown-case-detail-id-chip";
+        empty.textContent = "—";
+        idRow.appendChild(empty);
+      } else {
+        const wantsLink = section?.object_link === true || section?.objectLink === true;
+        keys.forEach((key) => {
+          const idValue = document.createElement("span");
+          idValue.className = "access-drilldown-case-detail-id-chip";
+          idValue.textContent = key;
+          if (wantsLink && field) {
+            idValue.dataset.objectKey = key;
+            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
+          }
+          idRow.appendChild(idValue);
+        });
+      }
       sectionEl.appendChild(idRow);
       block.appendChild(sectionEl);
       return;
     }
-    const labelEl = document.createElement("div");
-    labelEl.className = "access-drilldown-case-detail-section-label";
-    labelEl.textContent = label;
-    sectionEl.appendChild(labelEl);
+    if (label && !hideLabel) {
+      const labelEl = document.createElement("div");
+      labelEl.className = "access-drilldown-case-detail-section-label";
+      labelEl.textContent = label;
+      sectionEl.appendChild(labelEl);
+    }
     const body = document.createElement("div");
     body.className = "access-drilldown-case-detail-section-body";
     if ((label === "健全机制" || label === "制度文件") && value) {
@@ -21236,7 +21524,7 @@
     return unit ? `${raw}${unit}` : raw;
   }
 
-  function appendTypicalCaseTagRow(panel, row, mapping) {
+  function appendTypicalCaseTagRow(panel, row, mapping, config = null) {
     const tags = cloneArray(mapping?.tags);
     if (!tags.length) return;
     const tagRow = document.createElement("div");
@@ -21249,11 +21537,21 @@
       if (!value) return;
       const tag = document.createElement("span");
       const kind = String(spec?.kind || "").trim();
-      tag.className =
-        kind === "warning_level"
-          ? `access-drilldown-typical-case-tag access-drilldown-typical-case-tag--warning access-drilldown-typical-case-tag--${resolveWarningLevelTone(value)}`
-          : "access-drilldown-typical-case-tag";
-      tag.textContent = `${label}：${value}`;
+      if (kind === "warning_level") {
+        tag.className =
+          "access-drilldown-typical-case-tag access-drilldown-typical-case-tag--warning-level";
+        const labelEl = document.createElement("span");
+        labelEl.className = "access-drilldown-typical-case-tag-label";
+        labelEl.textContent = `${label}：`;
+        tag.appendChild(labelEl);
+        appendWarningLevelBlocks(tag, field, value);
+      } else {
+        tag.className = "access-drilldown-typical-case-tag";
+        tag.textContent = `${label}：${value}`;
+      }
+      if (spec?.object_link === true || spec?.objectLink === true) {
+        bindCaseCardObjectOpen(tag, panel, row, field, spec, config);
+      }
       tagRow.appendChild(tag);
     });
     if (tagRow.childElementCount) panel.appendChild(tagRow);
@@ -21282,7 +21580,31 @@
     if (factsRoot.childElementCount) panel.appendChild(factsRoot);
   }
 
-  function appendTypicalCaseStatusRow(panel, row, mapping) {
+  function resolveVerifiedStatusPill(row, spec) {
+    const field = String(spec?.field || "是否查实").trim();
+    const raw = String(row?.[field] ?? "").trim();
+    if (!raw || raw === "—" || raw === "-" || raw === "－") {
+      return null;
+    }
+    const countField = String(spec?.count_field || spec?.countField || "查实条数").trim();
+    const countRaw = String(row?.[countField] ?? "").trim();
+    const countNum = Number(String(countRaw).replace(/,/g, ""));
+    const countText =
+      Number.isFinite(countNum) && countNum > 0
+        ? String(Math.trunc(countNum))
+        : countRaw && countRaw !== "—"
+          ? countRaw
+          : "";
+    if (raw === "否" || raw === "0" || raw.includes("否")) {
+      return { label: "未查实", active: false };
+    }
+    if (raw.includes("是") || (Number.isFinite(countNum) && countNum > 0)) {
+      return { label: countText ? `查实${countText}条` : "查实", active: true };
+    }
+    return null;
+  }
+
+  function appendTypicalCaseStatusRow(panel, row, mapping, config = null) {
     const flags = cloneArray(mapping?.status_flags || mapping?.statusFlags);
     if (!flags.length) return;
     const statusRoot = document.createElement("div");
@@ -21294,6 +21616,48 @@
     const pills = document.createElement("div");
     pills.className = "access-drilldown-typical-case-status-pills";
     flags.forEach((spec) => {
+      const kind = String(spec?.kind || "").trim();
+      if (kind === "id_chip" || kind === "id") {
+        const label = String(spec?.label || spec?.field || "").trim();
+        const field = String(spec?.field || "").trim();
+        if (!label || !field) return;
+        const value = resolveCaseDetailFieldValue(row, spec);
+        const rawKeys = (() => {
+          if (window.MeiDrilldownMeta?.splitMultiObjectKeys) {
+            return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
+          }
+          return String(value ?? "")
+            .split(/[\n\r\s]+/)
+            .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
+            .filter(Boolean);
+        })();
+        const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+        if (!keys.length) return;
+        const wantsLink = spec?.object_link === true || spec?.objectLink === true;
+        keys.forEach((key) => {
+          const pill = document.createElement("span");
+          pill.className =
+            "access-drilldown-typical-case-status-pill access-drilldown-typical-case-status-pill--id";
+          pill.textContent = `${label} ${key}`;
+          if (wantsLink) {
+            pill.dataset.objectKey = key;
+            bindCaseCardObjectOpen(pill, panel, row, field, spec, config);
+          }
+          pills.appendChild(pill);
+        });
+        return;
+      }
+      if (kind === "verified_count" || kind === "verified") {
+        const resolved = resolveVerifiedStatusPill(row, spec);
+        if (!resolved) return;
+        const pill = document.createElement("span");
+        pill.className = `access-drilldown-typical-case-status-pill${
+          resolved.active ? " access-drilldown-typical-case-status-pill--on" : ""
+        }`;
+        pill.textContent = resolved.label;
+        pills.appendChild(pill);
+        return;
+      }
       const label = String(spec?.label || spec?.field || "").trim();
 
 
@@ -21345,7 +21709,7 @@
     }
   }
 
-  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false } = {}) {
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null } = {}) {
     if (!mappingHasTypicalCaseStats(mapping)) return;
     const target = (() => {
       if (!wrapBand) return panel;
@@ -21354,9 +21718,9 @@
       panel.appendChild(band);
       return band;
     })();
-    appendTypicalCaseTagRow(target, row, mapping);
+    appendTypicalCaseTagRow(target, row, mapping, config);
     appendTypicalCaseFacts(target, row, mapping);
-    appendTypicalCaseStatusRow(target, row, mapping);
+    appendTypicalCaseStatusRow(target, row, mapping, config);
     appendTypicalCaseMetricsRow(target, row, mapping);
   }
 
@@ -21409,7 +21773,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping);
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { config });
     host.appendChild(panel);
   }
 
@@ -21467,7 +21831,10 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { wrapBand: hybridStats });
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, {
+      wrapBand: hybridStats,
+      config,
+    });
     if (mappingShowsMeta(mapping)) {
       appendCaseDetailMetaRow(panel, enrichedRow, mapping);
     }
@@ -21491,7 +21858,7 @@
         columnEl.appendChild(titleEl);
       }
       cloneArray(column?.sections).forEach((section) => {
-        appendCaseDetailSection(columnEl, section, enrichedRow, mapping);
+        appendCaseDetailSection(columnEl, section, enrichedRow, mapping, config);
       });
       if (columnEl.childElementCount) {
         columnsRoot.appendChild(columnEl);
@@ -21501,6 +21868,7 @@
       panel.appendChild(columnsRoot);
     }
     host.appendChild(panel);
+    loadCaseCardDrilldownMeta();
   }
 
   function isTruthyFlag(value) {

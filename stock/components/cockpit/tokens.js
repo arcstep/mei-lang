@@ -211,8 +211,36 @@ export function readThemeRoleFontPx(host, roleCssVar, fontTokenKey, fallback) {
   return readThemeFontPx(host, fontTokenKey, fallback);
 }
 
-/** ECharts / 运行时排版：读 theme 文字角色配方，再回退 font 档位 */
+/**
+ * 主题最小字号（px）：
+ * 1) tokens.typography.min_font_size → --mei-typography-min-font-size
+ * 2) 否则字阶最低档 --mei-font-1
+ */
+export function readThemeMinFontPx(host, fallback = 16) {
+  if (typeof window !== "undefined" && host instanceof Element) {
+    const style = window.getComputedStyle(host);
+    const explicit = parseThemeFontPx(
+      style.getPropertyValue("--mei-typography-min-font-size").trim(),
+      0,
+    );
+    if (explicit > 0) {
+      return Math.round(explicit);
+    }
+  }
+  return Math.round(readThemeFontPx(host, "1", fallback));
+}
+
+/** 将任意派生字号钳到主题最小字号（禁止图表写死 10/11px 等） */
+export function clampThemeFontPx(host, px, fallback = 16) {
+  const minPx = readThemeMinFontPx(host, fallback);
+  const n = Number(px);
+  const size = Number.isFinite(n) && n > 0 ? n : minPx;
+  return Math.max(minPx, Math.round(size));
+}
+
+/** ECharts / 运行时排版：读 theme 文字角色配方，再回退 font 档位，并钳到最小字阶 */
 export function readThemeTypography(host) {
+  const min = readThemeMinFontPx(host, 16);
   let chartTitle = 18;
   let body = 18;
   if (typeof window !== "undefined" && host instanceof Element) {
@@ -229,11 +257,12 @@ export function readThemeTypography(host) {
     body = 18;
   }
   return {
-    unit: readThemeRoleFontPx(host, "--mei-metric-unit-font-size", "1", 16),
-    label: readThemeRoleFontPx(host, "--mei-chart-label-font-size", "1", 16),
-    body,
-    value: readThemeRoleFontPx(host, "--mei-metric-value-font-size", "3", 26),
-    chartTitle,
+    min,
+    unit: Math.max(min, readThemeRoleFontPx(host, "--mei-metric-unit-font-size", "1", 16)),
+    label: Math.max(min, readThemeRoleFontPx(host, "--mei-chart-label-font-size", "1", 16)),
+    body: Math.max(min, body),
+    value: Math.max(min, readThemeRoleFontPx(host, "--mei-metric-value-font-size", "3", 26)),
+    chartTitle: Math.max(min, chartTitle),
   };
 }
 

@@ -17,6 +17,7 @@ import {
 } from "../../dataset/runtime-query.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
 import {
+  clampThemeFontPx,
   cockpitCssVars,
   readThemeChartPalette,
   readThemeColor,
@@ -1606,7 +1607,7 @@ function colorizeBarDataByValue(data, palette) {
   });
 }
 
-/** 饼/玫瑰：按扇区数值上色（越大越深）。 */
+/** 饼/玫瑰：按扇区数值上色（越大越深）；环内百分比随扇区底色自适应字色+描边。 */
 function colorizePieDataByValue(data, palette) {
   const colors = Array.isArray(palette) ? palette.filter(Boolean) : [];
   if (colors.length < 2 || !Array.isArray(data) || data.length === 0) return data;
@@ -1614,9 +1615,14 @@ function colorizePieDataByValue(data, palette) {
   if (!extent) return data;
   return data.map((entry) => {
     const color = pickPaletteColorByValue(entry?.value, extent.min, extent.max, colors);
+    const labelStyle = echartsLabelOnFill(color);
     return {
       ...entry,
       itemStyle: { ...(entry?.itemStyle || {}), color },
+      label: {
+        ...(entry?.label && typeof entry.label === "object" ? entry.label : {}),
+        ...labelStyle,
+      },
     };
   });
 }
@@ -1627,32 +1633,72 @@ function colorizePieDataByWarningLevel(data, host) {
   const colors = readWarningLevelColors(host);
   return data.map((entry) => {
     const color = resolveWarningLevelSliceColor(entry?.name, colors);
-    const labelColor = contrastingForegroundOnColor(color);
+    const labelStyle = echartsLabelOnFill(color);
     return {
       ...entry,
       itemStyle: { ...(entry?.itemStyle || {}), color },
-      // 黄扇区等浅色底上用深色字，避免环内白字看不清
+      // 黄扇区等浅色底上用深色字 + 反色描边，避免环内百分比看不清
       label: {
         ...(entry?.label && typeof entry.label === "object" ? entry.label : {}),
-        color: labelColor,
-        textBorderColor:
-          labelColor === "#0f172a" ? "rgba(255,255,255,0.65)" : "rgba(8, 28, 52, 0.55)",
-        textBorderWidth: 1,
+        ...labelStyle,
       },
     };
   });
 }
 
-/** 亮色底用深字，暗色底用浅字（环内百分比对比度）。 */
-function contrastingForegroundOnColor(color) {
+/** 相对亮度（sRGB → 线性），失败时返回 null。 */
+function relativeLuminance(color) {
   const rgb = parseCssColorToRgb(color);
-  if (!rgb) return "#f8fafc";
+  if (!rgb) return null;
   const toLinear = (c) => {
     const n = c / 255;
     return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
   };
-  const luminance = 0.2126 * toLinear(rgb[0]) + 0.7152 * toLinear(rgb[1]) + 0.0722 * toLinear(rgb[2]);
+  return 0.2126 * toLinear(rgb[0]) + 0.7152 * toLinear(rgb[1]) + 0.0722 * toLinear(rgb[2]);
+}
+
+/** 亮色底用深字，暗色底用浅字（环内百分比对比度）。 */
+function contrastingForegroundOnColor(color) {
+  const luminance = relativeLuminance(color);
+  if (luminance == null) return "#f8fafc";
   return luminance > 0.55 ? "#0f172a" : "#f8fafc";
+}
+
+/**
+ * ECharts canvas 文字描边：浅字配深描边、深字配浅描边。
+ * width=2 + 高不透明度，确保环内百分比在深/浅扇区上都可见。
+ */
+function echartsTextStrokeStyle(foreground) {
+  const luminance = relativeLuminance(foreground);
+  const isLightFg =
+    luminance != null
+      ? luminance > 0.55
+      : (() => {
+          const fg = String(foreground || "")
+            .trim()
+            .toLowerCase();
+          return (
+            fg === "#f8fafc" ||
+            fg === "#fff" ||
+            fg === "#ffffff" ||
+            fg === "#e2e8f0" ||
+            fg.includes("255")
+          );
+        })();
+  return {
+    textBorderColor: isLightFg ? "rgba(8, 28, 52, 0.88)" : "rgba(255, 255, 255, 0.88)",
+    textBorderWidth: 2,
+  };
+}
+
+/** 扇区填充色上的环内标签：自适应字色 + 反色描边。 */
+function echartsLabelOnFill(fillColor) {
+  const color = contrastingForegroundOnColor(fillColor);
+  return {
+    color,
+    fontWeight: 600,
+    ...echartsTextStrokeStyle(color),
+  };
 }
 
 function parseCssColorToRgb(color) {
@@ -1988,10 +2034,13 @@ function resolveCategoryAxisLabelRotate(props) {
 function buildCategoryAxisLabel(chartProps, typography) {
   const formatter = resolveCategoryAxisLabelFormatter(chartProps);
   const rotate = resolveCategoryAxisLabelRotate(chartProps);
+  const host = chartProps?.__host;
+  const color = canvasThemeColor(host, "text_muted");
   const label = {
     fontSize: typography.unit,
-    color: canvasThemeColor(chartProps?.__host, "text_muted"),
+    color,
     interval: 0,
+    ...echartsTextStrokeStyle(color),
   };
   if (formatter) {
     label.formatter = formatter;
@@ -2287,7 +2336,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
   const themeTypography = readThemeTypography(host);
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
-  // compact 默认仍隐藏图例/外标；仅当 props 显式打开时启用（避免误开其它紧凑环图）
+  // compact 默认仍隐藏图例；环内占比见下方 showLabel（donut 非 tight 默认开）。
   const chartProps = legacy.chartProps || {};
   const explicitLegendOn =
     chartProps.showLegend === true ||
@@ -2310,8 +2359,10 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     chartProps.showLabel === "false" ||
     chartProps.show_label === false ||
     chartProps.show_label === "false";
-  // 风险/预警等级环形图默认显示占比，突出业务色扇区份额。
-  const showLabel = explicitLabelOff ? false : explicitLabelOn || (warningLevelPalette && kind === "donut");
+  // donut 强调占比：默认在环内显示 `{d}%`。tight 迷你环（驾驶舱火花图）仍默认隐藏，避免字叠扇区。
+  const showLabel = explicitLabelOff
+    ? false
+    : explicitLabelOn || (kind === "donut" && !tight);
   const compactWithLegend = compact && showLegend;
   const donutRadius = tight
     ? ["58%", "82%"]
@@ -2337,6 +2388,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
             fontSize: themeTypography.label,
             color: canvasThemeColor(host, "text_body"),
             fontFamily: readThemeUiFontFamily(host),
+            ...echartsTextStrokeStyle(canvasThemeColor(host, "text_body")),
           },
         }
       : { show: false },
@@ -2350,18 +2402,25 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
         top: compact ? 0 : 36,
         height: compact ? undefined : "72%",
         label: showLabel
-          ? {
-              show: true,
-              position: compact ? "inside" : "outside",
-              formatter: compact ? "{d}%" : "{b}\n{d}%",
-              fontSize: Math.max(11, Math.round(themeTypography.label * (compact ? 0.9 : 1))),
-              fontFamily: readThemeUiFontFamily(host),
-              // 默认浅色；warning_level 扇区会在 data[].label 上按底色覆盖深/浅字
-              color: canvasThemeColor(host, "text_primary"),
-              fontWeight: 600,
-              textBorderColor: "rgba(8, 28, 52, 0.55)",
-              textBorderWidth: 1,
-            }
+          ? (() => {
+              const labelColor = canvasThemeColor(host, "text_primary");
+              // 字号跟主题 chart_label / 字阶下限；compact 可略收但不低于 min
+              const fontSize = clampThemeFontPx(
+                host,
+                Math.round(themeTypography.label * (compact ? 0.9 : 1)),
+              );
+              return {
+                show: true,
+                position: compact ? "inside" : "outside",
+                formatter: compact ? "{d}%" : "{b}\n{d}%",
+                fontSize,
+                fontFamily: readThemeUiFontFamily(host),
+                // 默认主题字色+描边；扇区上色会在 data[].label 上按底色覆盖
+                color: labelColor,
+                fontWeight: 600,
+                ...echartsTextStrokeStyle(labelColor),
+              };
+            })()
           : { show: false },
         labelLine: { show: showLabel && !compact },
         ...(kind === "rose" ? { roseType: "radius" } : {}),
@@ -2922,6 +2981,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
           ellipsis: "…",
           formatter: (value) =>
             formatRankingNameLabel(value, resolvedMaxChars).display,
+          ...echartsTextStrokeStyle(canvasThemeColor(host, "text_body")),
         },
         axisTick: { show: false },
         axisLine: { show: false },
@@ -2941,6 +3001,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
           fontWeight: 600,
           margin: 2,
           formatter: (_value, index) => valueTexts[index] || "",
+          ...echartsTextStrokeStyle(canvasThemeColor(host, "text_value")),
         },
         axisTick: { show: false },
         axisLine: { show: false },

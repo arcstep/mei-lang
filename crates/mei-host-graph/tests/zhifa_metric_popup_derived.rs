@@ -295,9 +295,14 @@ fn zhifa_warnings_analytics_local_nav_resolves_row_popup_and_field_links() {
         .unwrap_or_default();
     assert!(
         category_links.iter().any(|link| {
-            link.get("objectType").and_then(|v| v.as_str()) == Some("zhifa.SupervisionMatter")
-                && link.get("filterKey").and_then(|v| v.as_str()) == Some("matter")
+            link.get("objectType").and_then(|v| v.as_str()) == Some("zhifa.AlertModel")
         }),
-        "预警模型 → 风险事项 mapping must filter by matter: {links}"
+        "预警模型 → AlertModel mapping required: {links}"
+    );
+    assert!(
+        category_links.iter().all(|link| {
+            link.get("objectType").and_then(|v| v.as_str()) != Some("zhifa.SupervisionMatter")
+        }),
+        "预警模型 must not dual-link SupervisionMatter: {links}"
     );
 }

@@ -26,6 +26,7 @@ mod paginate;
 mod paths;
 mod query;
 mod result_artifact;
+pub mod schema_contract;
 pub mod serde_lenient;
 pub mod table_contract;
 mod table_handle;
@@ -227,6 +228,10 @@ pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
 pub use query_engine::{
     resolve_parquet_file_for_source, snapshot_query_engine_io_stats, snapshot_pipeline_sql_stats,
     take_query_engine_io_stats, take_pipeline_sql_stats,
+};
+pub use schema_contract::{
+    check_schema_physical_sources, ensure_schema_physical_sources, MissingPhysicalSource,
+    SchemaPhysicalSourceCheck,
 };
 
 pub fn clear_eval_artifact_store(app_root: &Path) -> usize {

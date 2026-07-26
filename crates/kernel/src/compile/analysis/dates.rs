@@ -178,6 +178,12 @@ pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
             }
             continue;
         }
+        if type_name == "string" {
+            if let Some(value) = out.get(&column.name) {
+                out.insert(column.name.clone(), coerce_value_to_string_cell(value));
+            }
+            continue;
+        }
         if type_name != "date" && type_name != "datetime" {
             continue;
         }
@@ -234,6 +240,40 @@ fn coerce_value_to_integer(value: &Value) -> Value {
         }
     }
     value.clone()
+}
+
+/// schema=string 时：把 Excel Float 整型与 "2025001.0" 旁路串统一成无小数文本。
+fn coerce_value_to_string_cell(value: &Value) -> Value {
+    match value {
+        Value::Null => Value::String(String::new()),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if let Some(stripped) = trimmed.strip_suffix(".0").filter(|body| {
+                !body.is_empty()
+                    && body
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || b == b'-')
+            }) {
+                Value::String(stripped.to_string())
+            } else {
+                Value::String(text.clone())
+            }
+        }
+        Value::Number(number) => {
+            if let Some(integer) = number.as_i64() {
+                return Value::String(integer.to_string());
+            }
+            if let Some(float) = number.as_f64() {
+                if float.is_finite() && float.fract().abs() < f64::EPSILON {
+                    return Value::String((float as i64).to_string());
+                }
+                return Value::String(float.to_string());
+            }
+            Value::String(number.to_string())
+        }
+        Value::Bool(flag) => Value::String(flag.to_string()),
+        other => Value::String(other.to_string()),
+    }
 }
 
 fn coerce_value_to_date_string(value: &Value) -> Value {

@@ -206,7 +206,7 @@ fn query_parquet_page_between_on_date32_column() {
 }
 
 #[test]
-fn ensure_parquet_view_missing_schema_source_becomes_null() {
+fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
     use super::register::ensure_parquet_view;
 
     let temp = tempfile::tempdir().expect("tempdir");
@@ -233,4 +233,27 @@ fn ensure_parquet_view_missing_schema_source_becomes_null() {
     assert!(view.starts_with("mei_pq_"));
     assert!(cols.contains(&"id".to_string()));
     assert!(cols.contains(&"missing_col".to_string()));
+}
+
+#[test]
+fn ensure_parquet_view_missing_required_schema_source_fails() {
+    use super::register::ensure_parquet_view;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    let parquet = write_sample_parquet(app_root);
+    let schema = vec![ColumnSchema {
+        name: "name".into(),
+        type_name: "string".into(),
+        source: Some("旧表头名".into()),
+        optional: false,
+        unit: None,
+    }];
+    let err = ensure_parquet_view(app_root, parquet.as_path(), &schema, None)
+        .expect_err("required missing source must fail");
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("schema.source") || message.contains("旧表头名"),
+        "unexpected error: {message}"
+    );
 }

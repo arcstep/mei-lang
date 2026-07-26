@@ -122,6 +122,12 @@ recipe 只保存 slot 名、降级规则和 owner/component 的薄引用；不�
 
 `object-recipes.mei` 仅提供稳定 stock source anchor，不导出作者宏。`object-defaults.mei` 已降为内部展开种子和旧生成代码兼容层；新代码不得显式调用 `object_binding_props`、`object_viewpoint`、`object_metric_card` 或 action helper。
 
+### `object-detail/`
+
+| 文件 | 说明 |
+|------|------|
+| `row-form-macros.mei` | **通用默认行级详情卡**：`object_row_form_mapping` / `object_row_form_local_nav` / `object_focus_table_nav` / `object_row_form_frame`。每个表至少应接此形态；主题色与字体走 CSS token，勿按看板硬编码。 |
+
 ### `drilldown/`
 
 | 文件 | 说明 |

@@ -234,6 +234,19 @@ fn apply_mapping_to_target(target: &mut ObjectFieldLinkTarget, mapping_doc: &Val
         }
     }
     target.targets_by_value = targets_by_value;
+    if let Some(fields) = entry
+        .get("qualifierFields")
+        .or_else(|| entry.get("qualifier_fields"))
+        .and_then(Value::as_array)
+    {
+        target.qualifier_fields = fields
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
 }
 
 fn load_mapping_document(app_root: &Path, mapping_ref: &str) -> Option<Value> {
@@ -385,21 +398,30 @@ mod tests {
             has_detail: None,
             detail_page: None,
             open_popup: None,
+            qualifier_fields: Vec::new(),
         };
         let mapping = json!({
             "relations": {
                 "alertModel.reference.byCategoryName": {
                     "sourceField": "问题分类名称",
                     "targetIdentityField": "模型ID",
+                    "qualifierFields": ["预警等级", "规则类型"],
                     "explicitMappings": {
-                        "无证执法": ["2025001", "2025002", "2025003"]
+                        "行政检查频次过高|蓝|频次类监督": "2025006",
+                        "行政检查频次过高|蓝|基准值比较": "2025007"
                     }
                 }
             }
         });
         apply_mapping_to_target(&mut target, &mapping);
         assert_eq!(target.source_field.as_deref(), Some("问题分类名称"));
-        let ids = target.targets_by_value.get("无证执法").expect("mapped");
-        assert_eq!(ids, &json!(["2025001", "2025002", "2025003"]));
+        assert_eq!(
+            target.qualifier_fields,
+            vec!["预警等级".to_string(), "规则类型".to_string()]
+        );
+        assert_eq!(
+            target.targets_by_value.get("行政检查频次过高|蓝|频次类监督"),
+            Some(&json!("2025006"))
+        );
     }
 }

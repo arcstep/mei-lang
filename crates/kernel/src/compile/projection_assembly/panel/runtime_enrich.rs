@@ -16,6 +16,19 @@ pub fn enrich_runtime_page_instance_projection_slots(
         .and_then(Value::as_array)
         .is_some_and(|slots| !slots.is_empty())
     {
+        // Slots already expanded; merge author fields onto resolved filter_schema.
+        // Never replace wholesale: bindings.filter_schema.rowset_dataset_id is often still
+        // an unresolved `{__ref:"param_ref"}` and would stringify to "[object Object]".
+        let author = assembly
+            .get("bindings")
+            .and_then(Value::as_object)
+            .and_then(|bindings| bindings.get("filter_schema"))
+            .cloned()
+            .filter(|value| value.is_object());
+        let resolved = assembly.get("filter_schema").cloned().filter(|value| value.is_object());
+        if let Some(merged) = merge_author_filter_schema(resolved, author) {
+            assembly.insert("filter_schema".to_string(), merged);
+        }
         return Vec::new();
     }
     let Some(shell_contract) = assembly
@@ -92,7 +105,7 @@ pub fn enrich_runtime_page_instance_projection_slots(
         }
         return diagnostics;
     };
-    let (slots, filter_schema, _) = expanded;
+    let (slots, expanded_filter_schema, _) = expanded;
     if slots.is_empty() {
         let mut diagnostics = expand_diagnostics;
         diagnostics.push(Diagnostic {
@@ -109,11 +122,68 @@ pub fn enrich_runtime_page_instance_projection_slots(
         "projection_slots".to_string(),
         Value::Array(slots.into_iter().map(Value::Object).collect()),
     );
-    if let Some(filter_schema) = filter_schema.filter(|value| !value.is_null()) {
+    // Merge author fields/preset onto expanded schema; keep resolved string rowset_dataset_id.
+    let author_filter_schema = assembly
+        .get("bindings")
+        .and_then(Value::as_object)
+        .and_then(|bindings| bindings.get("filter_schema"))
+        .cloned()
+        .filter(|value| value.is_object());
+    let resolved = expanded_filter_schema.filter(|value| !value.is_null() && value.is_object());
+    if let Some(filter_schema) = merge_author_filter_schema(resolved, author_filter_schema) {
         assembly.insert("filter_schema".to_string(), filter_schema);
     }
     assembly.insert("preview_params".to_string(), Value::Object(params));
     expand_diagnostics
+}
+
+/// Overlay author `fields` / `preset_filter_count` / `allow_extra` onto a resolved schema.
+/// Keep a string `rowset_dataset_id` from either side; never promote unresolved param_ref objects.
+fn merge_author_filter_schema(resolved: Option<Value>, author: Option<Value>) -> Option<Value> {
+    match (resolved, author) {
+        (None, None) => None,
+        (Some(resolved), None) => Some(resolved),
+        (None, Some(author)) => Some(strip_unresolved_rowset_dataset_id(author)),
+        (Some(Value::Object(mut resolved_map)), Some(Value::Object(author_map))) => {
+            let resolved_rowset = string_rowset_dataset_id(&resolved_map);
+            let author_rowset = string_rowset_dataset_id(&author_map);
+            for (key, value) in author_map {
+                if key == "rowset_dataset_id" || key == "rowsetDatasetId" {
+                    continue;
+                }
+                resolved_map.insert(key, value);
+            }
+            if let Some(rowset) = author_rowset.or(resolved_rowset) {
+                resolved_map.insert("rowset_dataset_id".to_string(), Value::String(rowset));
+                resolved_map.remove("rowsetDatasetId");
+            } else {
+                resolved_map.remove("rowset_dataset_id");
+                resolved_map.remove("rowsetDatasetId");
+            }
+            Some(Value::Object(resolved_map))
+        }
+        (Some(resolved), Some(_)) => Some(resolved),
+    }
+}
+
+fn string_rowset_dataset_id(map: &Map<String, Value>) -> Option<String> {
+    map.get("rowset_dataset_id")
+        .or_else(|| map.get("rowsetDatasetId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn strip_unresolved_rowset_dataset_id(mut schema: Value) -> Value {
+    let Some(map) = schema.as_object_mut() else {
+        return schema;
+    };
+    if string_rowset_dataset_id(map).is_none() {
+        map.remove("rowset_dataset_id");
+        map.remove("rowsetDatasetId");
+    }
+    schema
 }
 
 fn resolve_runtime_preview_params(assembly: &Map<String, Value>) -> Option<Map<String, Value>> {

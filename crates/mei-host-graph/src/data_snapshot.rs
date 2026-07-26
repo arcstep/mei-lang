@@ -124,6 +124,58 @@ pub fn publish_app_data_snapshots(
     })
 }
 
+/// After parquet sidecars exist: require authored `schema.source` to match snapshot columns.
+///
+/// Non-optional missing physical columns fail the prebuild; optional missing columns warn.
+pub fn verify_app_dataset_schema_physical_sources(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<()> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    let resources =
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
+    for resource in resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if dataset.schema.is_empty() {
+            continue;
+        }
+        let kind = dataset.source.kind.trim().to_ascii_lowercase();
+        if !matches!(kind.as_str(), "xlsx" | "xls" | "csv" | "json") {
+            continue;
+        }
+        let path = dataset.source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let header_row = dataset.source.header_row.unwrap_or(1).max(1) as usize;
+        let sheet = dataset
+            .source
+            .sheet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let Some(entry) =
+            resolve_data_snapshot_import_entry(app_root.as_path(), path, sheet, header_row)
+        else {
+            // Existence is covered by verify_required_xlsx_sources; skip here.
+            continue;
+        };
+        if entry.columns.is_empty() {
+            continue;
+        }
+        mei_lang_datasets::ensure_schema_physical_sources(
+            dataset.id.as_str(),
+            &dataset.schema,
+            &entry.columns,
+            Some(path),
+        )?;
+    }
+    Ok(())
+}
+
 /// Ensure a hot reload has all parquet imports required by sealed Access traffic.
 ///
 /// The common path is metadata-only. XLSX files are republished only when the

@@ -147,8 +147,11 @@ export function isIdentifierLikeColumnKey(key) {
 
 export function isLongTextColumnKey(key) {
   if (isDepartmentLikeColumnKey(key)) return false;
+  const name = String(key || "").trim();
+  // 短标题列（风险事项/预警模型）按内容列，不吃 fr 留白。
+  if (/^(风险事项|监督事项|预警模型|事项名称)$/.test(name)) return false;
   return /(notes|note|remark|comment|desc|description|memo|summary|content|备注|说明|摘要|内容|描述|表现|问题|事项|原因|依据|措施|意见|详情)/i.test(
-    String(key || "")
+    name,
   );
 }
 
@@ -191,9 +194,32 @@ export function columnPrefersContentWidth(descriptor) {
   if (!descriptor || descriptor.layoutClamp) return false;
   if (descriptor.widthMode === "fixed" && descriptor.layoutFixedWidth) return false;
   if (descriptor.widthMode === "content") return true;
+  return columnIsContentSizedSemantic(descriptor);
+}
+
+/** 语义上应按内容测宽的列（忽略作者 width_mode=fixed 锁定）。 */
+function columnIsContentSizedSemantic(descriptor) {
+  if (!descriptor) return false;
+  if (isWarningLevelBlocksColumn(descriptor)) return false;
   if (descriptor.tag || isTagLikeColumnKey(descriptor?.key)) return true;
+  if (isSerialNumberColumnKey(descriptor?.key)) return true;
+  if (isIdentifierLikeColumnKey(descriptor?.key)) return true;
   if (/(部门|单位|主责)/.test(String(descriptor?.key || ""))) return true;
+  if (/时间$|日期$/.test(String(descriptor?.key || ""))) return true;
+  // 短标题业务名列：按内容测宽，不作长文弹性。
+  if (/^(风险事项|监督事项|预警模型)$/.test(String(descriptor?.key || "").trim())) return true;
+  if (descriptor.widthMode === "content") return true;
   return isCompactDisplayType(descriptor.type);
+}
+
+/** 语义上应吃剩余宽度的长文列（测宽只定下限，不锁死 px）。 */
+function columnIsFlexFillSemantic(descriptor) {
+  if (!descriptor || columnIsContentSizedSemantic(descriptor)) return false;
+  const key = String(descriptor?.key || "");
+  if (isAddressLikeColumnKey(key)) return true;
+  if (descriptor.layoutClamp || columnFormatClampsWidth(descriptor)) return true;
+  if (isLongTextColumnKey(key)) return true;
+  return false;
 }
 
 function finalizeColumnLayout(entry) {
@@ -211,6 +237,14 @@ function finalizeColumnLayout(entry) {
     minWidth = minWidth ?? width;
   } else if (width) {
     minWidth = minWidth ?? width;
+  }
+  // 类别/类型胶囊按短枚举抬底：作者若把 fixed 写太窄，至少保证常见 4～6 字标签可读。
+  if (
+    fixedWidth &&
+    (entry.tag === true || isTagLikeColumnKey(entry.key)) &&
+    /类型|类别/.test(String(entry.key || ""))
+  ) {
+    fixedWidth = Math.max(Number(fixedWidth) || 0, 152);
   }
   if (mode === "max" && width && !maxWidth) {
     maxWidth = width;
@@ -724,7 +758,9 @@ function columnWidthCapForKey(key, descriptor = null) {
   if (/类型|类别/.test(name)) return tagLike ? 240 : 220;
   if (/领域/.test(name)) return 140;
   if (/办公地址|住所地址|注册地址|地址$/.test(name)) return 640;
-  if (/模型|模板/.test(name)) return 132;
+  // 「预警模型」等业务名列按中等宽；仅模型ID/裸「模型」保持紧凑。
+  if (/模型ID|模板ID|^(模型|模板)$/.test(name)) return 132;
+  if (/模型|模板/.test(name)) return 240;
   if (/政策文件|模型依据|规则|依据|文件|描述|事项|表现|情况|数据/.test(name)) {
     return 280;
   }
@@ -735,6 +771,7 @@ function columnWidthFloorForKey(key) {
   const name = String(key || "").trim();
   if (isIdentifierLikeColumnKey(name)) return 112;
   if (/序号|^id$/i.test(name)) return 52;
+  if (/时间$|日期$/.test(name)) return 128;
   if (/等级|类型|类别/.test(name)) return 64;
   return 56;
 }
@@ -787,49 +824,45 @@ function isAddressLikeColumnKey(key) {
 /** 需占满剩余宽度的弹性列（不可落入全 px 显式模板）。 */
 function columnPrefersFlexGrow(descriptor) {
   if (!descriptor) return false;
-  if (Number(descriptor?.layoutFixedWidth) > 0 || columnHasManualWidth(descriptor)) return false;
+  if (columnIsFlexFillSemantic(descriptor)) return true;
+  if (Number(descriptor?.layoutFixedWidth) > 0) return false;
+  // 测宽后长文列已清掉 width，仅留 layoutMinWidth；勿再被 columnHasManualWidth 挡掉。
+  if (columnHasManualWidth(descriptor) && Number(descriptor?.layoutFixedWidth) > 0) return false;
   const key = String(descriptor?.key || "");
   if (isAddressLikeColumnKey(key)) return true;
   const mode = String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
     .trim()
     .toLowerCase();
-  if (mode === "content") return true;
+  if (mode === "content" || mode === "min") return true;
+  if (Number(descriptor?.layoutMinWidth) > 0 && !Number(descriptor?.layoutFixedWidth)) return true;
   return false;
 }
 
-/**
- * 用前 N 行样本推断列宽（表头+单元格），写入 layoutFixedWidth；手工 column_state.width 优先。
- */
 function inferIdentifierColumnLayout(descriptor, sample, options = {}) {
   const key = String(descriptor?.key || "");
   const charPx = Number(options.charPx) > 0 ? Number(options.charPx) : 7;
-  const defaultPadPx = resolveHorizontalPaddingPx(DEFAULT_CELL_PADDING, 24);
-  const padPx = Number(options.cellPaddingPx) > 0 ? Number(options.cellPaddingPx) : defaultPadPx;
+  // ID 列留白敏感：用更紧的水平 padding，避免 YJ2025001 被测成 160+。
+  const defaultPadPx = resolveHorizontalPaddingPx(DEFAULT_CELL_PADDING, 20);
+  const padPx = Math.min(
+    24,
+    Number(options.cellPaddingPx) > 0 ? Number(options.cellPaddingPx) : defaultPadPx,
+  );
   const bodyFont = String(options.font || "").trim();
   const labelFont = String(options.labelFont || bodyFont).trim();
   const label = String(descriptor?.label || key).trim();
-  let maxWidthPx = Math.max(
-    measureDisplayTextPx(label, { font: labelFont, charPx }),
-    displayCharCount(label) * charPx
-  );
+  let maxWidthPx = measureDisplayTextPx(label, { font: labelFont, charPx });
   for (const row of sample) {
     const preview = previewTextForWidth(rowFieldValue(row, key), descriptor);
     const text = String(preview ?? "");
-    maxWidthPx = Math.max(
-      maxWidthPx,
-      measureDisplayTextPx(text, { font: bodyFont, charPx }),
-      displayCharCount(text) * charPx
-    );
+    maxWidthPx = Math.max(maxWidthPx, measureDisplayTextPx(text, { font: bodyFont, charPx }));
   }
   const floor = Math.max(
     columnWidthFloorForKey(key),
-    Math.ceil(measureDisplayTextPx(label, { font: labelFont, charPx }) + 16)
+    Math.ceil(measureDisplayTextPx(label, { font: labelFont, charPx }) + 12),
   );
-  const cap = columnWidthCapForKey(key, descriptor);
-  const slackPx = columnMeasureSlackPx(descriptor, charPx);
-  const width = Math.ceil(
-    Math.min(cap, Math.max(floor, maxWidthPx + padPx + slackPx))
-  );
+  const cap = Math.min(152, columnWidthCapForKey(key, descriptor));
+  const slackPx = Math.max(4, columnMeasureSlackPx(descriptor, charPx) - 2);
+  const width = Math.ceil(Math.min(cap, Math.max(floor, maxWidthPx + padPx + slackPx)));
   return finalizeColumnLayout({
     ...descriptor,
     width: null,
@@ -842,6 +875,32 @@ function inferIdentifierColumnLayout(descriptor, sample, options = {}) {
   });
 }
 
+function inferWarningLevelBlocksLayout(descriptor, authorWidth = 0) {
+  const kind = String(descriptor?.format?.kind || descriptor?.kind || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // 三色块（风险等级）需要约 3×方块+间隙；单色块（预警等级）更窄。
+  const defaultWidth =
+    kind === "risk_level_blocks" || kind === "warning_level_blocks" ? 180 : 88;
+  const width = authorWidth > 0 ? authorWidth : defaultWidth;
+  return finalizeColumnLayout({
+    ...descriptor,
+    width: null,
+    widthMode: "fixed",
+    layoutFixedWidth: width,
+    layoutMinWidth: width,
+    layoutMaxWidth: width,
+    layoutClamp: false,
+  });
+}
+
+/**
+ * 用前 N 行样本推断列宽（表头+单元格），写入 layoutFixedWidth。
+ * - 作者 `width_mode=fixed` + width：精确尊重（难测列可手工指定）
+ * - 标签/日期/ID/数字等：按内容测宽
+ * - 描述/依据等长文：只定 layoutMinWidth，留给 fr 吃剩余宽度
+ */
 export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
   const sampleLimit = Math.max(1, Number(options.sampleLimit) || 100);
   const charPx = Number(options.charPx) > 0 ? Number(options.charPx) : 7;
@@ -854,35 +913,61 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
 
   return (Array.isArray(descriptors) ? descriptors : []).map((descriptor) => {
     const key = String(descriptor?.key || "");
-    if (isIdentifierLikeColumnKey(key)) {
-      return inferIdentifierColumnLayout(descriptor, sample, options);
+    const authorWidth =
+      columnHasManualWidth(descriptor) && Number.isFinite(Number(descriptor.width))
+        ? Math.round(Number(descriptor.width))
+        : 0;
+    const explicitFixedMode =
+      String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
+        .trim()
+        .toLowerCase() === "fixed";
+
+    // 等级色块：文本测宽无效，走专用默认宽；有作者 fixed 则完全尊重。
+    if (isWarningLevelBlocksColumn(descriptor)) {
+      if (authorWidth > 0 && explicitFixedMode) {
+        return inferWarningLevelBlocksLayout(descriptor, authorWidth);
+      }
+      return inferWarningLevelBlocksLayout(descriptor, authorWidth);
     }
-    if (columnHasManualWidth(descriptor)) {
-      const width = Math.round(Number(descriptor.width));
+
+    // 作者显式 fixed + width → 精确锁定（含 ID/标签等难测或需控留白的列）。
+    if (authorWidth > 0 && explicitFixedMode) {
+      if (columnIsFlexFillSemantic(descriptor)) {
+        return finalizeColumnLayout({
+          ...descriptor,
+          width: null,
+          widthMode: "min",
+          layoutFixedWidth: null,
+          layoutMinWidth: authorWidth,
+          layoutMaxWidth: null,
+          layoutClamp: false,
+        });
+      }
       return finalizeColumnLayout({
         ...descriptor,
         widthMode: "fixed",
-        layoutFixedWidth: width,
-        layoutMinWidth: width,
-        layoutMaxWidth: width,
+        layoutFixedWidth: authorWidth,
+        layoutMinWidth: authorWidth,
+        layoutMaxWidth: authorWidth,
       });
     }
-    if (
-      isAddressLikeColumnKey(key) &&
-      !columnHasManualWidth(descriptor) &&
-      String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
-        .trim()
-        .toLowerCase() !== "fixed"
-    ) {
+
+    if (isIdentifierLikeColumnKey(key)) {
+      return inferIdentifierColumnLayout(descriptor, sample, options);
+    }
+
+    if (isAddressLikeColumnKey(key) && !explicitFixedMode) {
       return finalizeColumnLayout({
         ...descriptor,
+        width: null,
         widthMode: "content",
         layoutFixedWidth: null,
-        layoutMinWidth: Math.max(280, columnWidthFloorForKey(key)),
+        layoutMinWidth: Math.max(280, columnWidthFloorForKey(key), authorWidth),
         layoutMaxWidth: null,
         layoutClamp: false,
       });
     }
+
     let maxWidthPx = measureDisplayTextPx(descriptor?.label || key, { font: labelFont, charPx });
     let maxContentChars = 0;
     for (const row of sample) {
@@ -891,28 +976,48 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
       maxContentChars = Math.max(maxContentChars, displayCharCount(preview));
       maxWidthPx = Math.max(
         maxWidthPx,
-        measureDisplayTextPx(preview, { font: bodyFont, charPx })
+        measureDisplayTextPx(preview, { font: bodyFont, charPx }),
       );
     }
 
-    const floor = columnWidthFloorForKey(key);
+    const floor = Math.max(columnWidthFloorForKey(key), authorWidth);
     const cap = columnWidthCapForKey(key, descriptor);
     const slackPx = columnMeasureSlackPx(descriptor, charPx);
     const minVisibleWidth =
       maxContentChars > minVisibleChars
         ? inferMinVisibleWidthPx(descriptor, charPx, padPx, minVisibleChars, bodyFont, slackPx)
         : 0;
-    const width = Math.ceil(
-      Math.min(cap, Math.max(floor, minVisibleWidth, maxWidthPx + padPx + tagChipExtraWidthPx(descriptor) + slackPx))
+    const measured = Math.ceil(
+      Math.min(
+        cap,
+        Math.max(
+          floor,
+          minVisibleWidth,
+          maxWidthPx + padPx + tagChipExtraWidthPx(descriptor) + slackPx,
+        ),
+      ),
     );
+
+    // 长文列：测宽结果作下限，轨道用 fr 吃满剩余空间。
+    if (columnIsFlexFillSemantic(descriptor)) {
+      return finalizeColumnLayout({
+        ...descriptor,
+        width: null,
+        widthMode: "min",
+        layoutFixedWidth: null,
+        layoutMinWidth: measured,
+        layoutMaxWidth: null,
+        layoutClamp: false,
+      });
+    }
 
     return finalizeColumnLayout({
       ...descriptor,
       width: null,
       widthMode: "fixed",
-      layoutFixedWidth: width,
-      layoutMinWidth: width,
-      layoutMaxWidth: width,
+      layoutFixedWidth: measured,
+      layoutMinWidth: measured,
+      layoutMaxWidth: measured,
       layoutClamp: false,
     });
   });

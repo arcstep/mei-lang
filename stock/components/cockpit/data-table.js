@@ -371,6 +371,22 @@ function resolveColumnTemplate(props, keys, descriptors) {
   const explicit = String(props?.columnTemplate ?? props?.column_template ?? "").trim();
   const count = Array.isArray(keys) ? keys.length : 0;
   const minWidth = resolveColumnMinWidth(props);
+  const fitFromSample =
+    props?.fitColumnsFromSample === true ||
+    props?.fit_columns_from_sample === true ||
+    props?.autoFitColumns === true ||
+    props?.auto_fit_columns === true;
+  const embedded = props?.embedded === true || props?.embedded === "true";
+  // 样本测宽已写入 descriptors 时，优先用共享轨模板；作者 column_template 仅作无测宽时的回退。
+  // （表头/表体是两套 grid，禁止 per-row max-content。）
+  if (fitFromSample) {
+    const fittedTemplate = buildColumnTemplate(descriptors, minWidth, {
+      shrinkFit: embedded && !tableScrollXEnabled(props),
+    });
+    if (fittedTemplate) return fittedTemplate;
+    const sampledTemplate = buildExplicitColumnTemplate(descriptors);
+    if (sampledTemplate) return sampledTemplate;
+  }
   if (explicit) {
     const tracks = countTemplateTracks(explicit);
     if (tracks === 0 || tracks === count) return explicit;
@@ -392,7 +408,6 @@ function resolveColumnTemplate(props, keys, descriptors) {
     const tracks = countTemplateTracks(preset);
     if (tracks === 0 || tracks === count) return preset;
   }
-  const embedded = props?.embedded === true || props?.embedded === "true";
   const descriptorTemplate = buildColumnTemplate(descriptors, minWidth, {
     shrinkFit: embedded && !tableScrollXEnabled(props),
   });
@@ -441,7 +456,16 @@ function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displa
   }
   if (descriptor?.tag || isTagField(descriptor?.key)) {
     const tone = toneClass || resolveTagToneClass(descriptor?.key, displayOverride);
-    return `<span class="cell-tag ${tone}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
+    // 类别/类型视为短枚举胶囊：默认不 CSS 省略；其它 tag 仅在 truncate:false 时放开。
+    const categoryChip = /类型|类别/.test(String(descriptor?.key || ""));
+    const noTruncate =
+      categoryChip ||
+      format.truncate === false ||
+      format.truncate === "false" ||
+      format.truncate === 0 ||
+      format.truncate === "0";
+    const fitClass = noTruncate ? " no-truncate" : "";
+    return `<span class="cell-tag ${tone}${fitClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
   }
   return `<span class="cell-inner${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
 }
@@ -793,6 +817,10 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   applyPagedRows(allRows) {
+    // Client-only local slice. Server mode must keep total/hasMore from the API.
+    if (this._pagingMode !== "client") {
+      return;
+    }
     const rows = Array.isArray(allRows) ? allRows : [];
     this._state.total = rows.length;
     const start = (this._state.page - 1) * this._pageSize;
@@ -870,9 +898,11 @@ export class MeiCockpitDataTable extends HTMLElement {
       Array.isArray(this._allRows) &&
       this._allRows.length > 0
     ) {
-      if (this._paging) {
+      // Server paging keeps authoritative total/hasMore from the last fetch.
+      // applyPagedRows would overwrite total with the current page length.
+      if (this._paging && this._pagingMode === "client") {
         this.applyPagedRows(this._allRows);
-      } else {
+      } else if (!this._paging) {
         this._state.rows = this._allRows;
       }
       this.render();
@@ -1604,6 +1634,11 @@ export class MeiCockpitDataTable extends HTMLElement {
           text-overflow: ellipsis;
           white-space: nowrap;
           vertical-align: middle;
+        }
+        .cell-tag.no-truncate {
+          overflow: visible;
+          text-overflow: clip;
+          max-width: none;
         }
         /* 类别/类型标签保持正文色；其它 tag 若带 tone-* 仅改文字色，边线仍用图表主色 */
         .cell-tag.tone-blue,

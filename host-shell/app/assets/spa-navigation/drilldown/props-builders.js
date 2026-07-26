@@ -526,10 +526,15 @@
       : inferredFormats;
     const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
     const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
-    // Only a full column_template is a complete layout. Partial column_state must still
-    // run fitColumnsFromSample so every column gets a shared px track; otherwise
-    // tableScrollX falls back to per-row max-content and thead/tbody diverge.
-    const hasFullColumnTemplate = Boolean(columnTemplate);
+    // column_template 仅作无测宽/回退布局；默认始终样本测宽（标签/日期等内容列自动够宽）。
+    // 作者可显式 fitColumnsFromSample/autoFitColumns=false 关闭。
+    const fitColumnsFromSample =
+      config?.fitColumnsFromSample === false ||
+      config?.fit_columns_from_sample === false ||
+      config?.autoFitColumns === false ||
+      config?.auto_fit_columns === false
+        ? false
+        : true;
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -572,8 +577,8 @@
       rowSelectionMode:
         nonEmptyString(config?.rowSelectionMode) || (autoSelectFirstRow ? "single" : ""),
       tableScrollX,
-      autoFitColumns: hasFullColumnTemplate ? false : true,
-      fitColumnsFromSample: hasFullColumnTemplate ? false : true,
+      autoFitColumns: fitColumnsFromSample,
+      fitColumnsFromSample,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,

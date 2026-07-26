@@ -3371,15 +3371,9 @@ function shouldDeferUncoveredBootstrapMetricFetch(props, metricIds = []) {
   if (bootstrapCoversRequestedMetrics(metricIds)) {
     return false;
   }
-  // map.bundle 常含大 dataframe（全量/规上 POI），不一定进 client bootstrap。
-  // 仅在 seed 尚未就绪时短暂等待；seed 已就绪仍缺清单 → 放行网络，避免整批永远 null
-  //（否则默认街镇设色/POI 会一起丢光）。
-  if (!bootstrapSeedReady()) {
-    const datasetId = String(resolveRuntimeMetricRef(props)?.dataset_id || "").trim();
-    if (datasetId.includes("map.bundle.mei")) {
-      return true;
-    }
-  }
+  // 未覆盖的 metric（含 map.bundle 大表）一律放行：由 awaitBootstrapSeedIfNeeded
+  // 做短暂等待后再走网络。切勿在 seed 未就绪时对 map 直接 return null——
+  // map 组件不会因 bootstrap-ready 自动重试，会导致底图图层永久空白。
   return false;
 }
 

@@ -14,6 +14,7 @@ import { ensureEChartsGlobal } from "../vendor/runtime-libs.js";
 import {
   COCKPIT_FONT,
   COCKPIT_TYPE,
+  clampThemeFontPx,
   cockpitCssVars,
   readThemeTypography,
   readThemeColor,
@@ -144,6 +145,19 @@ function buildProgressDonutOption(rate, sliceLabels, host) {
   const typography = readThemeTypography(host);
   const okFill = resolveRuntimeColor(host, okColor, "chart_5");
   const violFill = resolveRuntimeColor(host, violColor, "tone_orange");
+  const centerColor = readThemeColor(host, "text_highlight");
+  // 浅字深描边 / 深字浅描边（中心百分比）
+  const centerLum = (() => {
+    const rgb = String(centerColor || "").match(/^#([0-9a-f]{6})$/i);
+    if (!rgb) return 0.8;
+    const h = rgb[1];
+    const r = parseInt(h.slice(0, 2), 16) / 255;
+    const g = parseInt(h.slice(2, 4), 16) / 255;
+    const b = parseInt(h.slice(4, 6), 16) / 255;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  })();
+  const centerStroke =
+    centerLum > 0.55 ? "rgba(8, 28, 52, 0.88)" : "rgba(255, 255, 255, 0.88)";
   return {
     animation: false,
     tooltip: { show: false },
@@ -158,10 +172,12 @@ function buildProgressDonutOption(rate, sliceLabels, host) {
           show: true,
           position: "center",
           formatter: `${pct}%`,
-          color: readThemeColor(host, "text_highlight"),
-          fontSize: typography.body,
+          color: centerColor,
+          fontSize: clampThemeFontPx(host, typography.body),
           fontWeight: 700,
           fontFamily: readThemeUiFontFamily(host),
+          textBorderColor: centerStroke,
+          textBorderWidth: 2,
         },
         labelLine: { show: false },
         data: [

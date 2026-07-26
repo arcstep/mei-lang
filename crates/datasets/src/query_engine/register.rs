@@ -239,8 +239,15 @@ pub fn ensure_parquet_view(
                             "{} AS {alias}",
                             sql_try_cast_expr(&src, col.type_name.as_str())
                         ))
-                    } else {
+                    } else if col.optional {
                         Ok(format!("CAST(NULL AS {cast_ty}) AS {alias}"))
+                    } else {
+                        bail!(
+                            "dataset schema.source `{}` (logic column `{}`) missing from parquet columns; update schema or source headers and re-run prebuild. sample=[{}]",
+                            physical,
+                            col.name,
+                            columns.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
+                        );
                     }
                 })
                 .collect::<Result<Vec<_>>>()?

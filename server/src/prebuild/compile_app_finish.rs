@@ -126,6 +126,13 @@ pub(crate) fn finish_run_prebuild_for_app(
     };
     let data_snapshots_ms = snapshot_started.elapsed().as_millis() as u64;
     verify_required_xlsx_sources(app_root.as_path(), &required_xlsx_sources)?;
+    mei_host_graph::verify_app_dataset_schema_physical_sources(source_root, app.app_id.as_str())
+        .with_context(|| {
+            format!(
+                "verify dataset schema.source vs snapshot columns for app `{}`",
+                app.app_id
+            )
+        })?;
     let mut coverage = PrebuildCoverageReport::default();
     coverage.dataset_import_artifacts_planned = required_xlsx_sources.len();
     coverage.dataset_import_artifacts_ready = required_xlsx_sources.len();

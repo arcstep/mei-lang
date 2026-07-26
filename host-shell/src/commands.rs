@@ -724,6 +724,10 @@ fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
     {
         eprintln!("warning: no parquet files written despite discovered sources");
     }
+    mei_host_graph::verify_app_dataset_schema_physical_sources(
+        workspace.as_path(),
+        args.app.as_str(),
+    )?;
     Ok(())
 }
 

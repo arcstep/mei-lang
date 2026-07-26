@@ -308,8 +308,30 @@ fn cell_to_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
         Value::Bool(v) => v.to_string(),
-        Value::Number(v) => v.to_string(),
-        Value::String(v) => v.clone(),
+        Value::Number(v) => {
+            // Excel 整型常被 calamine 读成 Float；写入 parquet 时不要留下 "2025001.0"。
+            if let Some(integer) = v.as_i64() {
+                return integer.to_string();
+            }
+            if let Some(float) = v.as_f64() {
+                if float.is_finite() && float.fract().abs() < f64::EPSILON {
+                    return (float as i64).to_string();
+                }
+                return float.to_string();
+            }
+            v.to_string()
+        }
+        Value::String(v) => {
+            let text = v.trim();
+            if let Some(stripped) = text
+                .strip_suffix(".0")
+                .filter(|body| !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+            {
+                // 兼容历史旁路已写成 "2025001.0" 的单元格。
+                return stripped.to_string();
+            }
+            v.clone()
+        }
         other => other.to_string(),
     }
 }

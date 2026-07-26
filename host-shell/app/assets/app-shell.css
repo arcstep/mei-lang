@@ -4918,21 +4918,32 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   box-shadow: none;
   padding: 0;
 }
-/* 通用只读属性表单：标签胶囊 + 取值区，垂直居中，弱化表格感 */
+/* 通用只读属性表单：标签胶囊 + 取值区；颜色/字体跟主题 token，避免看板硬编码 */
 .access-drilldown-row-form {
   --row-form-label-width: 148px;
+  --row-form-accent: var(--mei-color-chart-2, var(--mei-color-accent, #7dd3fc));
+  --row-form-accent-soft: var(--mei-color-chart-1, var(--mei-color-primary, #38bdf8));
   display: grid;
   gap: 10px;
   margin: 20px 32px 30px;
   padding: 18px 22px;
-  border: 1px solid rgba(96, 165, 250, 0.16);
+  font-family: var(--mei-font-family-ui, system-ui, sans-serif);
+  border: 1px solid color-mix(in srgb, var(--row-form-accent) 22%, transparent);
   border-radius: 16px;
   background:
-    radial-gradient(120% 80% at 0% 0%, rgba(56, 189, 248, 0.08), transparent 55%),
-    linear-gradient(180deg, rgba(10, 30, 54, 0.72), rgba(7, 20, 38, 0.58));
+    radial-gradient(
+      120% 80% at 0% 0%,
+      color-mix(in srgb, var(--row-form-accent-soft) 14%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--mei-color-drilldown-panel-top, rgba(9, 65, 148, 0.98)) 78%, transparent),
+      color-mix(in srgb, var(--mei-color-drilldown-panel-bottom, rgba(0, 41, 119, 0.98)) 68%, transparent)
+    );
   box-shadow:
-    inset 0 1px 0 rgba(186, 230, 253, 0.05),
-    0 14px 36px rgba(2, 8, 23, 0.22);
+    inset 0 1px 0 color-mix(in srgb, var(--row-form-accent) 12%, transparent),
+    0 14px 36px color-mix(in srgb, var(--mei-color-drilldown-backdrop, rgba(2, 8, 23, 0.58)) 55%, transparent);
 }
 .access-drilldown-row-form-item {
   display: grid;
@@ -4942,12 +4953,12 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   min-height: 44px;
   padding: 12px 10px;
   border-radius: 12px;
-  background: rgba(8, 24, 44, 0.28);
-  border: 1px solid rgba(125, 211, 252, 0.07);
+  background: color-mix(in srgb, var(--mei-color-drilldown-body-bg, rgba(0, 41, 119, 0.92)) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--row-form-accent) 10%, transparent);
 }
 .access-drilldown-row-form-item:hover {
-  border-color: rgba(125, 211, 252, 0.14);
-  background: rgba(10, 32, 58, 0.38);
+  border-color: color-mix(in srgb, var(--row-form-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--mei-color-drilldown-body-bg, rgba(0, 41, 119, 0.92)) 58%, transparent);
 }
 .access-drilldown-row-form-label {
   display: inline-flex;
@@ -4959,15 +4970,19 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   margin: 0;
   padding: 6px 12px;
   border-radius: 999px;
-  color: #9ec5e0;
+  color: var(--mei-color-text-muted, #9ec5e0);
   font-weight: 600;
   font-size: var(--mei-font-2);
   line-height: 1.3;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  background: linear-gradient(180deg, rgba(30, 64, 96, 0.72), rgba(15, 40, 68, 0.78));
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--mei-color-drilldown-tab-bg, #094194) 78%, transparent),
+    color-mix(in srgb, var(--mei-color-drilldown-panel-bottom, rgba(0, 41, 119, 0.98)) 82%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--row-form-accent) 24%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--mei-color-text-primary, #fff) 8%, transparent);
   box-sizing: border-box;
 }
 .access-drilldown-row-form-label::before {
@@ -4976,8 +4991,8 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   height: 6px;
   margin-right: 8px;
   border-radius: 50%;
-  background: rgba(56, 189, 248, 0.85);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+  background: color-mix(in srgb, var(--row-form-accent-soft) 88%, white);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--row-form-accent-soft) 18%, transparent);
   flex: 0 0 auto;
 }
 .access-drilldown-row-form-value {
@@ -4985,7 +5000,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   align-items: center;
   margin: 0;
   padding: 2px 4px 2px 0;
-  color: #f4faff;
+  color: var(--mei-color-text-value, var(--mei-color-text-primary, #f4faff));
   font-weight: 600;
   font-size: var(--mei-font-3);
   line-height: 1.6;
@@ -5107,6 +5122,12 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
     0 12px 28px rgba(2, 8, 23, 0.28),
     inset 0 1px 0 rgba(45, 212, 191, 0.1);
 }
+.access-drilldown-case-detail-column[data-case-detail-column="result"] {
+  border-top: 4px solid var(--case-card-success);
+  box-shadow:
+    0 12px 28px rgba(2, 8, 23, 0.28),
+    inset 0 1px 0 rgba(45, 212, 191, 0.1);
+}
 .access-drilldown-case-detail-column-title {
   font-size: var(--mei-font-2);
   font-weight: 800;
@@ -5147,6 +5168,16 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   border: 1px solid var(--case-card-accent-border);
   letter-spacing: 0.03em;
   box-shadow: 0 4px 12px rgba(14, 165, 233, 0.12);
+}
+.access-drilldown-case-detail-id-chip.is-object-link,
+.access-drilldown-typical-case-tag.is-object-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.access-drilldown-case-detail-id-chip.is-object-link:hover,
+.access-drilldown-typical-case-tag.is-object-link:hover {
+  filter: brightness(1.08);
 }
 .access-drilldown-case-detail-section-label {
   font-size: var(--mei-font-3);
@@ -5311,6 +5342,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .access-drilldown-typical-case-tag {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 5px 12px;
   border-radius: 999px;
   font-size: var(--mei-font-2);
@@ -5318,6 +5350,33 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   color: var(--mei-color-text-primary, #e0f2fe);
   background: var(--case-card-surface);
   border: 1px solid var(--case-card-border-soft);
+}
+.access-drilldown-typical-case-tag--warning-level {
+  border-radius: 10px;
+  padding-right: 8px;
+}
+.access-drilldown-typical-case-tag--warning-level .mei-warning-level-blocks {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  vertical-align: middle;
+}
+.access-drilldown-typical-case-tag--warning-level .mei-warning-level-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.access-drilldown-typical-case-tag--warning-level .mei-warning-level-label {
+  font-size: var(--mei-font-2);
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
 }
 .access-drilldown-typical-case-tag--warning.access-drilldown-typical-case-tag--blue {
   color: #e0f2fe;
@@ -5333,6 +5392,38 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   color: #fee2e2;
   border-color: rgba(248, 113, 113, 0.58);
   background: rgba(127, 29, 29, 0.42);
+}
+.access-drilldown-object-chooser {
+  z-index: 10050;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(8, 24, 48, 0.96);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  box-shadow: 0 16px 36px rgba(2, 8, 23, 0.45);
+}
+.access-drilldown-object-chooser-title {
+  padding: 4px 8px 8px;
+  font-size: var(--mei-font-2);
+  font-weight: 700;
+  color: var(--mei-color-text-muted, #94a3b8);
+}
+.access-drilldown-object-chooser-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mei-color-text-primary, #e0f2fe);
+  cursor: pointer;
+  font-size: var(--mei-font-3);
+}
+.access-drilldown-object-chooser-item:hover {
+  background: rgba(14, 116, 178, 0.28);
 }
 .access-drilldown-typical-case-summary {
   display: grid;
@@ -5417,6 +5508,14 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   background: rgba(6, 78, 59, 0.42);
   border-color: rgba(45, 212, 191, 0.52);
   box-shadow: 0 0 12px rgba(45, 212, 191, 0.12);
+}
+.access-drilldown-typical-case-status-pill--id {
+  color: var(--mei-color-text-unit, #7dd3fc);
+  border-color: var(--case-card-accent-border, rgba(56, 189, 248, 0.45));
+  background: linear-gradient(135deg, rgba(14, 116, 178, 0.32), rgba(14, 165, 233, 0.12));
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .access-drilldown-typical-case-metrics {
   display: grid;

@@ -273,6 +273,14 @@ pub struct ObjectFieldLinkTarget {
     pub detail_page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "openPopup")]
     pub open_popup: Option<Value>,
+    /// Mapping resolve: optional sibling fields used to build composite lookup keys
+    /// (e.g. `预警等级` + `规则类型` with `预警模型`).
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "qualifierFields"
+    )]
+    pub qualifier_fields: Vec<String>,
 }
 
 impl Default for ObjectFieldLinkKeyMode {
@@ -355,6 +363,7 @@ pub fn derive_object_field_links(
                 has_detail: Some(self_has_detail),
                 detail_page: self_detail.clone(),
                 open_popup: None,
+                qualifier_fields: Vec::new(),
             });
     }
     // 明细表默认入口：
@@ -363,9 +372,7 @@ pub fn derive_object_field_links(
     //   保持可读名称可点，但 objectKey 仍走唯一序号。
     if let Some(identity_field) = primary_identity.as_deref() {
         if identity_wants_serial_entry(identity_field)
-            && !identity_fields
-                .iter()
-                .any(|field| field.trim() == "序号")
+            && !identity_fields.iter().any(|field| field.trim() == "序号")
         {
             links
                 .entry("序号".to_string())
@@ -384,6 +391,7 @@ pub fn derive_object_field_links(
                     has_detail: Some(self_has_detail),
                     detail_page: self_detail.clone(),
                     open_popup: None,
+                    qualifier_fields: Vec::new(),
                 });
         }
         if identity_field == "序号" {
@@ -416,6 +424,7 @@ pub fn derive_object_field_links(
                         has_detail: Some(self_has_detail),
                         detail_page: self_detail.clone(),
                         open_popup: None,
+                        qualifier_fields: Vec::new(),
                     });
             }
         }
@@ -464,6 +473,7 @@ pub fn derive_object_field_links(
                     has_detail: None,
                     detail_page: None,
                     open_popup: None,
+                    qualifier_fields: Vec::new(),
                 });
             continue;
         }
@@ -493,6 +503,7 @@ pub fn derive_object_field_links(
                     has_detail: None,
                     detail_page: None,
                     open_popup: None,
+                    qualifier_fields: Vec::new(),
                 });
         }
     }
@@ -1686,7 +1697,10 @@ mod tests {
             &slots,
             &BTreeMap::new(),
         );
-        assert!(links.get("序号").is_none(), "name identity must not link 序号");
+        assert!(
+            links.get("序号").is_none(),
+            "name identity must not link 序号"
+        );
         let matter = links.get("风险事项").expect("identity column");
         assert_eq!(matter.len(), 1);
         assert_eq!(matter[0].resolve, ObjectFieldLinkResolve::RowValue);

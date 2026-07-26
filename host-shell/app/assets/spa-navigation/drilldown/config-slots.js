@@ -187,6 +187,23 @@
     return grouped;
   }
 
+  /** Merge author bindings.filter_schema onto resolved assembly.filter_schema. */
+  function mergeAnalyticsFilterSchemaPreference(resolved, author) {
+    const resolvedOk = resolved && typeof resolved === "object" && !Array.isArray(resolved);
+    const authorOk = author && typeof author === "object" && !Array.isArray(author);
+    if (!resolvedOk && !authorOk) return null;
+    if (!authorOk) return resolved;
+    if (!resolvedOk) return author;
+    const resolvedRowset = nonEmptyString(resolved.rowset_dataset_id, resolved.rowsetDatasetId);
+    const authorRowset = nonEmptyString(author.rowset_dataset_id, author.rowsetDatasetId);
+    return {
+      ...resolved,
+      ...author,
+      rowset_dataset_id: authorRowset || resolvedRowset || undefined,
+      rowsetDatasetId: authorRowset || resolvedRowset || undefined,
+    };
+  }
+
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       return {
@@ -316,11 +333,16 @@
       structuredBoard,
       sceneShell,
     });
+    // Prefer author fields/preset from bindings, but keep resolved string rowset_dataset_id
+    // (bindings often still hold unresolved `{__ref:"param_ref"}`).
     const filterSchema = normalizeAnalyticsFilterSchema(
-      popup?.filter_schema ||
-        popup?.filterSchema ||
-        sceneAssembly?.filter_schema ||
-        sceneAssembly?.filterSchema,
+      mergeAnalyticsFilterSchemaPreference(
+        popup?.filter_schema ||
+          popup?.filterSchema ||
+          sceneAssembly?.filter_schema ||
+          sceneAssembly?.filterSchema,
+        sceneAssembly?.bindings?.filter_schema || sceneAssembly?.bindings?.filterSchema,
+      ),
     );
     const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
     const rawRowsetDatasetId = nonEmptyString(filterSchema.rowsetDatasetId, paramRowsetDatasetId);

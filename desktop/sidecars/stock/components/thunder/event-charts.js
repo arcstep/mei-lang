@@ -8,6 +8,7 @@ import { deferUntilDisplayed } from "../dataset/runtime-query.js";
 import { parseProps, escapeHtml, escapeAttr } from "../cockpit/shared.js";
 import {
   COCKPIT_TYPE,
+  clampThemeFontPx,
   cockpitCssVars,
   readThemeColor,
   readThemeTypography,
@@ -68,9 +69,10 @@ function scaleMax(dataMax, thresholds) {
   return Math.ceil(max * 1.08 * 10) / 10;
 }
 
-function markLineFromThresholds(thresholds, typography) {
+function markLineFromThresholds(thresholds, typography, host) {
   const list = Array.isArray(thresholds) ? thresholds : [];
   if (!list.length) return undefined;
+  const fontSize = clampThemeFontPx(host, (typography?.unit || 16) - 2, typography?.min || 16);
   return {
     symbol: "none",
     silent: true,
@@ -89,11 +91,13 @@ function markLineFromThresholds(thresholds, typography) {
         formatter: String(t.tag || t.label || t.value),
         position: "insideStartTop",
         color: t.color,
-        fontSize: Math.max(10, Math.min(12, (typography?.unit || 12) - 2)),
+        fontSize,
         fontWeight: 600,
         backgroundColor: "rgba(8, 24, 48, 0.78)",
         padding: [1, 4],
         borderRadius: 2,
+        textBorderColor: "rgba(8, 28, 52, 0.75)",
+        textBorderWidth: 1,
       },
     })),
   };
@@ -110,7 +114,7 @@ function buildBarOption({ host, rows, panel, playbackAt }) {
   const yMax = scaleMax(dataMax, panel.thresholds);
   const solid =
     readThemeColor(host, panel.solidColorToken) || panel.solidFallback;
-  const labelSize = Math.max(10, (typography.unit || 12) - 1);
+  const labelSize = clampThemeFontPx(host, (typography.unit || 12) - 1);
 
   const data = list.map((row) => {
     const x = String(row?.["时段"] ?? "");
@@ -128,7 +132,7 @@ function buildBarOption({ host, rows, panel, playbackAt }) {
     };
   });
 
-  const markLine = markLineFromThresholds(panel.thresholds, typography);
+  const markLine = markLineFromThresholds(panel.thresholds, typography, host);
 
   return {
     backgroundColor: "transparent",

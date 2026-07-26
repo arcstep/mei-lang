@@ -342,6 +342,9 @@ if (!customElements.get(TAG)) {
       }
       document.removeEventListener("mei:manage-tab-change", this._onManageTabChange);
       window.removeEventListener("pageshow", this._onPageShow);
+      if (typeof this._onBootstrapReady === "function") {
+        document.removeEventListener("mei-bootstrap-ready", this._onBootstrapReady);
+      }
       if (typeof this._onDocumentPointerDown === "function") {
         document.removeEventListener("pointerdown", this._onDocumentPointerDown, true);
         this._onDocumentPointerDown = null;
@@ -409,6 +412,17 @@ if (!customElements.get(TAG)) {
       this.refresh = () => this.scheduleRefresh();
       this._onManageTabChange = () => this.scheduleRefresh();
       this._onPageShow = () => this.scheduleRefresh();
+      this._onBootstrapReady = () => {
+        const props = parseProps(this);
+        const { layers } = normalizeMapSpec(props, this);
+        if (!mapLayersNeedRuntimeMetrics(layers, props)) {
+          return;
+        }
+        if (this._runtimeLayerProps) {
+          return;
+        }
+        void this.refreshLayerMetrics();
+      };
       this._onPreviewUpdated = (event) => {
         if (!shouldReactToPreviewUpdated(event, this)) {
           return;
@@ -424,6 +438,14 @@ if (!customElements.get(TAG)) {
             this._mapContentSignature != null &&
             contentSig === this._mapContentSignature
           ) {
+            // 底图 signature 未变时仍可能缺 runtime 图层指标（首次被 bootstrap defer 跳过）。
+            const { layers } = normalizeMapSpec(domProps, this);
+            if (
+              mapLayersNeedRuntimeMetrics(layers, domProps) &&
+              !this._runtimeLayerProps
+            ) {
+              void this.refreshLayerMetrics();
+            }
             return;
           }
         }
@@ -436,6 +458,7 @@ if (!customElements.get(TAG)) {
       window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
       document.addEventListener("mei:manage-tab-change", this._onManageTabChange);
       window.addEventListener("pageshow", this._onPageShow);
+      document.addEventListener("mei-bootstrap-ready", this._onBootstrapReady);
       this.bindLayerToggleEvents();
       if (!this._onDocumentPointerDown) {
         this._onDocumentPointerDown = (event) => {

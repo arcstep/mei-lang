@@ -135,11 +135,193 @@
         enriched["监督事项"] = text;
       }
       if (key === "modelId" || key === "模型ID") {
-        enriched.modelId = text;
-        enriched["模型ID"] = text;
+        // Excel 浮点整型常变成 2025001.0 / number；详情卡统一成无小数文本。
+        const normalized = (() => {
+          if (typeof value === "number" && Number.isFinite(value) && Math.abs(value % 1) < Number.EPSILON) {
+            return String(Math.trunc(value));
+          }
+          const raw = String(value ?? "").trim();
+          return /^-?\d+\.0+$/.test(raw) ? raw.replace(/\.0+$/, "") : raw;
+        })();
+        if (!normalized) return;
+        enriched.modelId = normalized;
+        enriched["模型ID"] = normalized;
+        return;
       }
     });
+    deriveWarningHandlingStatusFlags(enriched);
     return applyExternalCaseDetailRowEnricher(enriched, detail);
+  }
+
+  function caseDetailFieldPresent(value) {
+    const text = String(value ?? "").trim();
+    return Boolean(text) && text !== "—" && text !== "-" && text !== "－";
+  }
+
+  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办 */
+  function deriveWarningHandlingStatusFlags(row) {
+    if (!row || typeof row !== "object") return row;
+    const hasExplicit =
+      caseDetailFieldPresent(row["是否待办"]) ||
+      caseDetailFieldPresent(row["是否在办"]) ||
+      caseDetailFieldPresent(row["是否已办"]);
+    if (hasExplicit) return row;
+    const tracking = caseDetailFieldPresent(row["问题跟踪ID"]);
+    const dept = caseDetailFieldPresent(row["承办部门"]);
+    const closed = caseDetailFieldPresent(row["办结时间"]);
+    let pending = "否";
+    let inProgress = "否";
+    let done = "否";
+    if (tracking && dept && closed) {
+      done = "是";
+    } else if (tracking && dept) {
+      inProgress = "是";
+    } else {
+      pending = "是";
+    }
+    row["是否待办"] = pending;
+    row["是否在办"] = inProgress;
+    row["是否已办"] = done;
+    return row;
+  }
+
+  function caseCardObjectProps(config) {
+    const locator =
+      (config?.sceneLocalNav?.object_locator &&
+      typeof config.sceneLocalNav.object_locator === "object"
+        ? config.sceneLocalNav.object_locator
+        : null) ||
+      (config?.sceneLocalNav?.objectLocator && typeof config.sceneLocalNav.objectLocator === "object"
+        ? config.sceneLocalNav.objectLocator
+        : null) ||
+      (config?.object_locator && typeof config.object_locator === "object"
+        ? config.object_locator
+        : null) ||
+      (config?.objectLocator && typeof config.objectLocator === "object"
+        ? config.objectLocator
+        : null) ||
+      {
+        object_type: "zhifa.Warning",
+        identity_field: "预警ID",
+      };
+    return {
+      object_locator: locator,
+      objectLocator: locator,
+    };
+  }
+
+  async function loadCaseCardDrilldownMeta() {
+    if (typeof window !== "undefined" && window.MeiDrilldownMeta) {
+      return window.MeiDrilldownMeta;
+    }
+    try {
+      const mod = await import("/workspace-components/cockpit/drilldown-meta.js");
+      const api = {
+        resolveObjectFieldTargets: mod.resolveObjectFieldTargets,
+        emitObjectFieldOpen: mod.emitObjectFieldOpen,
+        resolveObjectFieldLinks: mod.resolveObjectFieldLinks,
+        splitMultiObjectKeys: mod.splitMultiObjectKeys,
+      };
+      if (typeof window !== "undefined") {
+        window.MeiDrilldownMeta = api;
+      }
+      return api;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function filterCaseCardObjectTargets(targets, spec) {
+    const allowed = cloneArray(spec?.object_types || spec?.objectTypes)
+      .map((type) => String(type || "").trim())
+      .filter(Boolean);
+    let list = Array.isArray(targets) ? targets : [];
+    if (allowed.length) {
+      list = list.filter((target) =>
+        allowed.includes(String(target?.objectType || target?.object_type || "").trim()),
+      );
+    }
+    if (window.MeiDrilldownMeta?.preferUniqueObjectTargets) {
+      return window.MeiDrilldownMeta.preferUniqueObjectTargets(list, allowed);
+    }
+    return list;
+  }
+
+  function bindCaseCardObjectOpen(el, host, row, field, spec, config) {
+    if (!(el instanceof HTMLElement) || !field) return;
+    el.classList.add("is-object-link");
+    el.setAttribute("role", "button");
+    el.tabIndex = 0;
+    el.title = el.title || "打开智能对象";
+    const open = async (event) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const meta = await loadCaseCardDrilldownMeta();
+      if (!meta?.resolveObjectFieldTargets || !meta?.emitObjectFieldOpen) return;
+      const props = caseCardObjectProps(config);
+      let targets = filterCaseCardObjectTargets(
+        meta.resolveObjectFieldTargets(props, row, field),
+        spec,
+      );
+      // 多值 ID 芯片：仅打开当前 chip 对应 identity
+      const chipKey = String(el.dataset?.objectKey || "").trim();
+      if (chipKey) {
+        targets = targets.filter(
+          (target) => String(target?.objectKey || target?.object_key || "").trim() === chipKey,
+        );
+      }
+      if (!targets.length) return;
+      const emitHost = host instanceof HTMLElement ? host : el;
+      if (targets.length === 1) {
+        meta.emitObjectFieldOpen(emitHost, targets[0], row, props);
+        return;
+      }
+      openCaseCardObjectChooser(el, targets, (target) => {
+        meta.emitObjectFieldOpen(emitHost, target, row, props);
+      });
+    };
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") open(event);
+    });
+  }
+
+  function openCaseCardObjectChooser(anchor, targets, onPick) {
+    const existing = document.querySelector(".access-drilldown-object-chooser");
+    if (existing) existing.remove();
+    const menu = document.createElement("div");
+    menu.className = "access-drilldown-object-chooser";
+    menu.setAttribute("role", "menu");
+    const title = document.createElement("div");
+    title.className = "access-drilldown-object-chooser-title";
+    title.textContent = "选择智能对象";
+    menu.appendChild(title);
+    targets.forEach((target) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "access-drilldown-object-chooser-item";
+      button.setAttribute("role", "menuitem");
+      button.textContent =
+        target?.label || `${target?.objectType || ""} · ${target?.objectKey || ""}`;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        menu.remove();
+        onPick?.(target);
+      });
+      menu.appendChild(button);
+    });
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 260))}px`;
+    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 8)}px`;
+    const close = (event) => {
+      if (menu.contains(event.target) || anchor.contains?.(event.target)) return;
+      menu.remove();
+      document.removeEventListener("mousedown", close, true);
+    };
+    setTimeout(() => document.addEventListener("mousedown", close, true), 0);
   }
 
   function mappingShowsHeader(mapping) {
@@ -252,6 +434,18 @@
     valueEl.appendChild(root);
   }
 
+  function mappingAllowsAutoFields(mapping) {
+    if (!mapping || typeof mapping !== "object") return true;
+    // 定制卡可显式关闭：仅展示 field_order。
+    if (mapping.auto_fields === false || mapping.autoFields === false) return false;
+    return true;
+  }
+
+  function isLongRowFormField(name, value) {
+    if (value.length >= 28) return true;
+    return /依据|规则|描述|问题|表现|政策|数据|情况|说明|附件/.test(String(name || ""));
+  }
+
   /** 表单风格：按 field_order 展开行字段；排除注入噪音键，避免英文 title/matter 污染。 */
   function appendRowFormFields(panel, row, mapping) {
     if (!row || typeof row !== "object" || Array.isArray(row)) return;
@@ -286,8 +480,9 @@
       seen.add(key);
       keys.push(key);
     });
-    // 仅当未声明 field_order 时才回退到全字段；默认行级详情卡应用 field_order。
-    if (!preferred.length) {
+    // 通用默认：无 field_order → 全字段；有 field_order 且 auto_fields≠false → 顺序优先后补齐。
+    // 定制卡：auto_fields=false + field_order → 仅展示指定列。
+    if (!preferred.length || mappingAllowsAutoFields(mapping)) {
       Object.keys(row).forEach((key) => {
         if (seen.has(key)) return;
         seen.add(key);
@@ -304,11 +499,17 @@
       if (/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) return;
       const raw = row[name];
       if (raw != null && typeof raw === "object") return;
-      const value = String(raw ?? "").trim();
+      let value = String(raw ?? "").trim();
+      // 模型/预警等 ID：去掉 Excel 浮点旁路留下的 ".0"
+      if ((name.endsWith("ID") || name.endsWith("Id") || name === "序号") && /^-?\d+\.0+$/.test(value)) {
+        value = value.replace(/\.0+$/, "");
+      } else if (typeof raw === "number" && Number.isFinite(raw) && Math.abs(raw % 1) < Number.EPSILON) {
+        value = String(Math.trunc(raw));
+      }
       const item = document.createElement("div");
       item.className = "access-drilldown-row-form-item";
       item.setAttribute("role", "listitem");
-      if (value.length >= 28 || name === "存在的问题" || name === "表现形式" || name === "问题描述") {
+      if (isLongRowFormField(name, value)) {
         item.classList.add("access-drilldown-row-form-item--long");
       }
       const labelEl = document.createElement("div");
@@ -329,14 +530,16 @@
     if (form.childElementCount) panel.appendChild(form);
   }
 
-  function appendCaseDetailSection(block, section, row, mapping) {
+  function appendCaseDetailSection(block, section, row, mapping, config = null) {
     const label = String(section?.label || "").trim();
     const kind = String(section?.kind || "").trim();
+    const field = String(section?.field || "").trim();
+    const hideLabel = section?.hide_label === true || section?.hideLabel === true;
     let value = resolveCaseDetailFieldValue(row, section);
     if (kind === "situation") {
       value = resolveCaseDetailSituationText(row, mapping);
     }
-    if (!label) return;
+    if (!label && !hideLabel && kind !== "situation" && !field) return;
     const sectionEl = document.createElement("div");
     sectionEl.className = "access-drilldown-case-detail-section";
     if (kind === "id") {
@@ -345,19 +548,45 @@
       const idLabel = document.createElement("span");
       idLabel.className = "access-drilldown-case-detail-id-label";
       idLabel.textContent = label;
-      const idValue = document.createElement("span");
-      idValue.className = "access-drilldown-case-detail-id-chip";
-      idValue.textContent = value || "—";
       idRow.appendChild(idLabel);
-      idRow.appendChild(idValue);
+      const rawKeys = (() => {
+        if (window.MeiDrilldownMeta?.splitMultiObjectKeys) {
+          return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
+        }
+        return String(value ?? "")
+          .split(/[\n\r\s]+/)
+          .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
+          .filter(Boolean);
+      })();
+      const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+      if (!keys.length) {
+        const empty = document.createElement("span");
+        empty.className = "access-drilldown-case-detail-id-chip";
+        empty.textContent = "—";
+        idRow.appendChild(empty);
+      } else {
+        const wantsLink = section?.object_link === true || section?.objectLink === true;
+        keys.forEach((key) => {
+          const idValue = document.createElement("span");
+          idValue.className = "access-drilldown-case-detail-id-chip";
+          idValue.textContent = key;
+          if (wantsLink && field) {
+            idValue.dataset.objectKey = key;
+            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
+          }
+          idRow.appendChild(idValue);
+        });
+      }
       sectionEl.appendChild(idRow);
       block.appendChild(sectionEl);
       return;
     }
-    const labelEl = document.createElement("div");
-    labelEl.className = "access-drilldown-case-detail-section-label";
-    labelEl.textContent = label;
-    sectionEl.appendChild(labelEl);
+    if (label && !hideLabel) {
+      const labelEl = document.createElement("div");
+      labelEl.className = "access-drilldown-case-detail-section-label";
+      labelEl.textContent = label;
+      sectionEl.appendChild(labelEl);
+    }
     const body = document.createElement("div");
     body.className = "access-drilldown-case-detail-section-body";
     if ((label === "健全机制" || label === "制度文件") && value) {
@@ -437,7 +666,7 @@
     return unit ? `${raw}${unit}` : raw;
   }
 
-  function appendTypicalCaseTagRow(panel, row, mapping) {
+  function appendTypicalCaseTagRow(panel, row, mapping, config = null) {
     const tags = cloneArray(mapping?.tags);
     if (!tags.length) return;
     const tagRow = document.createElement("div");
@@ -450,11 +679,21 @@
       if (!value) return;
       const tag = document.createElement("span");
       const kind = String(spec?.kind || "").trim();
-      tag.className =
-        kind === "warning_level"
-          ? `access-drilldown-typical-case-tag access-drilldown-typical-case-tag--warning access-drilldown-typical-case-tag--${resolveWarningLevelTone(value)}`
-          : "access-drilldown-typical-case-tag";
-      tag.textContent = `${label}：${value}`;
+      if (kind === "warning_level") {
+        tag.className =
+          "access-drilldown-typical-case-tag access-drilldown-typical-case-tag--warning-level";
+        const labelEl = document.createElement("span");
+        labelEl.className = "access-drilldown-typical-case-tag-label";
+        labelEl.textContent = `${label}：`;
+        tag.appendChild(labelEl);
+        appendWarningLevelBlocks(tag, field, value);
+      } else {
+        tag.className = "access-drilldown-typical-case-tag";
+        tag.textContent = `${label}：${value}`;
+      }
+      if (spec?.object_link === true || spec?.objectLink === true) {
+        bindCaseCardObjectOpen(tag, panel, row, field, spec, config);
+      }
       tagRow.appendChild(tag);
     });
     if (tagRow.childElementCount) panel.appendChild(tagRow);
@@ -483,7 +722,31 @@
     if (factsRoot.childElementCount) panel.appendChild(factsRoot);
   }
 
-  function appendTypicalCaseStatusRow(panel, row, mapping) {
+  function resolveVerifiedStatusPill(row, spec) {
+    const field = String(spec?.field || "是否查实").trim();
+    const raw = String(row?.[field] ?? "").trim();
+    if (!raw || raw === "—" || raw === "-" || raw === "－") {
+      return null;
+    }
+    const countField = String(spec?.count_field || spec?.countField || "查实条数").trim();
+    const countRaw = String(row?.[countField] ?? "").trim();
+    const countNum = Number(String(countRaw).replace(/,/g, ""));
+    const countText =
+      Number.isFinite(countNum) && countNum > 0
+        ? String(Math.trunc(countNum))
+        : countRaw && countRaw !== "—"
+          ? countRaw
+          : "";
+    if (raw === "否" || raw === "0" || raw.includes("否")) {
+      return { label: "未查实", active: false };
+    }
+    if (raw.includes("是") || (Number.isFinite(countNum) && countNum > 0)) {
+      return { label: countText ? `查实${countText}条` : "查实", active: true };
+    }
+    return null;
+  }
+
+  function appendTypicalCaseStatusRow(panel, row, mapping, config = null) {
     const flags = cloneArray(mapping?.status_flags || mapping?.statusFlags);
     if (!flags.length) return;
     const statusRoot = document.createElement("div");
@@ -495,4 +758,46 @@
     const pills = document.createElement("div");
     pills.className = "access-drilldown-typical-case-status-pills";
     flags.forEach((spec) => {
+      const kind = String(spec?.kind || "").trim();
+      if (kind === "id_chip" || kind === "id") {
+        const label = String(spec?.label || spec?.field || "").trim();
+        const field = String(spec?.field || "").trim();
+        if (!label || !field) return;
+        const value = resolveCaseDetailFieldValue(row, spec);
+        const rawKeys = (() => {
+          if (window.MeiDrilldownMeta?.splitMultiObjectKeys) {
+            return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
+          }
+          return String(value ?? "")
+            .split(/[\n\r\s]+/)
+            .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
+            .filter(Boolean);
+        })();
+        const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+        if (!keys.length) return;
+        const wantsLink = spec?.object_link === true || spec?.objectLink === true;
+        keys.forEach((key) => {
+          const pill = document.createElement("span");
+          pill.className =
+            "access-drilldown-typical-case-status-pill access-drilldown-typical-case-status-pill--id";
+          pill.textContent = `${label} ${key}`;
+          if (wantsLink) {
+            pill.dataset.objectKey = key;
+            bindCaseCardObjectOpen(pill, panel, row, field, spec, config);
+          }
+          pills.appendChild(pill);
+        });
+        return;
+      }
+      if (kind === "verified_count" || kind === "verified") {
+        const resolved = resolveVerifiedStatusPill(row, spec);
+        if (!resolved) return;
+        const pill = document.createElement("span");
+        pill.className = `access-drilldown-typical-case-status-pill${
+          resolved.active ? " access-drilldown-typical-case-status-pill--on" : ""
+        }`;
+        pill.textContent = resolved.label;
+        pills.appendChild(pill);
+        return;
+      }
       const label = String(spec?.label || spec?.field || "").trim();

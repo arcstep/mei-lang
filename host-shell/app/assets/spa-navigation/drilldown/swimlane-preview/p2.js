@@ -45,7 +45,7 @@
     }
   }
 
-  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false } = {}) {
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null } = {}) {
     if (!mappingHasTypicalCaseStats(mapping)) return;
     const target = (() => {
       if (!wrapBand) return panel;
@@ -54,9 +54,9 @@
       panel.appendChild(band);
       return band;
     })();
-    appendTypicalCaseTagRow(target, row, mapping);
+    appendTypicalCaseTagRow(target, row, mapping, config);
     appendTypicalCaseFacts(target, row, mapping);
-    appendTypicalCaseStatusRow(target, row, mapping);
+    appendTypicalCaseStatusRow(target, row, mapping, config);
     appendTypicalCaseMetricsRow(target, row, mapping);
   }
 
@@ -109,7 +109,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping);
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { config });
     host.appendChild(panel);
   }
 
@@ -167,7 +167,10 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { wrapBand: hybridStats });
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, {
+      wrapBand: hybridStats,
+      config,
+    });
     if (mappingShowsMeta(mapping)) {
       appendCaseDetailMetaRow(panel, enrichedRow, mapping);
     }
@@ -191,7 +194,7 @@
         columnEl.appendChild(titleEl);
       }
       cloneArray(column?.sections).forEach((section) => {
-        appendCaseDetailSection(columnEl, section, enrichedRow, mapping);
+        appendCaseDetailSection(columnEl, section, enrichedRow, mapping, config);
       });
       if (columnEl.childElementCount) {
         columnsRoot.appendChild(columnEl);
@@ -201,6 +204,7 @@
       panel.appendChild(columnsRoot);
     }
     host.appendChild(panel);
+    loadCaseCardDrilldownMeta();
   }
 
   function isTruthyFlag(value) {

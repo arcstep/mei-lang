@@ -251,14 +251,35 @@
         merged[normalizedKey] = normalizedValue;
       });
     });
-    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 resolve.
+    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
     if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
     if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
     if (merged.matterId && !merged["序号"]) merged["序号"] = merged.matterId;
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
+    if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
+    if (merged["模型ID"] && !merged.modelId) merged.modelId = merged["模型ID"];
     return merged;
+  }
+
+  /** Excel/Parquet 常把整型 ID 存成 2025001 / "2025001.0"；比较与展示时归一成无小数文本。 */
+  function normalizeIdentityText(value) {
+    if (value == null) return "";
+    if (typeof value === "number" && Number.isFinite(value)) {
+      if (Math.abs(value % 1) < Number.EPSILON) return String(Math.trunc(value));
+      return String(value);
+    }
+    const text = String(value).trim();
+    if (!text) return "";
+    if (/^-?\d+\.0+$/.test(text)) return text.replace(/\.0+$/, "");
+    return text;
+  }
+
+  function identityTextEquals(left, right) {
+    const a = normalizeIdentityText(left);
+    const b = normalizeIdentityText(right);
+    return Boolean(a) && a === b;
   }
 
   function pickRowMatchingDrilldownFilters(rows, detail) {
@@ -270,29 +291,33 @@
         : detail?.default_filters && typeof detail.default_filters === "object"
           ? detail.default_filters
           : {};
-    const warningId = String(filters.warningId ?? filters["预警ID"] ?? "").trim();
-    const resultId = String(filters.resultId ?? filters["处理结果ID"] ?? "").trim();
-    const matterId = String(filters.matterId ?? filters["序号"] ?? "").trim();
+    const warningId = normalizeIdentityText(filters.warningId ?? filters["预警ID"]);
+    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]);
+    const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
+    const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
     if (warningId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId ?? "").trim();
-        return id === warningId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId, warningId),
+      );
       if (hit) return hit;
     }
     if (resultId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId ?? "").trim();
-        return id === resultId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId, resultId),
+      );
+      if (hit) return hit;
+    }
+    if (modelId) {
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["模型ID"] ?? row?.model_id ?? row?.modelId, modelId),
+      );
       if (hit) return hit;
     }
     if (matterId) {
-      const hit = list.find((row) => {
-        const id = String(row?.["序号"] ?? row?.matterId ?? row?.seq ?? "").trim();
-        return id === matterId;
-      });
+      const hit = list.find((row) =>
+        identityTextEquals(row?.["序号"] ?? row?.matterId ?? row?.seq, matterId),
+      );
       if (hit) return hit;
     }
     if (matterName) {

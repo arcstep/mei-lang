@@ -266,6 +266,12 @@ pub(super) fn build_analytics_filter_schema(
         if board_filters_default_collapsed(board_filters) {
             payload.insert("default_collapsed".to_string(), Value::Bool(true));
         }
+        if let Some(preset) = board_filters_preset_count(board_filters) {
+            payload.insert("preset_filter_count".to_string(), Value::from(preset));
+        }
+        if board_filters_allow_extra(board_filters) {
+            payload.insert("allow_extra".to_string(), Value::Bool(true));
+        }
         return Value::Object(payload);
     }
 
@@ -453,6 +459,32 @@ fn board_filters_default_collapsed(board_filters: Option<&Value>) -> bool {
         .and_then(Value::as_bool)
         .or_else(|| map.get("defaultCollapsed").and_then(Value::as_bool))
         .or_else(|| map.get("collapsed").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
+fn board_filters_preset_count(board_filters: Option<&Value>) -> Option<u64> {
+    let map = board_filters?.as_object()?;
+    let raw = map
+        .get("preset_filter_count")
+        .or_else(|| map.get("presetFilterCount"))
+        .or_else(|| map.get("default_preset_count"))
+        .or_else(|| map.get("defaultPresetCount"))?;
+    raw.as_u64()
+        .or_else(|| raw.as_i64().map(|v| v.max(0) as u64))
+        .or_else(|| {
+            raw.as_f64()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .map(|v| v.floor() as u64)
+        })
+}
+
+fn board_filters_allow_extra(board_filters: Option<&Value>) -> bool {
+    let Some(map) = board_filters.and_then(Value::as_object) else {
+        return false;
+    };
+    map.get("allow_extra")
+        .and_then(Value::as_bool)
+        .or_else(|| map.get("allowExtra").and_then(Value::as_bool))
         .unwrap_or(false)
 }
 

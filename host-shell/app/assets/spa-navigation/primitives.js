@@ -1,6 +1,8 @@
   function nonEmptyString(...values) {
     for (const value of values) {
-      const text = String(value || "").trim();
+      // Skip unresolved IR (param_ref / maps); String({}) === "[object Object]".
+      if (value == null || typeof value === "object") continue;
+      const text = String(value).trim();
       if (text) return text;
     }
     return "";

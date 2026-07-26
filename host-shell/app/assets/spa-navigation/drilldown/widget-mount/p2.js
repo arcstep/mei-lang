@@ -61,6 +61,8 @@
     const detailFields = Array.isArray(config?.detailSlot?.fields) ? config.detailSlot.fields : [];
     const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
     const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
+    const allowExtra =
+      config?.filterSchema?.allowExtra === true || config?.filterSchema?.allow_extra === true;
     const byColumn = new Map();
     // 作者声明字段优先（含 control / contains_any 等），并占 catalog 前部 → 默认预置取前 N 个
     for (const field of schemaFields) {
@@ -69,20 +71,23 @@
       if (!column) continue;
       byColumn.set(column, mapped);
     }
-    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置
-    for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
-      const column = String(raw || "").trim();
-      if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
-      const control = inferDefaultControlForColumn(column);
-      byColumn.set(column, {
-        key: column,
-        label: column,
-        column,
-        control,
-        options_from: control === "text" ? undefined : "rowset",
-        options_field: column,
-        visible: true,
-      });
+    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置。
+    // allow_extra=false 时只保留作者 fields，避免表列（或旧契约列名）抢预置位。
+    if (allowExtra || schemaFields.length === 0) {
+      for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
+        const column = String(raw || "").trim();
+        if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
+        const control = inferDefaultControlForColumn(column);
+        byColumn.set(column, {
+          key: column,
+          label: column,
+          column,
+          control,
+          options_from: control === "text" ? undefined : "rowset",
+          options_field: column,
+          visible: true,
+        });
+      }
     }
     return Array.from(byColumn.values());
   }

@@ -7,10 +7,29 @@ export const SCENE_OPEN_EVENT_NAME = "mei:scene-open";
 
 function nonEmptyString(...values) {
   for (const value of values) {
-    const text = String(value || "").trim();
+    // Skip unresolved IR (param_ref / maps); String({}) === "[object Object]".
+    if (value == null || typeof value === "object") continue;
+    const text = String(value).trim();
     if (text) return text;
   }
   return "";
+}
+
+/** Prefer author fields/preset; keep resolved string rowset_dataset_id (not param_ref). */
+function mergeAnalyticsFilterSchema(resolved, author) {
+  const resolvedOk = resolved && typeof resolved === "object" && !Array.isArray(resolved);
+  const authorOk = author && typeof author === "object" && !Array.isArray(author);
+  if (!resolvedOk && !authorOk) return null;
+  if (!authorOk) return resolved;
+  if (!resolvedOk) return author;
+  const resolvedRowset = nonEmptyString(resolved.rowset_dataset_id, resolved.rowsetDatasetId);
+  const authorRowset = nonEmptyString(author.rowset_dataset_id, author.rowsetDatasetId);
+  return {
+    ...resolved,
+    ...author,
+    rowset_dataset_id: authorRowset || resolvedRowset || undefined,
+    rowsetDatasetId: authorRowset || resolvedRowset || undefined,
+  };
 }
 
 function metricRefId(value) {
@@ -562,9 +581,10 @@ export function tableDrilldownMeta(props) {
   const filterSchema =
     popup.filter_schema ??
     popup.filterSchema ??
-    assemblyEntry?.filter_schema ??
-    assemblyEntry?.filterSchema ??
-    null;
+    mergeAnalyticsFilterSchema(
+      assemblyEntry?.filter_schema ?? assemblyEntry?.filterSchema,
+      assemblyEntry?.bindings?.filter_schema ?? assemblyEntry?.bindings?.filterSchema,
+    );
   const shellContract =
     popup.shell_contract ??
     popup.shellContract ??
@@ -897,17 +917,70 @@ function expandMappingTargets(raw) {
   return text ? [text] : [];
 }
 
+/** Build composite mapping keys from cell value + optional qualifier sibling fields. */
+export function buildMappingLookupKeys(row = {}, cellValue = "", qualifierFields = []) {
+  const base = String(cellValue ?? "").trim();
+  if (!base) return [];
+  const quals = (Array.isArray(qualifierFields) ? qualifierFields : [])
+    .map((field) => String(field || "").trim())
+    .filter(Boolean)
+    .map((field) => String(row?.[field] ?? "").trim())
+    .filter(Boolean);
+  const keys = [];
+  // Longest composite first: name|level|rule … then prefixes … then bare name.
+  for (let n = quals.length; n >= 1; n -= 1) {
+    keys.push([base, ...quals.slice(0, n)].join("|"));
+  }
+  // Also try name|each-qualifier alone (e.g. name|规则类型 without level).
+  quals.forEach((q) => {
+    const key = `${base}|${q}`;
+    if (!keys.includes(key)) keys.push(key);
+  });
+  keys.push(base);
+  return keys;
+}
+
+function resolveMappingTargetsForCell(spec, row, cellValue) {
+  const map = spec?.targetsByValue || spec?.targets_by_value || {};
+  const qualifierFields =
+    Array.isArray(spec?.qualifierFields) && spec.qualifierFields.length
+      ? spec.qualifierFields
+      : Array.isArray(spec?.qualifier_fields) && spec.qualifier_fields.length
+        ? spec.qualifier_fields
+        : ["预警等级", "规则类型"];
+  const keys = buildMappingLookupKeys(row, cellValue, qualifierFields);
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+    const mapped = expandMappingTargets(map[key]);
+    if (mapped.length) return mapped;
+  }
+  return [];
+}
+
 /**
  * Split multi-value association IDs from Excel cells.
  * Supports newline/whitespace separators and ignorable "1." / "2." prefixes.
  */
 export function splitMultiObjectKeys(raw) {
-  const text = String(raw ?? "").trim();
+  const text = normalizeObjectIdentityText(raw);
   if (!text) return [];
   return text
     .split(/[\n\r\s]+/)
-    .map((part) => String(part ?? "").replace(/^\d+\.\s*/, "").trim())
+    .map((part) => normalizeObjectIdentityText(String(part ?? "").replace(/^\d+\.\s*/, "")))
     .filter(Boolean);
+}
+
+/** Excel/Parquet 整型 ID 常为 number 或 "2025001.0"；统一成无小数文本。 */
+export function normalizeObjectIdentityText(raw) {
+  if (raw == null) return "";
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    if (Math.abs(raw % 1) < Number.EPSILON) return String(Math.trunc(raw));
+    return String(raw);
+  }
+  const text = String(raw).trim();
+  if (!text) return "";
+  if (/^-?\d+\.0+$/.test(text)) return text.replace(/\.0+$/, "");
+  return text;
 }
 
 /** Resolve clickable object targets for one cell from object_field_links IR. */
@@ -941,8 +1014,7 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
     const role = nonEmptyString(spec.role, "relation");
 
     if (resolve === "mapping") {
-      const map = spec.targetsByValue || spec.targets_by_value || {};
-      const mapped = expandMappingTargets(map[cellValue]);
+      const mapped = resolveMappingTargetsForCell(spec, row, cellValue);
       for (const objectKey of mapped) {
         out.push({
           role,
@@ -1005,10 +1077,31 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
   return out;
 }
 
+/**
+ * When a cell maps to multiple object types (e.g. AlertModel + SupervisionMatter),
+ * prefer a unique preferred type so the UI can open directly without a chooser.
+ */
+export function preferUniqueObjectTargets(targets = [], preferredObjectTypes = []) {
+  const list = Array.isArray(targets) ? targets.filter(Boolean) : [];
+  if (list.length <= 1) return list;
+  const preferred = (Array.isArray(preferredObjectTypes) ? preferredObjectTypes : [])
+    .map((type) => String(type || "").trim())
+    .filter(Boolean);
+  if (!preferred.length) return list;
+  for (const type of preferred) {
+    const matched = list.filter(
+      (target) => String(target?.objectType || target?.object_type || "").trim() === type,
+    );
+    if (matched.length === 1) return matched;
+    if (matched.length > 1) return matched;
+  }
+  return list;
+}
+
 export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   if (!host || !target) return;
   const objectType = nonEmptyString(target.objectType, target.object_type);
-  const objectKey = String(target.objectKey ?? target.object_key ?? "").trim();
+  const objectKey = normalizeObjectIdentityText(target.objectKey ?? target.object_key);
   if (!objectType || !objectKey) return;
 
   const openPopup =
@@ -1068,15 +1161,31 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   const detail = {
     ...openPopup,
     popup: openPopup,
-    // 页签标题优先用行内业务名称（如风险事项），避免序号类主键直接当标题。
+    // 页签标题优先用行内业务名称（如风险事项/预警模型），避免序号类主键直接当标题。
     label: nonEmptyString(
-      firstNonEmptyRowValue(row, ["风险事项", "监督事项", "预警ID", "处理结果ID", "label", "title"]),
+      firstNonEmptyRowValue(row, [
+        "风险事项",
+        "监督事项",
+        "预警模型",
+        "预警ID",
+        "处理结果ID",
+        "label",
+        "title",
+      ]),
       objectKey,
       target.label,
     ),
     value: objectKey,
     desc: nonEmptyString(
-      firstNonEmptyRowValue(row, ["风险事项", "监督事项", "预警ID", "处理结果ID", "label", "title"]),
+      firstNonEmptyRowValue(row, [
+        "风险事项",
+        "监督事项",
+        "预警模型",
+        "预警ID",
+        "处理结果ID",
+        "label",
+        "title",
+      ]),
       objectKey,
       target.label,
       `${objectType}:${objectKey}`,
@@ -1102,4 +1211,17 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
       detail,
     }),
   );
+}
+
+if (typeof window !== "undefined") {
+  window.MeiDrilldownMeta = {
+    ...(window.MeiDrilldownMeta || {}),
+    resolveObjectFieldLinks,
+    resolveObjectFieldTargets,
+    emitObjectFieldOpen,
+    splitMultiObjectKeys,
+    normalizeObjectIdentityText,
+    buildMappingLookupKeys,
+    preferUniqueObjectTargets,
+  };
 }

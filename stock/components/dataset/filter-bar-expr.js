@@ -156,8 +156,10 @@ function fieldQueryKey(field) {
 }
 
 function filterStateKey(field) {
-  const column = String(field?.column || "").trim();
-  return column || fieldQueryKey(field);
+  // Prefer authored filter key (modelType / supervisionCategory) so query_state
+  // aligns with dataset filters `… in filter.<key>` and filter_intents dimensions.
+  // Fall back to physical column when key is absent.
+  return fieldQueryKey(field) || String(field?.column || "").trim();
 }
 
 function findCatalogFieldByStateKey(catalog, stateKey) {
