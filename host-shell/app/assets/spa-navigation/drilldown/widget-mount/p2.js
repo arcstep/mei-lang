@@ -267,12 +267,11 @@
       if (event?.detail?.id !== queryStateId) return;
       if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
       const currentSeq = ++refreshSeq;
-      Promise.all([
-        remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost),
-        remountStructuredAnalyticsDetailZones(root, detail, config, resolveZoneHost),
-      ])
-        .then(([chartsOk, detailOk]) => {
-          if ((!chartsOk && !detailOk) || currentSeq !== refreshSeq) return;
+      // 明细表已 subscribeQueryState 自行刷新；此处若 remount 明细，会与进行中的
+      // 过滤请求竞态（无过滤的旧请求后返回，盖掉筛选结果 → 看起来像过滤失效）。
+      remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost)
+        .then((chartsOk) => {
+          if (!chartsOk || currentSeq !== refreshSeq) return;
           dispatchPreviewUpdated("drilldown");
         })
         .catch((error) => {

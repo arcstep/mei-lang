@@ -165,6 +165,22 @@ pub fn try_page_dataframe_metric_via_sql(
         page_size,
     ) {
         Ok(page) => page,
+        Err(err) if !order_by_sql.is_empty() => {
+            // 复杂序号 ORDER BY（regexp）与 WHERE 组合可能触发 DataFusion SanityCheck；
+            // 降级为无 ORDER BY 重试，保留 filters，避免落到无过滤物化。
+            tracing::debug!(
+                error = %err,
+                "pipeline_sql DataFusion page retry without ORDER BY"
+            );
+            match exec::execute_sql_plan_page(app_root, &plan, &where_sql, "", page, page_size) {
+                Ok(page) => page,
+                Err(err2) => {
+                    tracing::debug!(error = %err2, "pipeline_sql DataFusion page fallback");
+                    record_pipeline_sql_fallback();
+                    return Ok(None);
+                }
+            }
+        }
         Err(err) => {
             tracing::debug!(error = %err, "pipeline_sql DataFusion page fallback");
             record_pipeline_sql_fallback();

@@ -178,7 +178,13 @@ class MeiDatasetTable extends HTMLElement {
       this._state.error = "";
       this.render();
     }
-    const signal = this._fetchAbort?.signal;
+    // 取消上一次未完成的请求，避免「无过滤结果后到」盖掉筛选结果。
+    if (this._fetchAbort) {
+      this._fetchAbort.abort();
+    }
+    this._fetchAbort = new AbortController();
+    const fetchGeneration = (this._fetchGeneration = (this._fetchGeneration || 0) + 1);
+    const signal = this._fetchAbort.signal;
     try {
       const result = await fetchDatasetRows(this._props, {
         page,
@@ -191,6 +197,7 @@ class MeiDatasetTable extends HTMLElement {
         signal,
         meta: runtimeCallerMeta(this, "mei-dataset-table"),
       });
+      if (fetchGeneration !== this._fetchGeneration) return;
       if (!result) {
         this._state.error =
           this._state?.paging?.capability?.reason ||
@@ -202,10 +209,11 @@ class MeiDatasetTable extends HTMLElement {
       this._state.pageSize = result?.page_size || this._state.pageSize;
       appendRuntimePerfDiagnostics(this._datasetId, this._state.perf, runtimePerfMeta(this));
     } catch (error) {
-      if (error?.name === "AbortError") return;
+      if (error?.name === "AbortError" || fetchGeneration !== this._fetchGeneration) return;
       this._state.error = String(error?.message || error || "query failed");
       this._state.perf = null;
     } finally {
+      if (fetchGeneration !== this._fetchGeneration) return;
       this._state.loading = false;
       this.render();
     }

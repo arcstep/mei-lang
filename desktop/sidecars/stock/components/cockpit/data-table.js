@@ -880,6 +880,13 @@ export class MeiCockpitDataTable extends HTMLElement {
       this.maybeAutoSelectPreviewRow();
       return;
     }
+    // 取消上一次未完成的请求，避免「无过滤结果后到」盖掉筛选结果。
+    if (this._fetchAbort) {
+      this._fetchAbort.abort();
+    }
+    this._fetchAbort = new AbortController();
+    const fetchGeneration = (this._fetchGeneration = (this._fetchGeneration || 0) + 1);
+    const signal = this._fetchAbort.signal;
     this._lastFetchSignature = fetchSignature;
     this._state.loading = true;
     this._state.error = "";
@@ -895,9 +902,10 @@ export class MeiCockpitDataTable extends HTMLElement {
           sort: querySort,
           columnState: queryColumnState,
           summary: wantsSummary,
-          signal: this._fetchAbort?.signal,
+          signal,
           meta: runtimeCallerMeta(this, "mei-cockpit-data-table"),
         });
+        if (fetchGeneration !== this._fetchGeneration) return;
         this._state = applyTableQueryResult(this._state, result, { pagingMode: "client" });
         this._allRows = Array.isArray(this._state.rows) ? this._state.rows : [];
         this.applyPagedRows(this._allRows);
@@ -910,9 +918,10 @@ export class MeiCockpitDataTable extends HTMLElement {
           sort: querySort,
           columnState: queryColumnState,
           summary: wantsSummary,
-          signal: this._fetchAbort?.signal,
+          signal,
           meta: runtimeCallerMeta(this, "mei-cockpit-data-table"),
         });
+        if (fetchGeneration !== this._fetchGeneration) return;
         this._state = applyTableQueryResult(this._state, result, { pagingMode: this._pagingMode });
         this._allRows = Array.isArray(this._state.rows) ? this._state.rows : [];
       }
@@ -920,7 +929,7 @@ export class MeiCockpitDataTable extends HTMLElement {
         this._columnMeta = result.column_meta;
       }
     } catch (error) {
-      if (error?.name === "AbortError") {
+      if (error?.name === "AbortError" || fetchGeneration !== this._fetchGeneration) {
         return;
       }
       this._state.error = formatRuntimeQueryUserMessage(
@@ -933,6 +942,7 @@ export class MeiCockpitDataTable extends HTMLElement {
         this._state.rows = this._allRows;
       }
     } finally {
+      if (fetchGeneration !== this._fetchGeneration) return;
       this._state.loading = false;
       if (
         carouselEnabled(this._props) &&

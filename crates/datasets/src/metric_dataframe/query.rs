@@ -361,7 +361,7 @@ pub fn query_metric_dataframe(
                 let result = paginate_materialized_metric_dataframe(
                     &materialized,
                     &meta,
-                    &metric_output_pagination_options(&options),
+                    &metric_output_pagination_options(&options, &materialized.columns),
                     &response_cache_key,
                     response_cache_lookup_ms,
                     false,

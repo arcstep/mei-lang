@@ -13,9 +13,22 @@ fn metric_dataframe_result_cache() -> &'static Cache<String, Arc<DatasetQueryRes
     })
 }
 
-/// 作用域过滤已在 base rowset 物化阶段应用；metric 输出列（如 pivot 的 month/2024/2025）
-/// 不含原始维度字段，分页时不得再次套用 query_state.filters。
-fn metric_output_pagination_options(options: &DatasetQueryOptions) -> DatasetQueryOptions {
+/// SQL page 失败后的物化分页选项。
+///
+/// 对 `__scalar_rowset__` 等「全表物化再分页」路径，filters/search **尚未**作用在
+/// rowset 上，必须保留；仅丢弃输出列中不存在的维度键（pivot 宽表无原始维度时）。
+fn metric_output_pagination_options(
+    options: &DatasetQueryOptions,
+    output_columns: &[String],
+) -> DatasetQueryOptions {
+    let column_set: std::collections::BTreeSet<&str> =
+        output_columns.iter().map(|name| name.as_str()).collect();
+    let filters = options
+        .filters
+        .iter()
+        .filter(|(key, _)| column_set.contains(key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
     DatasetQueryOptions {
         page: options.page,
         page_size: options.page_size,
@@ -23,10 +36,10 @@ fn metric_output_pagination_options(options: &DatasetQueryOptions) -> DatasetQue
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),
         summary: options.summary,
-        search: None,
-        filters: BTreeMap::new(),
-        group: Vec::new(),
-        time_range: None,
+        search: options.search.clone(),
+        filters,
+        group: options.group.clone(),
+        time_range: options.time_range.clone(),
         facet_columns: options.facet_columns.clone(),
     }
 }

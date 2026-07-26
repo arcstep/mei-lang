@@ -20513,12 +20513,11 @@
       if (event?.detail?.id !== queryStateId) return;
       if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
       const currentSeq = ++refreshSeq;
-      Promise.all([
-        remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost),
-        remountStructuredAnalyticsDetailZones(root, detail, config, resolveZoneHost),
-      ])
-        .then(([chartsOk, detailOk]) => {
-          if ((!chartsOk && !detailOk) || currentSeq !== refreshSeq) return;
+      // 明细表已 subscribeQueryState 自行刷新；此处若 remount 明细，会与进行中的
+      // 过滤请求竞态（无过滤的旧请求后返回，盖掉筛选结果 → 看起来像过滤失效）。
+      remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost)
+        .then((chartsOk) => {
+          if (!chartsOk || currentSeq !== refreshSeq) return;
           dispatchPreviewUpdated("drilldown");
         })
         .catch((error) => {
@@ -22330,23 +22329,9 @@
         const onQueryStateChange = (event) => {
           if (event?.detail?.id !== queryStateId) return;
           if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
-          mountDrilldownTable(root, detail, listConfig, listHost)
-            .then((ok) => {
-              if (!ok) return;
-              renderListPreviewItemPanel(previewHost, null, config);
-              dispatchPreviewUpdated("drilldown");
-            })
-            .catch((error) => {
-              recordPopupDebugIssue({
-                level: "error",
-                message: String(error?.message || error || "清单预览看板刷新失败"),
-                phase: "list_preview_refresh_error",
-                detail,
-                config,
-                root,
-                stack: error?.stack || "",
-              });
-            });
+          // 明细表已 subscribeQueryState；不要 remount，否则与进行中请求竞态盖掉筛选结果。
+          renderListPreviewItemPanel(previewHost, null, config);
+          dispatchPreviewUpdated("drilldown");
         };
         window.addEventListener("mei:query-state-change", onQueryStateChange);
         root.__meiListPreviewQueryStateCleanup = () => {

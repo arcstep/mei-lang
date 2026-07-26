@@ -168,23 +168,9 @@
         const onQueryStateChange = (event) => {
           if (event?.detail?.id !== queryStateId) return;
           if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
-          mountDrilldownTable(root, detail, listConfig, listHost)
-            .then((ok) => {
-              if (!ok) return;
-              renderListPreviewItemPanel(previewHost, null, config);
-              dispatchPreviewUpdated("drilldown");
-            })
-            .catch((error) => {
-              recordPopupDebugIssue({
-                level: "error",
-                message: String(error?.message || error || "清单预览看板刷新失败"),
-                phase: "list_preview_refresh_error",
-                detail,
-                config,
-                root,
-                stack: error?.stack || "",
-              });
-            });
+          // 明细表已 subscribeQueryState；不要 remount，否则与进行中请求竞态盖掉筛选结果。
+          renderListPreviewItemPanel(previewHost, null, config);
+          dispatchPreviewUpdated("drilldown");
         };
         window.addEventListener("mei:query-state-change", onQueryStateChange);
         root.__meiListPreviewQueryStateCleanup = () => {

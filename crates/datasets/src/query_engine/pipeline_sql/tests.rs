@@ -2084,6 +2084,99 @@ fn pipeline_sql_page_serial_number_sort_stays_on_sql() {
 }
 
 #[test]
+fn pipeline_sql_page_serial_number_sort_keeps_filters() {
+    use super::try_page_dataframe_metric_via_sql;
+    use crate::table_contract::TableSortSpec;
+    use std::collections::BTreeMap;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/serials_filter.xlsx",
+        &[("序号", DataType::Utf8), ("执法单位", DataType::Utf8)],
+        vec![
+            Arc::new(StringArray::from(vec!["1", "2", "10", "22"])),
+            Arc::new(StringArray::from(vec![
+                "区卫生健康委",
+                "区文化旅游委",
+                "区生态环境局",
+                "中梁镇",
+            ])),
+        ],
+    );
+
+    let view = DatasetView {
+        id: "serials_filter".into(),
+        title: None,
+        purpose: None,
+        schema: Vec::new(),
+        stage_schema: Vec::new(),
+        columns: vec!["序号".into(), "执法单位".into()],
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/serials_filter.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert("serials_filter".into(), view);
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "serials_filter_rows::__scalar_rowset__".into(),
+        json!({
+            "shape": "dataframe",
+            "schema": [
+                {"name": "序号", "type": "string"},
+                {"name": "执法单位", "type": "string"}
+            ],
+            "value": {"__ref": "data", "id": "serials_filter"}
+        }),
+    );
+
+    let mut filters = BTreeMap::new();
+    filters.insert("执法单位".into(), "in:中梁镇".into());
+    let sort = vec![TableSortSpec {
+        field: "序号".into(),
+        direction: "asc".into(),
+    }];
+    let page = try_page_dataframe_metric_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        "serials_filter_rows::__scalar_rowset__",
+        &filters,
+        None,
+        1,
+        20,
+        &sort,
+        &[],
+    )
+    .expect("page ok")
+    .expect("filter+serial sort must stay on SQL page (or ORDER BY downgrade), not drop filters");
+    assert_eq!(page.total, 1);
+    assert_eq!(
+        page.rows[0].get("执法单位").and_then(|v| v.as_str()),
+        Some("中梁镇")
+    );
+}
+
+#[test]
 fn zhifa_map_street_inspection_pipeline_sql_hits() {
     use super::try_eval_dataframe_metrics_via_sql;
 
