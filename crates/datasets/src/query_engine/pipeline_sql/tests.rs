@@ -1991,6 +1991,99 @@ fn pipeline_sql_page_and_facets_over_large_rowset() {
 }
 
 #[test]
+fn pipeline_sql_page_serial_number_sort_stays_on_sql() {
+    use super::try_page_dataframe_metric_via_sql;
+    use crate::table_contract::TableSortSpec;
+    use std::collections::BTreeMap;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/serials.xlsx",
+        &[("序号", DataType::Utf8), ("名称", DataType::Utf8)],
+        vec![
+            Arc::new(StringArray::from(vec!["10", "2", "1-10", "1-2", "1", "", "待完善"])),
+            Arc::new(StringArray::from(vec!["j", "b", "e", "d", "a", "z", "x"])),
+        ],
+    );
+
+    let view = DatasetView {
+        id: "serials".into(),
+        title: None,
+        purpose: None,
+        schema: Vec::new(),
+        stage_schema: Vec::new(),
+        columns: vec!["序号".into(), "名称".into()],
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/serials.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert("serials".into(), view);
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        "serials_rows::__scalar_rowset__".into(),
+        json!({
+            "shape": "dataframe",
+            "schema": [
+                {"name": "序号", "type": "string"},
+                {"name": "名称", "type": "string"}
+            ],
+            "value": {"__ref": "data", "id": "serials"}
+        }),
+    );
+
+    let sort = vec![TableSortSpec {
+        field: "序号".into(),
+        direction: "asc".into(),
+    }];
+    let page = try_page_dataframe_metric_via_sql(
+        app_root,
+        &datasets,
+        &defs,
+        "serials_rows::__scalar_rowset__",
+        &BTreeMap::new(),
+        None,
+        1,
+        20,
+        &sort,
+        &[],
+    )
+    .expect("page ok")
+    .expect("serial sort must stay on SQL page path");
+    assert_eq!(page.total, 7);
+    let got: Vec<String> = page
+        .rows
+        .iter()
+        .map(|row| {
+            row.get("序号")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(got, vec!["1", "1-2", "1-10", "2", "10", "待完善", ""]);
+}
+
+#[test]
 fn zhifa_map_street_inspection_pipeline_sql_hits() {
     use super::try_eval_dataframe_metrics_via_sql;
 

@@ -130,11 +130,18 @@ export function isWarningLevelBlocksColumn(descriptor) {
   return key === "风险等级" || key === "预警等级" || key === "级别" || key === "level";
 }
 
-/** 业务主键/编号列（预警ID、问题跟踪ID 等）；排除「是否*」布尔列。 */
+/** 序号列（含「xxx序号」）；展示居中，不当作右对齐数值列。 */
+export function isSerialNumberColumnKey(key) {
+  const name = String(key || "").trim();
+  return Boolean(name) && (name === "序号" || name.endsWith("序号"));
+}
+
+/** 业务主键/编号列（预警ID、问题跟踪ID 等）；排除「是否*」布尔列与序号列。 */
 export function isIdentifierLikeColumnKey(key) {
   const name = String(key || "").trim();
   if (!name || /是否/.test(name)) return false;
-  if (/^序号$/i.test(name) || /^id$/i.test(name)) return true;
+  if (isSerialNumberColumnKey(name)) return false;
+  if (/^id$/i.test(name)) return true;
   return /ID$/i.test(name) || /编号$/.test(name) || /编码$/.test(name);
 }
 
@@ -244,6 +251,8 @@ function guessTypeFromKey(key) {
 
 function inferType(key, meta, format) {
   if (format?.type) return format.type;
+  // 序号常为 integer/string 混排（如 5-1）；按文本处理，避免右对齐与数值格式化。
+  if (isSerialNumberColumnKey(key)) return "text";
   const typeName = metaType(meta);
   if (/(int|float|double|decimal|number|numeric)/.test(typeName)) return "number";
   if (/(datetime|timestamp|time)/.test(typeName)) return "datetime";
@@ -254,6 +263,11 @@ function inferType(key, meta, format) {
 function defaultAlignForType(type) {
   if (type === "number" || type === "percent") return "right";
   return "left";
+}
+
+function defaultAlignForColumn(key, type) {
+  if (isSerialNumberColumnKey(key)) return "center";
+  return defaultAlignForType(type);
 }
 
 function toPlainText(value) {
@@ -610,14 +624,14 @@ export function resolveColumnDescriptors({
         align:
           String(state.align || format.align || "")
             .trim()
-            .toLowerCase() || defaultAlignForType(type),
+            .toLowerCase() || defaultAlignForColumn(key, type),
         valign: String(state.valign || "").trim().toLowerCase() || "middle",
         headerAlign:
           String(state.header_align || "").trim().toLowerCase() ||
           String(state.align || format.align || "")
             .trim()
             .toLowerCase() ||
-          defaultAlignForType(type),
+          defaultAlignForColumn(key, type),
         headerValign: String(state.header_valign || "").trim().toLowerCase() || "middle",
         wrap: state.wrap === true,
         headerWrap: state.header_wrap === true,

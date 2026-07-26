@@ -62,23 +62,26 @@
     const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
     const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
     const byColumn = new Map();
+    // 作者声明字段优先（含 control / contains_any 等），并占 catalog 前部 → 默认预置取前 N 个
+    for (const field of schemaFields) {
+      const mapped = mapAnalyticsFilterField(field);
+      const column = nonEmptyString(mapped.column, mapped.key);
+      if (!column) continue;
+      byColumn.set(column, mapped);
+    }
+    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置
     for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
       const column = String(raw || "").trim();
       if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
-      byColumn.set(column, { key: column, label: column, column });
-    }
-    for (const field of schemaFields) {
-      const column = nonEmptyString(field.column, field.key);
-      if (!column) continue;
+      const control = inferDefaultControlForColumn(column);
       byColumn.set(column, {
-        key: nonEmptyString(field.key, column),
-        label: field.label || field.key || column,
+        key: column,
+        label: column,
         column,
-        control: nonEmptyString(field.control, field.type) || undefined,
-        operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
-        options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
-        options_field: nonEmptyString(field.options_field, field.optionsField, column),
-        options: Array.isArray(field.options) ? field.options : undefined,
+        control,
+        options_from: control === "text" ? undefined : "rowset",
+        options_field: column,
+        visible: true,
       });
     }
     return Array.from(byColumn.values());
@@ -94,36 +97,50 @@
     return true;
   }
 
+  /** 自动并入的表列：给合理 control，否则无法拉 facet / 多选。 */
+  function inferDefaultControlForColumn(column) {
+    const name = String(column || "").trim();
+    if (/时间$|日期$|年月/.test(name)) return "month_multi_select";
+    if (/ID$|编号$|编码$/.test(name)) return "text";
+    if (/描述$|说明$|内容$|意见$|表现形式$|存在的问题$/.test(name)) return "text";
+    return "multi_select";
+  }
+
+  function mapAnalyticsFilterField(field) {
+    const key = nonEmptyString(field.key, field.column);
+    const column = nonEmptyString(field.column, field.key);
+    const declaredOptions = Array.isArray(field.options) ? field.options : [];
+    const optionsFrom = nonEmptyString(field.options_from, field.optionsFrom) || "rowset";
+    // 风险等级等组合面值必须走 rowset facet，才能带计数并按计数排序；
+    // 不要再注入无 count 的 static 组合列表。
+    return {
+      key,
+      label: field.label || field.key || field.column,
+      column,
+      control: nonEmptyString(field.control, field.type) || undefined,
+      operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
+      options_from: optionsFrom,
+      options_field: nonEmptyString(field.options_field, field.optionsField, field.column),
+      options: declaredOptions.length > 0 ? declaredOptions : undefined,
+      placeholder: nonEmptyString(field.placeholder),
+      visible: field.visible !== false,
+    };
+  }
+
   function buildAnalyticsFilterBarProps(config, detail) {
     const tableProps = buildDrilldownTableProps(detail, config) || {};
     const filterSchema = config?.filterSchema || {};
-    const schemaFields = Array.isArray(filterSchema.fields) ? filterSchema.fields : [];
-    const useSchemaCatalog = schemaFields.length > 0;
-    const columnCatalog = useSchemaCatalog
-      ? schemaFields.map((field) => ({
-          key: nonEmptyString(field.key, field.column),
-          label: field.label || field.key || field.column,
-          column: nonEmptyString(field.column, field.key),
-          control: nonEmptyString(field.control, field.type) || undefined,
-          operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
-          options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
-          options_field: nonEmptyString(field.options_field, field.optionsField, field.column),
-          options: Array.isArray(field.options) ? field.options : undefined,
-          placeholder: nonEmptyString(field.placeholder),
-          visible: field.visible !== false,
-        }))
-      : buildFilterColumnCatalog(config, tableProps);
-    const presetFilterCount = useSchemaCatalog
-      ? Math.max(
-          0,
-          Number(
-            filterSchema.presetFilterCount ??
-              filterSchema.preset_filter_count ??
-              filterSchema.defaultPresetCount ??
-              3,
-          ) || 0,
-        )
-      : 0;
+    // 全列候选 = 明细表列 ∪ 作者 filter_schema.fields；作者字段排前，默认预置取前 ~3 个
+    const columnCatalog = buildFilterColumnCatalog(config, tableProps);
+    const presetFilterCount = Math.max(
+      0,
+      Number(
+        filterSchema.presetFilterCount ??
+          filterSchema.preset_filter_count ??
+          filterSchema.defaultPresetCount ??
+          3,
+      ) || 0,
+    );
     const rowsetDatasetId = nonEmptyString(
       filterSchema.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
@@ -182,7 +199,7 @@
     const registered = await ensureDrilldownFilterBarRegistered();
     if (!registered) return false;
     host.replaceChildren();
-    const node = document.createElement("mei-dataset-filter-bar");
+    const node = document.createElement("mei-dataset-filter-bar-v2");
     node.dataset.props = JSON.stringify(filterProps);
     host.appendChild(node);
     return true;

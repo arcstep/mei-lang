@@ -77,6 +77,14 @@ fn array_value_to_json(array: &dyn Array, row: usize) -> Result<Value> {
                 .ok_or_else(|| anyhow::anyhow!("utf8 downcast"))?;
             Value::String(a.value(row).to_string())
         }
+        DataType::Utf8View => {
+            use datafusion::arrow::array::StringViewArray;
+            let a = array
+                .as_any()
+                .downcast_ref::<StringViewArray>()
+                .ok_or_else(|| anyhow::anyhow!("utf8view downcast"))?;
+            Value::String(a.value(row).to_string())
+        }
         DataType::LargeUtf8 => {
             use datafusion::arrow::array::LargeStringArray;
             let a = array

@@ -475,3 +475,18 @@ mod tests {
         assert_eq!(result.column_meta[0].type_name, "date");
     }
 }
+
+#[cfg(test)]
+mod sort_request_parse_tests {
+    use super::TableSortSpec;
+    use serde_json::json;
+
+    #[test]
+    fn parse_chinese_serial_sort() {
+        let v = json!([{"field":"序号","direction":"asc"}]);
+        let parsed: Vec<TableSortSpec> = serde_json::from_value(v).expect("parse");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].field, "序号");
+        assert_eq!(parsed[0].direction, "asc");
+    }
+}

@@ -29,6 +29,20 @@ pub fn sql_cast_type(type_name: &str) -> &'static str {
     }
 }
 
+/// Build a tolerant `try_cast` projection for parquet physical columns.
+///
+/// Excel-origin integers often land as Float64 / Utf8 `"1.0"`. Direct
+/// `try_cast(x AS BIGINT)` then yields NULL; route through DOUBLE + round first.
+pub fn sql_try_cast_expr(source_ident: &str, type_name: &str) -> String {
+    let cast_ty = sql_cast_type(type_name);
+    match cast_ty {
+        "BIGINT" => format!(
+            "try_cast(round(try_cast({source_ident} AS DOUBLE)) AS BIGINT)"
+        ),
+        _ => format!("try_cast({source_ident} AS {cast_ty})"),
+    }
+}
+
 /// Historical name used by pipeline_sql lowerers.
 #[allow(dead_code)]
 pub fn duck_cast_type(type_name: &str) -> &'static str {

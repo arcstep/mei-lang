@@ -189,7 +189,14 @@
 
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return { fields: [], rowsetDatasetId: "", defaultCollapsed: false, allowExtra: false, title: "" };
+      return {
+        fields: [],
+        rowsetDatasetId: "",
+        defaultCollapsed: false,
+        allowExtra: false,
+        title: "",
+        presetFilterCount: undefined,
+      };
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
@@ -208,6 +215,9 @@
           }))
           .filter((entry) => entry.key && entry.visible !== false)
       : [];
+    const presetRaw =
+      raw.preset_filter_count ?? raw.presetFilterCount ?? raw.default_preset_count ?? raw.defaultPresetCount;
+    const presetParsed = Number(presetRaw);
     return {
       fields,
       rowsetDatasetId: nonEmptyString(raw.rowset_dataset_id, raw.rowsetDatasetId),
@@ -217,6 +227,8 @@
         raw.collapsed === true,
       allowExtra: raw.allow_extra === true || raw.allowExtra === true,
       title: nonEmptyString(raw.title),
+      presetFilterCount:
+        Number.isFinite(presetParsed) && presetParsed >= 0 ? Math.floor(presetParsed) : undefined,
     };
   }
 

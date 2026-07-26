@@ -1437,7 +1437,7 @@ export class MeiCockpitDataTable extends HTMLElement {
         .table-wrap {
           ${embedded ? "height:100%;max-height:none;" : `max-height:${maxHeight};`}
           overflow: hidden;
-          border-radius: ${embedded ? "0" : "4px"};
+          border-radius: 0;
           font-family: ${COCKPIT_FONT.uiFamily};
           display: flex;
           flex-direction: column;

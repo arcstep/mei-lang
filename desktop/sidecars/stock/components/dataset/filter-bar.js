@@ -174,7 +174,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     for (const domRow of domRows) {
       const previous = byId.get(domRow.id);
       if (!previous) continue;
-      byId.set(domRow.id, {
+      let next = {
         ...previous,
         column: domRow.column || previous.column,
         operator: domRow.operator || previous.operator,
@@ -184,7 +184,10 @@ class MeiDatasetFilterBar extends HTMLElement {
         rangeStart: domRow.rangeStart,
         rangeEnd: domRow.rangeEnd,
         status: previous.status,
-      });
+      };
+      // contains_any 展示时勾选的是组合面值；用户改勾选后改为 in，避免针值语义错乱
+      next = coerceContainsAnyDomSelectionToIn(next, previous);
+      byId.set(domRow.id, next);
     }
     this._additiveRows = (this._additiveRows || []).map((entry) => byId.get(entry.id) || entry);
   }
@@ -1135,8 +1138,7 @@ function resolveColumnCatalog(props) {
       const optionsFromRaw = String(field?.options_from || field?.optionsFrom || "")
         .trim()
         .toLowerCase();
-      // 显式 static / 已声明 options 时不要强制 rowset，否则会把「红/黄/蓝」冲成组合面值
-      //（contains_any 语义下左侧看起来像没同步）。
+      // 显式 static / 已声明 options 时保留，勿一律强制 rowset。
       let optionsFrom = optionsFromRaw;
       if (optionsFromRaw === "static" || (staticOptions.length > 0 && optionsFromRaw !== "rowset")) {
         optionsFrom = "static";
@@ -1173,29 +1175,79 @@ function resolveSelectOptionsForField(fieldDef, fieldOptions, columnKey = "") {
   if (source === "static" || (staticOptions.length > 0 && source !== "rowset")) {
     return staticOptions;
   }
-  const key = String(columnKey || fieldQueryKey(fieldDef) || "").trim();
-  const column = String(fieldDef?.column || key).trim();
-  // 风险等级 contains_any：选项固定为红/黄/蓝（即使 schema 未透传 options）
-  if (column === "风险等级" || key === "风险等级" || key === "warningLevel") {
-    const op = String(
-      fieldDef?.operator || fieldDef?.default_operator || fieldDef?.defaultOperator || "",
-    )
-      .trim()
-      .toLowerCase();
-    if (op === "contains_any" || source === "static" || staticOptions.length === 0) {
-      return staticOptions.length > 0 ? staticOptions : ["红", "黄", "蓝"];
-    }
+  // fieldOptions 以 query key（如 warningLevel）为主键；row.column / options_field 也可能是中文列名
+  const queryKey = fieldQueryKey(fieldDef);
+  const passed = String(columnKey || "").trim();
+  const column = String(fieldDef?.column || fieldDef?.options_field || fieldDef?.optionsField || "").trim();
+  const candidates = [queryKey, passed, column].filter(Boolean);
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    const found = fieldOptions?.get(candidate) || [];
+    if (found.length > 0) return found;
   }
-  const dynamic = key ? fieldOptions?.get(key) || [] : [];
-  const byColumn = column && column !== key ? fieldOptions?.get(column) || [] : [];
-  if (dynamic.length > 0) return dynamic;
-  if (byColumn.length > 0) return byColumn;
   return staticOptions;
 }
 
-function valueIsSelected(selectedValues, optionValue) {
+/**
+ * contains_any 存的是「蓝」等针值；选项是「蓝/黄」等组合面值。
+ * 展示/勾选时把针值展开为所有包含该针值的组合项，以便与明细过滤结果对齐。
+ */
+function expandContainsAnySelection(needles, options) {
+  const needleList = (needles || [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (!needleList.length) return [];
+  const expanded = [];
+  const seen = new Set();
+  for (const option of options || []) {
+    const value =
+      typeof option === "string"
+        ? option
+        : option?.value ?? option?.id ?? option?.label ?? "";
+    const text = String(value ?? "").trim();
+    if (!text || seen.has(text)) continue;
+    if (needleList.some((needle) => text.includes(needle))) {
+      seen.add(text);
+      expanded.push(text);
+    }
+  }
+  return expanded;
+}
+
+/** DOM 勾选的是展开后的组合面值时，把 contains_any 收成精确 in。 */
+function coerceContainsAnyDomSelectionToIn(nextRow, previousRow) {
+  const operator = String(nextRow?.operator || "").trim().toLowerCase();
+  if (operator !== "contains_any") return nextRow;
+  const values = Array.isArray(nextRow?.values)
+    ? nextRow.values.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+  if (!values.length) return nextRow;
+  const prevWasContainsAny =
+    String(previousRow?.operator || "").trim().toLowerCase() === "contains_any";
+  // 仍是纯针值（红/黄/蓝）→ 保持 contains_any
+  const membershipTokens = new Set(["红", "黄", "蓝"]);
+  const allMembershipNeedles = values.every((value) => membershipTokens.has(value));
+  if (allMembershipNeedles) return nextRow;
+  // 勾选结果已是组合面值（或混有组合）→ 改为 in，与面板选项语义一致
+  if (prevWasContainsAny || values.some((value) => value.includes("/") || !membershipTokens.has(value))) {
+    return { ...nextRow, operator: "in", values };
+  }
+  return nextRow;
+}
+
+function valueIsSelected(selectedValues, optionValue, { operator = "" } = {}) {
   const target = String(optionValue ?? "");
-  return (selectedValues || []).some((item) => String(item ?? "") === target);
+  const selected = selectedValues || [];
+  const op = String(operator || "").trim().toLowerCase();
+  if (op === "contains_any") {
+    return selected.some((needle) => {
+      const token = String(needle ?? "").trim();
+      return Boolean(token) && target.includes(token);
+    });
+  }
+  return selected.some((item) => String(item ?? "") === target);
 }
 
 function resolveMultiOptions(options, selectedValues) {
@@ -1913,7 +1965,7 @@ function renderFieldPickerDropdown({
     .join("");
   const countHint =
     items.length > 0
-      ? `<div class="field-picker-meta">共 ${items.length} 个字段，可滚动查看更多</div>`
+      ? `<div class="field-picker-meta">还有 ${items.length} 个字段可用于过滤数据</div>`
       : "";
   const emptyMarkup =
     items.length === 0
@@ -1986,14 +2038,22 @@ function renderMultiSelectPanelMarkup({
   triggerClass = "cockpit-filter-control",
   wrapperClass = "row-value-multi",
 }) {
-  const mergedOptions = resolveMultiOptions(options, selectedValues);
+  const operator = String(control || "").trim().toLowerCase();
+  // contains_any：勾选态按「组合面值是否包含针值」展开，摘要同步显示组合项
+  const displaySelected =
+    operator === "contains_any"
+      ? expandContainsAnySelection(selectedValues, options)
+      : selectedValues;
+  const mergedOptions = resolveMultiOptions(options, displaySelected);
   const optionMarkup =
     mergedOptions.length > 0
       ? mergedOptions
           .map((option) => {
             const optionValue = option.value;
             const optionLabel = option.label;
-            const checked = valueIsSelected(selectedValues, optionValue) ? "checked" : "";
+            const checked = valueIsSelected(selectedValues, optionValue, { operator })
+              ? "checked"
+              : "";
             return `
               <label class="multi-option">
                 <input type="checkbox" value="${escapeHtmlAttr(optionValue)}" ${checkboxExtraAttrs} ${checked} />
@@ -2019,7 +2079,7 @@ function renderMultiSelectPanelMarkup({
   return `
     <div class="${wrapperClass}">
       <button type="button" class="multi-trigger ${triggerClass} ${isOpen ? "is-open" : ""}" data-multi-trigger="${escapeHtmlAttr(panelKey)}">
-        ${escapeHtml(multiSelectSummary(selectedValues, control === "month_in" ? "month_multi_select" : "multi_select"))}
+        ${escapeHtml(multiSelectSummary(displaySelected, control === "month_in" ? "month_multi_select" : "multi_select"))}
       </button>
       <div class="multi-panel ${isOpen ? "is-open" : ""}" data-multi-panel="${escapeHtmlAttr(panelKey)}">
         ${searchMarkup}
@@ -2283,7 +2343,7 @@ function sharedStyles() {
       display: block;
       ${cockpitCssVars()}
     }
-    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
+    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 0; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
     .title { margin: 0; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_inverse")}; }
     .desc { color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; line-height: 1.45; }
     .fields { display: grid; gap: 10px; grid-template-columns: 1fr; }
@@ -2336,7 +2396,7 @@ function additiveStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -2761,7 +2821,7 @@ function schemaStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -3387,4 +3447,11 @@ function renderField(field, filters, index, fieldOptions, openDropdownKey, multi
   `;
 }
 
-customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+// v2：避免浏览器 CE 注册表钉住曾把风险等级锁成红/黄/蓝的旧模块
+if (!customElements.get("mei-dataset-filter-bar-v2")) {
+  customElements.define("mei-dataset-filter-bar-v2", MeiDatasetFilterBar);
+}
+// 兼容旧挂载点（仅当尚未被旧模块占用时）
+if (!customElements.get("mei-dataset-filter-bar")) {
+  customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+}

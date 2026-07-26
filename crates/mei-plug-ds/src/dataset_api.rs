@@ -5,8 +5,9 @@ use anyhow::{anyhow, Context, Result};
 use mei_host_core::HostContext;
 use mei_host_graph::{record_access, record_slots_from_descriptors, MrgAccessKind};
 use mei_lang_datasets::{
-    map_dataset_query_filters, normalize_query_filters, normalize_query_search, query_dataset_rows,
-    query_metric_dataframe, query_state_from_request, DatasetQueryOptions,
+    apply_table_request_fields, map_dataset_query_filters, normalize_query_filters,
+    normalize_query_search, query_dataset_rows, query_metric_dataframe, query_state_from_request,
+    DatasetQueryOptions, TableColumnState, TableSortSpec,
 };
 use mei_lang_kernel::{locate_dataset_resource, FilterIntent, MetricContract, QueryState};
 
@@ -38,6 +39,14 @@ struct DatasetQueryRequest {
     filter_intents: Vec<FilterIntent>,
     #[serde(default)]
     metric_id: Option<String>,
+    #[serde(default)]
+    full: bool,
+    #[serde(default)]
+    sort: Vec<TableSortSpec>,
+    #[serde(default)]
+    column_state: Option<TableColumnState>,
+    #[serde(default)]
+    summary: bool,
     /// Columns to compute DISTINCT facet values over the full filtered rowset.
     #[serde(default)]
     facet_columns: Vec<String>,
@@ -487,14 +496,14 @@ fn dataset_options_from_request(
     request: &DatasetQueryRequest,
     query_state: &QueryState,
 ) -> DatasetQueryOptions {
-    DatasetQueryOptions {
+    let mut options = DatasetQueryOptions {
         page: request.page.unwrap_or(1),
         page_size: request.page_size.unwrap_or(0),
         search: query_state.search.clone(),
         filters: query_state.filters.clone(),
         group: query_state.group.clone(),
         time_range: query_state.time_range.clone(),
-        collect_all: false,
+        collect_all: request.full,
         sort: Vec::new(),
         column_state: None,
         summary: false,
@@ -504,7 +513,14 @@ fn dataset_options_from_request(
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .collect(),
-    }
+    };
+    apply_table_request_fields(
+        &mut options,
+        request.sort.clone(),
+        request.column_state.clone(),
+        request.summary,
+    );
+    options
 }
 
 fn scene_id_from_request(scene_id: Option<&str>) -> &str {

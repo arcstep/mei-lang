@@ -174,7 +174,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     for (const domRow of domRows) {
       const previous = byId.get(domRow.id);
       if (!previous) continue;
-      byId.set(domRow.id, {
+      let next = {
         ...previous,
         column: domRow.column || previous.column,
         operator: domRow.operator || previous.operator,
@@ -184,7 +184,10 @@ class MeiDatasetFilterBar extends HTMLElement {
         rangeStart: domRow.rangeStart,
         rangeEnd: domRow.rangeEnd,
         status: previous.status,
-      });
+      };
+      // contains_any 展示时勾选的是组合面值；用户改勾选后改为 in，避免针值语义错乱
+      next = coerceContainsAnyDomSelectionToIn(next, previous);
+      byId.set(domRow.id, next);
     }
     this._additiveRows = (this._additiveRows || []).map((entry) => byId.get(entry.id) || entry);
   }
@@ -1172,12 +1175,18 @@ function resolveSelectOptionsForField(fieldDef, fieldOptions, columnKey = "") {
   if (source === "static" || (staticOptions.length > 0 && source !== "rowset")) {
     return staticOptions;
   }
-  const key = String(columnKey || fieldQueryKey(fieldDef) || "").trim();
-  const column = String(fieldDef?.column || key).trim();
-  const dynamic = key ? fieldOptions?.get(key) || [] : [];
-  const byColumn = column && column !== key ? fieldOptions?.get(column) || [] : [];
-  if (dynamic.length > 0) return dynamic;
-  if (byColumn.length > 0) return byColumn;
+  // fieldOptions 以 query key（如 warningLevel）为主键；row.column / options_field 也可能是中文列名
+  const queryKey = fieldQueryKey(fieldDef);
+  const passed = String(columnKey || "").trim();
+  const column = String(fieldDef?.column || fieldDef?.options_field || fieldDef?.optionsField || "").trim();
+  const candidates = [queryKey, passed, column].filter(Boolean);
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    const found = fieldOptions?.get(candidate) || [];
+    if (found.length > 0) return found;
+  }
   return staticOptions;
 }
 
@@ -1205,6 +1214,27 @@ function expandContainsAnySelection(needles, options) {
     }
   }
   return expanded;
+}
+
+/** DOM 勾选的是展开后的组合面值时，把 contains_any 收成精确 in。 */
+function coerceContainsAnyDomSelectionToIn(nextRow, previousRow) {
+  const operator = String(nextRow?.operator || "").trim().toLowerCase();
+  if (operator !== "contains_any") return nextRow;
+  const values = Array.isArray(nextRow?.values)
+    ? nextRow.values.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+  if (!values.length) return nextRow;
+  const prevWasContainsAny =
+    String(previousRow?.operator || "").trim().toLowerCase() === "contains_any";
+  // 仍是纯针值（红/黄/蓝）→ 保持 contains_any
+  const membershipTokens = new Set(["红", "黄", "蓝"]);
+  const allMembershipNeedles = values.every((value) => membershipTokens.has(value));
+  if (allMembershipNeedles) return nextRow;
+  // 勾选结果已是组合面值（或混有组合）→ 改为 in，与面板选项语义一致
+  if (prevWasContainsAny || values.some((value) => value.includes("/") || !membershipTokens.has(value))) {
+    return { ...nextRow, operator: "in", values };
+  }
+  return nextRow;
 }
 
 function valueIsSelected(selectedValues, optionValue, { operator = "" } = {}) {
@@ -1935,7 +1965,7 @@ function renderFieldPickerDropdown({
     .join("");
   const countHint =
     items.length > 0
-      ? `<div class="field-picker-meta">共 ${items.length} 个字段，可滚动查看更多</div>`
+      ? `<div class="field-picker-meta">还有 ${items.length} 个字段可用于过滤数据</div>`
       : "";
   const emptyMarkup =
     items.length === 0
@@ -2313,7 +2343,7 @@ function sharedStyles() {
       display: block;
       ${cockpitCssVars()}
     }
-    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
+    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 0; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
     .title { margin: 0; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_inverse")}; }
     .desc { color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; line-height: 1.45; }
     .fields { display: grid; gap: 10px; grid-template-columns: 1fr; }
@@ -2366,7 +2396,7 @@ function additiveStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -2791,7 +2821,7 @@ function schemaStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -3417,4 +3447,11 @@ function renderField(field, filters, index, fieldOptions, openDropdownKey, multi
   `;
 }
 
-customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+// v2：避免浏览器 CE 注册表钉住曾把风险等级锁成红/黄/蓝的旧模块
+if (!customElements.get("mei-dataset-filter-bar-v2")) {
+  customElements.define("mei-dataset-filter-bar-v2", MeiDatasetFilterBar);
+}
+// 兼容旧挂载点（仅当尚未被旧模块占用时）
+if (!customElements.get("mei-dataset-filter-bar")) {
+  customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+}

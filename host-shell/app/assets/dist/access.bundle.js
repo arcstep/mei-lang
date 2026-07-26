@@ -13866,11 +13866,20 @@
     return /ID$/i.test(text) || /编号$/.test(text) || /编码$/.test(text);
   }
 
+  function isSerialNumberColumn(name) {
+    const text = String(name || "").trim();
+    return Boolean(text) && (text === "序号" || text.endsWith("序号"));
+  }
+
   function inferDrilldownColumnFormats(columns) {
     const formats = {};
     (Array.isArray(columns) ? columns : []).forEach((col) => {
       const name = String(col || "").trim();
       if (!name) return;
+      if (isSerialNumberColumn(name)) {
+        formats[name] = { align: "center", type: "text" };
+        return;
+      }
       if (isIdentifierColumn(name)) {
         formats[name] = { truncate: false };
         return;
@@ -13903,6 +13912,9 @@
       columns: (Array.isArray(columns) ? columns : []).map((key, order) => {
         const name = String(key || "").trim();
         if (!name) return { key: name, order };
+        if (isSerialNumberColumn(name)) {
+          return { key: name, order, width: 72, width_mode: "fixed", align: "center" };
+        }
         if (isIdentifierColumn(name)) {
           return { key: name, order, width_mode: "fixed", align: "left" };
         }
@@ -13918,6 +13930,15 @@
         return { key: name, order };
       }),
     };
+  }
+
+  /** 明细表有序号列时，默认按序号升序（段对齐排序由服务端 serial sort 负责）。 */
+  function inferDrilldownDefaultSort(columns) {
+    const names = (Array.isArray(columns) ? columns : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    const serial = names.find((name) => isSerialNumberColumn(name));
+    return serial ? [{ field: serial, direction: "asc" }] : [];
   }
 
 
@@ -17555,7 +17576,14 @@
 
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return { fields: [], rowsetDatasetId: "", defaultCollapsed: false, allowExtra: false, title: "" };
+      return {
+        fields: [],
+        rowsetDatasetId: "",
+        defaultCollapsed: false,
+        allowExtra: false,
+        title: "",
+        presetFilterCount: undefined,
+      };
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
@@ -17574,6 +17602,9 @@
           }))
           .filter((entry) => entry.key && entry.visible !== false)
       : [];
+    const presetRaw =
+      raw.preset_filter_count ?? raw.presetFilterCount ?? raw.default_preset_count ?? raw.defaultPresetCount;
+    const presetParsed = Number(presetRaw);
     return {
       fields,
       rowsetDatasetId: nonEmptyString(raw.rowset_dataset_id, raw.rowsetDatasetId),
@@ -17583,6 +17614,8 @@
         raw.collapsed === true,
       allowExtra: raw.allow_extra === true || raw.allowExtra === true,
       title: nonEmptyString(raw.title),
+      presetFilterCount:
+        Number.isFinite(presetParsed) && presetParsed >= 0 ? Math.floor(presetParsed) : undefined,
     };
   }
 
@@ -19292,14 +19325,27 @@
     const multiSeries = chartMappingHasMultipleSeries(mapping);
     const props = {
       compact: true,
+      // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
+      fillHeight: true,
       gridContainLabel: true,
+      // compact 默认 grid.left=2，Y 轴刻度贴边；分析看板单独加大内边距
+      gridLeft: 10,
+      gridTop: 10,
+      gridRight: 8,
+      gridBottom: 36,
       label_max_chars: 6,
       category_label_rotate: 30,
       showLegend: multiSeries,
-      chartHeight: 300,
       // Color comes from scene theme chart_1..chart_6 (default green mono).
       ...overrides,
     };
+    // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
+    if (props.fillHeight === true || props.fill_height === true) {
+      if (overrides?.chartHeight === undefined && overrides?.chart_height === undefined) {
+        delete props.chartHeight;
+        delete props.chart_height;
+      }
+    }
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
       props.showLegend = true;
     }
@@ -19765,6 +19811,15 @@
         : tableScrollX
           ? 96
           : 64;
+    const explicitSort =
+      Array.isArray(config?.sort) && config.sort.length > 0
+        ? config.sort
+        : Array.isArray(config?.default_sort) && config.default_sort.length > 0
+          ? config.default_sort
+          : Array.isArray(config?.defaultSort) && config.defaultSort.length > 0
+            ? config.defaultSort
+            : null;
+    const defaultSort = explicitSort || inferDrilldownDefaultSort(columns);
     const drilldownFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
@@ -19783,6 +19838,8 @@
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
       column_template: columnTemplate || undefined,
+      sort: defaultSort.length > 0 ? defaultSort : undefined,
+      default_sort: defaultSort.length > 0 ? defaultSort : undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
@@ -19916,7 +19973,10 @@
   };
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
-  const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
+  const DRILLDOWN_FILTER_BAR_SCRIPT =
+    "/workspace-components/dataset/filter-bar.js?v=combo-face-20260726c";
+  const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
 
@@ -19975,7 +20035,7 @@
   }
 
   async function ensureDrilldownFilterBarRegistered() {
-    const tag = "mei-dataset-filter-bar";
+    const tag = DRILLDOWN_FILTER_BAR_TAG;
     if (customElements.get(tag)) return true;
     await loadScript(DRILLDOWN_FILTER_BAR_SCRIPT, {
       module: true,
@@ -20201,23 +20261,26 @@
     const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
     const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
     const byColumn = new Map();
+    // 作者声明字段优先（含 control / contains_any 等），并占 catalog 前部 → 默认预置取前 N 个
+    for (const field of schemaFields) {
+      const mapped = mapAnalyticsFilterField(field);
+      const column = nonEmptyString(mapped.column, mapped.key);
+      if (!column) continue;
+      byColumn.set(column, mapped);
+    }
+    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置
     for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
       const column = String(raw || "").trim();
       if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
-      byColumn.set(column, { key: column, label: column, column });
-    }
-    for (const field of schemaFields) {
-      const column = nonEmptyString(field.column, field.key);
-      if (!column) continue;
+      const control = inferDefaultControlForColumn(column);
       byColumn.set(column, {
-        key: nonEmptyString(field.key, column),
-        label: field.label || field.key || column,
+        key: column,
+        label: column,
         column,
-        control: nonEmptyString(field.control, field.type) || undefined,
-        operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
-        options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
-        options_field: nonEmptyString(field.options_field, field.optionsField, column),
-        options: Array.isArray(field.options) ? field.options : undefined,
+        control,
+        options_from: control === "text" ? undefined : "rowset",
+        options_field: column,
+        visible: true,
       });
     }
     return Array.from(byColumn.values());
@@ -20233,36 +20296,50 @@
     return true;
   }
 
+  /** 自动并入的表列：给合理 control，否则无法拉 facet / 多选。 */
+  function inferDefaultControlForColumn(column) {
+    const name = String(column || "").trim();
+    if (/时间$|日期$|年月/.test(name)) return "month_multi_select";
+    if (/ID$|编号$|编码$/.test(name)) return "text";
+    if (/描述$|说明$|内容$|意见$|表现形式$|存在的问题$/.test(name)) return "text";
+    return "multi_select";
+  }
+
+  function mapAnalyticsFilterField(field) {
+    const key = nonEmptyString(field.key, field.column);
+    const column = nonEmptyString(field.column, field.key);
+    const declaredOptions = Array.isArray(field.options) ? field.options : [];
+    const optionsFrom = nonEmptyString(field.options_from, field.optionsFrom) || "rowset";
+    // 风险等级等组合面值必须走 rowset facet，才能带计数并按计数排序；
+    // 不要再注入无 count 的 static 组合列表。
+    return {
+      key,
+      label: field.label || field.key || field.column,
+      column,
+      control: nonEmptyString(field.control, field.type) || undefined,
+      operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
+      options_from: optionsFrom,
+      options_field: nonEmptyString(field.options_field, field.optionsField, field.column),
+      options: declaredOptions.length > 0 ? declaredOptions : undefined,
+      placeholder: nonEmptyString(field.placeholder),
+      visible: field.visible !== false,
+    };
+  }
+
   function buildAnalyticsFilterBarProps(config, detail) {
     const tableProps = buildDrilldownTableProps(detail, config) || {};
     const filterSchema = config?.filterSchema || {};
-    const schemaFields = Array.isArray(filterSchema.fields) ? filterSchema.fields : [];
-    const useSchemaCatalog = schemaFields.length > 0;
-    const columnCatalog = useSchemaCatalog
-      ? schemaFields.map((field) => ({
-          key: nonEmptyString(field.key, field.column),
-          label: field.label || field.key || field.column,
-          column: nonEmptyString(field.column, field.key),
-          control: nonEmptyString(field.control, field.type) || undefined,
-          operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
-          options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
-          options_field: nonEmptyString(field.options_field, field.optionsField, field.column),
-          options: Array.isArray(field.options) ? field.options : undefined,
-          placeholder: nonEmptyString(field.placeholder),
-          visible: field.visible !== false,
-        }))
-      : buildFilterColumnCatalog(config, tableProps);
-    const presetFilterCount = useSchemaCatalog
-      ? Math.max(
-          0,
-          Number(
-            filterSchema.presetFilterCount ??
-              filterSchema.preset_filter_count ??
-              filterSchema.defaultPresetCount ??
-              3,
-          ) || 0,
-        )
-      : 0;
+    // 全列候选 = 明细表列 ∪ 作者 filter_schema.fields；作者字段排前，默认预置取前 ~3 个
+    const columnCatalog = buildFilterColumnCatalog(config, tableProps);
+    const presetFilterCount = Math.max(
+      0,
+      Number(
+        filterSchema.presetFilterCount ??
+          filterSchema.preset_filter_count ??
+          filterSchema.defaultPresetCount ??
+          3,
+      ) || 0,
+    );
     const rowsetDatasetId = nonEmptyString(
       filterSchema.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
@@ -20321,7 +20398,7 @@
     const registered = await ensureDrilldownFilterBarRegistered();
     if (!registered) return false;
     host.replaceChildren();
-    const node = document.createElement("mei-dataset-filter-bar");
+    const node = document.createElement("mei-dataset-filter-bar-v2");
     node.dataset.props = JSON.stringify(filterProps);
     host.appendChild(node);
     return true;

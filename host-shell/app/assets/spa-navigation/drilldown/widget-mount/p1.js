@@ -61,7 +61,10 @@
   };
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
-  const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
+  const DRILLDOWN_FILTER_BAR_SCRIPT =
+    "/workspace-components/dataset/filter-bar.js?v=combo-face-20260726c";
+  const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
 
@@ -120,7 +123,7 @@
   }
 
   async function ensureDrilldownFilterBarRegistered() {
-    const tag = "mei-dataset-filter-bar";
+    const tag = DRILLDOWN_FILTER_BAR_TAG;
     if (customElements.get(tag)) return true;
     await loadScript(DRILLDOWN_FILTER_BAR_SCRIPT, {
       module: true,

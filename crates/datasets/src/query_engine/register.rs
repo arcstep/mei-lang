@@ -18,7 +18,7 @@ use parquet::arrow::ArrowWriter;
 use serde_json::Value;
 
 use super::connection::{block_on, with_app_session};
-use super::sql::{quote_ident, sql_cast_type};
+use super::sql::{quote_ident, sql_cast_type, sql_try_cast_expr};
 use crate::paths::resolve_source_path;
 
 const GEOJSON_ATTR_COLUMNS: &[&str] = &["id", "name", "type", "geometry-type"];
@@ -235,7 +235,10 @@ pub fn ensure_parquet_view(
                     let alias = quote_ident(col.name.as_str())?;
                     if columns.iter().any(|c| c == physical) {
                         let src = quote_ident(physical)?;
-                        Ok(format!("try_cast({src} AS {cast_ty}) AS {alias}"))
+                        Ok(format!(
+                            "{} AS {alias}",
+                            sql_try_cast_expr(&src, col.type_name.as_str())
+                        ))
                     } else {
                         Ok(format!("CAST(NULL AS {cast_ty}) AS {alias}"))
                     }

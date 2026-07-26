@@ -226,7 +226,25 @@ fn build_order_by_sql(sort: &[crate::table_contract::TableSortSpec]) -> Result<S
         } else {
             "ASC"
         };
-        parts.push(format!("{col} {dir}"));
+        if crate::paginate::is_serial_number_field(field) {
+            // 对齐内存段排序：空值最后；无数字文本（如「待完善」）排在数字序号之后。
+            parts.push(format!(
+                "CASE WHEN trim(CAST({col} AS VARCHAR)) = '' OR {col} IS NULL THEN 1 ELSE 0 END {dir}"
+            ));
+            parts.push(format!(
+                "CASE WHEN regexp_match(CAST({col} AS VARCHAR), '\\d') IS NULL THEN 1 ELSE 0 END {dir}"
+            ));
+            parts.push(format!(
+                "concat(\
+lpad(coalesce((regexp_match(CAST({col} AS VARCHAR), '^(\\d+)'))[1], '0'), 10, '0'), \
+coalesce(concat('-', lpad((regexp_match(CAST({col} AS VARCHAR), '^\\d+-(\\d+)'))[1], 10, '0')), ''), \
+coalesce(concat('-', lpad((regexp_match(CAST({col} AS VARCHAR), '^\\d+-\\d+-(\\d+)'))[1], 10, '0')), '')\
+) {dir}"
+            ));
+            parts.push(format!("CAST({col} AS VARCHAR) {dir}"));
+        } else {
+            parts.push(format!("{col} {dir}"));
+        }
     }
     if parts.is_empty() {
         Ok(String::new())

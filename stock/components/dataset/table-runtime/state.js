@@ -42,22 +42,53 @@ export function sameSort(left, right) {
   );
 }
 
+function collectColumnKeys(props) {
+  const keys = [];
+  const push = (value) => {
+    const name = String(value || "").trim();
+    if (name) keys.push(name);
+  };
+  (Array.isArray(props?.columns) ? props.columns : []).forEach(push);
+  (Array.isArray(props?.dataset?.columns) ? props.dataset.columns : []).forEach(push);
+  const stateColumns = props?.column_state?.columns || props?.columnState?.columns;
+  (Array.isArray(stateColumns) ? stateColumns : []).forEach((entry) => push(entry?.key));
+  return keys;
+}
+
+/** 有序号列且未指定排序时，默认按序号升序。 */
+export function inferDefaultSortFromColumns(props) {
+  const serial = collectColumnKeys(props).find(
+    (name) => name === "序号" || name.endsWith("序号")
+  );
+  return serial ? [{ field: serial, direction: "asc" }] : [];
+}
+
 export function resolveSortConfig(props, fallback = []) {
   const raw = props?.sort ?? props?.defaultSort ?? props?.default_sort;
   if (Array.isArray(raw)) {
-    return normalizeSort(raw);
-  }
-  if (typeof raw === "string") {
+    const normalized = normalizeSort(raw);
+    if (normalized.length > 0) return normalized;
+    // 显式空数组：仍回落到序号默认序（用户通过表头三次点击清空后走 localSort=[]，不经此路径）
+  } else if (typeof raw === "string") {
     const text = raw.trim();
-    if (!text) return normalizeSort(fallback);
-    try {
-      const parsed = JSON.parse(text);
-      return Array.isArray(parsed) ? normalizeSort(parsed) : normalizeSort(fallback);
-    } catch (_) {
-      return normalizeSort(fallback);
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          const normalized = normalizeSort(parsed);
+          if (normalized.length > 0) return normalized;
+        }
+      } catch (_) {
+        /* fall through */
+      }
     }
+  } else {
+    const fromFallback = normalizeSort(fallback);
+    if (fromFallback.length > 0) return fromFallback;
   }
-  return normalizeSort(fallback);
+  const inferred = inferDefaultSortFromColumns(props);
+  if (inferred.length > 0) return inferred;
+  return normalizeSort(Array.isArray(raw) ? [] : fallback);
 }
 
 export function sharedSortForProps(props, queryStateId) {

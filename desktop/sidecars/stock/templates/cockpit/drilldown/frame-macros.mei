@@ -15,6 +15,7 @@ template analytics_page_grid():
     )
 
 # main section / chart_detail_stack：上 chart / 下 detail（全部 fr 锁配额，禁止 auto）。
+# 保持约 2:3，避免图表区过矮导致明细上移裁切 X 轴。
 template analytics_main_stack_grid():
     grid(
         columns = ["1fr"],

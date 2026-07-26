@@ -283,7 +283,7 @@ class MeiDatasetTable extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
-        .wrap { display: grid; gap: 12px; padding: 16px; border-radius: 14px; background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.18); color: ${color("text_body")}; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }
+        .wrap { display: grid; gap: 12px; padding: 16px; border-radius: 0; background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.18); color: ${color("text_body")}; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }
         .meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: ${color("text_muted")}; font-size: 12px; align-items: center; min-width: 0; }
         .meta strong { color: ${color("text_body")}; font-size: 13px; }
         .lazy-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(59,130,246,.45); color: ${color("text_unit")}; font-size: 11px; }
@@ -302,7 +302,7 @@ class MeiDatasetTable extends HTMLElement {
         .column-actions { display: flex; justify-content: flex-end; }
         .status { color: ${color("text_muted")}; font-size: 11px; min-height: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
         .error { color: ${color("status_error")}; }
-        .table-wrap { overflow-x: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; border: 1px solid rgba(148,163,184,.16); min-height: 80px; max-width: 100%; min-width: 0; }
+        .table-wrap { overflow-x: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: 0; border: 1px solid rgba(148,163,184,.16); min-height: 80px; max-width: 100%; min-width: 0; }
         table { border-collapse: collapse; table-layout: fixed; }
         th, td { border-bottom: 1px solid rgba(148,163,184,.12); font-size: 12px; }
         th { background: rgba(30,41,59,.92); color: ${color("text_inverse")}; position: sticky; top: 0; z-index: 1; }

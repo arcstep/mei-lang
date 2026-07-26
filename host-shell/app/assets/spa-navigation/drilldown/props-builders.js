@@ -28,14 +28,27 @@
     const multiSeries = chartMappingHasMultipleSeries(mapping);
     const props = {
       compact: true,
+      // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
+      fillHeight: true,
       gridContainLabel: true,
+      // compact 默认 grid.left=2，Y 轴刻度贴边；分析看板单独加大内边距
+      gridLeft: 10,
+      gridTop: 10,
+      gridRight: 8,
+      gridBottom: 36,
       label_max_chars: 6,
       category_label_rotate: 30,
       showLegend: multiSeries,
-      chartHeight: 300,
       // Color comes from scene theme chart_1..chart_6 (default green mono).
       ...overrides,
     };
+    // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
+    if (props.fillHeight === true || props.fill_height === true) {
+      if (overrides?.chartHeight === undefined && overrides?.chart_height === undefined) {
+        delete props.chartHeight;
+        delete props.chart_height;
+      }
+    }
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
       props.showLegend = true;
     }
@@ -501,6 +514,15 @@
         : tableScrollX
           ? 96
           : 64;
+    const explicitSort =
+      Array.isArray(config?.sort) && config.sort.length > 0
+        ? config.sort
+        : Array.isArray(config?.default_sort) && config.default_sort.length > 0
+          ? config.default_sort
+          : Array.isArray(config?.defaultSort) && config.defaultSort.length > 0
+            ? config.defaultSort
+            : null;
+    const defaultSort = explicitSort || inferDrilldownDefaultSort(columns);
     const drilldownFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
@@ -519,6 +541,8 @@
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
       column_template: columnTemplate || undefined,
+      sort: defaultSort.length > 0 ? defaultSort : undefined,
+      default_sort: defaultSort.length > 0 ? defaultSort : undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
