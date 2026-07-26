@@ -362,7 +362,47 @@ pub fn resolve_assembled_scene_theme(
             theme = deep_merge_value(&theme, &json!({ "font": scale }));
         }
     }
+    // App may override chart / warning-level colors without owning the full scene theme palette.
+    if let Some(chart_overlay) = app_chart_color_overlay(app, id) {
+        theme = deep_merge_value(
+            &theme,
+            &json!({ "tokens": { "color": chart_overlay } }),
+        );
+    }
     Some(theme)
+}
+
+/// Extract app-level `tokens.color.chart_*` / `warning_level_*` overrides for charts & tables.
+fn app_chart_color_overlay(app: &MeiConfig, theme_id: &str) -> Option<serde_json::Map<String, Value>> {
+    const CHART_KEYS: &[&str] = &[
+        "chart_1",
+        "chart_2",
+        "chart_3",
+        "chart_4",
+        "chart_5",
+        "chart_6",
+        "warning_level_red",
+        "warning_level_yellow",
+        "warning_level_blue",
+        "warning_level_grey",
+    ];
+    let app_theme = resolve_live_ops_theme_value(app, theme_id)?;
+    let colors = app_theme
+        .pointer("/tokens/color")
+        .and_then(Value::as_object)?;
+    let mut overlay = serde_json::Map::new();
+    for key in CHART_KEYS {
+        if let Some(value) = colors.get(*key) {
+            if value.is_string() && !value.as_str().unwrap_or("").trim().is_empty() {
+                overlay.insert((*key).to_string(), value.clone());
+            }
+        }
+    }
+    if overlay.is_empty() {
+        None
+    } else {
+        Some(overlay)
+    }
 }
 
 /// Text-role keys editable from theme studio (typography recipes).
@@ -627,6 +667,66 @@ mod tests {
         assert_eq!(
             theme.pointer("/font/7").and_then(Value::as_str),
             Some("20px")
+        );
+    }
+
+    #[test]
+    fn assembled_theme_allows_app_chart_color_overrides() {
+        let mut scene_themes = BTreeMap::new();
+        scene_themes.insert(
+            "cockpit".to_string(),
+            json!({
+                "tokens": {"color": {
+                    "surface_bg": "#002168",
+                    "chart_1": "#111111",
+                    "chart_2": "#222222",
+                    "chart_3": "#333333",
+                    "chart_4": "#444444",
+                    "chart_5": "#555555",
+                    "chart_6": "#666666",
+                    "warning_level_red": "#111111"
+                }}
+            }),
+        );
+        let workspace = sample_workspace(scene_themes);
+        let mut themes = BTreeMap::new();
+        themes.insert(
+            "cockpit".to_string(),
+            json!({
+                "tokens": {"color": {
+                    "chart_1": "#d1fae5",
+                    "chart_3": "#6ee7b7",
+                    "warning_level_red": "#E53935",
+                    "warning_level_yellow": "#FFB300"
+                }}
+            }),
+        );
+        let app = sample_app(themes);
+        let theme =
+            resolve_assembled_scene_theme(Some(&workspace), &app, "cockpit").expect("theme");
+        assert_eq!(
+            theme.pointer("/tokens/color/chart_1").and_then(Value::as_str),
+            Some("#d1fae5")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/chart_2").and_then(Value::as_str),
+            Some("#222222")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/chart_3").and_then(Value::as_str),
+            Some("#6ee7b7")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/warning_level_red").and_then(Value::as_str),
+            Some("#E53935")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/warning_level_yellow").and_then(Value::as_str),
+            Some("#FFB300")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/surface_bg").and_then(Value::as_str),
+            Some("#002168")
         );
     }
 

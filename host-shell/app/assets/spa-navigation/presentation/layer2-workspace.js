@@ -352,6 +352,18 @@
         if (el.scrollLeft !== left) el.scrollLeft = left;
       }
     };
+    const overflowAllowsScroll = (value) =>
+      value === "auto" || value === "scroll" || value === "overlay";
+    const canScrollY = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(node);
+      return overflowAllowsScroll(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+    };
+    const canScrollX = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(node);
+      return overflowAllowsScroll(style.overflowX) && node.scrollWidth > node.clientWidth + 1;
+    };
     const onWheel = (event) => {
       const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
       if (!(root instanceof HTMLElement) || !root.classList.contains("is-open")) return;
@@ -363,34 +375,60 @@
         return;
       }
       // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
-      let scrollPort = null;
+      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
+      let scrollPortY = null;
+      let scrollPortX = null;
       for (const node of path) {
         if (node === root) break;
         if (!(node instanceof HTMLElement)) continue;
-        const style = window.getComputedStyle(node);
-        const oy = style.overflowY;
-        if (
-          (oy === "auto" || oy === "scroll" || oy === "overlay") &&
-          node.scrollHeight > node.clientHeight + 1
-        ) {
-          scrollPort = node;
-          break;
-        }
+        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
+        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
+        if (scrollPortY && scrollPortX) break;
       }
-      if (!scrollPort) {
-        // 点在 T2 chrome / 非滚动区：吞掉滚轮，避免落到背景。
-        event.preventDefault();
-        pin();
+      const deltaX = Number(event.deltaX) || 0;
+      const deltaY = Number(event.deltaY) || 0;
+      const shiftAsHorizontal = Boolean(event.shiftKey) && deltaY !== 0 && deltaX === 0;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      const preferHorizontal = shiftAsHorizontal || absX > absY;
+      const horizontalDelta = shiftAsHorizontal ? deltaY : deltaX;
+
+      if (preferHorizontal && scrollPortX) {
+        const atLeft = scrollPortX.scrollLeft <= 0;
+        const atRight =
+          scrollPortX.scrollLeft + scrollPortX.clientWidth >= scrollPortX.scrollWidth - 1;
+        if ((horizontalDelta < 0 && atLeft) || (horizontalDelta > 0 && atRight)) {
+          event.preventDefault();
+          pin();
+        }
         return;
       }
-      const delta = event.deltaY;
-      const atTop = scrollPort.scrollTop <= 0;
-      const atBottom =
-        scrollPort.scrollTop + scrollPort.clientHeight >= scrollPort.scrollHeight - 1;
-      if ((delta < 0 && atTop) || (delta > 0 && atBottom)) {
-        event.preventDefault();
-        pin();
+
+      if (scrollPortY) {
+        const atTop = scrollPortY.scrollTop <= 0;
+        const atBottom =
+          scrollPortY.scrollTop + scrollPortY.clientHeight >= scrollPortY.scrollHeight - 1;
+        if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+          event.preventDefault();
+          pin();
+        }
+        return;
       }
+
+      if (scrollPortX && horizontalDelta !== 0) {
+        const atLeft = scrollPortX.scrollLeft <= 0;
+        const atRight =
+          scrollPortX.scrollLeft + scrollPortX.clientWidth >= scrollPortX.scrollWidth - 1;
+        if ((horizontalDelta < 0 && atLeft) || (horizontalDelta > 0 && atRight)) {
+          event.preventDefault();
+          pin();
+        }
+        return;
+      }
+
+      // 点在 T2 chrome / 非滚动区：吞掉滚轮，避免落到背景。
+      event.preventDefault();
+      pin();
     };
     boot.__meiLayer2ScrollFreeze = { snapshots, pin, onWheel };
     window.addEventListener("scroll", pin, true);

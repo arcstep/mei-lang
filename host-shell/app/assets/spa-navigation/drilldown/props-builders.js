@@ -33,7 +33,7 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       chartHeight: 300,
-      color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
+      // Color comes from scene theme chart_1..chart_6 (default green mono).
       ...overrides,
     };
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
@@ -58,10 +58,20 @@
       normalized === "trend"
         ? { x: "month", y: "value" }
         : { x: "label", y: "value" };
+    const resolvedMapping = mapping && typeof mapping === "object" ? mapping : defaultMapping;
+    const dimName = nonEmptyString(
+      resolvedMapping?.x?.[0]?.name,
+      resolvedMapping?.label?.[0]?.name,
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+    );
+    const warningLevelDim =
+      dimName === "风险等级" || dimName === "预警等级" || dimName === "级别" || dimName === "level";
     return {
       title: String(title || ""),
       data,
-      mapping: mapping && typeof mapping === "object" ? mapping : defaultMapping,
+      mapping: resolvedMapping,
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
       ...buildAnalyticsChartPresentationProps(config),
     };
   }
@@ -481,7 +491,10 @@
       : inferredFormats;
     const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
     const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
-    const hasExplicitLayout = Boolean(columnTemplate) || hasExplicitColumnState;
+    // Only a full column_template is a complete layout. Partial column_state must still
+    // run fitColumnsFromSample so every column gets a shared px track; otherwise
+    // tableScrollX falls back to per-row max-content and thead/tbody diverge.
+    const hasFullColumnTemplate = Boolean(columnTemplate);
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -513,8 +526,8 @@
       rowSelectionMode:
         nonEmptyString(config?.rowSelectionMode) || (autoSelectFirstRow ? "single" : ""),
       tableScrollX,
-      autoFitColumns: hasExplicitLayout ? false : true,
-      fitColumnsFromSample: hasExplicitLayout ? false : true,
+      autoFitColumns: hasFullColumnTemplate ? false : true,
+      fitColumnsFromSample: hasFullColumnTemplate ? false : true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,

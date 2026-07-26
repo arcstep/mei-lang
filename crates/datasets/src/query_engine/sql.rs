@@ -126,6 +126,29 @@ pub fn build_where_clause(
                     values.join(", ")
                 ));
             }
+        } else if let Some(rest) = expected.strip_prefix("contains_any:") {
+            let needles: Vec<&str> = rest
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .collect();
+            if !needles.is_empty() {
+                let ors: Vec<String> = needles
+                    .into_iter()
+                    .map(|needle| {
+                        format!(
+                            "strpos(CAST({col} AS VARCHAR), {}) > 0",
+                            quote_string(needle)
+                        )
+                    })
+                    .collect();
+                parts.push(format!("({})", ors.join(" OR ")));
+            }
+        } else if let Some(rest) = expected.strip_prefix("contains:") {
+            parts.push(format!(
+                "strpos(CAST({col} AS VARCHAR), {}) > 0",
+                quote_string(rest)
+            ));
         } else {
             parts.push(format!(
                 "CAST({col} AS VARCHAR) = {}",

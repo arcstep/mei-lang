@@ -268,9 +268,10 @@
       };
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
       const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+      const matched = pickRowMatchingDrilldownFilters(rows, detail);
       renderSheetDetailCardPanel(
         previewHost,
-        enrichCaseDetailRow(rows[0] || null, detail),
+        enrichCaseDetailRow(matched || null, detail),
         config,
         detail,
       );

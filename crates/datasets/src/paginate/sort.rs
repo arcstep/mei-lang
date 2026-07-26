@@ -95,6 +95,8 @@ fn sort_datetime(text: &str) -> Option<i64> {
 #[derive(Debug, Clone)]
 enum FilterSpec {
     Contains(String),
+    /// OR of substring matches (membership multi-select).
+    ContainsAny(Vec<String>),
     InValues(Vec<String>),
     Month(Vec<String>),
     MonthRange { start: String, end: String },

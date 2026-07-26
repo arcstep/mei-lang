@@ -251,7 +251,40 @@
         merged[normalizedKey] = normalizedValue;
       });
     });
+    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID resolve.
+    if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
+    if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
+    if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
+    if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
     return merged;
+  }
+
+  function pickRowMatchingDrilldownFilters(rows, detail) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return null;
+    const filters =
+      detail?.drilldown_filters && typeof detail.drilldown_filters === "object"
+        ? detail.drilldown_filters
+        : detail?.default_filters && typeof detail.default_filters === "object"
+          ? detail.default_filters
+          : {};
+    const warningId = String(filters.warningId ?? filters["预警ID"] ?? "").trim();
+    const resultId = String(filters.resultId ?? filters["处理结果ID"] ?? "").trim();
+    if (warningId) {
+      const hit = list.find((row) => {
+        const id = String(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId ?? "").trim();
+        return id === warningId;
+      });
+      if (hit) return hit;
+    }
+    if (resultId) {
+      const hit = list.find((row) => {
+        const id = String(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId ?? "").trim();
+        return id === resultId;
+      });
+      if (hit) return hit;
+    }
+    return list[0] || null;
   }
 
   function hasRowDrilldownFilters(detail) {
@@ -272,16 +305,39 @@
       isPreviewOnlyMapping(config) ||
       isSheetDetailCardPreview(config) ||
       isTypicalCaseCardPreview(config);
-    const pageScenePath = nonEmptyString(detail?.page_scene_file, config?.pageSceneFile);
-    const pageSceneId = nonEmptyString(detail?.page_scene_id, config?.pageSceneId);
+    // Row drilldown from L1/L2 host tables sets page_scene_* to the caller scene while
+    // board_scene_* / popup.scene_* point at the detail page (e.g. warning_detail_page).
+    // Preview-only cards must compile against the board scene or row filters are dropped.
+    const previewCompileSceneId = nonEmptyString(
+      detail?.board_scene_id,
+      detail?.boardSceneId,
+      detail?.popup?.scene_id,
+      detail?.popup?.sceneId,
+      config?.boardSceneId,
+      config?.previewCompileAnchor?.sceneId,
+      detail?.page_scene_id,
+      detail?.pageSceneId,
+      config?.pageSceneId,
+    );
+    const previewCompileScenePath = nonEmptyString(
+      detail?.board_scene_file,
+      detail?.boardSceneFile,
+      detail?.popup?.scene_file,
+      detail?.popup?.sceneFile,
+      config?.boardSceneFile,
+      config?.previewCompileAnchor?.scenePath,
+      detail?.page_scene_file,
+      detail?.pageSceneFile,
+      config?.pageSceneFile,
+    );
     const metricFetchConfig =
-      previewOnlyFetch && pageScenePath && pageSceneId
+      previewOnlyFetch && previewCompileScenePath && previewCompileSceneId
         ? {
             ...config,
             structuredBoard: false,
             previewCompileAnchor: {
-              sceneId: pageSceneId,
-              scenePath: pageScenePath,
+              sceneId: previewCompileSceneId,
+              scenePath: previewCompileScenePath,
             },
           }
         : config;

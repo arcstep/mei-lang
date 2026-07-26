@@ -268,12 +268,12 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                     "border_default": "rgba(56,189,248,.18)",
                     "border_accent": "rgba(56,189,248,.18)",
                     "border_panel": "rgba(56,189,248,.14)",
-                    "chart_1": "#22d3ee",
-                    "chart_2": "#38bdf8",
-                    "chart_3": "#0ea5e9",
-                    "chart_4": "#0369a1",
-                    "chart_5": "#62beeb",
-                    "chart_6": "#475569"
+                    "chart_1": "#d1fae5",
+                    "chart_2": "#a7f3d0",
+                    "chart_3": "#6ee7b7",
+                    "chart_4": "#34d399",
+                    "chart_5": "#10b981",
+                    "chart_6": "#059669"
                 },
                 "gradient": {
                     "frame_cockpit": "radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%), radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%), linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%)",

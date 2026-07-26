@@ -40,6 +40,15 @@ export function encodeFilterRow(row, profile) {
     const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
     if (!values.length) return "";
     body = `in:${values.join(",")}`;
+  } else if (operator === "contains_any") {
+    const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
+    if (!values.length) {
+      const single = String(row?.value || "").trim();
+      if (!single) return "";
+      body = `contains_any:${single}`;
+    } else {
+      body = `contains_any:${values.join(",")}`;
+    }
   } else if (operator === "month_in") {
     const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
     if (!values.length) return "";
@@ -82,6 +91,11 @@ export function decodeFilterRow(encoded, column, profile) {
   if (body.startsWith("in:")) {
     row.operator = "in";
     row.values = splitEncodedList(body.slice(3));
+    return row;
+  }
+  if (body.startsWith("contains_any:")) {
+    row.operator = "contains_any";
+    row.values = splitEncodedList(body.slice("contains_any:".length));
     return row;
   }
   if (body.startsWith("mrange:")) {

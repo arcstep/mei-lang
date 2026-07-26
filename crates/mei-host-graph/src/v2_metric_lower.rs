@@ -1593,6 +1593,9 @@ fn lower_explain_item(value: &Value, ctx: &V2MetricLowerContext) -> Option<Value
     if let Some(agg) = args.get("agg").and_then(Value::as_str) {
         out.insert("agg".to_string(), json!(agg));
     }
+    if let Some(delimiter) = args.get("delimiter").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+        out.insert("delimiter".to_string(), json!(delimiter));
+    }
     if let Some(fields) = args.get("fields") {
         out.insert("fields".to_string(), lower_field_list(fields));
     }

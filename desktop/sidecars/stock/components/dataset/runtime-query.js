@@ -939,6 +939,10 @@ export function setQueryStateFilter(id, dimension, value, options = {}) {
   if (!queryStateId || !normalizedDimension) {
     return getQueryState(queryStateId);
   }
+  const encode = String(options?.encode || options?.filterEncode || "").trim().toLowerCase();
+  if (encode === "contains_any" || encode === "contains-any") {
+    return toggleQueryStateContainsAnyFilter(queryStateId, normalizedDimension, value, options);
+  }
   const current = getQueryState(queryStateId);
   const nextFilters = mergeFilters(current.filters);
   const nextValue = String(value ?? "").trim();
@@ -958,6 +962,52 @@ export function setQueryStateFilter(id, dimension, value, options = {}) {
       filterIntentDimensions: [normalizedDimension],
     }
   );
+}
+
+/** Membership multi-select: toggle one needle inside `contains_any:a,b`. */
+export function toggleQueryStateContainsAnyFilter(id, dimension, value, options = {}) {
+  const queryStateId = String(id || "").trim();
+  const normalizedDimension = String(dimension || "").trim();
+  const token = String(value ?? "").trim();
+  if (!queryStateId || !normalizedDimension || !token) {
+    return getQueryState(queryStateId);
+  }
+  const current = getQueryState(queryStateId);
+  const nextFilters = mergeFilters(current.filters);
+  const raw = String(nextFilters[normalizedDimension] ?? "").trim();
+  const selected = new Set(parseContainsAnyFilterValues(raw));
+  if (selected.has(token)) selected.delete(token);
+  else selected.add(token);
+  if (selected.size === 0) {
+    delete nextFilters[normalizedDimension];
+  } else {
+    nextFilters[normalizedDimension] = `contains_any:${Array.from(selected).join(",")}`;
+  }
+  return setQueryState(
+    queryStateId,
+    { filters: nextFilters },
+    {
+      filterIntentSource: options?.filterIntentSource ?? options?.source ?? "unknown",
+      transitionSource: options?.transitionSource ?? options?.source ?? "unknown",
+      filterIntentDimensions: [normalizedDimension],
+    }
+  );
+}
+
+function parseContainsAnyFilterValues(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  const body = text.startsWith("contains_any:")
+    ? text.slice("contains_any:".length)
+    : text.startsWith("contains:")
+      ? text.slice("contains:".length)
+      : text.startsWith("in:")
+        ? text.slice(3)
+        : text;
+  return body
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 export function resolveRuntimeDataRef(props) {

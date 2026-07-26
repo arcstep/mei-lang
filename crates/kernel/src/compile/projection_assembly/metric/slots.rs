@@ -395,12 +395,39 @@ fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Va
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("text");
-        fields.push(serde_json::json!({
+        let default_operator = field_map
+            .get("default_operator")
+            .or_else(|| field_map.get("defaultOperator"))
+            .or_else(|| field_map.get("operator"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let options_from = field_map
+            .get("options_from")
+            .or_else(|| field_map.get("optionsFrom"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let options = field_map.get("options").cloned().filter(|v| v.is_array());
+        let mut field_json = serde_json::json!({
             "key": key,
             "label": label,
             "column": column,
             "control": control,
-        }));
+        });
+        if let Some(obj) = field_json.as_object_mut() {
+            if let Some(op) = default_operator {
+                obj.insert("default_operator".into(), Value::String(op.to_string()));
+                obj.insert("operator".into(), Value::String(op.to_string()));
+            }
+            if let Some(from) = options_from {
+                obj.insert("options_from".into(), Value::String(from.to_string()));
+            }
+            if let Some(opts) = options {
+                obj.insert("options".into(), opts);
+            }
+        }
+        fields.push(field_json);
     }
     if fields.is_empty() {
         None

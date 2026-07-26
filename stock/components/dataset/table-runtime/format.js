@@ -76,6 +76,7 @@ export function normalizeColumnFormats(raw) {
             : true,
       relative: value.relative === true || value.relative === "true",
       tag: value.tag === true || value.tag === "true",
+      kind: String(value.kind || "").trim() || null,
       emptyText: value.emptyText != null ? String(value.emptyText) : "",
       align: ["left", "center", "right"].includes(align) ? align : null,
     };
@@ -105,7 +106,28 @@ export function isDepartmentLikeColumnKey(key) {
 }
 
 export function isTagLikeColumnKey(key) {
-  return /等级|类型|类别|状态|是否|面貌/.test(String(key || "").trim());
+  const name = String(key || "").trim();
+  if (!name) return false;
+  // 风险/预警等级改走三色块，不再当作普通 tag 胶囊。
+  if (name === "风险等级" || name === "预警等级" || name === "级别" || name === "level") return false;
+  return /等级|类型|类别|状态|是否|面貌/.test(name);
+}
+
+export function isWarningLevelBlocksColumn(descriptor) {
+  const kind = String(descriptor?.format?.kind || descriptor?.kind || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (
+    kind === "warning_level_blocks" ||
+    kind === "risk_level_blocks" ||
+    kind === "warning_level_block" ||
+    kind === "alert_level_block"
+  ) {
+    return true;
+  }
+  const key = String(descriptor?.key || "").trim();
+  return key === "风险等级" || key === "预警等级" || key === "级别" || key === "level";
 }
 
 /** 业务主键/编号列（预警ID、问题跟踪ID 等）；排除「是否*」布尔列。 */

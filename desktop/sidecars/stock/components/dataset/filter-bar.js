@@ -331,6 +331,12 @@ class MeiDatasetFilterBar extends HTMLElement {
         this._columnProfiles = buildColumnProfiles(profileCatalog, profileRows);
         for (const field of profileCatalog) {
           const column = fieldQueryKey(field);
+          if (!shouldLoadRowsetOptions(field)) {
+            if (Array.isArray(field?.options) && field.options.length > 0) {
+              this._fieldOptions.set(column, field.options);
+            }
+            continue;
+          }
           const facetOptions = normalizeFacetOptions(facets[column]);
           if (facetOptions.length > 0) {
             this._fieldOptions.set(column, facetOptions);
@@ -1125,10 +1131,23 @@ function resolveColumnCatalog(props) {
       const column = String(field?.column || field?.key || field?.field || "").trim();
       if (!queryKey) return null;
       const control = normalizeControl(field);
-      const needsRowsetOptions =
+      const staticOptions = Array.isArray(field?.options) ? field.options : [];
+      const optionsFromRaw = String(field?.options_from || field?.optionsFrom || "")
+        .trim()
+        .toLowerCase();
+      // 显式 static / 已声明 options 时不要强制 rowset，否则会把「红/黄/蓝」冲成组合面值
+      //（contains_any 语义下左侧看起来像没同步）。
+      let optionsFrom = optionsFromRaw;
+      if (optionsFromRaw === "static" || (staticOptions.length > 0 && optionsFromRaw !== "rowset")) {
+        optionsFrom = "static";
+      } else if (
         control === "multi_select" ||
         control === "month_multi_select" ||
-        String(field?.options_from || field?.optionsFrom || "").trim() === "rowset";
+        optionsFromRaw === "rowset" ||
+        !optionsFromRaw
+      ) {
+        optionsFrom = "rowset";
+      }
       return {
         key: queryKey,
         label: String(field?.label || queryKey).trim() || queryKey,
@@ -1137,12 +1156,41 @@ function resolveColumnCatalog(props) {
         operator: String(field?.operator || field?.default_operator || field?.defaultOperator || "").trim(),
         placeholder: String(field?.placeholder || "").trim(),
         visible: field?.visible !== false,
-        options_from: needsRowsetOptions ? "rowset" : String(field?.options_from || ""),
+        options_from: optionsFrom,
         options_field: String(field?.options_field || field?.column || column).trim(),
-        options: Array.isArray(field?.options) ? field.options : [],
+        options: staticOptions,
       };
     })
     .filter(Boolean);
+}
+
+/** Prefer declared static options over facet/rowset enums. */
+function resolveSelectOptionsForField(fieldDef, fieldOptions, columnKey = "") {
+  const staticOptions = Array.isArray(fieldDef?.options) ? fieldDef.options : [];
+  const source = String(fieldDef?.options_from || fieldDef?.optionsFrom || "")
+    .trim()
+    .toLowerCase();
+  if (source === "static" || (staticOptions.length > 0 && source !== "rowset")) {
+    return staticOptions;
+  }
+  const key = String(columnKey || fieldQueryKey(fieldDef) || "").trim();
+  const column = String(fieldDef?.column || key).trim();
+  // 风险等级 contains_any：选项固定为红/黄/蓝（即使 schema 未透传 options）
+  if (column === "风险等级" || key === "风险等级" || key === "warningLevel") {
+    const op = String(
+      fieldDef?.operator || fieldDef?.default_operator || fieldDef?.defaultOperator || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (op === "contains_any" || source === "static" || staticOptions.length === 0) {
+      return staticOptions.length > 0 ? staticOptions : ["红", "黄", "蓝"];
+    }
+  }
+  const dynamic = key ? fieldOptions?.get(key) || [] : [];
+  const byColumn = column && column !== key ? fieldOptions?.get(column) || [] : [];
+  if (dynamic.length > 0) return dynamic;
+  if (byColumn.length > 0) return byColumn;
+  return staticOptions;
 }
 
 function valueIsSelected(selectedValues, optionValue) {
@@ -1164,7 +1212,7 @@ function resolveMultiOptions(options, selectedValues) {
         ? option.count ?? option.n ?? option.total
         : null;
     const count = Number(countRaw);
-    const hasCount = Number.isFinite(count) && count >= 0;
+    const hasCount = Number.isFinite(count) && count > 0;
     const baseLabel =
       typeof option === "string" ? option : option?.label || text;
     items.push({
@@ -2039,7 +2087,7 @@ function renderAdditiveValueMarkup(
   if (!String(row?.column || "").trim()) {
     return `<input class="cockpit-filter-control" type="text" data-row-value="${escapeHtmlAttr(rowId)}" placeholder="先选择字段" disabled />`;
   }
-  if (operator === "in" || operator === "month_in") {
+  if (operator === "in" || operator === "contains_any" || operator === "month_in") {
     return renderMultiSelectPanelMarkup({
       panelKey: rowId,
       selectedValues,
@@ -2124,12 +2172,16 @@ function renderActiveAdditiveRow(row, index, catalog, profiles, fieldOptions, op
   const fieldDef = findCatalogField(catalog, column);
   const profile = profileForColumn(column, profiles);
   const operator = resolveRowOperator(row, profile, fieldDef);
-  const optionValues = column ? fieldOptions?.get(column) || profile?.options || [] : [];
+  const optionValues = column
+    ? resolveSelectOptionsForField(fieldDef, fieldOptions, column)
+    : [];
+  const resolvedOptions =
+    optionValues.length > 0 ? optionValues : profile?.options || [];
   const valueMarkup = renderAdditiveValueMarkup(
     row,
     profile,
     operator,
-    optionValues,
+    resolvedOptions,
     openDropdownKey,
     fieldDef,
     multiPanelSearch,
@@ -2166,7 +2218,11 @@ function renderDraftAdditiveRow(
   const fieldDef = findCatalogField(catalog, column);
   const profile = profileForColumn(column, profiles);
   const operator = resolveRowOperator(row, profile, fieldDef);
-  const optionValues = column ? fieldOptions?.get(column) || profile?.options || [] : [];
+  const optionValues = column
+    ? resolveSelectOptionsForField(fieldDef, fieldOptions, column)
+    : [];
+  const resolvedOptions =
+    optionValues.length > 0 ? optionValues : profile?.options || [];
 
   const operatorOptions = operatorOptionsForField(profile, fieldDef)
     .map((entry) => {
@@ -2179,7 +2235,7 @@ function renderDraftAdditiveRow(
     row,
     profile,
     operator,
-    optionValues,
+    resolvedOptions,
     openDropdownKey,
     fieldDef,
     multiPanelSearch,
@@ -3127,7 +3183,7 @@ function renderSchemaMultiSelect(field, row, appliedFilters, fieldOptions, openD
   const selectedValues = Array.isArray(row?.values)
     ? row.values
     : selectedValuesForField({ [key]: appliedRaw }, key, control, field);
-  const options = fieldOptions?.get(column) || [];
+  const options = resolveSelectOptionsForField(field, fieldOptions, column);
   const isOpen = openDropdownKey === key;
   const searchValue = multiPanelSearch?.get?.(key) || "";
   const currentEncoded = encodeSchemaFieldValue(field, { ...row, values: selectedValues });
@@ -3252,6 +3308,13 @@ function selectedValuesForField(filters, queryKey, control, field = null) {
   if (control === "multi_select" && raw.startsWith("in:")) {
     return raw
       .slice(3)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  if (control === "multi_select" && raw.startsWith("contains_any:")) {
+    return raw
+      .slice("contains_any:".length)
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean);

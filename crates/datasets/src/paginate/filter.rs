@@ -78,6 +78,14 @@ fn parse_filter_spec(expected: &str) -> FilterSpec {
                 .collect(),
         );
     }
+    if let Some(rest) = trimmed.strip_prefix("contains_any:") {
+        return FilterSpec::ContainsAny(
+            split_filter_values(rest)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        );
+    }
     if let Some(rest) = trimmed.strip_prefix("m:") {
         return FilterSpec::Month(
             split_filter_values(rest)
@@ -111,6 +119,14 @@ fn eval_filter_spec(actual: &str, spec: &FilterSpec) -> bool {
                 return true;
             }
             actual.contains(needle.as_str())
+        }
+        FilterSpec::ContainsAny(values) => {
+            if values.is_empty() {
+                return true;
+            }
+            values
+                .iter()
+                .any(|needle| !needle.is_empty() && actual.contains(needle.as_str()))
         }
         FilterSpec::InValues(values) => values.iter().any(|part| actual == part.as_str()),
         FilterSpec::Month(values) => {
@@ -195,6 +211,19 @@ mod filter_spec_tests {
         assert!(eval_filter_spec("12", &spec));
         assert!(eval_filter_spec("10", &spec));
         assert!(!eval_filter_spec("9", &spec));
+    }
+
+    #[test]
+    fn parse_contains_any_membership() {
+        let spec = parse_filter_spec("contains_any:红,黄");
+        match &spec {
+            FilterSpec::ContainsAny(values) => assert_eq!(values, &vec!["红", "黄"]),
+            _ => panic!("expected contains_any"),
+        }
+        assert!(eval_filter_spec("蓝/黄/红", &spec));
+        assert!(eval_filter_spec("黄", &spec));
+        assert!(!eval_filter_spec("蓝", &spec));
+        assert!(!eval_filter_spec("/", &spec));
     }
 
     #[test]

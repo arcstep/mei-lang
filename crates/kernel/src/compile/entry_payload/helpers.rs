@@ -117,6 +117,7 @@ fn parse_world_filter_dimensions(filters: Option<&Value>) -> BTreeMap<String, St
 fn parse_world_filter_expression_column(expr: &str) -> Option<String> {
     for marker in [
         " in filter.",
+        " contains_any filter.",
         " contains filter.",
         " between filter.",
         " eq filter.",

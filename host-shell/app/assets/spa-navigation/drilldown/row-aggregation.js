@@ -50,11 +50,25 @@
     return hasNumericWeight;
   }
 
-  function groupRowsByCount(rows, field, columns = []) {
+  function groupRowsByCount(rows, field, columns = [], options = {}) {
+    const delimiter = String(options?.delimiter || "").trim();
+    const dropEmpty = options?.dropEmpty !== false;
     const grouped = new Map();
     rows.forEach((row) => {
-      const key = String(rowFieldValue(row, field, columns) ?? "").trim() || "未标注";
-      grouped.set(key, (grouped.get(key) || 0) + 1);
+      const raw = String(rowFieldValue(row, field, columns) ?? "").trim();
+      const keys = delimiter
+        ? raw
+            .split(delimiter)
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : [raw || "未标注"];
+      if (!keys.length) {
+        if (!dropEmpty) grouped.set(raw || "未标注", (grouped.get(raw || "未标注") || 0) + 1);
+        return;
+      }
+      keys.forEach((key) => {
+        grouped.set(key, (grouped.get(key) || 0) + 1);
+      });
     });
     return Array.from(grouped.entries())
       .map(([label, value]) => ({ label, value }))
@@ -145,7 +159,9 @@
 
   function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
     if (clientAggregate) return 100000;
-    if (previewRow) return 1;
+    // previewRow is used for identity drilldown (object focus). Scalar rowset SQL may not
+    // apply filter.warningId; fetch a window and pick the matching row client-side.
+    if (previewRow) return 500;
     const dedicated = isDedicatedExplainMetricId(resolveCompositionMetricId(config), {
       supportRole: config?.supportRole,
     });
@@ -180,12 +196,28 @@
     return scoped;
   }
 
+  function resolveCompositionDelimiter(field, config = null, detail = null) {
+    const explicit = nonEmptyString(
+      config?.delimiter,
+      config?.compositionDelimiter,
+      config?.composition_delimiter,
+      detail?.delimiter,
+    );
+    if (explicit) return explicit;
+    // 风险等级多标签（蓝/黄/红）：客户端重聚合时按「/」拆分做 membership 计数
+    if (String(field || "").trim() === "风险等级") return "/";
+    return "";
+  }
+
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {
     const valueField = resolveCompositionValueField(config, detail);
     if (compositionUsesWeightedSum(config, detail, columns, rows) && valueField) {
       return groupRowsByWeightedSum(rows, field, valueField, columns);
     }
-    return groupRowsByCount(rows, field, columns);
+    return groupRowsByCount(rows, field, columns, {
+      delimiter: resolveCompositionDelimiter(field, config, detail),
+      dropEmpty: true,
+    });
   }
 
   function limitCompositionRows(rows, config = null) {

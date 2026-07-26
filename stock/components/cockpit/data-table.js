@@ -49,9 +49,14 @@ import {
   inferColumnWidthsFromSample,
   inlineStyleForColumn,
   isTagLikeColumnKey,
+  isWarningLevelBlocksColumn,
   resolveColumnDescriptors,
   resolveToneToken,
 } from "../dataset/table-runtime/format.js";
+import {
+  renderWarningLevelBlocksHtml,
+  warningLevelBlocksCss,
+} from "../mei/warning-level.js";
 import { formatTableRowCountLabel } from "../dataset/table-runtime/footer.js";
 import {
   buildTableRowDrilldownDetail,
@@ -78,7 +83,7 @@ function resolveTableSpec(props) {
 
 const LAYOUT_PRESETS = {
   alerts: "2.8fr 1.5fr 2.2fr 1.6fr 1fr",
-  warnings: "0.9fr 1.2fr 1.1fr 0.65fr 0.85fr 0.75fr",
+  warnings: "0.55fr 1.25fr 1.15fr 0.65fr 0.85fr 0.75fr",
   drilldown_warnings: "0.95fr 1.15fr 1.55fr 1.1fr 0.95fr",
   drilldown_issues: "1.05fr 1.2fr 1.6fr 1.1fr 0.9fr 0.9fr",
   drilldown_models: "1fr 1fr 1.5fr 0.95fr 0.8fr",
@@ -92,7 +97,7 @@ function cellToneClass(layoutPreset, colKey, raw) {
   if (layoutPreset !== "warnings") {
     return "";
   }
-  if (colKey === "level" || colKey === "预警等级" || colKey === "级别") {
+  if (colKey === "level" || colKey === "预警等级" || colKey === "风险等级" || colKey === "级别") {
     if (text.includes("蓝")) return "tone-blue";
     if (text.includes("黄")) return "tone-yellow";
     if (text.includes("橙")) return "tone-orange";
@@ -377,8 +382,13 @@ function resolveColumnTemplate(props, keys, descriptors) {
   if (sampledTemplate) {
     return sampledTemplate;
   }
+  // Never use per-row max-content: .thead and each .tr are independent grids, so
+  // max-content makes header tracks follow labels while body tracks follow cells
+  // (visible as "表头与数据错位", often with … sitting under the next header).
   if (tableScrollXEnabled(props) && count > 0) {
-    return `repeat(${count}, minmax(${minWidth}px, max-content))`;
+    const scrollTemplate = buildColumnTemplate(descriptors, minWidth, { shrinkFit: false });
+    if (scrollTemplate) return scrollTemplate;
+    return `repeat(${count}, minmax(${minWidth}px, 1fr))`;
   }
   const preset = LAYOUT_PRESETS[String(props?.layoutPreset ?? "").trim()] || "";
   if (preset) {
@@ -408,6 +418,13 @@ function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displa
     return `<button type="button" class="cell-action-link${disabled ? " is-disabled" : ""}" data-action-column="${escapeAttr(
       descriptor.key,
     )}"${disabledAttr}>${escapeHtml(label)}</button>`;
+  }
+  if (isWarningLevelBlocksColumn(descriptor)) {
+    const previewKey = `${rowIndex}::${descriptor.key}`;
+    const previewAttrs = ` data-cell-preview-key="${escapeAttr(previewKey)}" data-r="${rowIndex}" data-c="${escapeAttr(
+      descriptor.key
+    )}"`;
+    return `<span class="cell-inner is-warning-level"${previewAttrs}>${renderWarningLevelBlocksHtml(raw, props?.__host, descriptor)}</span>`;
   }
   const cell = renderFormattedCellHtml(raw, descriptor, rowIndex, textMap, props, displayOverride);
   const previewKey = `${rowIndex}::${descriptor.key}`;
@@ -1196,6 +1213,35 @@ export class MeiCockpitDataTable extends HTMLElement {
       this._props || {}
     );
     scheduleOverflowPreviewSync(this, this.shadowRoot, this._cellTextMap, this._props || {});
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => this._warnIfColumnTracksDiverge());
+    } else {
+      this._warnIfColumnTracksDiverge();
+    }
+  }
+
+  _warnIfColumnTracksDiverge() {
+    const root = this.shadowRoot;
+    if (!root || typeof getComputedStyle !== "function") return;
+    const thead = root.querySelector(".thead");
+    const tr = root.querySelector(".tr");
+    if (!thead || !tr) return;
+    const headGrid = getComputedStyle(thead).gridTemplateColumns;
+    const rowGrid = getComputedStyle(tr).gridTemplateColumns;
+    if (!headGrid || !rowGrid || headGrid === rowGrid) {
+      this._columnTrackWarnKey = "";
+      return;
+    }
+    const thCount = thead.children.length;
+    const tdCount = tr.children.length;
+    const warnKey = `${thCount}|${tdCount}|${headGrid}|${rowGrid}`;
+    if (this._columnTrackWarnKey === warnKey) return;
+    this._columnTrackWarnKey = warnKey;
+    const msg =
+      thCount !== tdCount
+        ? `[mei-cockpit-data-table] 表头列数(${thCount})与表体列数(${tdCount})不一致`
+        : `[mei-cockpit-data-table] 表头与表体列宽轨不一致（thead/tbody 独立 grid + 非共享轨）。head=${headGrid}; row=${rowGrid}`;
+    console.warn(msg);
   }
 
   render() {
@@ -1309,7 +1355,7 @@ export class MeiCockpitDataTable extends HTMLElement {
               raw,
               ri,
               this._cellTextMap,
-              p,
+              { ...p, __host: this },
               formatted,
               objectLinkTargets.length ? "" : tagTone,
               objectLinkTargets,
@@ -1772,6 +1818,28 @@ export class MeiCockpitDataTable extends HTMLElement {
         }
         ${cellTableChromeStyleBlock()}
         ${cellPopoverStyleBlock(popoverVariant)}
+        ${warningLevelBlocksCss()}
+        /* 本地强化：色块宽高比 ≤ 2:1；三连 0 间距无圆角（防 ES module 缓存） */
+        .mei-warning-level-item {
+          height: 28px !important;
+          width: 48px !important;
+          max-width: 48px !important;
+          flex: 0 0 48px !important;
+        }
+        .mei-warning-level-blocks {
+          justify-content: center !important;
+          width: auto !important;
+        }
+        .mei-warning-level-blocks.is-multi {
+          gap: 0 !important;
+        }
+        .mei-warning-level-blocks.is-multi .mei-warning-level-item {
+          border-radius: 0 !important;
+        }
+        .mei-warning-level-blocks.is-multi .mei-warning-level-item + .mei-warning-level-item {
+          margin-left: 0 !important;
+          border-left-width: 0 !important;
+        }
       </style>
       <div class="table-wrap${carouselEnabled(p) ? " carousel-active" : ""}">
         <div class="table-scroll">
@@ -1791,3 +1859,4 @@ export class MeiCockpitDataTable extends HTMLElement {
 if (!customElements.get("mei-cockpit-data-table")) {
   customElements.define("mei-cockpit-data-table", MeiCockpitDataTable);
 }
+

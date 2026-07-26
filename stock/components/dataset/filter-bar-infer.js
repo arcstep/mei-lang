@@ -179,7 +179,11 @@ export function buildColumnProfiles(catalog, rows) {
 export function defaultOperatorForProfile(profile, hint = null) {
   const controlHint = normalizeControlHint(hint);
   if (controlHint === "date_range") return "date_range";
-  if (controlHint === "multi_select") return "in";
+  if (controlHint === "multi_select") {
+    const hinted = String(hint?.operator || hint?.default_operator || hint?.defaultOperator || "").trim();
+    if (hinted === "contains_any" || hinted === "contains" || hinted === "in") return hinted;
+    return "in";
+  }
   if (controlHint === "month_multi_select") return "month_in";
   if (controlHint === "text") return "contains";
   const hinted = String(hint?.operator || hint?.default_operator || hint?.defaultOperator || "").trim();
@@ -196,6 +200,7 @@ export function defaultOperatorForProfile(profile, hint = null) {
 
 const OPERATOR_LABELS = {
   in: "属于（多选）",
+  contains_any: "包含任一（多选）",
   contains: "包含",
   eq: "等于",
   gt: "大于",
@@ -210,7 +215,7 @@ const OPERATOR_LABELS = {
 export function operatorsForField(profile, fieldHint = null) {
   const control = normalizeControlHint(fieldHint);
   if (control === "text") return ["contains", "eq"];
-  if (control === "multi_select") return ["in", "contains"];
+  if (control === "multi_select") return ["in", "contains_any", "contains"];
   if (control === "date_range") return ["date_range"];
   if (control === "month_multi_select") return ["month_in", "month_range"];
   if (profile?.kind === "number") return ["eq", "gt", "gte", "lt", "lte"];

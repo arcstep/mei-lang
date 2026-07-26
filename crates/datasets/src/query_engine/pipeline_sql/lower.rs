@@ -1558,6 +1558,11 @@ fn lower_split_text(
         .get("delimiter")
         .and_then(Value::as_str)
         .unwrap_or("、");
+    let drop_empty = object
+        .get("on_empty")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|v| v.eq_ignore_ascii_case("drop"));
     let col = quote_ident(field)?;
     let delim = quote_string(delimiter);
     let order_key = if inner.columns.is_empty() {
@@ -1618,40 +1623,66 @@ fn lower_split_text(
             },
         )
     };
-    let sql = format!(
-        "WITH src AS (\
-           SELECT {src_proj}, ROW_NUMBER() OVER (ORDER BY {order_key}) AS __mei_rid \
-           FROM ({inner}) AS _st\
-         ), \
-         src_arr AS (\
-           SELECT *, string_to_array(COALESCE(__mei_text, ''), {delim}) AS __mei_arr FROM src\
-         ), \
-         exploded AS (\
-           SELECT * EXCLUDE (__mei_arr, __mei_text), trim(unnest(__mei_arr)) AS __mei_part \
-           FROM src_arr\
-         ), \
-         has_part AS (\
-           SELECT DISTINCT __mei_rid FROM exploded WHERE __mei_part <> ''\
-         ), \
-         kept AS (\
-           SELECT {kept_proj} FROM exploded WHERE __mei_part <> ''\
-         ), \
-         empty_rows AS (\
-           SELECT {empty_proj} FROM src s \
-           LEFT JOIN has_part h ON h.__mei_rid = s.__mei_rid \
-           WHERE h.__mei_rid IS NULL\
-         ) \
-         SELECT {outer_proj} FROM kept \
-         UNION ALL \
-         SELECT {outer_proj} FROM empty_rows",
-        inner = inner.sql,
-        src_proj = src_proj,
-        kept_proj = kept_proj,
-        empty_proj = empty_proj,
-        outer_proj = outer_proj,
-        delim = delim,
-        order_key = order_key,
-    );
+    let sql = if drop_empty {
+        format!(
+            "WITH src AS (\
+               SELECT {src_proj}, ROW_NUMBER() OVER (ORDER BY {order_key}) AS __mei_rid \
+               FROM ({inner}) AS _st\
+             ), \
+             src_arr AS (\
+               SELECT *, string_to_array(COALESCE(__mei_text, ''), {delim}) AS __mei_arr FROM src\
+             ), \
+             exploded AS (\
+               SELECT * EXCLUDE (__mei_arr, __mei_text), trim(unnest(__mei_arr)) AS __mei_part \
+               FROM src_arr\
+             ), \
+             kept AS (\
+               SELECT {kept_proj} FROM exploded WHERE __mei_part <> ''\
+             ) \
+             SELECT {outer_proj} FROM kept",
+            inner = inner.sql,
+            src_proj = src_proj,
+            kept_proj = kept_proj,
+            outer_proj = outer_proj,
+            delim = delim,
+            order_key = order_key,
+        )
+    } else {
+        format!(
+            "WITH src AS (\
+               SELECT {src_proj}, ROW_NUMBER() OVER (ORDER BY {order_key}) AS __mei_rid \
+               FROM ({inner}) AS _st\
+             ), \
+             src_arr AS (\
+               SELECT *, string_to_array(COALESCE(__mei_text, ''), {delim}) AS __mei_arr FROM src\
+             ), \
+             exploded AS (\
+               SELECT * EXCLUDE (__mei_arr, __mei_text), trim(unnest(__mei_arr)) AS __mei_part \
+               FROM src_arr\
+             ), \
+             has_part AS (\
+               SELECT DISTINCT __mei_rid FROM exploded WHERE __mei_part <> ''\
+             ), \
+             kept AS (\
+               SELECT {kept_proj} FROM exploded WHERE __mei_part <> ''\
+             ), \
+             empty_rows AS (\
+               SELECT {empty_proj} FROM src s \
+               LEFT JOIN has_part h ON h.__mei_rid = s.__mei_rid \
+               WHERE h.__mei_rid IS NULL\
+             ) \
+             SELECT {outer_proj} FROM kept \
+             UNION ALL \
+             SELECT {outer_proj} FROM empty_rows",
+            inner = inner.sql,
+            src_proj = src_proj,
+            kept_proj = kept_proj,
+            empty_proj = empty_proj,
+            outer_proj = outer_proj,
+            delim = delim,
+            order_key = order_key,
+        )
+    };
     Ok(Some(Rel { sql, columns }))
 }
 

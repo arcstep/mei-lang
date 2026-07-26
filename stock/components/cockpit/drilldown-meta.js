@@ -897,6 +897,19 @@ function expandMappingTargets(raw) {
   return text ? [text] : [];
 }
 
+/**
+ * Split multi-value association IDs from Excel cells.
+ * Supports newline/whitespace separators and ignorable "1." / "2." prefixes.
+ */
+export function splitMultiObjectKeys(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return [];
+  return text
+    .split(/[\n\r\s]+/)
+    .map((part) => String(part ?? "").replace(/^\d+\.\s*/, "").trim())
+    .filter(Boolean);
+}
+
 /** Resolve clickable object targets for one cell from object_field_links IR. */
 export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") {
   const field = String(columnKey || "").trim();
@@ -948,18 +961,21 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
     }
 
     if (!cellValue) continue;
-    out.push({
-      role,
-      relation,
-      objectType,
-      objectKey: cellValue,
-      keyMode,
-      filterKey,
-      hasDetail,
-      openPopup,
-      detailPage,
-      label: `${objectType} · ${cellValue}`,
-    });
+    const objectKeys = splitMultiObjectKeys(cellValue);
+    for (const objectKey of objectKeys) {
+      out.push({
+        role,
+        relation,
+        objectType,
+        objectKey,
+        keyMode,
+        filterKey,
+        hasDetail,
+        openPopup,
+        detailPage,
+        label: `${objectType} · ${objectKey}`,
+      });
+    }
   }
   return out;
 }

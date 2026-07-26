@@ -18,8 +18,16 @@
         formats[name] = { truncate: false };
         return;
       }
+      if (name === "风险等级") {
+        formats[name] = { kind: "risk_level_blocks", tag: false };
+        return;
+      }
+      if (name === "预警等级" || name === "级别" || name === "level") {
+        formats[name] = { kind: "warning_level_block", tag: false };
+        return;
+      }
       if (/等级/.test(name)) {
-        formats[name] = { tag: true };
+        formats[name] = { kind: "warning_level_block", tag: false };
         return;
       }
       if (/部门|单位|机构|主责/.test(name)) {
@@ -41,8 +49,11 @@
         if (isIdentifierColumn(name)) {
           return { key: name, order, width_mode: "fixed", align: "left" };
         }
-        if (/等级/.test(name)) {
-          return { key: name, order, width: 88, width_mode: "fixed", align: "center" };
+        if (name === "风险等级") {
+          return { key: name, order, width: 180, width_mode: "fixed", align: "center" };
+        }
+        if (name === "预警等级" || name === "级别" || name === "level" || /等级/.test(name)) {
+          return { key: name, order, width: 72, width_mode: "fixed", align: "center" };
         }
         if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };

@@ -95,7 +95,8 @@
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
-          config?.title || `${dimension}构成`,
+          // Empty: slot caption already shows the title.
+          "",
           tabId,
           grouped,
           {
@@ -132,7 +133,8 @@
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
-          config?.title || "趋势",
+          // Empty: slot caption already shows the title.
+          "",
           tabId,
           grouped,
           {

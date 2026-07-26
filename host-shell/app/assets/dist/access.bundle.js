@@ -13875,8 +13875,16 @@
         formats[name] = { truncate: false };
         return;
       }
+      if (name === "风险等级") {
+        formats[name] = { kind: "risk_level_blocks", tag: false };
+        return;
+      }
+      if (name === "预警等级" || name === "级别" || name === "level") {
+        formats[name] = { kind: "warning_level_block", tag: false };
+        return;
+      }
       if (/等级/.test(name)) {
-        formats[name] = { tag: true };
+        formats[name] = { kind: "warning_level_block", tag: false };
         return;
       }
       if (/部门|单位|机构|主责/.test(name)) {
@@ -13898,8 +13906,11 @@
         if (isIdentifierColumn(name)) {
           return { key: name, order, width_mode: "fixed", align: "left" };
         }
-        if (/等级/.test(name)) {
-          return { key: name, order, width: 88, width_mode: "fixed", align: "center" };
+        if (name === "风险等级") {
+          return { key: name, order, width: 180, width_mode: "fixed", align: "center" };
+        }
+        if (name === "预警等级" || name === "级别" || name === "level" || /等级/.test(name)) {
+          return { key: name, order, width: 72, width_mode: "fixed", align: "center" };
         }
         if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };
@@ -17471,6 +17482,7 @@
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
         topN: positiveInt(entry.top_n, entry.topN),
         valueField: nonEmptyString(entry.value_field, entry.valueField),
+        delimiter: nonEmptyString(entry.delimiter),
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
@@ -18748,7 +18760,40 @@
         merged[normalizedKey] = normalizedValue;
       });
     });
+    // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID resolve.
+    if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
+    if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
+    if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
+    if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
     return merged;
+  }
+
+  function pickRowMatchingDrilldownFilters(rows, detail) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return null;
+    const filters =
+      detail?.drilldown_filters && typeof detail.drilldown_filters === "object"
+        ? detail.drilldown_filters
+        : detail?.default_filters && typeof detail.default_filters === "object"
+          ? detail.default_filters
+          : {};
+    const warningId = String(filters.warningId ?? filters["预警ID"] ?? "").trim();
+    const resultId = String(filters.resultId ?? filters["处理结果ID"] ?? "").trim();
+    if (warningId) {
+      const hit = list.find((row) => {
+        const id = String(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId ?? "").trim();
+        return id === warningId;
+      });
+      if (hit) return hit;
+    }
+    if (resultId) {
+      const hit = list.find((row) => {
+        const id = String(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId ?? "").trim();
+        return id === resultId;
+      });
+      if (hit) return hit;
+    }
+    return list[0] || null;
   }
 
   function hasRowDrilldownFilters(detail) {
@@ -18769,16 +18814,39 @@
       isPreviewOnlyMapping(config) ||
       isSheetDetailCardPreview(config) ||
       isTypicalCaseCardPreview(config);
-    const pageScenePath = nonEmptyString(detail?.page_scene_file, config?.pageSceneFile);
-    const pageSceneId = nonEmptyString(detail?.page_scene_id, config?.pageSceneId);
+    // Row drilldown from L1/L2 host tables sets page_scene_* to the caller scene while
+    // board_scene_* / popup.scene_* point at the detail page (e.g. warning_detail_page).
+    // Preview-only cards must compile against the board scene or row filters are dropped.
+    const previewCompileSceneId = nonEmptyString(
+      detail?.board_scene_id,
+      detail?.boardSceneId,
+      detail?.popup?.scene_id,
+      detail?.popup?.sceneId,
+      config?.boardSceneId,
+      config?.previewCompileAnchor?.sceneId,
+      detail?.page_scene_id,
+      detail?.pageSceneId,
+      config?.pageSceneId,
+    );
+    const previewCompileScenePath = nonEmptyString(
+      detail?.board_scene_file,
+      detail?.boardSceneFile,
+      detail?.popup?.scene_file,
+      detail?.popup?.sceneFile,
+      config?.boardSceneFile,
+      config?.previewCompileAnchor?.scenePath,
+      detail?.page_scene_file,
+      detail?.pageSceneFile,
+      config?.pageSceneFile,
+    );
     const metricFetchConfig =
-      previewOnlyFetch && pageScenePath && pageSceneId
+      previewOnlyFetch && previewCompileScenePath && previewCompileSceneId
         ? {
             ...config,
             structuredBoard: false,
             previewCompileAnchor: {
-              sceneId: pageSceneId,
-              scenePath: pageScenePath,
+              sceneId: previewCompileSceneId,
+              scenePath: previewCompileScenePath,
             },
           }
         : config;
@@ -18946,11 +19014,25 @@
     return hasNumericWeight;
   }
 
-  function groupRowsByCount(rows, field, columns = []) {
+  function groupRowsByCount(rows, field, columns = [], options = {}) {
+    const delimiter = String(options?.delimiter || "").trim();
+    const dropEmpty = options?.dropEmpty !== false;
     const grouped = new Map();
     rows.forEach((row) => {
-      const key = String(rowFieldValue(row, field, columns) ?? "").trim() || "未标注";
-      grouped.set(key, (grouped.get(key) || 0) + 1);
+      const raw = String(rowFieldValue(row, field, columns) ?? "").trim();
+      const keys = delimiter
+        ? raw
+            .split(delimiter)
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : [raw || "未标注"];
+      if (!keys.length) {
+        if (!dropEmpty) grouped.set(raw || "未标注", (grouped.get(raw || "未标注") || 0) + 1);
+        return;
+      }
+      keys.forEach((key) => {
+        grouped.set(key, (grouped.get(key) || 0) + 1);
+      });
     });
     return Array.from(grouped.entries())
       .map(([label, value]) => ({ label, value }))
@@ -19041,7 +19123,9 @@
 
   function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
     if (clientAggregate) return 100000;
-    if (previewRow) return 1;
+    // previewRow is used for identity drilldown (object focus). Scalar rowset SQL may not
+    // apply filter.warningId; fetch a window and pick the matching row client-side.
+    if (previewRow) return 500;
     const dedicated = isDedicatedExplainMetricId(resolveCompositionMetricId(config), {
       supportRole: config?.supportRole,
     });
@@ -19076,12 +19160,28 @@
     return scoped;
   }
 
+  function resolveCompositionDelimiter(field, config = null, detail = null) {
+    const explicit = nonEmptyString(
+      config?.delimiter,
+      config?.compositionDelimiter,
+      config?.composition_delimiter,
+      detail?.delimiter,
+    );
+    if (explicit) return explicit;
+    // 风险等级多标签（蓝/黄/红）：客户端重聚合时按「/」拆分做 membership 计数
+    if (String(field || "").trim() === "风险等级") return "/";
+    return "";
+  }
+
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {
     const valueField = resolveCompositionValueField(config, detail);
     if (compositionUsesWeightedSum(config, detail, columns, rows) && valueField) {
       return groupRowsByWeightedSum(rows, field, valueField, columns);
     }
-    return groupRowsByCount(rows, field, columns);
+    return groupRowsByCount(rows, field, columns, {
+      delimiter: resolveCompositionDelimiter(field, config, detail),
+      dropEmpty: true,
+    });
   }
 
   function limitCompositionRows(rows, config = null) {
@@ -19197,7 +19297,7 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       chartHeight: 300,
-      color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
+      // Color comes from scene theme chart_1..chart_6 (default green mono).
       ...overrides,
     };
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
@@ -19222,10 +19322,20 @@
       normalized === "trend"
         ? { x: "month", y: "value" }
         : { x: "label", y: "value" };
+    const resolvedMapping = mapping && typeof mapping === "object" ? mapping : defaultMapping;
+    const dimName = nonEmptyString(
+      resolvedMapping?.x?.[0]?.name,
+      resolvedMapping?.label?.[0]?.name,
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+    );
+    const warningLevelDim =
+      dimName === "风险等级" || dimName === "预警等级" || dimName === "级别" || dimName === "level";
     return {
       title: String(title || ""),
       data,
-      mapping: mapping && typeof mapping === "object" ? mapping : defaultMapping,
+      mapping: resolvedMapping,
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
       ...buildAnalyticsChartPresentationProps(config),
     };
   }
@@ -19645,7 +19755,10 @@
       : inferredFormats;
     const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
     const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
-    const hasExplicitLayout = Boolean(columnTemplate) || hasExplicitColumnState;
+    // Only a full column_template is a complete layout. Partial column_state must still
+    // run fitColumnsFromSample so every column gets a shared px track; otherwise
+    // tableScrollX falls back to per-row max-content and thead/tbody diverge.
+    const hasFullColumnTemplate = Boolean(columnTemplate);
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -19677,8 +19790,8 @@
       rowSelectionMode:
         nonEmptyString(config?.rowSelectionMode) || (autoSelectFirstRow ? "single" : ""),
       tableScrollX,
-      autoFitColumns: hasExplicitLayout ? false : true,
-      fitColumnsFromSample: hasExplicitLayout ? false : true,
+      autoFitColumns: hasFullColumnTemplate ? false : true,
+      fitColumnsFromSample: hasFullColumnTemplate ? false : true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
@@ -19967,7 +20080,8 @@
     return {
       chartTag,
       props: {
-        title: String(config?.title || ""),
+        // Slot caption owns the visible title; chart shell .head would duplicate it.
+        title: "",
         data: chartDataset,
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
@@ -20663,8 +20777,16 @@
     }
     Object.entries(filters).forEach(([key, value]) => {
       const text = String(value ?? "").trim();
-      if (text) {
-        enriched[key] = text;
+      if (!text) return;
+      enriched[key] = text;
+      // Identity filters must win over a mismatched preview row (scalar-rowset often ignores them).
+      if (key === "warningId" || key === "预警ID") {
+        enriched.warningId = text;
+        enriched["预警ID"] = text;
+      }
+      if (key === "resultId" || key === "处理结果ID") {
+        enriched.resultId = text;
+        enriched["处理结果ID"] = text;
       }
     });
     return applyExternalCaseDetailRowEnricher(enriched, detail);
@@ -22239,9 +22361,10 @@
       };
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
       const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+      const matched = pickRowMatchingDrilldownFilters(rows, detail);
       renderSheetDetailCardPanel(
         previewHost,
-        enrichCaseDetailRow(rows[0] || null, detail),
+        enrichCaseDetailRow(matched || null, detail),
         config,
         detail,
       );
@@ -22470,7 +22593,8 @@
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
-          config?.title || `${dimension}构成`,
+          // Empty: slot caption already shows the title.
+          "",
           tabId,
           grouped,
           {
@@ -22507,7 +22631,8 @@
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
-          config?.title || "趋势",
+          // Empty: slot caption already shows the title.
+          "",
           tabId,
           grouped,
           {
@@ -26122,6 +26247,18 @@
         if (el.scrollLeft !== left) el.scrollLeft = left;
       }
     };
+    const overflowAllowsScroll = (value) =>
+      value === "auto" || value === "scroll" || value === "overlay";
+    const canScrollY = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(node);
+      return overflowAllowsScroll(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+    };
+    const canScrollX = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(node);
+      return overflowAllowsScroll(style.overflowX) && node.scrollWidth > node.clientWidth + 1;
+    };
     const onWheel = (event) => {
       const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
       if (!(root instanceof HTMLElement) || !root.classList.contains("is-open")) return;
@@ -26133,34 +26270,60 @@
         return;
       }
       // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
-      let scrollPort = null;
+      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
+      let scrollPortY = null;
+      let scrollPortX = null;
       for (const node of path) {
         if (node === root) break;
         if (!(node instanceof HTMLElement)) continue;
-        const style = window.getComputedStyle(node);
-        const oy = style.overflowY;
-        if (
-          (oy === "auto" || oy === "scroll" || oy === "overlay") &&
-          node.scrollHeight > node.clientHeight + 1
-        ) {
-          scrollPort = node;
-          break;
-        }
+        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
+        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
+        if (scrollPortY && scrollPortX) break;
       }
-      if (!scrollPort) {
-        // 点在 T2 chrome / 非滚动区：吞掉滚轮，避免落到背景。
-        event.preventDefault();
-        pin();
+      const deltaX = Number(event.deltaX) || 0;
+      const deltaY = Number(event.deltaY) || 0;
+      const shiftAsHorizontal = Boolean(event.shiftKey) && deltaY !== 0 && deltaX === 0;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      const preferHorizontal = shiftAsHorizontal || absX > absY;
+      const horizontalDelta = shiftAsHorizontal ? deltaY : deltaX;
+
+      if (preferHorizontal && scrollPortX) {
+        const atLeft = scrollPortX.scrollLeft <= 0;
+        const atRight =
+          scrollPortX.scrollLeft + scrollPortX.clientWidth >= scrollPortX.scrollWidth - 1;
+        if ((horizontalDelta < 0 && atLeft) || (horizontalDelta > 0 && atRight)) {
+          event.preventDefault();
+          pin();
+        }
         return;
       }
-      const delta = event.deltaY;
-      const atTop = scrollPort.scrollTop <= 0;
-      const atBottom =
-        scrollPort.scrollTop + scrollPort.clientHeight >= scrollPort.scrollHeight - 1;
-      if ((delta < 0 && atTop) || (delta > 0 && atBottom)) {
-        event.preventDefault();
-        pin();
+
+      if (scrollPortY) {
+        const atTop = scrollPortY.scrollTop <= 0;
+        const atBottom =
+          scrollPortY.scrollTop + scrollPortY.clientHeight >= scrollPortY.scrollHeight - 1;
+        if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+          event.preventDefault();
+          pin();
+        }
+        return;
       }
+
+      if (scrollPortX && horizontalDelta !== 0) {
+        const atLeft = scrollPortX.scrollLeft <= 0;
+        const atRight =
+          scrollPortX.scrollLeft + scrollPortX.clientWidth >= scrollPortX.scrollWidth - 1;
+        if ((horizontalDelta < 0 && atLeft) || (horizontalDelta > 0 && atRight)) {
+          event.preventDefault();
+          pin();
+        }
+        return;
+      }
+
+      // 点在 T2 chrome / 非滚动区：吞掉滚轮，避免落到背景。
+      event.preventDefault();
+      pin();
     };
     boot.__meiLayer2ScrollFreeze = { snapshots, pin, onWheel };
     window.addEventListener("scroll", pin, true);

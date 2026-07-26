@@ -101,8 +101,16 @@
     }
     Object.entries(filters).forEach(([key, value]) => {
       const text = String(value ?? "").trim();
-      if (text) {
-        enriched[key] = text;
+      if (!text) return;
+      enriched[key] = text;
+      // Identity filters must win over a mismatched preview row (scalar-rowset often ignores them).
+      if (key === "warningId" || key === "预警ID") {
+        enriched.warningId = text;
+        enriched["预警ID"] = text;
+      }
+      if (key === "resultId" || key === "处理结果ID") {
+        enriched.resultId = text;
+        enriched["处理结果ID"] = text;
       }
     });
     return applyExternalCaseDetailRowEnricher(enriched, detail);

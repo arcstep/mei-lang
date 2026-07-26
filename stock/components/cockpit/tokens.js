@@ -137,14 +137,14 @@ export const COCKPIT_TEXT_CLASS = {
 
 const CHART_COLOR_KEYS = ["chart_1", "chart_2", "chart_3", "chart_4", "chart_5", "chart_6"];
 
-/** 静态 fallback（无 DOM / 无 theme 注入时） */
+/** 静态 fallback（无 DOM / 无 theme 注入时）— 默认绿色系单色阶梯（ECharts 需实色 hex） */
 export const COCKPIT_CHART_PALETTE_FALLBACK = [
-  "var(--mei-color-chart-1, #22d3ee)",
-  "var(--mei-color-chart-2, #38bdf8)",
-  "var(--mei-color-chart-3, #0ea5e9)",
-  "var(--mei-color-chart-4, #0369a1)",
-  "var(--mei-color-chart-5, #62beeb)",
-  "var(--mei-color-chart-6, #475569)",
+  "#d1fae5",
+  "#a7f3d0",
+  "#6ee7b7",
+  "#34d399",
+  "#10b981",
+  "#059669",
 ];
 
 /** @deprecated 请用 readThemeChartPalette(host)；保留作静态 fallback */

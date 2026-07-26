@@ -47,6 +47,7 @@ import { applyTableQueryResult } from "./table-runtime/query.js";
 import {
   inlineStyleForColPixelWidth,
   inlineStyleForColumn,
+  isWarningLevelBlocksColumn,
   resolveColumnDescriptors,
   resolveDatasetTableColumnMinWidth,
   resolveToneToken,
@@ -54,6 +55,10 @@ import {
 } from "./table-runtime/format.js";
 import { formatTableRowCountLabel } from "./table-runtime/footer.js";
 import { color } from "../mei/theme-style.js";
+import {
+  renderWarningLevelBlocksHtml,
+  warningLevelBlocksCss,
+} from "../mei/warning-level.js";
 
 class MeiDatasetTable extends HTMLElement {
   connectedCallback() {
@@ -269,7 +274,7 @@ class MeiDatasetTable extends HTMLElement {
     const bodyHtml = renderTableBody(
       rows,
       descriptors,
-      this._props,
+      { ...(this._props || {}), __host: this },
       this._cellTextMap,
       state.loading,
       columnMinWidth
@@ -324,6 +329,28 @@ class MeiDatasetTable extends HTMLElement {
         .table-footer button { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: ${color("text_body")}; font-size: 12px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
         .table-footer button[disabled] { opacity: .5; cursor: not-allowed; }
         ${cellPopoverStyleBlock(popoverVariant)}
+        ${warningLevelBlocksCss()}
+        /* 本地强化：色块宽高比 ≤ 2:1；三连 0 间距无圆角 */
+        .mei-warning-level-item {
+          height: 28px !important;
+          width: 48px !important;
+          max-width: 48px !important;
+          flex: 0 0 48px !important;
+        }
+        .mei-warning-level-blocks {
+          justify-content: center !important;
+          width: auto !important;
+        }
+        .mei-warning-level-blocks.is-multi {
+          gap: 0 !important;
+        }
+        .mei-warning-level-blocks.is-multi .mei-warning-level-item {
+          border-radius: 0 !important;
+        }
+        .mei-warning-level-blocks.is-multi .mei-warning-level-item + .mei-warning-level-item {
+          margin-left: 0 !important;
+          border-left-width: 0 !important;
+        }
       </style>
       <div class="wrap">
         <div class="meta">
@@ -611,15 +638,24 @@ function renderTableBody(rows, descriptors, props, textMap, loading, columnMinWi
         `<tr>${descriptors
           .map((descriptor, columnIndex) => {
             const raw = cellValue(row, descriptor.key, columnIndex);
-            const cell = renderFormattedCellHtml(raw, descriptor, rowIndex, textMap, props);
-            const tone = resolveToneToken(raw, descriptor);
-            const toneClass = tone ? ` tone-${escapeHtmlAttr(tone)}` : "";
             const previewAttrs = ` data-cell-preview-key="${escapeHtmlAttr(
               `${rowIndex}::${descriptor.key}`
             )}" data-r="${rowIndex}" data-c="${escapeHtmlAttr(descriptor.key)}"`;
-            const content = descriptor.tag
-              ? `<span class="cell-tag${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`
-              : `<span class="cell-inner${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
+            let content;
+            if (isWarningLevelBlocksColumn(descriptor)) {
+              content = `<span class="cell-inner is-warning-level"${previewAttrs}>${renderWarningLevelBlocksHtml(
+                raw,
+                props?.__host,
+                descriptor,
+              )}</span>`;
+            } else {
+              const cell = renderFormattedCellHtml(raw, descriptor, rowIndex, textMap, props);
+              const tone = resolveToneToken(raw, descriptor);
+              const toneClass = tone ? ` tone-${escapeHtmlAttr(tone)}` : "";
+              content = descriptor.tag
+                ? `<span class="cell-tag${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`
+                : `<span class="cell-inner${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
+            }
             return `<td style="${escapeHtmlAttr(columnCellStyle(descriptor, "cell", columnMinWidth))}">${content}</td>`;
           })
           .join("")}</tr>`

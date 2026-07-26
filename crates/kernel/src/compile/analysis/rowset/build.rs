@@ -236,6 +236,12 @@ pub(super) fn eval_split_text_rowset(
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("split_text expression missing field"))?;
     let delimiter = map.get("delimiter").and_then(Value::as_str).unwrap_or("、");
+    let on_empty = map
+        .get("on_empty")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("keep");
+    let drop_empty = on_empty.eq_ignore_ascii_case("drop");
     let mut out = Vec::new();
     for row in eval_rowset_with_ctx(rowset_expr, datasets, ctx)? {
         let mut base = row.as_object().cloned().unwrap_or_default();
@@ -250,7 +256,9 @@ pub(super) fn eval_split_text_rowset(
             .filter(|value| !value.is_empty())
             .collect::<Vec<_>>();
         if values.is_empty() {
-            out.push(Value::Object(base));
+            if !drop_empty {
+                out.push(Value::Object(base));
+            }
             continue;
         }
         for item in values {

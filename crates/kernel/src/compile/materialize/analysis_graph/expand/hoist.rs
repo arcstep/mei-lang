@@ -111,13 +111,36 @@ pub(super) fn maybe_hoist_composition_dataframes(
         let Some(by_field) = by_field else {
             continue;
         };
+        // Optional multi-value membership: explode `by` by delimiter before group_by
+        // (e.g. 风险等级 "蓝/黄/红" → count toward 蓝, 黄, and 红 separately).
+        let delimiter = item_map
+            .get("delimiter")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let group_rowset = if let Some(delimiter) = delimiter {
+            let mut split_expr = Map::new();
+            split_expr.insert(
+                "__kind".to_string(),
+                Value::String("analysis_expr".to_string()),
+            );
+            split_expr.insert("type".to_string(), Value::String("split_text".to_string()));
+            split_expr.insert("rowset".to_string(), rowset_ref.clone());
+            split_expr.insert("field".to_string(), Value::String(by_field.to_string()));
+            split_expr.insert("delimiter".to_string(), Value::String(delimiter.to_string()));
+            // Composition membership: drop rows with no non-empty parts (e.g. raw "/").
+            split_expr.insert("on_empty".to_string(), Value::String("drop".to_string()));
+            Value::Object(split_expr)
+        } else {
+            rowset_ref.clone()
+        };
         let mut group_expr = Map::new();
         group_expr.insert(
             "__kind".to_string(),
             Value::String("analysis_expr".to_string()),
         );
         group_expr.insert("type".to_string(), Value::String("group_by".to_string()));
-        group_expr.insert("rowset".to_string(), rowset_ref.clone());
+        group_expr.insert("rowset".to_string(), group_rowset);
         group_expr.insert("by".to_string(), Value::String(by_field.to_string()));
         group_expr.insert(
             "agg".to_string(),

@@ -305,11 +305,11 @@ fn page_source_file_from_payload(payload: &Value) -> Option<String> {
 
 fn heuristic_filter_key(field: &str) -> Option<String> {
     match field.trim() {
-        "预警ID" | "warning_id" | "warningId" => Some("warningId".to_string()),
+        "预警ID" | "关联预警ID" | "warning_id" | "warningId" => Some("warningId".to_string()),
         "处理结果ID" | "result_id" | "resultId" => Some("resultId".to_string()),
         "模型ID" | "model_id" | "modelId" => Some("modelId".to_string()),
-        "监督事项" | "matter" => Some("matter".to_string()),
-        "问题分类名称" | "category" => Some("category".to_string()),
+        "监督事项" | "风险事项" | "matter" => Some("matter".to_string()),
+        "问题分类名称" | "预警模型" | "category" => Some("category".to_string()),
         _ => None,
     }
 }

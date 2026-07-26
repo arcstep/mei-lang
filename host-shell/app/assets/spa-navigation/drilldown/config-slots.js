@@ -116,6 +116,7 @@
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
         topN: positiveInt(entry.top_n, entry.topN),
         valueField: nonEmptyString(entry.value_field, entry.valueField),
+        delimiter: nonEmptyString(entry.delimiter),
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),

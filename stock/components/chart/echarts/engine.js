@@ -18,10 +18,16 @@ import {
 import { createComponentTracer } from "../../perf/render-trace.js";
 import {
   cockpitCssVars,
+  readThemeChartPalette,
   readThemeColor,
   readThemeTypography,
   readThemeUiFontFamily,
 } from "../../cockpit/tokens.js";
+import {
+  isWarningLevelDimension,
+  readWarningLevelColors,
+  resolveWarningLevelSliceColor,
+} from "../../mei/warning-level.js";
 import {
   bindFloatingPopoverDrag,
   buildTextPopoverShellHtml,
@@ -605,6 +611,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           filterIntentSource: "chart_selection",
           transitionSource: "chart_selection",
           toggle: selection.toggle,
+          encode: selection.filterEncode,
         });
       });
     }
@@ -1286,12 +1293,19 @@ function resolveChartSelectionContext(kind, props, model) {
           : mapping.x?.[0]?.field
   );
   if (!selectionDimension) return null;
+  const filterEncode = firstNonEmptyString(
+    props.selection_filter_encode,
+    props.selectionFilterEncode,
+    // 风险等级多标签：点击扇区按「包含该等级」写入筛选，而非精确组合值
+    selectionDimension === "风险等级" ? "contains_any" : "",
+  );
   return {
     queryStateId,
     dimension: selectionDimension,
     rows: Array.isArray(model?.rows) ? model.rows : [],
     mapping,
     toggle: props.selection_toggle !== false && props.selectionToggle !== false,
+    filterEncode: filterEncode || undefined,
   };
 }
 
@@ -1537,7 +1551,157 @@ function resolveMapping(props, columns) {
   };
 }
 
-function metricSparkBarItemStyle() {
+function hexToRgba(hex, alpha) {
+  const raw = String(hex || "").trim();
+  const m = /^#?([0-9a-f]{6})$/i.exec(raw);
+  if (!m) return `rgba(16, 185, 129, ${alpha})`;
+  const n = Number.parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** palette[0]=最浅 … palette[n]=最深；按数值映射，越大越深。 */
+function pickPaletteColorByValue(value, min, max, palette) {
+  const colors = Array.isArray(palette) ? palette.filter(Boolean) : [];
+  if (!colors.length) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return colors[0];
+  if (!(max > min)) return colors[colors.length - 1];
+  const t = Math.min(1, Math.max(0, (n - min) / (max - min)));
+  const idx = Math.min(colors.length - 1, Math.round(t * (colors.length - 1)));
+  return colors[idx];
+}
+
+function valueExtentFromSeriesData(data) {
+  const nums = (Array.isArray(data) ? data : [])
+    .map((entry) => {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        return Number(entry.value);
+      }
+      return Number(entry);
+    })
+    .filter((n) => Number.isFinite(n));
+  if (!nums.length) return null;
+  return { min: Math.min(...nums), max: Math.max(...nums) };
+}
+
+/** 柱/条：按数值上色（越大越深）。 */
+function colorizeBarDataByValue(data, palette) {
+  const colors = Array.isArray(palette) ? palette.filter(Boolean) : [];
+  if (colors.length < 2 || !Array.isArray(data) || data.length === 0) return data;
+  const extent = valueExtentFromSeriesData(data);
+  if (!extent) return data;
+  return data.map((entry) => {
+    const value = entry && typeof entry === "object" && !Array.isArray(entry) ? entry.value : entry;
+    const color = pickPaletteColorByValue(value, extent.min, extent.max, colors);
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      return {
+        ...entry,
+        itemStyle: { ...(entry.itemStyle || {}), color },
+      };
+    }
+    return { value, itemStyle: { color } };
+  });
+}
+
+/** 饼/玫瑰：按扇区数值上色（越大越深）。 */
+function colorizePieDataByValue(data, palette) {
+  const colors = Array.isArray(palette) ? palette.filter(Boolean) : [];
+  if (colors.length < 2 || !Array.isArray(data) || data.length === 0) return data;
+  const extent = valueExtentFromSeriesData(data);
+  if (!extent) return data;
+  return data.map((entry) => {
+    const color = pickPaletteColorByValue(entry?.value, extent.min, extent.max, colors);
+    return {
+      ...entry,
+      itemStyle: { ...(entry?.itemStyle || {}), color },
+    };
+  });
+}
+
+/** 风险/预警等级：扇区按业务色（多色取最高严重度；空值用灰）。 */
+function colorizePieDataByWarningLevel(data, host) {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  const colors = readWarningLevelColors(host);
+  return data.map((entry) => {
+    const color = resolveWarningLevelSliceColor(entry?.name, colors);
+    const labelColor = contrastingForegroundOnColor(color);
+    return {
+      ...entry,
+      itemStyle: { ...(entry?.itemStyle || {}), color },
+      // 黄扇区等浅色底上用深色字，避免环内白字看不清
+      label: {
+        ...(entry?.label && typeof entry.label === "object" ? entry.label : {}),
+        color: labelColor,
+        textBorderColor:
+          labelColor === "#0f172a" ? "rgba(255,255,255,0.65)" : "rgba(8, 28, 52, 0.55)",
+        textBorderWidth: 1,
+      },
+    };
+  });
+}
+
+/** 亮色底用深字，暗色底用浅字（环内百分比对比度）。 */
+function contrastingForegroundOnColor(color) {
+  const rgb = parseCssColorToRgb(color);
+  if (!rgb) return "#f8fafc";
+  const toLinear = (c) => {
+    const n = c / 255;
+    return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * toLinear(rgb[0]) + 0.7152 * toLinear(rgb[1]) + 0.0722 * toLinear(rgb[2]);
+  return luminance > 0.55 ? "#0f172a" : "#f8fafc";
+}
+
+function parseCssColorToRgb(color) {
+  const text = String(color || "").trim();
+  if (!text) return null;
+  const hex = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split("").map((ch) => ch + ch).join("");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  const rgb = text.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  return null;
+}
+
+function pieDonutTooltipFormatter(params) {
+  const item = Array.isArray(params) ? params[0] : params;
+  const name = String(item?.name ?? "").trim() || "-";
+  const valueRaw = item?.value;
+  const value = Number(valueRaw);
+  const valueText = Number.isFinite(value) ? String(value) : String(valueRaw ?? "-");
+  const percent = Number(item?.percent);
+  const percentText = Number.isFinite(percent)
+    ? `${percent.toFixed(2).replace(/\.?0+$/, "")}%`
+    : "-";
+  return `${name}<br/>数值：${valueText}<br/>占比：${percentText}`;
+}
+
+function usesWarningLevelPalette(props, mapping = {}) {
+  const mode = String(props?.palette_mode ?? props?.paletteMode ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (mode === "warning_level") return true;
+  // 客户端重聚合后 mapping.x.field 常为 "label"，需同时看 name（如「风险等级」）
+  const labelField =
+    mapping?.label?.[0]?.field ||
+    mapping?.x?.[0]?.field ||
+    mapping?.label?.[0]?.name ||
+    mapping?.x?.[0]?.name;
+  const labelName = mapping?.label?.[0]?.name || mapping?.x?.[0]?.name || "";
+  return isWarningLevelDimension(labelField) || isWarningLevelDimension(labelName);
+}
+
+function metricSparkBarItemStyle(host) {
+  const palette = readThemeChartPalette(host);
+  const top = palette[0] || "#d1fae5";
+  const bottom = palette[4] || "#10b981";
   return {
     borderRadius: [0, 0, 0, 0],
     color: {
@@ -1547,15 +1711,21 @@ function metricSparkBarItemStyle() {
       x2: 0,
       y2: 1,
       colorStops: [
-        { offset: 0.31, color: "#FFFFFF" },
-        { offset: 0.83, color: "#12B0FF" },
+        { offset: 0.31, color: top },
+        { offset: 0.83, color: bottom },
       ],
     },
   };
 }
 
-/** 驾驶舱年度对比分组柱：深蓝 + 荧光浅蓝竖向渐变（默认无圆角） */
-function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
+/** 驾驶舱年度对比分组柱：沿用 theme chart 单色阶梯做两组深浅渐变 */
+function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false, host } = {}) {
+  const palette = readThemeChartPalette(host);
+  const pale = palette[0] || "#d1fae5";
+  const light = palette[1] || "#a7f3d0";
+  const mid = palette[3] || "#34d399";
+  const deep = palette[4] || "#10b981";
+  const darker = palette[5] || "#059669";
   const presets = [
     {
       color: {
@@ -1565,14 +1735,14 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
         x2: 0,
         y2: 1,
         colorStops: [
-          { offset: 0, color: emphasis ? "#6EC8FF" : "#4AB8FF" },
-          { offset: 0.38, color: emphasis ? "#1E78E8" : "#1565C8" },
-          { offset: 1, color: emphasis ? "#0C3A78" : "#082E5E" },
+          { offset: 0, color: emphasis ? light : mid },
+          { offset: 0.38, color: emphasis ? mid : deep },
+          { offset: 1, color: emphasis ? deep : darker },
         ],
       },
       borderRadius: [0, 0, 0, 0],
       shadowBlur: emphasis ? 14 : 9,
-      shadowColor: "rgba(30, 120, 232, 0.58)",
+      shadowColor: hexToRgba(deep, 0.45),
       shadowOffsetY: 1,
     },
     {
@@ -1583,14 +1753,14 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
         x2: 0,
         y2: 1,
         colorStops: [
-          { offset: 0, color: emphasis ? "#FFFFFF" : "#F0FCFF" },
-          { offset: 0.35, color: emphasis ? "#8AEEFF" : "#6FE4FF" },
-          { offset: 1, color: emphasis ? "#22C8F5" : "#12B8F5" },
+          { offset: 0, color: emphasis ? "#FFFFFF" : pale },
+          { offset: 0.35, color: emphasis ? pale : light },
+          { offset: 1, color: emphasis ? light : mid },
         ],
       },
       borderRadius: [0, 0, 0, 0],
       shadowBlur: emphasis ? 16 : 11,
-      shadowColor: "rgba(111, 228, 255, 0.55)",
+      shadowColor: hexToRgba(mid, 0.4),
       shadowOffsetY: 1,
     },
   ];
@@ -1600,15 +1770,17 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
 function resolveColorPalette(props) {
   const raw = props?.palette ?? props?.color_palette ?? props?.colors;
   if (Array.isArray(raw)) {
-    return raw.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  if (typeof raw === "string" && raw.trim()) {
-    return raw
+    const fromProps = raw.map((item) => String(item || "").trim()).filter(Boolean);
+    if (fromProps.length > 0) return fromProps;
+  } else if (typeof raw === "string" && raw.trim()) {
+    const fromProps = raw
       .split(",")
       .map((item) => String(item || "").trim())
       .filter(Boolean);
+    if (fromProps.length > 0) return fromProps;
   }
-  return [];
+  // Default: scene theme chart_1..chart_6 (app/workspace configurable monochrome ramp).
+  return readThemeChartPalette(props?.__host);
 }
 
 /** 驾驶舱深色 tooltip 底 + 高对比文字（避免灰字落在 ECharts 默认浅黄/白底上） */
@@ -1947,10 +2119,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           metricSpark && seriesType === "bar" && (kind === "column" || kind === "bar");
         const coloredData =
           !sparkBar && isBar && palette.length > 1
-            ? data.map((value, index) => ({
-                value,
-                itemStyle: { color: palette[index % palette.length] },
-              }))
+            ? colorizeBarDataByValue(data, palette)
             : data;
         series.push({
           name: yDisplayName,
@@ -1960,7 +2129,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           stack: legacy.stack ? "total" : undefined,
           barWidth: sparkBar && compact ? 8 : undefined,
           itemStyle: sparkBar
-            ? metricSparkBarItemStyle()
+            ? metricSparkBarItemStyle(host)
             : isBar
               ? { borderRadius: [0, 0, 0, 0] }
               : undefined,
@@ -1984,10 +2153,10 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         if (yearDuoGradient) {
           seriesItem.barWidth = compact ? "34%" : "38%";
           seriesItem.barGap = "24%";
-          seriesItem.itemStyle = cockpitYearDuoBarItemStyle(groupSeriesIndex);
+          seriesItem.itemStyle = cockpitYearDuoBarItemStyle(groupSeriesIndex, { host });
           seriesItem.emphasis = {
             focus: "series",
-            itemStyle: cockpitYearDuoBarItemStyle(groupSeriesIndex, { emphasis: true }),
+            itemStyle: cockpitYearDuoBarItemStyle(groupSeriesIndex, { emphasis: true, host }),
           };
         } else if (isBar) {
           seriesItem.itemStyle = { borderRadius: [0, 0, 0, 0] };
@@ -2100,19 +2269,23 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   if (!labelField || !valueField) {
     diagnostics.push("pie/donut/rose 需要 mapping.label(x) 与 mapping.y");
   }
-  const data = rows
+  const host = legacy.__host;
+  const warningLevelPalette = usesWarningLevelPalette(legacy.chartProps || {}, mapping);
+  const baseData = rows
     .map((row) => ({
       name: String(row?.[labelField] ?? ""),
       value: toNumber(row?.[valueField]),
     }))
     .filter((item) => item.name && Number.isFinite(item.value));
+  const data = warningLevelPalette
+    ? colorizePieDataByWarningLevel(baseData, host)
+    : colorizePieDataByValue(baseData, Array.isArray(legacy.palette) ? legacy.palette : []);
   if (data.length === 0) {
     diagnostics.push(`pie/donut/rose 无有效数据点 (label=${labelField || "-"}, y=${valueField || "-"})`);
   }
   const compact = legacy.compact === true || legacy.compact === "true";
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
-  const themeTypography = readThemeTypography(legacy.__host);
-  const host = legacy.__host;
+  const themeTypography = readThemeTypography(host);
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
   // compact 默认仍隐藏图例/外标；仅当 props 显式打开时启用（避免误开其它紧凑环图）
   const chartProps = legacy.chartProps || {};
@@ -2127,11 +2300,18 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     chartProps.show_legend === false ||
     chartProps.show_legend === "false";
   const showLegend = compact ? explicitLegendOn : !explicitLegendOff;
-  const showLabel =
+  const explicitLabelOn =
     chartProps.showLabel === true ||
     chartProps.showLabel === "true" ||
     chartProps.show_label === true ||
     chartProps.show_label === "true";
+  const explicitLabelOff =
+    chartProps.showLabel === false ||
+    chartProps.showLabel === "false" ||
+    chartProps.show_label === false ||
+    chartProps.show_label === "false";
+  // 风险/预警等级环形图默认显示占比，突出业务色扇区份额。
+  const showLabel = explicitLabelOff ? false : explicitLabelOn || (warningLevelPalette && kind === "donut");
   const compactWithLegend = compact && showLegend;
   const donutRadius = tight
     ? ["58%", "82%"]
@@ -2141,7 +2321,12 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
         ? ["52%", "78%"]
         : ["45%", "72%"];
   const option = {
-    tooltip: echartsTooltip(themeTypography, "item", {}, host),
+    tooltip: echartsTooltip(
+      themeTypography,
+      "item",
+      { formatter: pieDonutTooltipFormatter },
+      host,
+    ),
     legend: showLegend
       ? {
           show: true,
@@ -2171,7 +2356,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
               formatter: compact ? "{d}%" : "{b}\n{d}%",
               fontSize: Math.max(11, Math.round(themeTypography.label * (compact ? 0.9 : 1))),
               fontFamily: readThemeUiFontFamily(host),
-              // Cockpit 为深色底；环内/环外百分比都必须用浅色前景，禁止写死深色字。
+              // 默认浅色；warning_level 扇区会在 data[].label 上按底色覆盖深/浅字
               color: canvasThemeColor(host, "text_primary"),
               fontWeight: 600,
               textBorderColor: "rgba(8, 28, 52, 0.55)",
@@ -2184,7 +2369,10 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       },
     ],
   };
-  if (Array.isArray(legacy.palette) && legacy.palette.length > 0) {
+  if (warningLevelPalette) {
+    const levelColors = readWarningLevelColors(host);
+    option.color = [levelColors.红, levelColors.黄, levelColors.蓝, levelColors.灰];
+  } else if (Array.isArray(legacy.palette) && legacy.palette.length > 0) {
     option.color = legacy.palette;
   }
   return option;
@@ -2527,13 +2715,20 @@ function resolveRankingBarFill(theme, props = null) {
   const gradient = String(props?.barGradient ?? props?.bar_gradient ?? "")
     .trim()
     .toLowerCase();
-  const solid = theme.barColor || "#38bdf8";
+  const host = props?.__host;
+  const palette = readThemeChartPalette(host);
+  const solid = theme.barColor || palette[3] || "#34d399";
   if (
     gradient === "ranking-cyan" ||
     gradient === "cyan" ||
     gradient === "true" ||
-    gradient === "1"
+    gradient === "1" ||
+    gradient === "ranking-mono" ||
+    gradient === "mono"
   ) {
+    const start = palette[5] || "#059669";
+    const mid = solid;
+    const end = palette[1] || "#a7f3d0";
     return {
       type: "linear",
       x: 0,
@@ -2541,9 +2736,9 @@ function resolveRankingBarFill(theme, props = null) {
       x2: 1,
       y2: 0,
       colorStops: [
-        { offset: 0, color: "#0284c7" },
-        { offset: 0.55, color: solid },
-        { offset: 1, color: "#67e8f9" },
+        { offset: 0, color: start },
+        { offset: 0.55, color: mid },
+        { offset: 1, color: end },
       ],
     };
   }
@@ -2551,11 +2746,13 @@ function resolveRankingBarFill(theme, props = null) {
 }
 
 function rankingBarItemStyle(theme, borderRadius = [0, 0, 0, 0], props = null) {
+  const fill = resolveRankingBarFill(theme, props);
+  const glow = theme.barColor || readThemeChartPalette(props?.__host)[3] || "#34d399";
   return {
     borderRadius,
-    color: resolveRankingBarFill(theme, props),
+    color: fill,
     shadowBlur: 6,
-    shadowColor: "rgba(56, 189, 248, 0.3)",
+    shadowColor: hexToRgba(glow, 0.3),
     shadowOffsetY: 1,
   };
 }
@@ -2586,7 +2783,7 @@ function buildRankingBarSeries({
       itemStyle: {
         ...itemStyle,
         shadowBlur: 10,
-        shadowColor: "rgba(56, 189, 248, 0.42)",
+        shadowColor: hexToRgba(theme.barColor || "#34d399", 0.42),
       },
     },
     label: valueLabel || { show: false },

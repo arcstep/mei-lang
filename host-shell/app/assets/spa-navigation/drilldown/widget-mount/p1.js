@@ -225,7 +225,8 @@
     return {
       chartTag,
       props: {
-        title: String(config?.title || ""),
+        // Slot caption owns the visible title; chart shell .head would duplicate it.
+        title: "",
         data: chartDataset,
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
