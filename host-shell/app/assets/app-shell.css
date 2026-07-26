@@ -5169,15 +5169,55 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   letter-spacing: 0.03em;
   box-shadow: 0 4px 12px rgba(14, 165, 233, 0.12);
 }
-.access-drilldown-case-detail-id-chip.is-object-link,
-.access-drilldown-typical-case-tag.is-object-link {
+/* 与明细表 .cell-object-link 对齐：accent 色 + 下划线纯文本按钮 */
+.access-drilldown-case-object-link {
+  display: inline;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mei-color-text-accent, #f8fafc);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.35;
   cursor: pointer;
+  text-align: inherit;
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 2px;
 }
-.access-drilldown-case-detail-id-chip.is-object-link:hover,
-.access-drilldown-typical-case-tag.is-object-link:hover {
-  filter: brightness(1.08);
+.access-drilldown-case-object-link:hover,
+.access-drilldown-case-object-link:focus-visible {
+  color: var(--mei-color-text-accent, #f8fafc);
+  filter: brightness(1.12);
+  outline: none;
+}
+.access-drilldown-typical-case-tag--with-object-link {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  font-weight: 500;
+  color: var(--mei-color-text-muted, #94a3b8);
+}
+.access-drilldown-typical-case-tag--with-object-link .access-drilldown-typical-case-tag-label {
+  color: var(--mei-color-text-muted, #94a3b8);
+  font-weight: 500;
+}
+.access-drilldown-typical-case-status-pill--id-link {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  color: var(--mei-color-text-muted, #94a3b8);
+  font-weight: 500;
+  letter-spacing: normal;
+  gap: 0;
+}
+.access-drilldown-typical-case-status-id-label {
+  color: var(--mei-color-text-muted, #94a3b8);
+  font-weight: 500;
 }
 .access-drilldown-case-detail-section-label {
   font-size: var(--mei-font-3);

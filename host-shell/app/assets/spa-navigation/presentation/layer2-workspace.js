@@ -364,26 +364,38 @@
       const style = window.getComputedStyle(node);
       return overflowAllowsScroll(style.overflowX) && node.scrollWidth > node.clientWidth + 1;
     };
+    const findScrollPortsInPath = (path, stopAt) => {
+      let scrollPortY = null;
+      let scrollPortX = null;
+      for (const node of path) {
+        if (stopAt && node === stopAt) break;
+        if (
+          node === document.body ||
+          node === document.documentElement ||
+          node === document.scrollingElement
+        ) {
+          break;
+        }
+        if (!(node instanceof HTMLElement)) continue;
+        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
+        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
+        if (scrollPortY && scrollPortX) break;
+      }
+      return { scrollPortY, scrollPortX };
+    };
     const onWheel = (event) => {
       const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
       if (!(root instanceof HTMLElement) || !root.classList.contains("is-open")) return;
       const path = typeof event.composedPath === "function" ? event.composedPath() : [];
       const inside = path.includes(root) || (event.target instanceof Node && root.contains(event.target));
-      if (!inside) {
+      // 过滤栏 multi-select 等 text_popover 挂到 body，不在 T2 树内；仍须允许其内部滚动。
+      // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
+      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
+      const { scrollPortY, scrollPortX } = findScrollPortsInPath(path, inside ? root : null);
+      if (!inside && !scrollPortY && !scrollPortX) {
         event.preventDefault();
         pin();
         return;
-      }
-      // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
-      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
-      let scrollPortY = null;
-      let scrollPortX = null;
-      for (const node of path) {
-        if (node === root) break;
-        if (!(node instanceof HTMLElement)) continue;
-        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
-        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
-        if (scrollPortY && scrollPortX) break;
       }
       const deltaX = Number(event.deltaX) || 0;
       const deltaY = Number(event.deltaY) || 0;

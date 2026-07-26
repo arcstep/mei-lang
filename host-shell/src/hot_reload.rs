@@ -62,9 +62,16 @@ pub(crate) fn detect_hot_reload_need(workspace: &Path, app_id: &str) -> HotReloa
 }
 
 fn client_bootstrap_needs_rewarm(workspace: &Path, app_id: &str) -> bool {
-    // home 是日常 Access 主 scope；其它 scope 由 JIT / activate 补洞
+    // home 是日常 Access 主 scope；其它 scope 由 JIT / activate 补洞。
+    // revision_mismatch：manifest 仍在但与当前 MRG content hash / data_generation
+    // 不一致（常见于 import 后只写了 registry、未跑 client tier）。此前只盯
+    // manifest_missing，导致 F5 反复空 pack / Pack-First 干等。
     let status = mei_host_graph::bootstrap_embed_status(workspace, app_id, "home");
-    !status.allowed && status.reason == "manifest_missing"
+    !status.allowed
+        && matches!(
+            status.reason.as_str(),
+            "manifest_missing" | "revision_mismatch"
+        )
 }
 
 fn file_mtime(path: &Path) -> Option<SystemTime> {
@@ -213,13 +220,20 @@ fn apply_hot_reload(workspace: &Path, app_id: &str, need: HotReloadNeed) -> anyh
             ))
         }
         HotReloadNeed::RewarmOnly => {
+            let status = mei_host_graph::bootstrap_embed_status(workspace, app_id, "home");
             tracing::info!(
                 target: "mei.hot_reload",
                 app_id = %app_id,
-                "client-bootstrap missing — rewarm"
+                reason = %status.reason,
+                client_revision = ?status.client_revision,
+                expected_revision = ?status.expected_revision,
+                "client-bootstrap stale/missing — rewarm"
             );
             rewarm_after_import(workspace, app_id, DEFAULT_WARMUP_POLICY)?;
-            Ok(format!("hot_reload rewarm ok (app={app_id})"))
+            Ok(format!(
+                "hot_reload rewarm ok (app={app_id}, reason={})",
+                status.reason
+            ))
         }
     }
 }

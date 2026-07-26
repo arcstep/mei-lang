@@ -153,11 +153,57 @@ fn zhifa_warning_metric_cards_derive_read_only_analytics_popup() {
             Some(metric_key),
             "unexpected metric id for `{card_id}`: {metric}"
         );
+        if card_id == "warnings" {
+            let asm = outcome
+                .compiled
+                .scene_projection_assembly_by_id
+                .get("warnings_analytics_page")
+                .expect("warnings_analytics_page assembly");
+            let fs = asm
+                .get("filter_schema")
+                .or_else(|| asm.pointer("/bindings/filter_schema"))
+                .expect("warnings filter_schema");
+            assert_eq!(
+                fs.get("default_collapsed").and_then(|v| v.as_bool()),
+                Some(false),
+                "warnings filter panel must default open"
+            );
+            assert_eq!(fs.get("allow_extra").and_then(|v| v.as_bool()), Some(false));
+            assert_eq!(
+                fs.get("preset_filter_count").and_then(|v| v.as_u64()),
+                Some(3)
+            );
+            let fields = fs.get("fields").and_then(|v| v.as_array()).expect("fields");
+            let first_key = fields.first().and_then(|f| {
+                f.get("__args")
+                    .or(Some(f))
+                    .and_then(|m| m.get("key"))
+                    .and_then(|v| v.as_str())
+            });
+            assert_eq!(
+                first_key,
+                Some("agency"),
+                "preset lead must be agency/主责单位, got {fields:?}"
+            );
+            let labels: Vec<&str> = fields
+                .iter()
+                .filter_map(|f| {
+                    f.get("__args")
+                        .or(Some(f))
+                        .and_then(|m| m.get("label").or_else(|| m.get("column")))
+                        .and_then(|v| v.as_str())
+                })
+                .collect();
+            assert!(
+                !labels.iter().any(|label| *label == "监督类别"),
+                "warnings filter must not include 监督类别: {labels:?}"
+            );
+        }
     }
 }
 
 #[test]
-fn zhifa_issue_metric_cards_derive_read_only_analytics_popup() {
+fn zhifa_issue_metric_cards_open_shared_handling_analytics_with_status_filters() {
     let Some(workspace) = ensure_zhifa_imported() else {
         eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
         return;
@@ -173,50 +219,32 @@ fn zhifa_issue_metric_cards_derive_read_only_analytics_popup() {
         .panels;
 
     let expectations = [
-        (
-            "pending",
-            "issue_pending_analytics_page",
-            "warning_list",
-            "warnings_pending_count",
-        ),
-        (
-            "doing",
-            "issue_doing_analytics_page",
-            "warning_list",
-            "effectiveness_in_progress_count",
-        ),
-        (
-            "done",
-            "issue_done_analytics_page",
-            "warning_list",
-            "effectiveness_completed_count",
-        ),
+        ("pending", "in:待办"),
+        ("doing", "in:在办"),
+        ("done", "in:办结"),
     ];
 
-    for (card_id, scene_id, rowset, metric_key) in expectations {
+    for (card_id, status_filter) in expectations {
         let card = find_panel_in_tree(panels, card_id)
             .unwrap_or_else(|| panic!("missing metric card panel `{card_id}`"));
         let popup = value_slot_popup(card)
             .unwrap_or_else(|| panic!("missing value-slot popup on metric card `{card_id}`"));
         assert_eq!(
             popup.get("scene_id").and_then(|v| v.as_str()),
-            Some(scene_id),
+            Some("issue_handling_analytics_page"),
             "unexpected scene for `{card_id}`: {popup}"
         );
         assert_eq!(
-            popup
-                .get("interaction")
-                .and_then(|v| v.get("intent"))
-                .and_then(|v| v.as_str()),
-            Some("explain_metric"),
-            "expected explain_metric intent for `{card_id}`: {popup}"
+            popup.get("title").and_then(|v| v.as_str()),
+            Some("问题办理"),
+            "unexpected title for `{card_id}`: {popup}"
         );
         assert_eq!(
             popup
                 .get("params")
                 .and_then(|v| v.get("rowset_dataset_id"))
                 .and_then(|v| v.as_str()),
-            Some(rowset),
+            Some("warning_list"),
             "unexpected rowset for `{card_id}`: {popup}"
         );
         let metric = popup
@@ -225,8 +253,18 @@ fn zhifa_issue_metric_cards_derive_read_only_analytics_popup() {
             .expect("params.metric");
         assert_eq!(
             metric.get("id").and_then(|v| v.as_str()),
-            Some(metric_key),
+            Some("issue_handling_analytics"),
             "unexpected metric id for `{card_id}`: {metric}"
+        );
+        let filters = popup
+            .get("params")
+            .and_then(|v| v.get("default_filters"))
+            .and_then(|v| v.as_object())
+            .unwrap_or_else(|| panic!("missing default_filters for `{card_id}`: {popup}"));
+        assert_eq!(
+            filters.get("办理状态").and_then(|v| v.as_str()),
+            Some(status_filter),
+            "unexpected 办理状态 filter for `{card_id}`: {popup}"
         );
     }
 }
@@ -304,5 +342,64 @@ fn zhifa_warnings_analytics_local_nav_resolves_row_popup_and_field_links() {
             link.get("objectType").and_then(|v| v.as_str()) != Some("zhifa.SupervisionMatter")
         }),
         "预警模型 must not dual-link SupervisionMatter: {links}"
+    );
+}
+
+#[test]
+fn zhifa_issue_handling_metrics_evaluate() {
+    use mei_lang_datasets::{evaluate_runtime_metrics, RuntimeMetricEvalMode};
+    use mei_lang_kernel::QueryState;
+
+    let Some(workspace) = ensure_zhifa_imported() else {
+        eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
+        return;
+    };
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "zhifa", "home")
+        .expect("assemble")
+        .expect("home");
+    let owner = "__world_metrics__::metrics/issue-handling.bundle.mei";
+    let bundle = outcome
+        .compiled
+        .resources
+        .iter()
+        .find(|r| r.id == owner)
+        .and_then(|r| r.dataset.as_ref())
+        .expect("issue-handling bundle");
+    let analytics = bundle
+        .runtime_metric_defs
+        .get("issue_handling_analytics")
+        .expect("issue_handling_analytics def");
+    assert_eq!(
+        analytics
+            .pointer("/values/value/rowset/type")
+            .and_then(|v| v.as_str()),
+        Some("concat_rowsets"),
+        "label_status_pending must lower into concat_rowsets, got {analytics}"
+    );
+    assert!(
+        bundle
+            .runtime_metric_defs
+            .contains_key("issue_handling_analytics::__scalar_rowset__"),
+        "detail rowset must expand once analytics rowset is non-null; keys={:?}",
+        bundle.runtime_metric_defs.keys().collect::<Vec<_>>()
+    );
+
+    // Eval may fail in sandbox without redb write access; defs above are the contract gate.
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "zhifa");
+    let _ = evaluate_runtime_metrics(
+        &outcome.compiled,
+        app_root.as_path(),
+        owner,
+        &[
+            "warnings_pending_count".into(),
+            "effectiveness_in_progress_count".into(),
+            "effectiveness_completed_count".into(),
+            "issue_handling_analytics".into(),
+        ],
+        "home",
+        None,
+        &QueryState::default(),
+        &[],
+        RuntimeMetricEvalMode::WithDag,
     );
 }

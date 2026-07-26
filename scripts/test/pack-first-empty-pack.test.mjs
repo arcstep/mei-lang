@@ -11,7 +11,7 @@ import vm from "node:vm";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runtimeQueryPath = path.join(
   __dirname,
-  "../stock/components/dataset/runtime-query.js",
+  "../../stock/components/dataset/runtime-query.js",
 );
 
 async function loadIsSeedableBootstrapPack() {
@@ -75,8 +75,27 @@ async function main() {
       payloadReady: false,
       metaClientRevision: "abc123",
     }),
+    false,
+    "bare meta revision without artifact-url must not Pack-First-wait",
+  );
+  assert.equal(
+    isSeedable({
+      metrics: [],
+      payloadReady: false,
+      metaClientRevision: "abc123",
+      artifactUrl: "/api/host/scene-bootstrap?app=demo&scene=home&revision=abc123",
+    }),
     true,
-    "revision_only meta with real revision may wait for pack",
+    "revision_only meta + artifact-url may wait for pack",
+  );
+  assert.equal(
+    isSeedable({
+      metrics: [],
+      payloadReady: true,
+      metaClientRevision: "abc123",
+    }),
+    true,
+    "meta revision with payloadReady may wait/seed",
   );
   assert.equal(
     isSeedable({

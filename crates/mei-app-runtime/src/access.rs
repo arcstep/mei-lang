@@ -177,13 +177,26 @@ fn finalize_access_html(
     let workspace_root = state.host.workspace_root.as_path();
     let assets = scene_component_assets(workspace_root, app_id, scene_id);
     let assets_token = component_assets_cache_token(&assets);
+    let bootstrap_status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
+    // Pin HTML to bootstrap gate — otherwise a previously-allowed revision stays in
+    // cache after revision_mismatch and Pack-First waits on a pack the API refuses.
+    let bootstrap_token = format!(
+        "{}:{}:{}",
+        bootstrap_status.allowed,
+        bootstrap_status.reason,
+        bootstrap_status
+            .client_revision
+            .as_deref()
+            .unwrap_or("")
+    );
     let cache_key = format!(
-        "{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}",
         state.host.workspace_root.display(),
         app_id,
         scene_id,
         surface,
-        assets_token
+        assets_token,
+        bootstrap_token
     );
     // Deferred prebuild can make APP READY before MCG import. A thin-shell HTML
     // primed without component modules would leave custom elements unupgraded.
@@ -218,12 +231,11 @@ fn finalize_access_html(
         app_id,
     )
     .client_payload();
-    let bootstrap_status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
     let client_revision = bootstrap_status
         .allowed
-        .then_some(bootstrap_status.client_revision)
+        .then_some(bootstrap_status.client_revision.clone())
         .flatten();
-    let html = inject_view_revision_envelope_with_dev_eval(
+    let mut html = inject_view_revision_envelope_with_dev_eval(
         html,
         app_id,
         scene_id,
@@ -231,6 +243,15 @@ fn finalize_access_html(
         Some(&dev_eval),
         client_revision.as_deref(),
     );
+    // revision_only / artifact-url seed — thin shell previously only stamped
+    // mei-bootstrap-client-revision, so Pack-First had no artifact-url / LS seed path.
+    if bootstrap_status.allowed {
+        if let Some(fragment) =
+            mei_host_graph::build_client_bootstrap_head_fragment(workspace_root, app_id, scene_id)
+        {
+            html = inject_html_before_head_close(html, fragment.as_str());
+        }
+    }
     let html = inject_runtime_capabilities(html, app_id, copilot_fab);
     let (html, component_count) =
         inject_runtime_component_scripts(html, workspace_root, app_id, scene_id);

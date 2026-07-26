@@ -247,6 +247,14 @@
     return list;
   }
 
+  function createCaseCardObjectLinkButton(text) {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "access-drilldown-case-object-link";
+    link.textContent = String(text ?? "");
+    return link;
+  }
+
   function bindCaseCardObjectOpen(el, host, row, field, spec, config) {
     if (!(el instanceof HTMLElement) || !field) return;
     el.classList.add("is-object-link");
@@ -567,13 +575,16 @@
       } else {
         const wantsLink = section?.object_link === true || section?.objectLink === true;
         keys.forEach((key) => {
+          if (wantsLink && field) {
+            const idValue = createCaseCardObjectLinkButton(key);
+            idValue.dataset.objectKey = key;
+            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
+            idRow.appendChild(idValue);
+            return;
+          }
           const idValue = document.createElement("span");
           idValue.className = "access-drilldown-case-detail-id-chip";
           idValue.textContent = key;
-          if (wantsLink && field) {
-            idValue.dataset.objectKey = key;
-            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
-          }
           idRow.appendChild(idValue);
         });
       }
@@ -687,12 +698,20 @@
         labelEl.textContent = `${label}：`;
         tag.appendChild(labelEl);
         appendWarningLevelBlocks(tag, field, value);
+      } else if (spec?.object_link === true || spec?.objectLink === true) {
+        // 与明细表 cell-object-link 一致：标签普通文本 + accent 下划线值链接
+        tag.className =
+          "access-drilldown-typical-case-tag access-drilldown-typical-case-tag--with-object-link";
+        const labelEl = document.createElement("span");
+        labelEl.className = "access-drilldown-typical-case-tag-label";
+        labelEl.textContent = `${label}：`;
+        const link = createCaseCardObjectLinkButton(value);
+        bindCaseCardObjectOpen(link, panel, row, field, spec, config);
+        tag.appendChild(labelEl);
+        tag.appendChild(link);
       } else {
         tag.className = "access-drilldown-typical-case-tag";
         tag.textContent = `${label}：${value}`;
-      }
-      if (spec?.object_link === true || spec?.objectLink === true) {
-        bindCaseCardObjectOpen(tag, panel, row, field, spec, config);
       }
       tagRow.appendChild(tag);
     });
@@ -777,14 +796,18 @@
         if (!keys.length) return;
         const wantsLink = spec?.object_link === true || spec?.objectLink === true;
         keys.forEach((key) => {
+          if (wantsLink) {
+            // 可点 ID（如办理结果ID）：只展示 ID 值，与明细表 object-link 一致，不重复字段标签。
+            const link = createCaseCardObjectLinkButton(key);
+            link.dataset.objectKey = key;
+            bindCaseCardObjectOpen(link, panel, row, field, spec, config);
+            pills.appendChild(link);
+            return;
+          }
           const pill = document.createElement("span");
           pill.className =
             "access-drilldown-typical-case-status-pill access-drilldown-typical-case-status-pill--id";
           pill.textContent = `${label} ${key}`;
-          if (wantsLink) {
-            pill.dataset.objectKey = key;
-            bindCaseCardObjectOpen(pill, panel, row, field, spec, config);
-          }
           pills.appendChild(pill);
         });
         return;

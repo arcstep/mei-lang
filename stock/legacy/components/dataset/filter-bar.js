@@ -22,6 +22,7 @@ import {
   createEmptyFilterRow,
   encodeFilterRow,
   filtersToRows,
+  sanitizeFiltersToCatalog,
   schemaToRows,
 } from "./filter-bar-expr.js";
 
@@ -146,12 +147,49 @@ class MeiDatasetFilterBar extends HTMLElement {
       return;
     }
     if (this._additiveMode) {
-      const fromFilters = filtersToRows(
-        this._filters,
-        this._columnCatalog,
-        this._columnProfiles,
-        () => this.nextRowId(),
-      );
+      const dropUnknown =
+        !resolveAllowExtra(this._props) &&
+        Array.isArray(this._columnCatalog) &&
+        this._columnCatalog.length > 0;
+      let effectiveFilters = this._filters || {};
+      if (dropUnknown) {
+        effectiveFilters = sanitizeFiltersToCatalog(effectiveFilters, this._columnCatalog);
+        if (
+          this._queryStateId &&
+          filterMapsDiffer(this._filters, effectiveFilters)
+        ) {
+          this._suppressRowSync = true;
+          try {
+            setQueryState(
+              this._queryStateId,
+              { filters: effectiveFilters },
+              {
+                filterIntentSource: "filter_bar",
+                transitionSource: "filter_bar_prune_unknown",
+              },
+            );
+          } finally {
+            this._suppressRowSync = false;
+          }
+          this._filters = effectiveFilters;
+        }
+      }
+      const fromFilters =
+        filtersToRows(
+          effectiveFilters,
+          this._columnCatalog,
+          this._columnProfiles,
+          () => this.nextRowId(),
+        ) || [];
+      if (dropUnknown && !this._additiveUserTouched) {
+        this._additiveRows = mergePresetsWithFilterRows(
+          this._columnCatalog,
+          resolvePresetFilterCount(this._props),
+          fromFilters,
+          () => this.nextRowId(),
+        );
+        return;
+      }
       this._additiveRows = mergeAdditiveRowsFromFilters(
         fromFilters,
         this._additiveRows,
@@ -174,7 +212,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     for (const domRow of domRows) {
       const previous = byId.get(domRow.id);
       if (!previous) continue;
-      byId.set(domRow.id, {
+      let next = {
         ...previous,
         column: domRow.column || previous.column,
         operator: domRow.operator || previous.operator,
@@ -184,7 +222,10 @@ class MeiDatasetFilterBar extends HTMLElement {
         rangeStart: domRow.rangeStart,
         rangeEnd: domRow.rangeEnd,
         status: previous.status,
-      });
+      };
+      // contains_any 展示时勾选的是组合面值；用户改勾选后改为 in，避免针值语义错乱
+      next = coerceContainsAnyDomSelectionToIn(next, previous);
+      byId.set(domRow.id, next);
     }
     this._additiveRows = (this._additiveRows || []).map((entry) => byId.get(entry.id) || entry);
   }
@@ -331,6 +372,12 @@ class MeiDatasetFilterBar extends HTMLElement {
         this._columnProfiles = buildColumnProfiles(profileCatalog, profileRows);
         for (const field of profileCatalog) {
           const column = fieldQueryKey(field);
+          if (!shouldLoadRowsetOptions(field)) {
+            if (Array.isArray(field?.options) && field.options.length > 0) {
+              this._fieldOptions.set(column, field.options);
+            }
+            continue;
+          }
           const facetOptions = normalizeFacetOptions(facets[column]);
           if (facetOptions.length > 0) {
             this._fieldOptions.set(column, facetOptions);
@@ -949,6 +996,50 @@ function resolveFilterBarMode(props) {
   return "classic";
 }
 
+function resolveAllowExtra(props) {
+  return props?.allow_extra === true || props?.allowExtra === true;
+}
+
+function filterMapsDiffer(left, right) {
+  const a = left && typeof left === "object" && !Array.isArray(left) ? left : {};
+  const b = right && typeof right === "object" && !Array.isArray(right) ? right : {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (String(a[key] ?? "").trim() !== String(b[key] ?? "").trim()) return true;
+  }
+  return false;
+}
+
+function mergePresetsWithFilterRows(catalog, presetCount, filterRows, nextRowId) {
+  const presets = buildPresetFilterRows(catalog, presetCount, nextRowId);
+  const byColumn = new Map();
+  for (const row of Array.isArray(filterRows) ? filterRows : []) {
+    const column = String(row?.column || "").trim();
+    if (!column) continue;
+    byColumn.set(column, row);
+  }
+  const merged = presets.map((preset) => {
+    const column = String(preset?.column || "").trim();
+    const hit = column ? byColumn.get(column) : null;
+    if (!hit) return preset;
+    byColumn.delete(column);
+    return {
+      ...preset,
+      operator: hit.operator || preset.operator,
+      negate: hit.negate === true,
+      value: hit.value ?? "",
+      values: Array.isArray(hit.values) ? hit.values.slice() : [],
+      rangeStart: hit.rangeStart || "",
+      rangeEnd: hit.rangeEnd || "",
+      status: "active",
+    };
+  });
+  for (const row of byColumn.values()) {
+    merged.push({ ...row, status: "active" });
+  }
+  return merged;
+}
+
 function resolvePresetFilterCount(props) {
   const raw = props?.preset_filter_count ?? props?.presetFilterCount ?? props?.default_preset_count;
   const parsed = Number(raw);
@@ -967,7 +1058,8 @@ function buildPresetFilterRows(catalog, count, nextRowId) {
     if (!queryKey || usedKeys.has(queryKey)) continue;
     usedKeys.add(queryKey);
     const row = createEmptyFilterRow(nextRowId);
-    row.column = queryKey;
+    // 预置行绑定数据列名（如「风险事项」），避免只用逻辑 key（matter）导致查询维度错位。
+    row.column = String(field?.column || queryKey).trim();
     row.operator = defaultOperatorForProfile(null, field);
     row.status = "active";
     rows.push(row);
@@ -1076,8 +1168,10 @@ function resolvePanelCollapsed(props) {
 }
 
 function filterStateKey(field) {
-  const column = String(field?.column || "").trim();
-  return column || fieldQueryKey(field);
+  // Prefer authored filter key (modelType / supervisionCategory) so query_state
+  // aligns with dataset filters `… in filter.<key>` and filter_intents dimensions.
+  // Fall back to physical column when key is absent.
+  return fieldQueryKey(field) || String(field?.column || "").trim();
 }
 
 function findCatalogField(catalog, column) {
@@ -1125,10 +1219,22 @@ function resolveColumnCatalog(props) {
       const column = String(field?.column || field?.key || field?.field || "").trim();
       if (!queryKey) return null;
       const control = normalizeControl(field);
-      const needsRowsetOptions =
+      const staticOptions = Array.isArray(field?.options) ? field.options : [];
+      const optionsFromRaw = String(field?.options_from || field?.optionsFrom || "")
+        .trim()
+        .toLowerCase();
+      // 显式 static / 已声明 options 时保留，勿一律强制 rowset。
+      let optionsFrom = optionsFromRaw;
+      if (optionsFromRaw === "static" || (staticOptions.length > 0 && optionsFromRaw !== "rowset")) {
+        optionsFrom = "static";
+      } else if (
         control === "multi_select" ||
         control === "month_multi_select" ||
-        String(field?.options_from || field?.optionsFrom || "").trim() === "rowset";
+        optionsFromRaw === "rowset" ||
+        !optionsFromRaw
+      ) {
+        optionsFrom = "rowset";
+      }
       return {
         key: queryKey,
         label: String(field?.label || queryKey).trim() || queryKey,
@@ -1137,17 +1243,96 @@ function resolveColumnCatalog(props) {
         operator: String(field?.operator || field?.default_operator || field?.defaultOperator || "").trim(),
         placeholder: String(field?.placeholder || "").trim(),
         visible: field?.visible !== false,
-        options_from: needsRowsetOptions ? "rowset" : String(field?.options_from || ""),
+        options_from: optionsFrom,
         options_field: String(field?.options_field || field?.column || column).trim(),
-        options: Array.isArray(field?.options) ? field.options : [],
+        options: staticOptions,
       };
     })
     .filter(Boolean);
 }
 
-function valueIsSelected(selectedValues, optionValue) {
+/** Prefer declared static options over facet/rowset enums. */
+function resolveSelectOptionsForField(fieldDef, fieldOptions, columnKey = "") {
+  const staticOptions = Array.isArray(fieldDef?.options) ? fieldDef.options : [];
+  const source = String(fieldDef?.options_from || fieldDef?.optionsFrom || "")
+    .trim()
+    .toLowerCase();
+  if (source === "static" || (staticOptions.length > 0 && source !== "rowset")) {
+    return staticOptions;
+  }
+  // fieldOptions 以 query key（如 warningLevel）为主键；row.column / options_field 也可能是中文列名
+  const queryKey = fieldQueryKey(fieldDef);
+  const passed = String(columnKey || "").trim();
+  const column = String(fieldDef?.column || fieldDef?.options_field || fieldDef?.optionsField || "").trim();
+  const candidates = [queryKey, passed, column].filter(Boolean);
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    const found = fieldOptions?.get(candidate) || [];
+    if (found.length > 0) return found;
+  }
+  return staticOptions;
+}
+
+/**
+ * contains_any 存的是「蓝」等针值；选项是「蓝/黄」等组合面值。
+ * 展示/勾选时把针值展开为所有包含该针值的组合项，以便与明细过滤结果对齐。
+ */
+function expandContainsAnySelection(needles, options) {
+  const needleList = (needles || [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (!needleList.length) return [];
+  const expanded = [];
+  const seen = new Set();
+  for (const option of options || []) {
+    const value =
+      typeof option === "string"
+        ? option
+        : option?.value ?? option?.id ?? option?.label ?? "";
+    const text = String(value ?? "").trim();
+    if (!text || seen.has(text)) continue;
+    if (needleList.some((needle) => text.includes(needle))) {
+      seen.add(text);
+      expanded.push(text);
+    }
+  }
+  return expanded;
+}
+
+/** DOM 勾选的是展开后的组合面值时，把 contains_any 收成精确 in。 */
+function coerceContainsAnyDomSelectionToIn(nextRow, previousRow) {
+  const operator = String(nextRow?.operator || "").trim().toLowerCase();
+  if (operator !== "contains_any") return nextRow;
+  const values = Array.isArray(nextRow?.values)
+    ? nextRow.values.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+  if (!values.length) return nextRow;
+  const prevWasContainsAny =
+    String(previousRow?.operator || "").trim().toLowerCase() === "contains_any";
+  // 仍是纯针值（红/黄/蓝）→ 保持 contains_any
+  const membershipTokens = new Set(["红", "黄", "蓝"]);
+  const allMembershipNeedles = values.every((value) => membershipTokens.has(value));
+  if (allMembershipNeedles) return nextRow;
+  // 勾选结果已是组合面值（或混有组合）→ 改为 in，与面板选项语义一致
+  if (prevWasContainsAny || values.some((value) => value.includes("/") || !membershipTokens.has(value))) {
+    return { ...nextRow, operator: "in", values };
+  }
+  return nextRow;
+}
+
+function valueIsSelected(selectedValues, optionValue, { operator = "" } = {}) {
   const target = String(optionValue ?? "");
-  return (selectedValues || []).some((item) => String(item ?? "") === target);
+  const selected = selectedValues || [];
+  const op = String(operator || "").trim().toLowerCase();
+  if (op === "contains_any") {
+    return selected.some((needle) => {
+      const token = String(needle ?? "").trim();
+      return Boolean(token) && target.includes(token);
+    });
+  }
+  return selected.some((item) => String(item ?? "") === target);
 }
 
 function resolveMultiOptions(options, selectedValues) {
@@ -1164,7 +1349,7 @@ function resolveMultiOptions(options, selectedValues) {
         ? option.count ?? option.n ?? option.total
         : null;
     const count = Number(countRaw);
-    const hasCount = Number.isFinite(count) && count >= 0;
+    const hasCount = Number.isFinite(count) && count > 0;
     const baseLabel =
       typeof option === "string" ? option : option?.label || text;
     items.push({
@@ -1173,8 +1358,16 @@ function resolveMultiOptions(options, selectedValues) {
       count: hasCount ? count : undefined,
     });
   }
+  // 有计数时按 count 降序；无计数保持原序（已由 normalizeFacetOptions 排过）。
+  if (items.some((item) => Number(item.count) > 0)) {
+    items.sort(
+      (a, b) =>
+        (Number(b.count) || 0) - (Number(a.count) || 0) ||
+        String(a.value).localeCompare(String(b.value), "zh-CN"),
+    );
+  }
   for (const value of selectedValues || []) {
-    const text = String(value).trim();
+    const text = String(value || "").trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     items.push({ value: text, label: text });
@@ -1208,7 +1401,8 @@ function normalizeFacetOptions(rawOptions) {
         count: Number.isFinite(count) && count > 0 ? count : 0,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "zh-CN"));
 }
 
 function profileForColumn(column, profiles) {
@@ -1375,17 +1569,29 @@ function ensureFilterFloatingStyles() {
       display: flex;
       flex-direction: column;
       gap: 2px;
+      min-height: 0;
+    }
+    [data-mei-filter-floating="1"].multi-panel,
+    [data-mei-filter-floating="1"].field-picker-panel {
+      overscroll-behavior: contain;
     }
     [data-mei-filter-floating="1"] .multi-option,
     [data-mei-filter-floating="1"] .field-picker-option {
+      appearance: none;
+      -webkit-appearance: none;
       display: flex;
       align-items: center;
       gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
       padding: 6px 8px;
       border-radius: 6px;
+      border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.28));
+      background: var(--mei-color-drilldown-tab-bg, rgba(10, 36, 68, 0.92));
       cursor: pointer;
       font-size: ${FILTER_PANEL_FONT};
       color: var(--mei-color-text-body, #e2e8f0);
+      text-align: left;
       line-height: 1.4;
       white-space: normal;
       word-break: break-word;
@@ -1396,7 +1602,9 @@ function ensureFilterFloatingStyles() {
     }
     [data-mei-filter-floating="1"] .multi-option:hover,
     [data-mei-filter-floating="1"] .field-picker-option:hover {
-      background: var(--mei-color-table-row-hover, rgba(56, 160, 240, 0.12));
+      background: var(--mei-color-table-row-hover, rgba(56, 160, 240, 0.18));
+      border-color: var(--mei-color-table-btn-hover-border, rgba(113, 241, 234, 0.55));
+      color: var(--mei-color-text-inverse, #ffffff);
     }
     [data-mei-filter-floating="1"] .multi-option input {
       margin: 0;
@@ -1479,6 +1687,21 @@ function resolveFloatingPanelWidth(panel, triggerWidth) {
   return Math.min(maxWidth, Math.max(minWidth, measured));
 }
 
+function copyThemeCssVarsOnto(panel, host) {
+  if (!(panel instanceof HTMLElement) || typeof document === "undefined") return;
+  // Tokens are set as inline --mei-* on compose root; layer2 inherits but has no own declarations.
+  const themeRoot =
+    document.getElementById("mei-compose-root") ||
+    (host instanceof Element && host.closest?.("#mei-compose-root")) ||
+    document.getElementById("mei-layer2-workspace");
+  if (!(themeRoot instanceof HTMLElement)) return;
+  for (const name of themeRoot.style) {
+    if (!String(name).startsWith("--mei-")) continue;
+    const value = themeRoot.style.getPropertyValue(name);
+    if (value) panel.style.setProperty(name, value);
+  }
+}
+
 function positionFloatingPanel(trigger, panel, options = {}) {
   const { preferDropUp = false } = options;
   const triggerRect = trigger.getBoundingClientRect();
@@ -1518,6 +1741,7 @@ function positionFloatingPanel(trigger, panel, options = {}) {
   if (typeof boot.mountRuntimeOverlay === "function") {
     boot.mountRuntimeOverlay(panel, { role: "text_popover", anchor: trigger });
   }
+  copyThemeCssVarsOnto(panel, host instanceof Element ? host : null);
   panel.style.overflow = "auto";
 
   const spaceBelow = window.innerHeight - triggerRect.bottom - FLOATING_PANEL_VIEWPORT_PADDING;
@@ -1589,7 +1813,23 @@ function syncFloatingPanels(host) {
 function ensureFloatingPanelListeners(host) {
   if (host._floatingPanelListenersBound) return;
   host._floatingPanelListenersBound = true;
-  host._floatingPanelSyncHandler = () => scheduleFloatingPanelSync(host);
+  host._floatingPanelSyncHandler = (event) => {
+    // 面板自身滚动不要触发 reposition（capture 阶段会收到），否则滚轮像被“锁死”。
+    if (event?.type === "scroll") {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest?.('[data-mei-filter-floating="1"]') ||
+          target.classList?.contains("multi-panel") ||
+          target.classList?.contains("field-picker-panel") ||
+          target.classList?.contains("multi-options") ||
+          target.classList?.contains("field-picker-options"))
+      ) {
+        return;
+      }
+    }
+    scheduleFloatingPanelSync(host);
+  };
   window.addEventListener("resize", host._floatingPanelSyncHandler);
   window.addEventListener("scroll", host._floatingPanelSyncHandler, true);
 }
@@ -1703,6 +1943,10 @@ function bindMultiPanelInteractions(host, options = {}) {
   }
 
   for (const checkbox of host.shadowRoot.querySelectorAll('.multi-option input[type="checkbox"]')) {
+    checkbox.addEventListener("click", (event) => {
+      // 阻止冒泡到 document 的 outside-click，避免选中后立刻关面板。
+      event.stopPropagation();
+    });
     checkbox.addEventListener("change", (event) => {
       event.stopPropagation();
       const panelKey = resolveMultiPanelKey(checkbox);
@@ -1714,9 +1958,16 @@ function bindMultiPanelInteractions(host, options = {}) {
       if (typeof onCheckboxChange === "function") {
         onCheckboxChange();
       }
-      if (panelKey) host._multiPanelSearch.delete(panelKey);
-      host._openDropdownKey = "";
+      // 多选：保持下拉打开，仅点面板外才关闭。
+      if (panelKey) {
+        host._openDropdownKey = panelKey;
+      }
       host.render();
+    });
+  }
+  for (const option of host.shadowRoot.querySelectorAll(".multi-option")) {
+    option.addEventListener("click", (event) => {
+      event.stopPropagation();
     });
   }
 
@@ -1840,7 +2091,7 @@ function renderFieldPickerDropdown({
     .join("");
   const countHint =
     items.length > 0
-      ? `<div class="field-picker-meta">共 ${items.length} 个字段，可滚动查看更多</div>`
+      ? `<div class="field-picker-meta">还有 ${items.length} 个字段可用于过滤数据</div>`
       : "";
   const emptyMarkup =
     items.length === 0
@@ -1913,14 +2164,22 @@ function renderMultiSelectPanelMarkup({
   triggerClass = "cockpit-filter-control",
   wrapperClass = "row-value-multi",
 }) {
-  const mergedOptions = resolveMultiOptions(options, selectedValues);
+  const operator = String(control || "").trim().toLowerCase();
+  // contains_any：勾选态按「组合面值是否包含针值」展开，摘要同步显示组合项
+  const displaySelected =
+    operator === "contains_any"
+      ? expandContainsAnySelection(selectedValues, options)
+      : selectedValues;
+  const mergedOptions = resolveMultiOptions(options, displaySelected);
   const optionMarkup =
     mergedOptions.length > 0
       ? mergedOptions
           .map((option) => {
             const optionValue = option.value;
             const optionLabel = option.label;
-            const checked = valueIsSelected(selectedValues, optionValue) ? "checked" : "";
+            const checked = valueIsSelected(selectedValues, optionValue, { operator })
+              ? "checked"
+              : "";
             return `
               <label class="multi-option">
                 <input type="checkbox" value="${escapeHtmlAttr(optionValue)}" ${checkboxExtraAttrs} ${checked} />
@@ -1946,7 +2205,7 @@ function renderMultiSelectPanelMarkup({
   return `
     <div class="${wrapperClass}">
       <button type="button" class="multi-trigger ${triggerClass} ${isOpen ? "is-open" : ""}" data-multi-trigger="${escapeHtmlAttr(panelKey)}">
-        ${escapeHtml(multiSelectSummary(selectedValues, control === "month_in" ? "month_multi_select" : "multi_select"))}
+        ${escapeHtml(multiSelectSummary(displaySelected, control === "month_in" ? "month_multi_select" : "multi_select"))}
       </button>
       <div class="multi-panel ${isOpen ? "is-open" : ""}" data-multi-panel="${escapeHtmlAttr(panelKey)}">
         ${searchMarkup}
@@ -2014,7 +2273,7 @@ function renderAdditiveValueMarkup(
   if (!String(row?.column || "").trim()) {
     return `<input class="cockpit-filter-control" type="text" data-row-value="${escapeHtmlAttr(rowId)}" placeholder="先选择字段" disabled />`;
   }
-  if (operator === "in" || operator === "month_in") {
+  if (operator === "in" || operator === "contains_any" || operator === "month_in") {
     return renderMultiSelectPanelMarkup({
       panelKey: rowId,
       selectedValues,
@@ -2048,7 +2307,7 @@ function renderAdditiveValueMarkup(
   }
   const inputType = profile?.kind === "number" ? "number" : "text";
   const valuePlaceholder =
-    operator === "contains" ? placeholder || "包含…" : operator === "eq" ? "等于…" : "输入数值…";
+    operator === "contains" ? placeholder || "输入关键字…" : operator === "eq" ? "等于…" : "输入数值…";
   return `<input
     class="cockpit-filter-control"
     type="${inputType}"
@@ -2099,12 +2358,16 @@ function renderActiveAdditiveRow(row, index, catalog, profiles, fieldOptions, op
   const fieldDef = findCatalogField(catalog, column);
   const profile = profileForColumn(column, profiles);
   const operator = resolveRowOperator(row, profile, fieldDef);
-  const optionValues = column ? fieldOptions?.get(column) || profile?.options || [] : [];
+  const optionValues = column
+    ? resolveSelectOptionsForField(fieldDef, fieldOptions, column)
+    : [];
+  const resolvedOptions =
+    optionValues.length > 0 ? optionValues : profile?.options || [];
   const valueMarkup = renderAdditiveValueMarkup(
     row,
     profile,
     operator,
-    optionValues,
+    resolvedOptions,
     openDropdownKey,
     fieldDef,
     multiPanelSearch,
@@ -2141,7 +2404,11 @@ function renderDraftAdditiveRow(
   const fieldDef = findCatalogField(catalog, column);
   const profile = profileForColumn(column, profiles);
   const operator = resolveRowOperator(row, profile, fieldDef);
-  const optionValues = column ? fieldOptions?.get(column) || profile?.options || [] : [];
+  const optionValues = column
+    ? resolveSelectOptionsForField(fieldDef, fieldOptions, column)
+    : [];
+  const resolvedOptions =
+    optionValues.length > 0 ? optionValues : profile?.options || [];
 
   const operatorOptions = operatorOptionsForField(profile, fieldDef)
     .map((entry) => {
@@ -2154,7 +2421,7 @@ function renderDraftAdditiveRow(
     row,
     profile,
     operator,
-    optionValues,
+    resolvedOptions,
     openDropdownKey,
     fieldDef,
     multiPanelSearch,
@@ -2202,7 +2469,7 @@ function sharedStyles() {
       display: block;
       ${cockpitCssVars()}
     }
-    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
+    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 0; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
     .title { margin: 0; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_inverse")}; }
     .desc { color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; line-height: 1.45; }
     .fields { display: grid; gap: 10px; grid-template-columns: 1fr; }
@@ -2255,7 +2522,7 @@ function additiveStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -2588,13 +2855,16 @@ function additiveStyles() {
       gap: 2px;
     }
     .field-picker-option {
+      appearance: none;
+      -webkit-appearance: none;
       display: block;
       width: 100%;
+      box-sizing: border-box;
       min-height: 34px;
       padding: 7px 10px;
-      border: 0;
+      border: 1px solid ${color("drilldown_tab_border")};
       border-radius: 6px;
-      background: transparent;
+      background: ${color("drilldown_tab_bg")};
       color: ${color("text_body")};
       font-size: ${FILTER_PANEL_FONT};
       text-align: left;
@@ -2602,6 +2872,7 @@ function additiveStyles() {
     }
     .field-picker-option:hover {
       background: ${color("table_row_hover")};
+      border-color: ${color("table_btn_hover_border")};
       color: ${color("text_inverse")};
     }
     .field-picker-option[hidden] { display: none !important; }
@@ -2676,7 +2947,7 @@ function schemaStyles() {
       min-height: 0;
       gap: 0;
       padding: 10px 10px 8px;
-      border-radius: ${radius};
+      border-radius: 0;
       box-sizing: border-box;
     }
     .filter-panel-head {
@@ -2990,7 +3261,8 @@ function encodeSchemaFieldValue(field, row) {
   }
   const value = String(row?.value || "").trim();
   if (!value) return "";
-  if (control === "text" && value.includes(":")) {
+  if (control === "text") {
+    // 文本控件默认关键字过滤；SQL 仅识别 contains: 前缀。
     return `contains:${value}`;
   }
   return value;
@@ -3035,7 +3307,7 @@ function readSchemaFieldValueFromDom(shadowRoot, field) {
     shadowRoot.querySelector(`[data-schema-text="${CSS.escape(key)}"]`)?.value || "",
   ).trim();
   if (!value) return "";
-  return value.includes(":") ? `contains:${value}` : value;
+  return `contains:${value}`;
 }
 
 function collectSchemaFilters(shadowRoot, schemaFields) {
@@ -3098,7 +3370,7 @@ function renderSchemaMultiSelect(field, row, appliedFilters, fieldOptions, openD
   const selectedValues = Array.isArray(row?.values)
     ? row.values
     : selectedValuesForField({ [key]: appliedRaw }, key, control, field);
-  const options = fieldOptions?.get(column) || [];
+  const options = resolveSelectOptionsForField(field, fieldOptions, column);
   const isOpen = openDropdownKey === key;
   const searchValue = multiPanelSearch?.get?.(key) || "";
   const currentEncoded = encodeSchemaFieldValue(field, { ...row, values: selectedValues });
@@ -3213,6 +3485,9 @@ function selectedValuesForField(filters, queryKey, control, field = null) {
   const column = field ? String(field?.column || "").trim() : "";
   const raw = String(filters?.[queryKey] ?? (column ? filters?.[column] : "") ?? "");
   if (!raw) return [];
+  if (control === "text" && raw.startsWith("contains:")) {
+    return [raw.slice("contains:".length)];
+  }
   if (control === "month_multi_select" && raw.startsWith("m:")) {
     return raw
       .slice(2)
@@ -3223,6 +3498,13 @@ function selectedValuesForField(filters, queryKey, control, field = null) {
   if (control === "multi_select" && raw.startsWith("in:")) {
     return raw
       .slice(3)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  if (control === "multi_select" && raw.startsWith("contains_any:")) {
+    return raw
+      .slice("contains_any:".length)
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean);
@@ -3295,4 +3577,11 @@ function renderField(field, filters, index, fieldOptions, openDropdownKey, multi
   `;
 }
 
-customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+// v2：避免浏览器 CE 注册表钉住曾把风险等级锁成红/黄/蓝的旧模块
+if (!customElements.get("mei-dataset-filter-bar-v2")) {
+  customElements.define("mei-dataset-filter-bar-v2", MeiDatasetFilterBar);
+}
+// 兼容旧挂载点（仅当尚未被旧模块占用时）
+if (!customElements.get("mei-dataset-filter-bar")) {
+  customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+}

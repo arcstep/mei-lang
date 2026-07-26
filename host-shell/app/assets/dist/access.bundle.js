@@ -16198,12 +16198,14 @@
       config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
         ? config.popup.params
         : null;
+    // link_decl / popup.params.metric 是作者显式指定的分析指标（如 issue_handling_analytics），
+    // 必须优先于卡片自身的 count metric（warnings_pending_count 等），否则二级屏会误拉标量 rowset。
     return nonEmptyString(
+      metricRefId(popupParams?.metric),
+      metricRefId(configPopupParams?.metric),
+      metricRefId(configParams?.metric),
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,
-      metricRefId(popupParams?.metric),
-      metricRefId(configParams?.metric),
-      metricRefId(configPopupParams?.metric),
     );
   }
 
@@ -17510,6 +17512,15 @@
         topN: positiveInt(entry.top_n, entry.topN),
         valueField: nonEmptyString(entry.value_field, entry.valueField),
         delimiter: nonEmptyString(entry.delimiter),
+        selectionFilterEncode: nonEmptyString(
+          entry.selection_filter_encode,
+          entry.selectionFilterEncode,
+        ),
+        categoryOrder: Array.isArray(entry.category_order)
+          ? entry.category_order.map((item) => String(item || "").trim()).filter(Boolean)
+          : Array.isArray(entry.categoryOrder)
+            ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
+            : null,
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
@@ -17851,6 +17862,11 @@
             topN: slot.topN,
             valueField: slot.valueField,
             compositionAgg: slot.compositionAgg,
+            selection_filter_encode: slot.selectionFilterEncode || undefined,
+            category_order:
+              Array.isArray(slot.categoryOrder) && slot.categoryOrder.length > 0
+                ? slot.categoryOrder
+                : undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",
@@ -18791,39 +18807,55 @@
     throw new Error(message);
   }
 
+  function applyFilterMap(target, source) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return;
+    Object.entries(source).forEach(([key, value]) => {
+      const normalizedKey = String(key || "").trim();
+      const normalizedValue = String(value ?? "").trim();
+      if (!normalizedKey || !normalizedValue) return;
+      target[normalizedKey] = normalizedValue;
+    });
+  }
+
+  /**
+   * 合并 popup / drilldown 拉取用 filters。优先级（后写覆盖）：
+   * 1. 入口 default_filters（仅 query_state 尚未写入时作种子）
+   * 2. query_state（过滤面板用户覆盖；一旦有值则不再回填 default）
+   * 3. drilldown_filters（行级对象打开的身份锁，不可被面板清掉）
+   * 与 024005：default_filters 不是第二套真值，只作初始化。
+   */
   function mergePopupFetchFilters(detail, config, tableProps) {
     const merged = {};
-    const rowSpecific =
-      detail?.drilldown_filters &&
-      typeof detail.drilldown_filters === "object" &&
-      !Array.isArray(detail.drilldown_filters) &&
-      Object.keys(detail.drilldown_filters).length > 0;
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-    if (!rowSpecific && queryStateId) {
+    let sharedFilters = {};
+    if (queryStateId) {
       const runtimeQuery = window.__meiDatasetRuntime;
-      const sharedFilters =
+      const shared =
         runtimeQuery &&
         typeof runtimeQuery.sharedFiltersForQueryStateId === "function"
           ? runtimeQuery.sharedFiltersForQueryStateId(queryStateId)
           : {};
-      if (sharedFilters && typeof sharedFilters === "object" && !Array.isArray(sharedFilters)) {
-        Object.entries(sharedFilters).forEach(([key, value]) => {
-          const normalizedKey = String(key || "").trim();
-          const normalizedValue = String(value ?? "").trim();
-          if (!normalizedKey || !normalizedValue) return;
-          merged[normalizedKey] = normalizedValue;
-        });
+      if (shared && typeof shared === "object" && !Array.isArray(shared)) {
+        sharedFilters = shared;
       }
     }
-    [tableProps?.default_filters, detail?.default_filters, detail?.drilldown_filters].forEach((source) => {
-      if (!source || typeof source !== "object" || Array.isArray(source)) return;
-      Object.entries(source).forEach(([key, value]) => {
-        const normalizedKey = String(key || "").trim();
-        const normalizedValue = String(value ?? "").trim();
-        if (!normalizedKey || !normalizedValue) return;
-        merged[normalizedKey] = normalizedValue;
-      });
-    });
+    const hasSharedFilters = Object.keys(sharedFilters).some(
+      (key) => String(sharedFilters[key] ?? "").trim(),
+    );
+    if (!hasSharedFilters) {
+      applyFilterMap(merged, popupParams?.default_filters);
+      applyFilterMap(merged, config?.params?.default_filters);
+      applyFilterMap(merged, detail?.default_filters);
+      applyFilterMap(merged, tableProps?.default_filters);
+    }
+    applyFilterMap(merged, sharedFilters);
+
+    applyFilterMap(merged, detail?.drilldown_filters);
+
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
@@ -19456,6 +19488,19 @@
       data,
       mapping: resolvedMapping,
       ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
+      selection_filter_encode: nonEmptyString(
+        config?.selection_filter_encode,
+        config?.selectionFilterEncode,
+        warningLevelDim ? "contains_any" : "",
+      ) || undefined,
+      category_order:
+        Array.isArray(config?.category_order) && config.category_order.length > 0
+          ? config.category_order
+          : Array.isArray(config?.categoryOrder) && config.categoryOrder.length > 0
+            ? config.categoryOrder
+            : dimName === "办理状态"
+              ? ["待办", "在办", "办结"]
+              : undefined,
       ...buildAnalyticsChartPresentationProps(config),
     };
   }
@@ -19926,7 +19971,26 @@
         ? detail.drilldown_filters
         : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
           ? detail.default_filters
-          : null;
+          : (() => {
+              const popupParams =
+                config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+                  ? config.popup.params
+                  : null;
+              const fromPopup =
+                popupParams?.default_filters &&
+                typeof popupParams.default_filters === "object" &&
+                !Array.isArray(popupParams.default_filters)
+                  ? popupParams.default_filters
+                  : null;
+              if (fromPopup) return fromPopup;
+              const fromConfig =
+                config?.params?.default_filters &&
+                typeof config.params.default_filters === "object" &&
+                !Array.isArray(config.params.default_filters)
+                  ? config.params.default_filters
+                  : null;
+              return fromConfig;
+            })();
     const autoSelectFirstRow = Boolean(
       drilldownFilters &&
         (config?.hasRowPreviewZone ||
@@ -20076,7 +20140,7 @@
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
   const DRILLDOWN_FILTER_BAR_SCRIPT =
-    "/workspace-components/dataset/filter-bar.js?v=combo-face-20260726c";
+    "/workspace-components/dataset/filter-bar.js?v=filter-scroll-20260727a";
   const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
@@ -20250,6 +20314,16 @@
         labelField: compositionField,
         topN: positiveInt(config?.top_n, config?.topN),
         mapping,
+        selection_filter_encode: nonEmptyString(
+          config?.selection_filter_encode,
+          config?.selectionFilterEncode,
+        ) || undefined,
+        category_order:
+          Array.isArray(config?.category_order) && config.category_order.length > 0
+            ? config.category_order
+            : Array.isArray(config?.categoryOrder) && config.categoryOrder.length > 0
+              ? config.categoryOrder
+              : undefined,
         ...buildAnalyticsChartPresentationProps(config, { mapping }),
       },
     };
@@ -20371,9 +20445,19 @@
       if (!column) continue;
       byColumn.set(column, mapped);
     }
-    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置。
-    // allow_extra=false 时只保留作者 fields，避免表列（或旧契约列名）抢预置位。
-    if (allowExtra || schemaFields.length === 0) {
+    // 作者声明 allow_extra=false 时只保留 fields，禁止表列（旧「监督类别」/行权类别）抢预置位。
+    // 完全没有 filter_schema 时仍回退表列（兼容未声明过滤的看板）。
+    const authorSchemaPresent = Boolean(
+      config?.filterSchema &&
+        (schemaFields.length > 0 ||
+          config.filterSchema.allowExtra === false ||
+          config.filterSchema.allow_extra === false ||
+          config.filterSchema.presetFilterCount != null ||
+          config.filterSchema.preset_filter_count != null ||
+          config.filterSchema.defaultCollapsed === false ||
+          config.filterSchema.default_collapsed === false),
+    );
+    if (allowExtra || (schemaFields.length === 0 && !authorSchemaPresent)) {
       for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
         const column = String(raw || "").trim();
         if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
@@ -20457,6 +20541,7 @@
       live: false,
       title: nonEmptyString(filterSchema.title) || "筛选条件",
       default_collapsed: Boolean(filterSchema.defaultCollapsed),
+      allow_extra: filterSchema.allowExtra === true,
       preset_filter_count: presetFilterCount,
       query_state: nonEmptyString(
         config?.queryStateId,
@@ -21105,6 +21190,14 @@
     return list;
   }
 
+  function createCaseCardObjectLinkButton(text) {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "access-drilldown-case-object-link";
+    link.textContent = String(text ?? "");
+    return link;
+  }
+
   function bindCaseCardObjectOpen(el, host, row, field, spec, config) {
     if (!(el instanceof HTMLElement) || !field) return;
     el.classList.add("is-object-link");
@@ -21425,13 +21518,16 @@
       } else {
         const wantsLink = section?.object_link === true || section?.objectLink === true;
         keys.forEach((key) => {
+          if (wantsLink && field) {
+            const idValue = createCaseCardObjectLinkButton(key);
+            idValue.dataset.objectKey = key;
+            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
+            idRow.appendChild(idValue);
+            return;
+          }
           const idValue = document.createElement("span");
           idValue.className = "access-drilldown-case-detail-id-chip";
           idValue.textContent = key;
-          if (wantsLink && field) {
-            idValue.dataset.objectKey = key;
-            bindCaseCardObjectOpen(idValue, block, row, field, section, config);
-          }
           idRow.appendChild(idValue);
         });
       }
@@ -21545,12 +21641,20 @@
         labelEl.textContent = `${label}：`;
         tag.appendChild(labelEl);
         appendWarningLevelBlocks(tag, field, value);
+      } else if (spec?.object_link === true || spec?.objectLink === true) {
+        // 与明细表 cell-object-link 一致：标签普通文本 + accent 下划线值链接
+        tag.className =
+          "access-drilldown-typical-case-tag access-drilldown-typical-case-tag--with-object-link";
+        const labelEl = document.createElement("span");
+        labelEl.className = "access-drilldown-typical-case-tag-label";
+        labelEl.textContent = `${label}：`;
+        const link = createCaseCardObjectLinkButton(value);
+        bindCaseCardObjectOpen(link, panel, row, field, spec, config);
+        tag.appendChild(labelEl);
+        tag.appendChild(link);
       } else {
         tag.className = "access-drilldown-typical-case-tag";
         tag.textContent = `${label}：${value}`;
-      }
-      if (spec?.object_link === true || spec?.objectLink === true) {
-        bindCaseCardObjectOpen(tag, panel, row, field, spec, config);
       }
       tagRow.appendChild(tag);
     });
@@ -21635,14 +21739,18 @@
         if (!keys.length) return;
         const wantsLink = spec?.object_link === true || spec?.objectLink === true;
         keys.forEach((key) => {
+          if (wantsLink) {
+            // 可点 ID（如办理结果ID）：只展示 ID 值，与明细表 object-link 一致，不重复字段标签。
+            const link = createCaseCardObjectLinkButton(key);
+            link.dataset.objectKey = key;
+            bindCaseCardObjectOpen(link, panel, row, field, spec, config);
+            pills.appendChild(link);
+            return;
+          }
           const pill = document.createElement("span");
           pill.className =
             "access-drilldown-typical-case-status-pill access-drilldown-typical-case-status-pill--id";
           pill.textContent = `${label} ${key}`;
-          if (wantsLink) {
-            pill.dataset.objectKey = key;
-            bindCaseCardObjectOpen(pill, panel, row, field, spec, config);
-          }
           pills.appendChild(pill);
         });
         return;
@@ -26895,26 +27003,38 @@
       const style = window.getComputedStyle(node);
       return overflowAllowsScroll(style.overflowX) && node.scrollWidth > node.clientWidth + 1;
     };
+    const findScrollPortsInPath = (path, stopAt) => {
+      let scrollPortY = null;
+      let scrollPortX = null;
+      for (const node of path) {
+        if (stopAt && node === stopAt) break;
+        if (
+          node === document.body ||
+          node === document.documentElement ||
+          node === document.scrollingElement
+        ) {
+          break;
+        }
+        if (!(node instanceof HTMLElement)) continue;
+        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
+        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
+        if (scrollPortY && scrollPortX) break;
+      }
+      return { scrollPortY, scrollPortX };
+    };
     const onWheel = (event) => {
       const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
       if (!(root instanceof HTMLElement) || !root.classList.contains("is-open")) return;
       const path = typeof event.composedPath === "function" ? event.composedPath() : [];
       const inside = path.includes(root) || (event.target instanceof Node && root.contains(event.target));
-      if (!inside) {
+      // 过滤栏 multi-select 等 text_popover 挂到 body，不在 T2 树内；仍须允许其内部滚动。
+      // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
+      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
+      const { scrollPortY, scrollPortX } = findScrollPortsInPath(path, inside ? root : null);
+      if (!inside && !scrollPortY && !scrollPortX) {
         event.preventDefault();
         pin();
         return;
-      }
-      // 已到 T2 内滚动边界时，阻止继续链式滚到 T1。
-      // 明细表常见「仅横向可滚」：必须同时识别 overflow-x，否则会吞掉触控板横向/shift+滚轮。
-      let scrollPortY = null;
-      let scrollPortX = null;
-      for (const node of path) {
-        if (node === root) break;
-        if (!(node instanceof HTMLElement)) continue;
-        if (!scrollPortY && canScrollY(node)) scrollPortY = node;
-        if (!scrollPortX && canScrollX(node)) scrollPortX = node;
-        if (scrollPortY && scrollPortX) break;
       }
       const deltaX = Number(event.deltaX) || 0;
       const deltaY = Number(event.deltaY) || 0;
@@ -27484,6 +27604,20 @@
   }
 
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
+    // revision-only SSR 下 assembly 常异步注入；打开 overlay 前必须先确保
+    // scene_projection_assembly_by_id 就绪，否则 filter_schema 会空转回退到明细表列
+    //（预警数量会出现「行权类别/预警ID」预置，而不是作者配置的主责单位/预警模型/预警等级）。
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : null;
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        boot.reportDrilldownContextError?.(error, {}, "overlay_drilldown_context_load");
+      }
+    }
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
     if (!config.enabled || !(config.pageSceneId || config.boardSceneId || config.sceneId)) {
@@ -45287,7 +45421,7 @@
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-  const SS_PREFIX = "mei:drilldown:v1:";
+  const SS_PREFIX = "mei:drilldown:v2:";
   const memoryCache = new Map();
   const inflight = new Map();
 

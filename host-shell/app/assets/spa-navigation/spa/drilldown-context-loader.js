@@ -5,7 +5,7 @@
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-  const SS_PREFIX = "mei:drilldown:v1:";
+  const SS_PREFIX = "mei:drilldown:v2:";
   const memoryCache = new Map();
   const inflight = new Map();
 

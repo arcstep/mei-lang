@@ -142,6 +142,21 @@ pub(super) fn slot_from_board_view(
     if let Some(top_n) = map.get("top_n") {
         slot.insert("top_n".to_string(), top_n.clone());
     }
+    if let Some(selection_filter_encode) = map
+        .get("selection_filter_encode")
+        .or_else(|| map.get("selectionFilterEncode"))
+    {
+        slot.insert(
+            "selection_filter_encode".to_string(),
+            selection_filter_encode.clone(),
+        );
+    }
+    if let Some(category_order) = map
+        .get("category_order")
+        .or_else(|| map.get("categoryOrder"))
+    {
+        slot.insert("category_order".to_string(), category_order.clone());
+    }
     if let Some(columns) = map.get("columns") {
         slot.insert("fields".to_string(), columns.clone());
     }

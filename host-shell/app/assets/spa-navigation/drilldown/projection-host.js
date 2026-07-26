@@ -236,6 +236,20 @@
   }
 
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
+    // revision-only SSR 下 assembly 常异步注入；打开 overlay 前必须先确保
+    // scene_projection_assembly_by_id 就绪，否则 filter_schema 会空转回退到明细表列
+    //（预警数量会出现「行权类别/预警ID」预置，而不是作者配置的主责单位/预警模型/预警等级）。
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : null;
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        boot.reportDrilldownContextError?.(error, {}, "overlay_drilldown_context_load");
+      }
+    }
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
     if (!config.enabled || !(config.pageSceneId || config.boardSceneId || config.sceneId)) {

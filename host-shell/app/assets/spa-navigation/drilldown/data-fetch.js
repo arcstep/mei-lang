@@ -218,39 +218,55 @@
     throw new Error(message);
   }
 
+  function applyFilterMap(target, source) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return;
+    Object.entries(source).forEach(([key, value]) => {
+      const normalizedKey = String(key || "").trim();
+      const normalizedValue = String(value ?? "").trim();
+      if (!normalizedKey || !normalizedValue) return;
+      target[normalizedKey] = normalizedValue;
+    });
+  }
+
+  /**
+   * 合并 popup / drilldown 拉取用 filters。优先级（后写覆盖）：
+   * 1. 入口 default_filters（仅 query_state 尚未写入时作种子）
+   * 2. query_state（过滤面板用户覆盖；一旦有值则不再回填 default）
+   * 3. drilldown_filters（行级对象打开的身份锁，不可被面板清掉）
+   * 与 024005：default_filters 不是第二套真值，只作初始化。
+   */
   function mergePopupFetchFilters(detail, config, tableProps) {
     const merged = {};
-    const rowSpecific =
-      detail?.drilldown_filters &&
-      typeof detail.drilldown_filters === "object" &&
-      !Array.isArray(detail.drilldown_filters) &&
-      Object.keys(detail.drilldown_filters).length > 0;
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-    if (!rowSpecific && queryStateId) {
+    let sharedFilters = {};
+    if (queryStateId) {
       const runtimeQuery = window.__meiDatasetRuntime;
-      const sharedFilters =
+      const shared =
         runtimeQuery &&
         typeof runtimeQuery.sharedFiltersForQueryStateId === "function"
           ? runtimeQuery.sharedFiltersForQueryStateId(queryStateId)
           : {};
-      if (sharedFilters && typeof sharedFilters === "object" && !Array.isArray(sharedFilters)) {
-        Object.entries(sharedFilters).forEach(([key, value]) => {
-          const normalizedKey = String(key || "").trim();
-          const normalizedValue = String(value ?? "").trim();
-          if (!normalizedKey || !normalizedValue) return;
-          merged[normalizedKey] = normalizedValue;
-        });
+      if (shared && typeof shared === "object" && !Array.isArray(shared)) {
+        sharedFilters = shared;
       }
     }
-    [tableProps?.default_filters, detail?.default_filters, detail?.drilldown_filters].forEach((source) => {
-      if (!source || typeof source !== "object" || Array.isArray(source)) return;
-      Object.entries(source).forEach(([key, value]) => {
-        const normalizedKey = String(key || "").trim();
-        const normalizedValue = String(value ?? "").trim();
-        if (!normalizedKey || !normalizedValue) return;
-        merged[normalizedKey] = normalizedValue;
-      });
-    });
+    const hasSharedFilters = Object.keys(sharedFilters).some(
+      (key) => String(sharedFilters[key] ?? "").trim(),
+    );
+    if (!hasSharedFilters) {
+      applyFilterMap(merged, popupParams?.default_filters);
+      applyFilterMap(merged, config?.params?.default_filters);
+      applyFilterMap(merged, detail?.default_filters);
+      applyFilterMap(merged, tableProps?.default_filters);
+    }
+    applyFilterMap(merged, sharedFilters);
+
+    applyFilterMap(merged, detail?.drilldown_filters);
+
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];

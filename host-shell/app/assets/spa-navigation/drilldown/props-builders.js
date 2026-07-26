@@ -85,6 +85,19 @@
       data,
       mapping: resolvedMapping,
       ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
+      selection_filter_encode: nonEmptyString(
+        config?.selection_filter_encode,
+        config?.selectionFilterEncode,
+        warningLevelDim ? "contains_any" : "",
+      ) || undefined,
+      category_order:
+        Array.isArray(config?.category_order) && config.category_order.length > 0
+          ? config.category_order
+          : Array.isArray(config?.categoryOrder) && config.categoryOrder.length > 0
+            ? config.categoryOrder
+            : dimName === "办理状态"
+              ? ["待办", "在办", "办结"]
+              : undefined,
       ...buildAnalyticsChartPresentationProps(config),
     };
   }
@@ -555,7 +568,26 @@
         ? detail.drilldown_filters
         : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
           ? detail.default_filters
-          : null;
+          : (() => {
+              const popupParams =
+                config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+                  ? config.popup.params
+                  : null;
+              const fromPopup =
+                popupParams?.default_filters &&
+                typeof popupParams.default_filters === "object" &&
+                !Array.isArray(popupParams.default_filters)
+                  ? popupParams.default_filters
+                  : null;
+              if (fromPopup) return fromPopup;
+              const fromConfig =
+                config?.params?.default_filters &&
+                typeof config.params.default_filters === "object" &&
+                !Array.isArray(config.params.default_filters)
+                  ? config.params.default_filters
+                  : null;
+              return fromConfig;
+            })();
     const autoSelectFirstRow = Boolean(
       drilldownFilters &&
         (config?.hasRowPreviewZone ||

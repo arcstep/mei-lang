@@ -22,6 +22,7 @@ import {
   createEmptyFilterRow,
   encodeFilterRow,
   filtersToRows,
+  sanitizeFiltersToCatalog,
   schemaToRows,
 } from "./filter-bar-expr.js";
 
@@ -146,12 +147,49 @@ class MeiDatasetFilterBar extends HTMLElement {
       return;
     }
     if (this._additiveMode) {
-      const fromFilters = filtersToRows(
-        this._filters,
-        this._columnCatalog,
-        this._columnProfiles,
-        () => this.nextRowId(),
-      );
+      const dropUnknown =
+        !resolveAllowExtra(this._props) &&
+        Array.isArray(this._columnCatalog) &&
+        this._columnCatalog.length > 0;
+      let effectiveFilters = this._filters || {};
+      if (dropUnknown) {
+        effectiveFilters = sanitizeFiltersToCatalog(effectiveFilters, this._columnCatalog);
+        if (
+          this._queryStateId &&
+          filterMapsDiffer(this._filters, effectiveFilters)
+        ) {
+          this._suppressRowSync = true;
+          try {
+            setQueryState(
+              this._queryStateId,
+              { filters: effectiveFilters },
+              {
+                filterIntentSource: "filter_bar",
+                transitionSource: "filter_bar_prune_unknown",
+              },
+            );
+          } finally {
+            this._suppressRowSync = false;
+          }
+          this._filters = effectiveFilters;
+        }
+      }
+      const fromFilters =
+        filtersToRows(
+          effectiveFilters,
+          this._columnCatalog,
+          this._columnProfiles,
+          () => this.nextRowId(),
+        ) || [];
+      if (dropUnknown && !this._additiveUserTouched) {
+        this._additiveRows = mergePresetsWithFilterRows(
+          this._columnCatalog,
+          resolvePresetFilterCount(this._props),
+          fromFilters,
+          () => this.nextRowId(),
+        );
+        return;
+      }
       this._additiveRows = mergeAdditiveRowsFromFilters(
         fromFilters,
         this._additiveRows,
@@ -958,6 +996,50 @@ function resolveFilterBarMode(props) {
   return "classic";
 }
 
+function resolveAllowExtra(props) {
+  return props?.allow_extra === true || props?.allowExtra === true;
+}
+
+function filterMapsDiffer(left, right) {
+  const a = left && typeof left === "object" && !Array.isArray(left) ? left : {};
+  const b = right && typeof right === "object" && !Array.isArray(right) ? right : {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (String(a[key] ?? "").trim() !== String(b[key] ?? "").trim()) return true;
+  }
+  return false;
+}
+
+function mergePresetsWithFilterRows(catalog, presetCount, filterRows, nextRowId) {
+  const presets = buildPresetFilterRows(catalog, presetCount, nextRowId);
+  const byColumn = new Map();
+  for (const row of Array.isArray(filterRows) ? filterRows : []) {
+    const column = String(row?.column || "").trim();
+    if (!column) continue;
+    byColumn.set(column, row);
+  }
+  const merged = presets.map((preset) => {
+    const column = String(preset?.column || "").trim();
+    const hit = column ? byColumn.get(column) : null;
+    if (!hit) return preset;
+    byColumn.delete(column);
+    return {
+      ...preset,
+      operator: hit.operator || preset.operator,
+      negate: hit.negate === true,
+      value: hit.value ?? "",
+      values: Array.isArray(hit.values) ? hit.values.slice() : [],
+      rangeStart: hit.rangeStart || "",
+      rangeEnd: hit.rangeEnd || "",
+      status: "active",
+    };
+  });
+  for (const row of byColumn.values()) {
+    merged.push({ ...row, status: "active" });
+  }
+  return merged;
+}
+
 function resolvePresetFilterCount(props) {
   const raw = props?.preset_filter_count ?? props?.presetFilterCount ?? props?.default_preset_count;
   const parsed = Number(raw);
@@ -1276,8 +1358,16 @@ function resolveMultiOptions(options, selectedValues) {
       count: hasCount ? count : undefined,
     });
   }
+  // 有计数时按 count 降序；无计数保持原序（已由 normalizeFacetOptions 排过）。
+  if (items.some((item) => Number(item.count) > 0)) {
+    items.sort(
+      (a, b) =>
+        (Number(b.count) || 0) - (Number(a.count) || 0) ||
+        String(a.value).localeCompare(String(b.value), "zh-CN"),
+    );
+  }
   for (const value of selectedValues || []) {
-    const text = String(value).trim();
+    const text = String(value || "").trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     items.push({ value: text, label: text });
@@ -1311,7 +1401,8 @@ function normalizeFacetOptions(rawOptions) {
         count: Number.isFinite(count) && count > 0 ? count : 0,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "zh-CN"));
 }
 
 function profileForColumn(column, profiles) {
@@ -1478,6 +1569,11 @@ function ensureFilterFloatingStyles() {
       display: flex;
       flex-direction: column;
       gap: 2px;
+      min-height: 0;
+    }
+    [data-mei-filter-floating="1"].multi-panel,
+    [data-mei-filter-floating="1"].field-picker-panel {
+      overscroll-behavior: contain;
     }
     [data-mei-filter-floating="1"] .multi-option,
     [data-mei-filter-floating="1"] .field-picker-option {
@@ -1717,7 +1813,23 @@ function syncFloatingPanels(host) {
 function ensureFloatingPanelListeners(host) {
   if (host._floatingPanelListenersBound) return;
   host._floatingPanelListenersBound = true;
-  host._floatingPanelSyncHandler = () => scheduleFloatingPanelSync(host);
+  host._floatingPanelSyncHandler = (event) => {
+    // 面板自身滚动不要触发 reposition（capture 阶段会收到），否则滚轮像被“锁死”。
+    if (event?.type === "scroll") {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest?.('[data-mei-filter-floating="1"]') ||
+          target.classList?.contains("multi-panel") ||
+          target.classList?.contains("field-picker-panel") ||
+          target.classList?.contains("multi-options") ||
+          target.classList?.contains("field-picker-options"))
+      ) {
+        return;
+      }
+    }
+    scheduleFloatingPanelSync(host);
+  };
   window.addEventListener("resize", host._floatingPanelSyncHandler);
   window.addEventListener("scroll", host._floatingPanelSyncHandler, true);
 }
@@ -1831,6 +1943,10 @@ function bindMultiPanelInteractions(host, options = {}) {
   }
 
   for (const checkbox of host.shadowRoot.querySelectorAll('.multi-option input[type="checkbox"]')) {
+    checkbox.addEventListener("click", (event) => {
+      // 阻止冒泡到 document 的 outside-click，避免选中后立刻关面板。
+      event.stopPropagation();
+    });
     checkbox.addEventListener("change", (event) => {
       event.stopPropagation();
       const panelKey = resolveMultiPanelKey(checkbox);
@@ -1842,9 +1958,16 @@ function bindMultiPanelInteractions(host, options = {}) {
       if (typeof onCheckboxChange === "function") {
         onCheckboxChange();
       }
-      if (panelKey) host._multiPanelSearch.delete(panelKey);
-      host._openDropdownKey = "";
+      // 多选：保持下拉打开，仅点面板外才关闭。
+      if (panelKey) {
+        host._openDropdownKey = panelKey;
+      }
       host.render();
+    });
+  }
+  for (const option of host.shadowRoot.querySelectorAll(".multi-option")) {
+    option.addEventListener("click", (event) => {
+      event.stopPropagation();
     });
   }
 

@@ -20,7 +20,12 @@ export function activeTableFilters(props, queryStateId, localFilters = {}) {
       : props?.defaultFilters && typeof props.defaultFilters === "object" && !Array.isArray(props.defaultFilters)
         ? props.defaultFilters
         : {};
-  return mergeFilters(sharedFiltersForProps(props, queryStateId), defaultFilters, localFilters);
+  const id = String(queryStateId || "").trim();
+  // 绑定 query_state 后以共享真值为准（024005）；default_filters 仅由 filter-bar 空态注入一次。
+  if (id) {
+    return mergeFilters(sharedFiltersForProps(props, id), localFilters);
+  }
+  return mergeFilters(defaultFilters, localFilters);
 }
 
 export function normalizeSort(sort) {

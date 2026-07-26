@@ -174,6 +174,18 @@ function findCatalogFieldByStateKey(catalog, stateKey) {
   );
 }
 
+/** Drop filter dimensions that are not in the author catalog (e.g. stale 监督类别). */
+export function sanitizeFiltersToCatalog(filters, catalog) {
+  const out = {};
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (!String(value ?? "").trim()) continue;
+    if (findCatalogFieldByStateKey(catalog, key)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export function filtersToRows(filters, catalog, profiles, nextRowId) {
   const entries = Object.entries(filters || {}).filter(([, raw]) => String(raw ?? "").trim());
   if (!entries.length) {

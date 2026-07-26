@@ -361,6 +361,31 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
         .get("default")
         .and_then(Value::as_str)
         .unwrap_or("待办");
+    let completed = args
+        .get("completed")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let field = args
+        .get("field")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("当前状态")
+        .to_string();
+    let status_update = |label: &str| {
+        let mut updates = Map::new();
+        updates.insert(
+            field.clone(),
+            aek("lit", &[("value", json!(label))]),
+        );
+        Value::Object(updates)
+    };
+    // 办理三态（不含「问题跟踪ID」门槛）：
+    // - 待办：承办部门为空（含 — 等占位）
+    // - 在办：承办部门有值且办结时间为空
+    // - 办结：办结时间有值
+    // 互斥切分：办结优先，其次在办，其余待办。
     let pending = aek(
         "mutate",
         &[
@@ -377,8 +402,8 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                                 &[(
                                     "predicates",
                                     json!([
-                                        aek("present", &[("field", json!("问题跟踪ID"))]),
                                         aek("blank", &[("field", json!("承办部门"))]),
+                                        aek("blank", &[("field", json!("办结时间"))]),
                                     ]),
                                 )],
                             ),
@@ -386,10 +411,7 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                     ],
                 ),
             ),
-            (
-                "updates",
-                json!({"当前状态": aek("lit", &[("value", json!(default))])}),
-            ),
+            ("updates", status_update(default)),
         ],
     );
     let in_progress_rows = aek(
@@ -408,7 +430,6 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                                 &[(
                                     "predicates",
                                     json!([
-                                        aek("present", &[("field", json!("问题跟踪ID"))]),
                                         aek("present", &[("field", json!("承办部门"))]),
                                         aek("blank", &[("field", json!("办结时间"))]),
                                     ]),
@@ -418,12 +439,34 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                     ],
                 ),
             ),
-            (
-                "updates",
-                json!({"当前状态": aek("lit", &[("value", json!(in_progress))])}),
-            ),
+            ("updates", status_update(in_progress)),
         ],
     );
+    if let Some(completed_label) = completed {
+        let completed_rows = aek(
+            "mutate",
+            &[
+                (
+                    "rowset",
+                    aek(
+                        "where",
+                        &[
+                            ("rowset", input.clone()),
+                            (
+                                "predicate",
+                                aek("present", &[("field", json!("办结时间"))]),
+                            ),
+                        ],
+                    ),
+                ),
+                ("updates", status_update(completed_label)),
+            ],
+        );
+        return aek(
+            "concat_rowsets",
+            &[("rowsets", json!([pending, in_progress_rows, completed_rows]))],
+        );
+    }
     let other = aek(
         "mutate",
         &[
@@ -450,12 +493,12 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                                                         "predicates",
                                                         json!([
                                                             aek(
-                                                                "present",
-                                                                &[("field", json!("问题跟踪ID"))]
+                                                                "blank",
+                                                                &[("field", json!("承办部门"))]
                                                             ),
                                                             aek(
                                                                 "blank",
-                                                                &[("field", json!("承办部门"))]
+                                                                &[("field", json!("办结时间"))]
                                                             ),
                                                         ]),
                                                     )],
@@ -465,10 +508,6 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                                                     &[(
                                                         "predicates",
                                                         json!([
-                                                            aek(
-                                                                "present",
-                                                                &[("field", json!("问题跟踪ID"))]
-                                                            ),
                                                             aek(
                                                                 "present",
                                                                 &[("field", json!("承办部门"))]
@@ -489,10 +528,7 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                     ],
                 ),
             ),
-            (
-                "updates",
-                json!({"当前状态": aek("lit", &[("value", json!(default))])}),
-            ),
+            ("updates", status_update(default)),
         ],
     );
     aek(
@@ -1398,6 +1434,12 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                     ],
                 )
             }
+            "label_status_pending" => {
+                // Expression form: label_status_pending(rowset, …kwargs).
+                // Pipeline form is handled in lower_pipeline_step.
+                let input = lower_rowset(arg0(&args), ctx);
+                lower_label_status_pending(&input, &args)
+            }
             "concat_rowsets" => lower_concat_rowsets(&args, ctx),
             "party_gov_sanction_rows" | "handled_person_rows" => {
                 expand_person_rowset(name.as_str(), value, ctx).unwrap_or(json!(null))
@@ -2215,6 +2257,70 @@ mod tests {
                 .pointer("/values/value/rowset/days")
                 .and_then(Value::as_u64),
             Some(7)
+        );
+    }
+
+    #[test]
+    fn lower_label_status_pending_dataset_view_inlines_into_scalar_count() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "warning_list",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "alert_tracking"}},
+                },
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "issue_handling_list",
+                    "from": "warning_list",
+                    "rowset": {
+                        "__call": "label_status_pending",
+                        "__args": {
+                            "arg0": {
+                                "__call": "first_by",
+                                "__args": {
+                                    "arg0": {
+                                        "__call": "data_ref",
+                                        "__args": {"arg0": "warning_list"}
+                                    },
+                                    "arg1": "预警ID"
+                                }
+                            },
+                            "in_progress": "在办",
+                            "default": "待办",
+                            "completed": "办结",
+                            "field": "办理状态"
+                        }
+                    }
+                }
+            }
+        ]);
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "issue_handling_analytics",
+                "rowset": {"__call": "data_ref", "__args": {"arg0": "issue_handling_list"}},
+                "agg": {"__call": "count", "__args": {}}
+            }
+        });
+        let lowered = lower_v2_metric("issue_handling_analytics", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered
+                .pointer("/values/value/rowset/type")
+                .and_then(Value::as_str),
+            Some("concat_rowsets"),
+            "issue_handling_list must inline label_status_pending, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/rowset/rowsets/0/updates/办理状态/value")
+                .and_then(Value::as_str),
+            Some("待办"),
+            "pending branch must mutate 办理状态=待办, got {lowered}"
         );
     }
 }

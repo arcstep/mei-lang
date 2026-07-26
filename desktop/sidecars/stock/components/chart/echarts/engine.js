@@ -1155,6 +1155,21 @@ function orderCartesianCategories(rows, mapping, yFields) {
     .map(([label]) => label);
 }
 
+/** 办理状态等生命周期维：固定 X 轴顺序，表达连续状态（缺类目补 0）。 */
+const HANDLING_STATUS_CATEGORY_ORDER = ["待办", "在办", "办结"];
+
+function resolveFixedCategoryOrder(props, xField) {
+  const field = String(xField || "").trim();
+  const fromProps = props?.category_order ?? props?.categoryOrder;
+  if (Array.isArray(fromProps) && fromProps.length > 0) {
+    return fromProps.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  if (field === "办理状态" || field === "handlingStatus" || field === "status") {
+    return HANDLING_STATUS_CATEGORY_ORDER.slice();
+  }
+  return null;
+}
+
 function reorderRowsByCategoryOrder(rows, xField, categoryOrder) {
   if (!xField || !Array.isArray(categoryOrder) || categoryOrder.length === 0) {
     return rows;
@@ -1208,12 +1223,19 @@ function buildChartModel(kind, props, diagnostics) {
       : reconcileCartesianMapping(rows, baseMapping);
   const legacy = Object.assign(resolveLegacyBehavior(props), { __host: props.__host });
   const topN = resolveTopN(props);
+  const fixedCategoryOrder = resolveFixedCategoryOrder(props, mapping?.x?.[0]?.field);
   const chartRows =
-    topN > 0 && normalized === "column"
+    topN > 0 && normalized === "column" && !fixedCategoryOrder
       ? limitCartesianRowsByTopY(rows, mapping, topN)
-      : rows;
-  if (topN > 0 && normalized === "column") {
+      : fixedCategoryOrder && mapping?.x?.[0]?.field
+        ? reorderRowsByCategoryOrder(rows, mapping.x[0].field, fixedCategoryOrder)
+        : rows;
+  if (topN > 0 && normalized === "column" && !fixedCategoryOrder) {
     legacy.sortCategoriesByYTotal = true;
+  }
+  if (fixedCategoryOrder) {
+    legacy.sortCategoriesByYTotal = false;
+    legacy.fixedCategoryOrder = fixedCategoryOrder;
   }
   if (normalized === "ranking") {
     const layout = resolveRankingLayout(props);
@@ -1297,8 +1319,10 @@ function resolveChartSelectionContext(kind, props, model) {
   const filterEncode = firstNonEmptyString(
     props.selection_filter_encode,
     props.selectionFilterEncode,
-    // 风险等级多标签：点击扇区按「包含该等级」写入筛选，而非精确组合值
-    selectionDimension === "风险等级" ? "contains_any" : "",
+    // 风险/预警等级多标签：点击扇区按「包含该等级」写入筛选，而非精确组合值
+    selectionDimension === "风险等级" || selectionDimension === "预警等级"
+      ? "contains_any"
+      : "",
   );
   return {
     queryStateId,
@@ -2109,7 +2133,13 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     diagnostics.push("chart.trend 需要且仅支持一个 y 通道");
   }
   let categories = unique(rows.map((row) => String(row?.[xField] ?? ""))).filter(Boolean);
-  if (legacy.sortCategoriesByYTotal) {
+  const fixedOrder = Array.isArray(legacy.fixedCategoryOrder)
+    ? legacy.fixedCategoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
+    : resolveFixedCategoryOrder(legacy.chartProps, xField);
+  if (fixedOrder && fixedOrder.length > 0) {
+    // 固定顺序：即使当前筛选只剩一类，也保留连续状态轴（缺省为 0）
+    categories = fixedOrder;
+  } else if (legacy.sortCategoriesByYTotal) {
     const ranked = orderCartesianCategories(rows, mapping, yFields);
     if (ranked.length > 0) {
       categories = ranked.filter((label) => categories.includes(label));

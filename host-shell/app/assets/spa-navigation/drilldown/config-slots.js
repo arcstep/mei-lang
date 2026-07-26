@@ -117,6 +117,15 @@
         topN: positiveInt(entry.top_n, entry.topN),
         valueField: nonEmptyString(entry.value_field, entry.valueField),
         delimiter: nonEmptyString(entry.delimiter),
+        selectionFilterEncode: nonEmptyString(
+          entry.selection_filter_encode,
+          entry.selectionFilterEncode,
+        ),
+        categoryOrder: Array.isArray(entry.category_order)
+          ? entry.category_order.map((item) => String(item || "").trim()).filter(Boolean)
+          : Array.isArray(entry.categoryOrder)
+            ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
+            : null,
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
@@ -458,6 +467,11 @@
             topN: slot.topN,
             valueField: slot.valueField,
             compositionAgg: slot.compositionAgg,
+            selection_filter_encode: slot.selectionFilterEncode || undefined,
+            category_order:
+              Array.isArray(slot.categoryOrder) && slot.categoryOrder.length > 0
+                ? slot.categoryOrder
+                : undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",

@@ -578,13 +578,13 @@ export function tableDrilldownMeta(props) {
   ) {
     return null;
   }
-  const filterSchema =
+  const filterSchema = mergeAnalyticsFilterSchema(
     popup.filter_schema ??
-    popup.filterSchema ??
-    mergeAnalyticsFilterSchema(
-      assemblyEntry?.filter_schema ?? assemblyEntry?.filterSchema,
-      assemblyEntry?.bindings?.filter_schema ?? assemblyEntry?.bindings?.filterSchema,
-    );
+      popup.filterSchema ??
+      assemblyEntry?.filter_schema ??
+      assemblyEntry?.filterSchema,
+    assemblyEntry?.bindings?.filter_schema ?? assemblyEntry?.bindings?.filterSchema,
+  );
   const shellContract =
     popup.shell_contract ??
     popup.shellContract ??
@@ -1158,38 +1158,14 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
     return;
   }
 
+  const title = resolveObjectOpenTitle(objectType, row, objectKey, target);
   const detail = {
     ...openPopup,
     popup: openPopup,
-    // 页签标题优先用行内业务名称（如风险事项/预警模型），避免序号类主键直接当标题。
-    label: nonEmptyString(
-      firstNonEmptyRowValue(row, [
-        "风险事项",
-        "监督事项",
-        "预警模型",
-        "预警ID",
-        "处理结果ID",
-        "label",
-        "title",
-      ]),
-      objectKey,
-      target.label,
-    ),
+    // Warning 详情卡页签固定用预警ID；其它对象仍优先业务名称（风险事项/预警模型等）。
+    label: title,
     value: objectKey,
-    desc: nonEmptyString(
-      firstNonEmptyRowValue(row, [
-        "风险事项",
-        "监督事项",
-        "预警模型",
-        "预警ID",
-        "处理结果ID",
-        "label",
-        "title",
-      ]),
-      objectKey,
-      target.label,
-      `${objectType}:${objectKey}`,
-    ),
+    desc: title,
     object_locator: { objectType, objectKey },
     object_intents: intents,
   };
@@ -1210,6 +1186,32 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
       composed: true,
       detail,
     }),
+  );
+}
+
+function resolveObjectOpenTitle(objectType, row, objectKey, target) {
+  const type = String(objectType || "").trim();
+  if (type === "zhifa.Warning" || type.endsWith(".Warning")) {
+    return nonEmptyString(
+      firstNonEmptyRowValue(row, ["预警ID", "warning_id", "warningId"]),
+      objectKey,
+      target?.label,
+    );
+  }
+  // 页签标题优先用行内业务名称（如风险事项/预警模型），避免序号类主键直接当标题。
+  return nonEmptyString(
+    firstNonEmptyRowValue(row, [
+      "风险事项",
+      "监督事项",
+      "预警模型",
+      "预警ID",
+      "处理结果ID",
+      "label",
+      "title",
+    ]),
+    objectKey,
+    target?.label,
+    type && objectKey ? `${type}:${objectKey}` : "",
   );
 }
 

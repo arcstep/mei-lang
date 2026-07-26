@@ -6,7 +6,7 @@ use mei_lang_datasets::{
 use mei_lang_kernel::{load_mei_config_for_app, runtime_plan_requires_warm};
 use mei_plug_ds::{
     apply_memory_warmup_pin_policy, collect_warmup_targets_for_scopes_with_filter,
-    hydrate_existing_l1_slots, run_warmup_targets_with_tier, WarmupScopeFilter,
+    hydrate_existing_l1_slots, run_warmup_targets_with_tier, WarmupScopeFilter, WarmupTarget,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -205,6 +205,8 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
         );
     }
 
+    ensure_client_bootstrap_for_hot_scenes(ctx, &scenes, &targets)?;
+
     Ok(HotWarmupReport {
         memory_hydrated,
         target_count: targets.len(),
@@ -215,6 +217,71 @@ fn run_hot_warmup(state: &AppRuntimeServeState) -> anyhow::Result<HotWarmupRepor
             .len(),
         elapsed_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// Pack-first Access needs a revision-aligned client-bootstrap on the *instance*
+/// var root. Hot warmup historically skipped Client tier ("stays on disk"), so
+/// after import / MRG hash drift the instance kept a stale manifest →
+/// `revision_mismatch` → empty scene-bootstrap → F5 Pack-First hang + map cold path.
+fn ensure_client_bootstrap_for_hot_scenes(
+    ctx: &HostContext,
+    scenes: &[String],
+    targets: &[WarmupTarget],
+) -> anyhow::Result<()> {
+    let mut repair_scopes = Vec::new();
+    for scope in scenes {
+        let status = mei_host_graph::bootstrap_embed_status(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+            scope.as_str(),
+        );
+        if status.allowed || status.reason == "no_client_bootstrap_required" {
+            continue;
+        }
+        if matches!(
+            status.reason.as_str(),
+            "manifest_missing" | "revision_mismatch"
+        ) {
+            tracing::warn!(
+                app_id = %ctx.app_id,
+                scope = %scope,
+                reason = %status.reason,
+                client_revision = ?status.client_revision,
+                expected_revision = ?status.expected_revision,
+                "client-bootstrap stale/missing on instance; running Client tier"
+            );
+            repair_scopes.push(scope.clone());
+        }
+    }
+    if repair_scopes.is_empty() {
+        return Ok(());
+    }
+    let report = run_warmup_targets_with_tier(ctx, targets, WarmupTier::Client)?;
+    tracing::info!(
+        app_id = %ctx.app_id,
+        scopes = %repair_scopes.join(","),
+        client_manifest_written = report.client_manifest_written,
+        client_tier_ms = report.client_tier_ms,
+        "client bootstrap repair finished"
+    );
+    for scope in &repair_scopes {
+        let status = mei_host_graph::bootstrap_embed_status(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+            scope.as_str(),
+        );
+        if !status.allowed && status.reason != "no_client_bootstrap_required" {
+            tracing::warn!(
+                app_id = %ctx.app_id,
+                scope = %scope,
+                reason = %status.reason,
+                client_revision = ?status.client_revision,
+                expected_revision = ?status.expected_revision,
+                "client bootstrap still not embeddable after Client tier"
+            );
+        }
+    }
+    Ok(())
 }
 
 fn launch_warmup_enabled(warmup: &Option<Value>) -> bool {

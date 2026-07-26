@@ -1,4 +1,4 @@
-const QUERY_STATE_LS_PREFIX = "mei:query-state:v1:";
+const QUERY_STATE_LS_PREFIX = "mei:query-state:v2:";
 const QUERY_STATE_STORE_KEY = "__meiQueryStateStore";
 
 function queryStateStorageKey(appId, sceneId) {

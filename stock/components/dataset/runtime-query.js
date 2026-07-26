@@ -3306,17 +3306,21 @@ function bootstrapSeedReady() {
 /**
  * Pack-First 仅在「可 seed 的 Eval Pack」上等待。
  * 空 pack / `__no_client_bootstrap__` 不得仅因 payloadReady 触发 8s 干等。
+ * 仅有 meta revision、却无 artifact-url / 内联 metrics / payloadReady 时也不干等：
+ * thin shell 在 revision_mismatch 后可能残留旧 meta，API 已返回空包。
  */
 export function isSeedableBootstrapPack({
   metrics = null,
-  payloadReady: _payloadReady = false,
+  payloadReady = false,
   clientRevision = "",
   bootstrapInlined = false,
   metaClientRevision = "",
   noClientPack = false,
+  artifactUrl = "",
 } = {}) {
   const rev = String(clientRevision || "").trim();
   const metaRev = String(metaClientRevision || "").trim();
+  const artifact = String(artifactUrl || "").trim();
   if (
     noClientPack === true ||
     noClientPack === 1 ||
@@ -3331,9 +3335,9 @@ export function isSeedableBootstrapPack({
   if (bootstrapInlined) {
     return true;
   }
-  // payloadReady  alone 不够：空 metrics 的 ready 表示「无 client bootstrap」，不是可 seed pack
-  // revision_only：document 已声明真实 revision，pack 仍在加载 → 允许短暂 Pack-First 等待
-  if (metaRev) {
+  // revision_only：document 声明了真实 revision，且有 artifact-url 或 payload 已到
+  // → 允许短暂 Pack-First 等待。裸 meta 不够（防 stale thin-shell cache）。
+  if (metaRev && (artifact || payloadReady)) {
     return true;
   }
   return false;
@@ -3393,6 +3397,18 @@ function readBootstrapClientRevisionMeta() {
   return el ? String(el.getAttribute("content") || "").trim() : "";
 }
 
+function readBootstrapArtifactUrlMeta() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const el = document.querySelector('meta[name="mei-bootstrap-artifact-url"]');
+  const fromMeta = el ? String(el.getAttribute("content") || "").trim() : "";
+  if (fromMeta) {
+    return fromMeta;
+  }
+  return String(window.__mei?.bootstrap_artifact_url || "").trim();
+}
+
 function bootstrapPackExpected() {
   if (typeof window === "undefined") {
     return false;
@@ -3404,6 +3420,7 @@ function bootstrapPackExpected() {
     bootstrapInlined: readBootstrapInlinedMeta(),
     metaClientRevision: readBootstrapClientRevisionMeta(),
     noClientPack: window.__meiBootstrapNoClientPack,
+    artifactUrl: readBootstrapArtifactUrlMeta(),
   });
 }
 

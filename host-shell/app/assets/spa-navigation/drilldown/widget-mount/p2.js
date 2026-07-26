@@ -71,9 +71,19 @@
       if (!column) continue;
       byColumn.set(column, mapped);
     }
-    // 明细表全部可筛列并入候选；已在 schema 中的列保留作者配置。
-    // allow_extra=false 时只保留作者 fields，避免表列（或旧契约列名）抢预置位。
-    if (allowExtra || schemaFields.length === 0) {
+    // 作者声明 allow_extra=false 时只保留 fields，禁止表列（旧「监督类别」/行权类别）抢预置位。
+    // 完全没有 filter_schema 时仍回退表列（兼容未声明过滤的看板）。
+    const authorSchemaPresent = Boolean(
+      config?.filterSchema &&
+        (schemaFields.length > 0 ||
+          config.filterSchema.allowExtra === false ||
+          config.filterSchema.allow_extra === false ||
+          config.filterSchema.presetFilterCount != null ||
+          config.filterSchema.preset_filter_count != null ||
+          config.filterSchema.defaultCollapsed === false ||
+          config.filterSchema.default_collapsed === false),
+    );
+    if (allowExtra || (schemaFields.length === 0 && !authorSchemaPresent)) {
       for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
         const column = String(raw || "").trim();
         if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
@@ -157,6 +167,7 @@
       live: false,
       title: nonEmptyString(filterSchema.title) || "筛选条件",
       default_collapsed: Boolean(filterSchema.defaultCollapsed),
+      allow_extra: filterSchema.allowExtra === true,
       preset_filter_count: presetFilterCount,
       query_state: nonEmptyString(
         config?.queryStateId,

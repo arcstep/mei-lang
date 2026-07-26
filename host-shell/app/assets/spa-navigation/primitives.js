@@ -85,12 +85,14 @@
       config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
         ? config.popup.params
         : null;
+    // link_decl / popup.params.metric 是作者显式指定的分析指标（如 issue_handling_analytics），
+    // 必须优先于卡片自身的 count metric（warnings_pending_count 等），否则二级屏会误拉标量 rowset。
     return nonEmptyString(
+      metricRefId(popupParams?.metric),
+      metricRefId(configPopupParams?.metric),
+      metricRefId(configParams?.metric),
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,
-      metricRefId(popupParams?.metric),
-      metricRefId(configParams?.metric),
-      metricRefId(configPopupParams?.metric),
     );
   }
 
