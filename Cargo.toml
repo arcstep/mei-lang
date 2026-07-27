@@ -30,7 +30,7 @@ exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "2.7.24"
+version = "2.7.25"
 license = "MIT"
 
 [workspace.dependencies]
