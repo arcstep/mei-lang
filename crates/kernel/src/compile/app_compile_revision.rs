@@ -509,6 +509,24 @@ fn append_ops_source_revision_tokens(
 ) {
     let config = load_mei_config_for_app(app_root, None);
     for (source_id, entry) in &config.ops.sources {
+        let kind = entry.kind.trim().to_ascii_lowercase();
+        let is_pg = matches!(
+            kind.as_str(),
+            "postgres" | "postgresql" | "timescale" | "timescaledb"
+        );
+        if is_pg || entry.connection.as_deref().map(str::trim).unwrap_or("").len() > 0 {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            use std::hash::{Hash, Hasher};
+            entry.connection.as_deref().unwrap_or("").hash(&mut hasher);
+            entry.query.as_deref().unwrap_or("").hash(&mut hasher);
+            entry.table.as_deref().unwrap_or("").hash(&mut hasher);
+            kind.hash(&mut hasher);
+            token_parts.insert(
+                format!("source:{source_id}"),
+                format!("pg:{:016x}", hasher.finish()),
+            );
+            continue;
+        }
         let rel = entry.path.trim().replace('\\', "/");
         if rel.is_empty() {
             continue;

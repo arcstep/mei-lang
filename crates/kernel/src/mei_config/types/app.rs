@@ -441,6 +441,9 @@ fn default_fill_down() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpsSourceEntry {
     pub kind: String,
+    /// File-backed sources use a relative path; postgres/db may leave this empty
+    /// and set `connection` + `query`/`table` instead.
+    #[serde(default)]
     pub path: String,
     #[serde(default)]
     pub sheet: Option<String>,

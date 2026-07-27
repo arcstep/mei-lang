@@ -12,6 +12,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use mei_lang_kernel::{
     data_snapshot_store_root, parse_geojson_rows, parquet_snapshot_path,
     resolve_data_snapshot_import_entry, write_xlsx_parquet_snapshot, ColumnSchema, DatasetView,
+    DEFAULT_DATABASE_TTL_MS,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
@@ -20,6 +21,8 @@ use serde_json::Value;
 use super::connection::{block_on, with_app_session};
 use super::sql::{quote_ident, sql_cast_type, sql_try_cast_expr};
 use crate::paths::resolve_source_path;
+use crate::postgres_dataset::{fetch_all_postgres_rows, is_postgres_kind};
+use crate::types::parse_source_meta;
 
 const GEOJSON_ATTR_COLUMNS: &[&str] = &["id", "name", "type", "geometry-type"];
 
@@ -35,6 +38,9 @@ pub fn resolve_parquet_for_dataset_view(
     app_root: &Path,
     view: &DatasetView,
 ) -> Result<Option<PathBuf>> {
+    if is_postgres_kind(view.source.kind.as_str()) {
+        return resolve_or_materialize_postgres_parquet(app_root, view);
+    }
     if is_geojson_source(view) {
         return resolve_or_materialize_geojson_attr_parquet(app_root, view.source.path.as_str());
     }
@@ -77,6 +83,113 @@ pub fn resolve_parquet_for_dataset_view(
             Ok(None)
         }
     }
+}
+
+/// Materialize postgres/timescale rows into an app-local temp parquet for DataFusion.
+pub fn resolve_or_materialize_postgres_parquet(
+    app_root: &Path,
+    view: &DatasetView,
+) -> Result<Option<PathBuf>> {
+    let meta = parse_source_meta(view.source.content.as_deref());
+    let connection = meta
+        .connection
+        .as_deref()
+        .or(view.source.connection.as_deref())
+        .unwrap_or("")
+        .trim();
+    let query = meta
+        .query
+        .as_deref()
+        .or(view.source.query.as_deref())
+        .unwrap_or("")
+        .trim();
+    let table = meta
+        .table
+        .as_deref()
+        .or(view.source.table.as_deref())
+        .unwrap_or("")
+        .trim();
+    if connection.is_empty() && query.is_empty() && table.is_empty() {
+        return Ok(None);
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let ttl_ms = DEFAULT_DATABASE_TTL_MS.max(1);
+    let bucket = now_ms / ttl_ms;
+    let mut hasher = DefaultHasher::new();
+    view.id.hash(&mut hasher);
+    connection.hash(&mut hasher);
+    query.hash(&mut hasher);
+    table.hash(&mut hasher);
+    bucket.hash(&mut hasher);
+    let out = data_snapshot_store_root(app_root).join(format!(
+        "pg-bridge-{:016x}.parquet",
+        hasher.finish()
+    ));
+    if out.is_file() {
+        return Ok(Some(out));
+    }
+    let (columns, rows) = fetch_all_postgres_rows(app_root, &view.source, &meta)
+        .with_context(|| format!("postgres bridge fetch for dataset {}", view.id))?;
+    fs::create_dir_all(out.parent().unwrap_or(app_root))
+        .with_context(|| format!("mkdir {}", out.parent().unwrap_or(app_root).display()))?;
+    // Atomic-ish write: temp then rename.
+    let tmp = out.with_extension("parquet.tmp");
+    write_json_rows_parquet(&tmp, &columns, &rows)
+        .with_context(|| format!("write postgres bridge parquet {}", tmp.display()))?;
+    fs::rename(&tmp, &out).with_context(|| {
+        format!(
+            "rename postgres bridge parquet {} -> {}",
+            tmp.display(),
+            out.display()
+        )
+    })?;
+    Ok(Some(out))
+}
+
+fn write_json_rows_parquet(path: &Path, columns: &[String], rows: &[Value]) -> Result<()> {
+    let cols = if columns.is_empty() {
+        // Infer from first row.
+        rows.first()
+            .and_then(Value::as_object)
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    } else {
+        columns.to_vec()
+    };
+    if cols.is_empty() {
+        // Empty schema parquet (0 rows).
+        let schema = Arc::new(Schema::empty());
+        let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+        let writer = ArrowWriter::try_new(file, schema, None).context("empty ArrowWriter")?;
+        writer.close().context("close empty parquet")?;
+        return Ok(());
+    }
+    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(cols.len());
+    for name in &cols {
+        let values: Vec<Option<String>> = rows
+            .iter()
+            .map(|row| {
+                row.as_object()
+                    .and_then(|map| map.get(name))
+                    .and_then(json_cell_to_string)
+            })
+            .collect();
+        arrays.push(Arc::new(StringArray::from(values)) as ArrayRef);
+    }
+    let schema = Arc::new(Schema::new(
+        cols.iter()
+            .map(|name| Field::new(name.as_str(), DataType::Utf8, true))
+            .collect::<Vec<_>>(),
+    ));
+    let batch = RecordBatch::try_new(schema.clone(), arrays).context("pg bridge RecordBatch")?;
+    let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None).context("pg bridge ArrowWriter")?;
+    writer.write(&batch).context("write pg bridge batch")?;
+    writer.close().context("close pg bridge parquet")?;
+    Ok(())
 }
 
 /// Materialize GeoJSON feature properties (no coordinates) into a cached parquet

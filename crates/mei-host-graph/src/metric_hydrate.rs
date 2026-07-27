@@ -282,10 +282,6 @@ fn empty_source_decl() -> SourceDecl {
 }
 
 fn enrich_file_backed_source(source: SourceDecl) -> SourceDecl {
-    let path = source.path.trim();
-    if path.is_empty() {
-        return source;
-    }
     if source
         .content
         .as_deref()
@@ -294,7 +290,40 @@ fn enrich_file_backed_source(source: SourceDecl) -> SourceDecl {
         return source;
     }
     let kind = source.kind.trim().to_ascii_lowercase();
-    if !matches!(kind.as_str(), "xlsx" | "xls" | "csv" | "json" | "geojson") {
+    let is_pg = matches!(
+        kind.as_str(),
+        "postgres" | "postgresql" | "timescale" | "timescaledb"
+    );
+    let is_db = kind == "db" || is_pg;
+    let is_file = matches!(kind.as_str(), "xlsx" | "xls" | "csv" | "json" | "geojson");
+    let path = source.path.trim();
+    if !is_db && !is_file {
+        return source;
+    }
+    if !is_db && path.is_empty() {
+        return source;
+    }
+    if is_db
+        && source
+            .connection
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        && source
+            .query
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        && source
+            .table
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        && path.is_empty()
+    {
         return source;
     }
     let meta = serde_json::json!({

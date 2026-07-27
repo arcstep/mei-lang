@@ -102,7 +102,7 @@ fn next_generation_token(prefix: &str) -> String {
 
 fn source_mode_for_dataset(dataset: &DatasetView, runtime: &RuntimeConfig) -> String {
     let kind = dataset.source.kind.trim().to_ascii_lowercase();
-    if kind.contains("db") || kind.contains("sql") || kind == "database" {
+    if is_database_source_kind(&kind) {
         "ttl".to_string()
     } else if runtime
         .cache_generation
@@ -121,7 +121,7 @@ fn source_mode_for_dataset(dataset: &DatasetView, runtime: &RuntimeConfig) -> St
 
 fn source_ttl_ms(dataset: &DatasetView, runtime: &RuntimeConfig) -> u64 {
     let kind = dataset.source.kind.trim().to_ascii_lowercase();
-    if kind.contains("db") || kind.contains("sql") || kind == "database" {
+    if is_database_source_kind(&kind) {
         runtime
             .cache_generation
             .sources
@@ -220,7 +220,17 @@ pub fn bump_cache_generation(
 
 pub fn is_file_source_dataset(dataset: &DatasetView) -> bool {
     let kind = dataset.source.kind.trim().to_ascii_lowercase();
-    !(kind.contains("db") || kind.contains("sql") || kind == "database")
+    !is_database_source_kind(&kind)
+}
+
+fn is_database_source_kind(kind: &str) -> bool {
+    kind.contains("db")
+        || kind.contains("sql")
+        || kind == "database"
+        || kind == "postgres"
+        || kind == "postgresql"
+        || kind == "timescale"
+        || kind == "timescaledb"
 }
 
 #[cfg(test)]

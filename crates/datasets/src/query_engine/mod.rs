@@ -14,6 +14,7 @@ mod sql;
 pub use connection::{
     clear_query_engine_session_for_app, clear_query_engine_sessions, ensure_query_engine_session,
 };
+pub(crate) use connection::block_on;
 pub(crate) use metric_sql::count_primary_dataset_rows;
 pub use pipeline_sql::{snapshot_pipeline_sql_stats, take_pipeline_sql_stats};
 pub(crate) use pipeline_sql::{

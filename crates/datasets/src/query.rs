@@ -14,6 +14,7 @@ use super::file_cache::resolve_external_file_cache_settings;
 use super::geojson_dataset;
 use super::json_dataset;
 use super::paginate::paginate_rows;
+use super::postgres_dataset::{self, is_postgres_kind};
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
 use super::xlsx_dataset;
@@ -135,6 +136,14 @@ pub fn query_dataset_rows(
             &dataset.schema,
         ),
         "db" => db_dataset::query_db_rows(app_root, &dataset.source, &meta, &normalized_options),
+        "postgres" | "postgresql" | "timescale" | "timescaledb" => {
+            postgres_dataset::query_postgres_rows(
+                app_root,
+                &dataset.source,
+                &meta,
+                &normalized_options,
+            )
+        }
         _ => Ok(paginate_rows(
             dataset.rows.clone(),
             &dataset.columns,
@@ -151,20 +160,24 @@ pub fn query_dataset_rows(
 }
 
 fn file_backed_for_lazy_query(dataset: &DatasetView, meta: &SourceMeta) -> bool {
-    let path = dataset.source.path.trim();
-    if path.is_empty() || path.starts_with("dataset_view:") {
-        return false;
-    }
     let kind = dataset.source.kind.trim();
     if kind.eq_ignore_ascii_case("derived") {
         return false;
     }
     if kind.eq_ignore_ascii_case("db")
+        || is_postgres_kind(kind)
         || meta.connection.is_some()
+        || dataset.source.connection.is_some()
         || meta.table.is_some()
         || meta.query.is_some()
+        || dataset.source.table.is_some()
+        || dataset.source.query.is_some()
     {
         return true;
+    }
+    let path = dataset.source.path.trim();
+    if path.is_empty() || path.starts_with("dataset_view:") {
+        return false;
     }
     matches!(
         source_kind(dataset).as_str(),

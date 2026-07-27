@@ -61,6 +61,8 @@ chumsky = "0.9"
 zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 [profile.dev]
 # Line tables retain useful source locations while avoiding macOS' very large
 # full-DWARF development artifacts.

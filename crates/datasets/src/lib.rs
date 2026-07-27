@@ -4,6 +4,7 @@ mod cache_partition;
 mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
+mod postgres_dataset;
 mod query_engine;
 mod eval_artifact;
 mod eval_cache_invalidation;
@@ -72,6 +73,7 @@ pub use metric_access::{
     evaluate_runtime_metrics_from_plan, materialize_query_options, runtime_metric_scope_requested,
     RuntimeMetricEvalMode, RuntimeMetricEvalOutcome,
 };
+pub use postgres_dataset::{clear_postgres_pool, is_postgres_kind, resolve_connection_dsn};
 pub use metric_dataframe::metric_dataframe_result_cache_key;
 pub use metric_eval_inflight::{
     reset_metric_eval_singleflight_stats_for_tests, run_metric_eval_singleflight,
@@ -214,11 +216,15 @@ pub fn clear_table_handle_cache() -> usize {
 }
 
 pub fn clear_query_engine_sessions() -> usize {
-    query_engine::clear_query_engine_sessions()
+    let n = query_engine::clear_query_engine_sessions();
+    let _ = clear_postgres_pool(None);
+    n
 }
 
 pub fn clear_query_engine_session_for_app(app_root: &Path) -> usize {
-    query_engine::clear_query_engine_session_for_app(app_root)
+    let n = query_engine::clear_query_engine_session_for_app(app_root);
+    let _ = clear_postgres_pool(Some(app_root));
+    n
 }
 
 pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
