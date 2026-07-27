@@ -1,7 +1,7 @@
 use super::row_ops::eval_row_value;
 use super::{
-    aggregate_group_rows_pivot, party_year_aggregate_rows, pivot_long_rows, trend_rows_by_month,
-    trend_year_compare_rows, unpivot_columns_rows,
+    aggregate_group_rows_pivot, party_year_aggregate_rows, pivot_long_rows,
+    resolve_trend_compare_years, trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows,
 };
 use serde_json::json;
 
@@ -105,6 +105,65 @@ fn trend_year_compare_calendar_sum_aggregates_penalty_amount() {
         })
         .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
     assert_eq!(march_2024, Some(150.0));
+}
+
+#[test]
+fn resolve_trend_years_auto_from_rows() {
+    let rows = vec![
+        json!({"检查日期": "2023-01-01"}),
+        json!({"检查日期": "2025-06-01"}),
+        json!({"检查日期": "2024-03-10"}),
+    ];
+    assert_eq!(
+        resolve_trend_compare_years(&rows, "检查日期", None),
+        vec![2023, 2024, 2025]
+    );
+}
+
+#[test]
+fn resolve_trend_years_auto_caps_to_most_recent_five() {
+    let rows = (2020..=2026)
+        .map(|year| json!({"检查日期": format!("{year}-06-01")}))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        resolve_trend_compare_years(&rows, "检查日期", None),
+        vec![2022, 2023, 2024, 2025, 2026]
+    );
+}
+
+#[test]
+fn resolve_trend_years_explicit_intersects_present() {
+    let rows = vec![
+        json!({"检查日期": "2025-01-15"}),
+        json!({"检查日期": "2025-06-01"}),
+    ];
+    assert_eq!(
+        resolve_trend_compare_years(&rows, "检查日期", Some(&[2024, 2025])),
+        vec![2025]
+    );
+}
+
+#[test]
+fn trend_year_compare_auto_single_year_is_twelve_points() {
+    let rows = vec![
+        json!({"检查日期": "2025-03-10"}),
+        json!({"检查日期": "2025-03-12"}),
+    ];
+    let years = resolve_trend_compare_years(&rows, "检查日期", None);
+    let trend = trend_year_compare_rows(
+        &rows,
+        "检查日期",
+        None,
+        "count",
+        6,
+        &years,
+        "month",
+        "year",
+        "calendar",
+    );
+    assert_eq!(years, vec![2025]);
+    assert_eq!(trend.len(), 12);
+    assert!(trend.iter().all(|row| row.get("year").and_then(|v| v.as_str()) == Some("2025")));
 }
 
 #[test]

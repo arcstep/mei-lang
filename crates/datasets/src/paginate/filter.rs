@@ -50,7 +50,8 @@ fn parse_filter_spec(expected: &str) -> FilterSpec {
         if let Some((start, end)) = rest.split_once("..") {
             let start = start.trim();
             let end = end.trim();
-            if !start.is_empty() && !end.is_empty() {
+            // Open-ended: allow only start (`mrange:2024-01..`) or only end (`mrange:..2024-06`).
+            if !start.is_empty() || !end.is_empty() {
                 return FilterSpec::MonthRange {
                     start: start.to_string(),
                     end: end.to_string(),
@@ -62,7 +63,8 @@ fn parse_filter_spec(expected: &str) -> FilterSpec {
         if let Some((start, end)) = rest.split_once("..") {
             let start = start.trim();
             let end = end.trim();
-            if !start.is_empty() && !end.is_empty() {
+            // Open-ended: allow only start (`drange:2024-01-15..`) or only end (`drange:..2024-06-30`).
+            if !start.is_empty() || !end.is_empty() {
                 return FilterSpec::DateRange {
                     start: start.to_string(),
                     end: end.to_string(),
@@ -139,19 +141,35 @@ fn eval_filter_spec(actual: &str, spec: &FilterSpec) -> bool {
             let Some(actual_month) = extract_year_month(actual) else {
                 return false;
             };
-            actual_month.as_str() >= start.as_str() && actual_month.as_str() <= end.as_str()
+            if !start.is_empty() && actual_month.as_str() < start.as_str() {
+                return false;
+            }
+            if !end.is_empty() && actual_month.as_str() > end.as_str() {
+                return false;
+            }
+            true
         }
         FilterSpec::DateRange { start, end } => {
             let Some(actual_ord) = sort_datetime(actual) else {
                 return false;
             };
-            let Some(start_ord) = sort_datetime(start) else {
-                return false;
-            };
-            let Some(end_ord) = sort_datetime(end) else {
-                return false;
-            };
-            actual_ord >= start_ord && actual_ord <= end_ord
+            if !start.is_empty() {
+                let Some(start_ord) = sort_datetime(start) else {
+                    return false;
+                };
+                if actual_ord < start_ord {
+                    return false;
+                }
+            }
+            if !end.is_empty() {
+                let Some(end_ord) = sort_datetime(end) else {
+                    return false;
+                };
+                if actual_ord > end_ord {
+                    return false;
+                }
+            }
+            true
         }
         FilterSpec::NumCompare { op, value } => parse_filter_number(actual)
             .is_some_and(|actual_value| eval_num_compare(actual_value, *op, *value)),
@@ -241,6 +259,31 @@ mod filter_spec_tests {
         assert!(eval_filter_spec("2024-06-30", &spec));
         assert!(!eval_filter_spec("2024-01-14", &spec));
         assert!(!eval_filter_spec("2024-07-01", &spec));
+    }
+
+    #[test]
+    fn parse_open_ended_date_range() {
+        let gte = parse_filter_spec("drange:2024-01-15..");
+        assert!(eval_filter_spec("2024-01-15", &gte));
+        assert!(eval_filter_spec("2025-12-31", &gte));
+        assert!(!eval_filter_spec("2024-01-14", &gte));
+
+        let lte = parse_filter_spec("drange:..2024-06-30");
+        assert!(eval_filter_spec("2024-06-30", &lte));
+        assert!(eval_filter_spec("2020-01-01", &lte));
+        assert!(!eval_filter_spec("2024-07-01", &lte));
+    }
+
+    #[test]
+    fn parse_open_ended_month_range() {
+        let gte = parse_filter_spec("mrange:2024-03..");
+        assert!(eval_filter_spec("2024-03-01", &gte));
+        assert!(eval_filter_spec("2025-01-01", &gte));
+        assert!(!eval_filter_spec("2024-02-28", &gte));
+
+        let lte = parse_filter_spec("mrange:..2024-06");
+        assert!(eval_filter_spec("2024-06-15", &lte));
+        assert!(!eval_filter_spec("2024-07-01", &lte));
     }
 }
 

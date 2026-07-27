@@ -206,6 +206,53 @@ fn query_parquet_page_between_on_date32_column() {
 }
 
 #[test]
+fn query_parquet_page_drange_matches_filter_bar_encoding() {
+    // filter-bar writes drange:; SQL path must not fall back to equality on the
+    // encoded string (that yields total=0 for every real date column).
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    let parquet = write_date_mixed_parquet(app_root);
+    let schema = vec![
+        ColumnSchema {
+            name: "检查日期".into(),
+            type_name: "date".into(),
+            source: None,
+            optional: true,
+            unit: None,
+        },
+        ColumnSchema {
+            name: "id".into(),
+            type_name: "integer".into(),
+            source: None,
+            optional: false,
+            unit: None,
+        },
+    ];
+    let mut filters = BTreeMap::new();
+    filters.insert("检查日期".into(), "drange:2025-01-01..2025-12-31".into());
+    let options = DatasetQueryOptions {
+        page: 1,
+        page_size: 10,
+        filters,
+        collect_all: false,
+        ..DatasetQueryOptions::default()
+    };
+    let page = query_parquet_page(
+        app_root,
+        ParquetPageQuery {
+            parquet_path: parquet.as_path(),
+            schema: &schema,
+            physical_columns: None,
+            normalize: &BTreeMap::new(),
+            options: &options,
+        },
+    )
+    .expect("drange must lower to DATE BETWEEN");
+    assert_eq!(page.total, 2);
+    assert_eq!(page.rows.len(), 2);
+}
+
+#[test]
 fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
     use super::register::ensure_parquet_view;
 

@@ -2674,6 +2674,16 @@ body > .mei-floating-text-pop-backdrop {
 }
 .mei-layer2-workspace {
   z-index: var(--mei-z-layer2-workspace);
+  /* 二级看板字号：跟应用主题字阶；顶栏/正文不低于最小档，禁止写死更小的 px */
+  --mei-layer2-min-font-size: var(--mei-typography-min-font-size, var(--mei-font-1, 16px));
+  --mei-layer2-chrome-font-size: var(--mei-layer2-min-font-size);
+  --mei-layer2-title-font-size: var(--mei-body-font-size, var(--mei-font-2, var(--mei-layer2-min-font-size)));
+  font-size: var(--mei-layer2-min-font-size);
+}
+.access-drilldown-overlay {
+  --mei-layer2-min-font-size: var(--mei-typography-min-font-size, var(--mei-font-1, 16px));
+  --mei-layer2-chrome-font-size: var(--mei-layer2-min-font-size);
+  --mei-layer2-title-font-size: var(--mei-body-font-size, var(--mei-font-2, var(--mei-layer2-min-font-size)));
 }
 .mei-layer2-in-viewport {
   position: absolute;
@@ -3376,7 +3386,7 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   align-items: stretch;
   gap: 8px;
   flex-shrink: 0;
-  min-height: 36px;
+  min-height: calc(var(--mei-layer2-chrome-font-size, 16px) + 20px);
   padding: 0 8px 0 6px;
   border-bottom: 1px solid var(--mei-color-drilldown-shell-border, rgba(98, 190, 235, 0.28));
   background: linear-gradient(
@@ -3424,7 +3434,7 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   background: transparent;
   color: rgba(255, 255, 255, 0.82);
   border-radius: 0;
-  padding: 7px 10px;
+  padding: 8px 12px;
   cursor: pointer;
   flex: 1;
   min-width: 0;
@@ -3432,8 +3442,8 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  font-size: 12px;
-  line-height: 1.25;
+  font-size: var(--mei-layer2-chrome-font-size, var(--mei-font-1, 16px));
+  line-height: 1.3;
 }
 .mei-layer2-tab.is-active {
   color: #fff;
@@ -3444,9 +3454,9 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   border-left: 1px solid rgba(98, 190, 235, 0.2);
   background: transparent;
   color: rgba(226, 232, 240, 0.75);
-  padding: 0 8px;
+  padding: 0 10px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--mei-layer2-chrome-font-size, var(--mei-font-1, 16px));
   line-height: 1;
   flex-shrink: 0;
 }
@@ -3483,10 +3493,10 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   background: transparent;
   color: rgba(226, 232, 240, 0.82);
   border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: var(--mei-layer2-chrome-font-size, var(--mei-font-1, 16px));
   cursor: pointer;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 .mei-layer2-size-btn.is-active,
 .mei-layer2-size-btn:hover,
@@ -3499,10 +3509,10 @@ body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-p
   background: color-mix(in srgb, var(--mei-color-drilldown-tab-bg, #094194) 55%, transparent);
   color: var(--mei-color-text-body, rgba(226, 232, 240, 0.9));
   border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  width: calc(var(--mei-layer2-chrome-font-size, 16px) + 14px);
+  height: calc(var(--mei-layer2-chrome-font-size, 16px) + 14px);
   padding: 0;
-  font-size: 16px;
+  font-size: var(--mei-layer2-chrome-font-size, var(--mei-font-1, 16px));
   line-height: 1;
   cursor: pointer;
 }
@@ -4186,7 +4196,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   padding: 14px 16px;
 }
 .access-drilldown-list-preview-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
   line-height: 1.4;
@@ -4234,7 +4244,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   font-weight: 600;
 }
 .access-drilldown-document-preview-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
   line-height: 1.45;
@@ -4292,10 +4302,65 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   flex: 1;
 }
 .access-drilldown-video-cockpit-section-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
   line-height: 1.45;
+}
+.access-drilldown-video-cockpit-seek {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-height: calc(var(--mei-layer2-min-font-size, 16px) + 12px);
+}
+.access-drilldown-video-cockpit-seek-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--mei-color-text-secondary, #cbd5e1);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
+  white-space: nowrap;
+}
+.access-drilldown-video-cockpit-seek-input {
+  width: 6.5em;
+  height: calc(var(--mei-layer2-min-font-size, 16px) + 12px);
+  padding: 0 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(8, 24, 48, 0.75);
+  color: var(--mei-color-text-primary, #e2e8f0);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.access-drilldown-video-cockpit-seek-input:focus {
+  outline: 1px solid rgba(56, 189, 248, 0.65);
+  outline-offset: 1px;
+}
+.access-drilldown-video-cockpit-seek-btn {
+  height: calc(var(--mei-layer2-min-font-size, 16px) + 12px);
+  padding: 0 12px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  background: rgba(14, 116, 144, 0.35);
+  color: #e0f2fe;
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
+  cursor: pointer;
+}
+.access-drilldown-video-cockpit-seek-btn:hover {
+  background: rgba(14, 116, 144, 0.55);
+}
+.access-drilldown-video-cockpit-seek-btn:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.8);
+  outline-offset: 1px;
+}
+.access-drilldown-video-cockpit-seek-hint {
+  color: #fca5a5;
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
+  line-height: 1.2;
 }
 .access-drilldown-video-cockpit-video-frame {
   flex: 1;
@@ -4561,7 +4626,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   overflow: auto;
 }
 .access-drilldown-swimlane-title {
-  font-size: var(--mei-font-3);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
   line-height: 1.4;
@@ -4841,7 +4906,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   margin: 0;
   flex: 1 1 240px;
   min-width: 0;
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 800;
   line-height: 1.28;
   color: var(--mei-color-text-value, #f0f9ff);
@@ -4849,7 +4914,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 .access-drilldown-case-detail-subtitle {
   flex: 0 0 auto;
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
   color: var(--mei-color-text-unit, #7dd3fc);
   line-height: 1.3;
   padding: 3px 10px;
@@ -5163,7 +5228,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
     inset 0 1px 0 rgba(45, 212, 191, 0.1);
 }
 .access-drilldown-case-detail-column-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 800;
   color: var(--mei-color-panel-title, #ecfeff);
   padding-bottom: 10px;
@@ -5479,7 +5544,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 }
 .access-drilldown-object-chooser-title {
   padding: 4px 8px 8px;
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-muted, #94a3b8);
 }
@@ -5752,12 +5817,12 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   display: none !important;
 }
 .access-drilldown-panel-hero-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
 }
 .access-drilldown-panel-hero-note {
-  font-size: var(--mei-font-1);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
   color: var(--mei-color-text-muted);
   line-height: 1.45;
 }
@@ -5780,7 +5845,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   gap: 4px;
 }
 .access-drilldown-overlay-title {
-  font-size: var(--mei-font-2);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
 }
@@ -5809,7 +5874,7 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   background: rgba(30, 58, 88, 0.92);
 }
 .access-drilldown-overlay-note {
-  font-size: var(--mei-font-1);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
   color: var(--mei-color-text-muted);
 }
 .access-drilldown-overlay-close {
@@ -5954,13 +6019,13 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   pointer-events: none;
 }
 .access-drilldown-context-title {
-  font-size: var(--mei-font-1);
+  font-size: var(--mei-layer2-title-font-size, var(--mei-body-font-size, var(--mei-font-2, 18px)));
   font-weight: 700;
   color: var(--mei-color-text-primary);
 }
 .access-drilldown-context-note {
   margin-top: 2px;
-  font-size: var(--mei-font-1);
+  font-size: var(--mei-layer2-min-font-size, var(--mei-font-1, 16px));
   color: var(--mei-color-text-primary);
   line-height: 1.45;
 }

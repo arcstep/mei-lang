@@ -1531,7 +1531,8 @@ function additiveDraftValidationError(row, profile, field) {
   if (operator === "month_range" || operator === "date_range") {
     const start = String(row?.rangeStart || "").trim();
     const end = String(row?.rangeEnd || "").trim();
-    if ((start && !end) || (!start && end)) return "请填写完整的起止日期";
+    // Open-ended ranges are allowed (only start = ≥, only end = ≤).
+    if (!start && !end) return "请至少填写起始或结束日期";
   }
   return "";
 }
@@ -2372,8 +2373,9 @@ function renderAdditiveValueMarkup(
       </div>`;
   }
   if (operator === "date_range") {
+    // 窄侧栏默认纵向：开始/结束各占一行，避免 type=date 被挤扁不可读
     return `
-      <div class="date-range-control date-range-control--inline">
+      <div class="date-range-control date-range-control--stacked">
         <div class="date-input-wrap">
           <input class="cockpit-filter-control" type="date" data-row-range-start="${escapeHtmlAttr(rowId)}" value="${escapeHtmlAttr(rangeStart)}" aria-label="起始日期" />
           <span class="date-input-icon">${CALENDAR_ICON_SVG}</span>
@@ -3198,12 +3200,18 @@ function schemaStyles() {
       grid-template-columns: 1fr;
       gap: 6px;
       align-items: stretch;
+      width: 100%;
+      min-width: 0;
     }
     .date-range-control--stacked .date-range-sep {
       text-align: center;
       color: rgba(186, 230, 253, 0.82);
       font-size: calc(${FILTER_PANEL_FONT} * 0.88);
       line-height: 1.2;
+    }
+    .date-range-control--stacked .date-input-wrap {
+      width: 100%;
+      min-width: 0;
     }
     .date-input-wrap {
       position: relative;
@@ -3215,9 +3223,11 @@ function schemaStyles() {
     .date-input-wrap input[type="month"] {
       width: 100%;
       box-sizing: border-box;
+      min-width: 0;
       min-height: ${minHeight};
       padding-right: 34px;
       color-scheme: dark;
+      font-variant-numeric: tabular-nums;
     }
     .date-input-wrap input[type="date"]::-webkit-calendar-picker-indicator,
     .date-input-wrap input[type="month"]::-webkit-calendar-picker-indicator {
@@ -3345,16 +3355,29 @@ function parseDateRangeFilterValue(raw) {
 function encodeSchemaDateRange(start, end) {
   const lo = String(start || "").trim();
   const hi = String(end || "").trim();
-  if (!lo || !hi) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(lo) && /^\d{4}-\d{2}-\d{2}$/.test(hi)) {
+  if (!lo && !hi) return "";
+  if (lo && hi) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(lo) && /^\d{4}-\d{2}-\d{2}$/.test(hi)) {
+      return `drange:${lo}..${hi}`;
+    }
+    const startMonth = lo.slice(0, 7);
+    const endMonth = hi.slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(startMonth) && /^\d{4}-\d{2}$/.test(endMonth)) {
+      return `mrange:${startMonth}..${endMonth}`;
+    }
     return `drange:${lo}..${hi}`;
   }
-  const startMonth = lo.slice(0, 7);
-  const endMonth = hi.slice(0, 7);
-  if (/^\d{4}-\d{2}$/.test(startMonth) && /^\d{4}-\d{2}$/.test(endMonth)) {
-    return `mrange:${startMonth}..${endMonth}`;
+  // Open-ended: only start (≥) or only end (≤).
+  if (lo && !hi) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(lo)) return `drange:${lo}..`;
+    const startMonth = lo.slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(startMonth)) return `mrange:${startMonth}..`;
+    return `drange:${lo}..`;
   }
-  return `drange:${lo}..${hi}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(hi)) return `drange:..${hi}`;
+  const endMonth = hi.slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(endMonth)) return `mrange:..${endMonth}`;
+  return `drange:..${hi}`;
 }
 
 function encodeSchemaFieldValue(field, row) {
@@ -3446,7 +3469,7 @@ function renderSchemaDateRange(field, row, appliedFilters) {
   return `
     <div class="schema-field is-date-range is-tall-value ${isApplied ? "is-applied" : ""}">
       <span class="schema-label">${escapeHtml(label)}</span>
-      <div class="schema-control date-range-control date-range-control--inline">
+      <div class="schema-control date-range-control date-range-control--stacked">
         <div class="date-input-wrap">
           <input
             class="cockpit-filter-control"

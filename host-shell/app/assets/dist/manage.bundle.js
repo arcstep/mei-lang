@@ -17960,6 +17960,49 @@
       .sort((a, b) => String(a.month).localeCompare(String(b.month)));
   }
 
+  /** Client fallback for trend_year_compare (024008): month×year grid, years auto (cap 5). */
+  function groupRowsYearMonthCompare(rows, field, columns = [], options = {}) {
+    const maxYears = Math.max(1, Number(options?.maxYears) || 5);
+    const windowMode = String(options?.window || "calendar").trim().toLowerCase();
+    const counts = new Map();
+    const yearSet = new Set();
+    rows.forEach((row) => {
+      const key = monthBucketLabel(rowFieldValue(row, field, columns));
+      if (!/^\d{4}-\d{2}$/.test(key)) return;
+      const year = key.slice(0, 4);
+      const month = key.slice(5, 7);
+      yearSet.add(year);
+      const cell = `${year}|${month}`;
+      counts.set(cell, (counts.get(cell) || 0) + 1);
+    });
+    let years = Array.from(yearSet).sort();
+    if (years.length > maxYears) {
+      years = years.slice(years.length - maxYears);
+    }
+    if (!years.length) return [];
+    const months =
+      windowMode === "rolling"
+        ? Array.from(
+            new Set(
+              Array.from(counts.keys())
+                .map((cell) => cell.split("|")[1])
+                .filter(Boolean),
+            ),
+          ).sort()
+        : Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+    const out = [];
+    months.forEach((month) => {
+      years.forEach((year) => {
+        out.push({
+          month,
+          year,
+          value: counts.get(`${year}|${month}`) || 0,
+        });
+      });
+    });
+    return out;
+  }
+
   function buildStaticTablePropsFromRows(title, columns, rows) {
     return {
       title: String(title || ""),
@@ -17987,6 +18030,28 @@
     return false;
   }
 
+  function isWarningLevelDimName(value) {
+    const name = String(value || "").trim();
+    return name === "风险等级" || name === "预警等级" || name === "级别" || name === "level";
+  }
+
+  function resolveWarningLevelDimName(config = null, mapping = null) {
+    const fromMapping = nonEmptyString(
+      mapping?.label?.[0]?.name,
+      mapping?.x?.[0]?.name,
+      mapping?.label?.[0]?.field,
+      mapping?.x?.[0]?.field,
+    );
+    if (isWarningLevelDimName(fromMapping)) return fromMapping;
+    const fromConfig = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+      config?.composition_by,
+    );
+    if (isWarningLevelDimName(fromConfig)) return fromConfig;
+    return "";
+  }
+
   function buildAnalyticsChartPresentationProps(config = null, overrides = {}) {
     if (!isAnalyticsChartPresentation(config)) {
       return { ...overrides };
@@ -18005,12 +18070,17 @@
       .trim()
       .toLowerCase();
     const isPieFamily = chartKind === "pie" || chartKind === "donut" || chartKind === "rose";
+    const warningLevelDim = resolveWarningLevelDimName(config, mapping);
     const explicitPaletteMode = nonEmptyString(
       overrides?.palette_mode,
       overrides?.paletteMode,
       config?.palette_mode,
       config?.paletteMode,
     );
+    // 预警/风险等级环图：显式或按维度锁定 warning_level，禁止被 pie 默认 category 盖掉。
+    const resolvedPaletteMode = explicitPaletteMode
+      || (warningLevelDim ? "warning_level" : "")
+      || (isPieFamily ? "category" : "");
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -18025,8 +18095,7 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
-      ...(isPieFamily && !explicitPaletteMode ? { palette_mode: "category" } : {}),
-      ...(explicitPaletteMode ? { palette_mode: explicitPaletteMode } : {}),
+      ...(resolvedPaletteMode ? { palette_mode: resolvedPaletteMode } : {}),
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -18061,6 +18130,10 @@
       delete props.top_n;
     }
     delete props.topN;
+    // overrides 若未带 palette_mode，保留上面解析结果（避免被空覆盖）
+    if (!nonEmptyString(overrides?.palette_mode, overrides?.paletteMode) && resolvedPaletteMode) {
+      props.palette_mode = resolvedPaletteMode;
+    }
     return props;
   }
 
@@ -18076,18 +18149,21 @@
         : { x: "label", y: "value" };
     const resolvedMapping = mapping && typeof mapping === "object" ? mapping : defaultMapping;
     const dimName = nonEmptyString(
+      resolveWarningLevelDimName(config, resolvedMapping),
       resolvedMapping?.x?.[0]?.name,
       resolvedMapping?.label?.[0]?.name,
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
       config?.by,
     );
-    const warningLevelDim =
-      dimName === "风险等级" || dimName === "预警等级" || dimName === "级别" || dimName === "level";
+    const warningLevelDim = isWarningLevelDimName(dimName);
+    const presentation = buildAnalyticsChartPresentationProps(config, {
+      mapping: resolvedMapping,
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
+    });
     return {
       title: String(title || ""),
       data,
       mapping: resolvedMapping,
-      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
       selection_filter_encode: nonEmptyString(
         config?.selection_filter_encode,
         config?.selectionFilterEncode,
@@ -18101,7 +18177,9 @@
             : dimName === "办理状态"
               ? ["待办", "在办", "办结"]
               : undefined,
-      ...buildAnalyticsChartPresentationProps(config),
+      ...presentation,
+      // 最终锁定：预警/风险等级不可被 pie 默认 category 覆盖
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
     };
   }
 
@@ -18769,7 +18847,7 @@
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
   const DRILLDOWN_FILTER_BAR_SCRIPT =
-    "/workspace-components/dataset/filter-bar.js?v=filter-scroll-20260727a";
+    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260727a";
   const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
@@ -18992,7 +19070,15 @@
       if (isVerifiedShareCompositionTab(tabId, config)) {
         return mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride);
       }
-      // 其它构成/趋势：无筛选走服务端 explain；有筛选则基于明细客户端重聚合。
+      // 024008：dedicated trend explain（trend_year_compare）有筛选也走服务端，
+      // 依赖 filter 下推 + years auto；勿再退化成单序列 groupRowsByMonth。
+      const isTrendSlot = kind === "trend" || supportRole === "trend";
+      if (isTrendSlot && dedicatedChartMetric) {
+        if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
+          return true;
+        }
+      }
+      // 其它构成：无筛选走服务端 explain；有筛选则基于明细客户端重聚合。
       const hasFilters = hasActiveDrilldownQueryFilters(sharedQueryStateId);
       if (!hasFilters && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
@@ -21470,6 +21556,125 @@
     return `${prefix}${videoId}${suffix}`;
   }
 
+  /** Parse video-relative seek: `HH:MM:SS` / `MM:SS` / trailing clock in a datetime / bare seconds. */
+  function parseVideoSeekSeconds(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return null;
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      const seconds = Number(text);
+      return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+    }
+    const matches = [...text.matchAll(/(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?/g)];
+    if (!matches.length) return null;
+    const match = matches[matches.length - 1];
+    const a = Number(match[1]);
+    const b = Number(match[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b > 59) return null;
+    if (match[3] != null && match[3] !== "") {
+      const c = Number(match[3]);
+      if (!Number.isFinite(c) || c >= 60) return null;
+      return a * 3600 + b * 60 + c;
+    }
+    // Two-part clock: treat as MM:SS for in-video offsets.
+    if (a > 59) return null;
+    return a * 60 + b;
+  }
+
+  function formatVideoSeekClock(totalSeconds) {
+    const safe = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = safe % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+
+  function resolveVideoSeekSeconds(row, mapping) {
+    if (!row || typeof row !== "object") return null;
+    const field = String(
+      mapping?.video_seek_time_field || mapping?.videoSeekTimeField || "预警时间",
+    ).trim();
+    if (!field) return null;
+    return parseVideoSeekSeconds(resolveCaseDetailFieldValue(row, { field }));
+  }
+
+  function seekVideoToSeconds(video, seconds, { play = true } = {}) {
+    if (!(video instanceof HTMLVideoElement) || !Number.isFinite(seconds) || seconds < 0) {
+      return false;
+    }
+    const apply = () => {
+      const duration = Number(video.duration);
+      const target =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(seconds, Math.max(0, duration - 0.05))
+          : seconds;
+      try {
+        video.currentTime = target;
+      } catch {
+        return;
+      }
+      if (play) {
+        const playResult = video.play?.();
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch(() => {});
+        }
+      }
+    };
+    if (video.readyState >= 1) {
+      apply();
+      return true;
+    }
+    video.addEventListener("loadedmetadata", apply, { once: true });
+    return true;
+  }
+
+  function createVideoSeekToolbar(video, initialSeconds = null) {
+    const bar = document.createElement("div");
+    bar.className = "access-drilldown-video-cockpit-seek";
+    const label = document.createElement("label");
+    label.className = "access-drilldown-video-cockpit-seek-label";
+    label.textContent = "定位";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "access-drilldown-video-cockpit-seek-input";
+    input.placeholder = "时:分:秒";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    input.title = "输入时分秒（如 00:02:15）定位播放位置";
+    if (Number.isFinite(initialSeconds) && initialSeconds >= 0) {
+      input.value = formatVideoSeekClock(initialSeconds);
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "access-drilldown-video-cockpit-seek-btn";
+    button.textContent = "跳转";
+    const hint = document.createElement("span");
+    hint.className = "access-drilldown-video-cockpit-seek-hint";
+    hint.setAttribute("aria-live", "polite");
+    const jump = () => {
+      const seconds = parseVideoSeekSeconds(input.value);
+      if (seconds == null) {
+        hint.textContent = "格式：时:分:秒";
+        input.focus();
+        return;
+      }
+      hint.textContent = "";
+      input.value = formatVideoSeekClock(seconds);
+      seekVideoToSeconds(video, seconds, { play: true });
+    };
+    button.addEventListener("click", jump);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        jump();
+      }
+    });
+    label.appendChild(input);
+    bar.appendChild(label);
+    bar.appendChild(button);
+    bar.appendChild(hint);
+    return { bar, input, jump };
+  }
 
   function createVideoSubtitleCockpitShell({
     title = "视频预览",
@@ -21501,7 +21706,7 @@
     subtitleSection.appendChild(subtitleBody);
     panel.appendChild(videoSection);
     panel.appendChild(subtitleSection);
-    return { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle };
+    return { panel, videoSection, videoFrame, subtitleBody, videoTitle, subtitleTitle };
   }
 
   function appendVideoCockpitPlaceholder(frame, text, { hint = false } = {}) {
@@ -21719,7 +21924,7 @@
       field: mapping?.title_field || mapping?.titleField || "视频编号",
       fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
     });
-    const { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle } = createVideoSubtitleCockpitShell({
+    const { panel, videoSection, videoFrame, subtitleBody, videoTitle, subtitleTitle } = createVideoSubtitleCockpitShell({
       title: videoSectionTitle,
       summaryTitle: summarySectionTitle,
     });
@@ -21737,21 +21942,35 @@
       relPath,
       { inline: true },
     );
+    const initialSeekSeconds = resolveVideoSeekSeconds(row, mapping);
     if (!src) {
       appendVideoCockpitPlaceholder(videoFrame, "暂无可预览的视频");
     } else {
       const video = document.createElement("video");
       video.className = "access-drilldown-video-cockpit-player";
       video.controls = true;
+      // metadata + HTTP Range: browser can seek without downloading the whole MP4.
       video.preload = "metadata";
       video.playsInline = true;
       video.src = src;
       video.title = titleText || "执法视频预览";
+      let seekBar = null;
       video.addEventListener("error", () => {
+        seekBar?.remove();
         videoFrame.replaceChildren();
         appendVideoCockpitPlaceholder(videoFrame, "未找到可播放的视频文件，请确认视频路径已上传");
       });
+      const { bar } = createVideoSeekToolbar(video, initialSeekSeconds);
+      seekBar = bar;
+      if (videoTitle?.parentElement === videoSection) {
+        videoSection.insertBefore(bar, videoFrame);
+      } else {
+        videoSection.appendChild(bar);
+      }
       videoFrame.appendChild(video);
+      if (Number.isFinite(initialSeekSeconds) && initialSeekSeconds >= 0) {
+        seekVideoToSeconds(video, initialSeekSeconds, { play: false });
+      }
     }
     renderSummaryImagePreview(subtitleBody, row, mapping);
     host.appendChild(panel);
@@ -22507,6 +22726,7 @@
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
       resetDrilldownChartSlotHost(host, compositionCaption);
+      const dimTitle = verifiedShare ? "查实占比" : dimension || "label";
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -22515,7 +22735,9 @@
           tabId,
           grouped,
           {
-            x: [{ field: "label", name: verifiedShare ? "查实占比" : dimension || "label" }],
+            // field 必须是聚合结果列 label；name 保留真实维度名供预警色板识别
+            x: [{ field: "label", name: dimTitle }],
+            label: [{ field: "label", name: dimTitle }],
             y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,
@@ -22540,7 +22762,11 @@
         });
         return false;
       }
-      const grouped = groupRowsByMonth(rows, trendField, columns);
+      // 024008：与服务端 trend_year_compare 同形（month/year/value + group=year）
+      const grouped = groupRowsYearMonthCompare(rows, trendField, columns, {
+        window: "calendar",
+        maxYears: 5,
+      });
       const trendCaption = resolveDrilldownChartSlotCaption(config) || "趋势";
       if (!grouped.length) {
         renderDrilldownChartEmptyState(host, trendCaption);
@@ -22551,16 +22777,21 @@
       if (!registered) return false;
       resetDrilldownChartSlotHost(host, trendCaption);
       const node = document.createElement("mei-chart-line");
+      const trendMapping =
+        config?.mapping && typeof config.mapping === "object"
+          ? config.mapping
+          : {
+              x: [{ field: "month", name: "月份" }],
+              y: [{ field: "value", name: "value" }],
+              group: [{ field: "year", name: "年度" }],
+            };
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
           // Empty: slot caption already shows the title.
           "",
           tabId,
           grouped,
-          {
-            x: "month",
-            y: "value",
-          },
+          trendMapping,
           config,
         ),
       );

@@ -154,7 +154,47 @@ fn data_ref_binding_lowers_like_rows() {
     let rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &expr)
         .expect("sql ok")
         .expect("lowered __ref");
+    // Explicit years ∩ present years: only 2025 in fixture → 12 calendar months.
+    assert_eq!(rows.len(), 12);
+}
+
+#[test]
+fn trend_year_compare_sql_auto_years_from_data() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    let view = write_inspections_view(
+        app_root,
+        "upload/data/inspections.xlsx",
+        &["2024-03-10", "2024-03-12", "2025-03-15", "2025-06-01"],
+        &["甲", "乙", "丙", "丁"],
+        &[0.0, 0.0, 0.0, 0.0],
+    );
+    let mut datasets = BTreeMap::new();
+    datasets.insert(view.id.clone(), view);
+    let expr = json!({
+        "__kind": "analysis_expr",
+        "type": "trend_year_compare",
+        "rowset": {
+            "__kind": "analysis_expr",
+            "type": "rows",
+            "dataset": "inspections"
+        },
+        "date_field": "检查日期",
+        "agg": "count",
+        "window": "calendar"
+    });
+    let rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &expr)
+        .expect("sql ok")
+        .expect("auto years");
     assert_eq!(rows.len(), 24);
+    let years: std::collections::BTreeSet<_> = rows
+        .iter()
+        .filter_map(|row| row.get("year").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(
+        years,
+        ["2024", "2025"].into_iter().collect::<std::collections::BTreeSet<_>>()
+    );
 }
 
 #[test]

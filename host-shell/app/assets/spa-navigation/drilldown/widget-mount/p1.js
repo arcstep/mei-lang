@@ -72,7 +72,7 @@
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
   const DRILLDOWN_FILTER_BAR_SCRIPT =
-    "/workspace-components/dataset/filter-bar.js?v=filter-scroll-20260727a";
+    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260727a";
   const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
@@ -295,7 +295,15 @@
       if (isVerifiedShareCompositionTab(tabId, config)) {
         return mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride);
       }
-      // 其它构成/趋势：无筛选走服务端 explain；有筛选则基于明细客户端重聚合。
+      // 024008：dedicated trend explain（trend_year_compare）有筛选也走服务端，
+      // 依赖 filter 下推 + years auto；勿再退化成单序列 groupRowsByMonth。
+      const isTrendSlot = kind === "trend" || supportRole === "trend";
+      if (isTrendSlot && dedicatedChartMetric) {
+        if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
+          return true;
+        }
+      }
+      // 其它构成：无筛选走服务端 explain；有筛选则基于明细客户端重聚合。
       const hasFilters = hasActiveDrilldownQueryFilters(sharedQueryStateId);
       if (!hasFilters && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {

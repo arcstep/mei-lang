@@ -12,6 +12,28 @@
     return false;
   }
 
+  function isWarningLevelDimName(value) {
+    const name = String(value || "").trim();
+    return name === "风险等级" || name === "预警等级" || name === "级别" || name === "level";
+  }
+
+  function resolveWarningLevelDimName(config = null, mapping = null) {
+    const fromMapping = nonEmptyString(
+      mapping?.label?.[0]?.name,
+      mapping?.x?.[0]?.name,
+      mapping?.label?.[0]?.field,
+      mapping?.x?.[0]?.field,
+    );
+    if (isWarningLevelDimName(fromMapping)) return fromMapping;
+    const fromConfig = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+      config?.composition_by,
+    );
+    if (isWarningLevelDimName(fromConfig)) return fromConfig;
+    return "";
+  }
+
   function buildAnalyticsChartPresentationProps(config = null, overrides = {}) {
     if (!isAnalyticsChartPresentation(config)) {
       return { ...overrides };
@@ -30,12 +52,17 @@
       .trim()
       .toLowerCase();
     const isPieFamily = chartKind === "pie" || chartKind === "donut" || chartKind === "rose";
+    const warningLevelDim = resolveWarningLevelDimName(config, mapping);
     const explicitPaletteMode = nonEmptyString(
       overrides?.palette_mode,
       overrides?.paletteMode,
       config?.palette_mode,
       config?.paletteMode,
     );
+    // 预警/风险等级环图：显式或按维度锁定 warning_level，禁止被 pie 默认 category 盖掉。
+    const resolvedPaletteMode = explicitPaletteMode
+      || (warningLevelDim ? "warning_level" : "")
+      || (isPieFamily ? "category" : "");
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -50,8 +77,7 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
-      ...(isPieFamily && !explicitPaletteMode ? { palette_mode: "category" } : {}),
-      ...(explicitPaletteMode ? { palette_mode: explicitPaletteMode } : {}),
+      ...(resolvedPaletteMode ? { palette_mode: resolvedPaletteMode } : {}),
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -86,6 +112,10 @@
       delete props.top_n;
     }
     delete props.topN;
+    // overrides 若未带 palette_mode，保留上面解析结果（避免被空覆盖）
+    if (!nonEmptyString(overrides?.palette_mode, overrides?.paletteMode) && resolvedPaletteMode) {
+      props.palette_mode = resolvedPaletteMode;
+    }
     return props;
   }
 
@@ -101,18 +131,21 @@
         : { x: "label", y: "value" };
     const resolvedMapping = mapping && typeof mapping === "object" ? mapping : defaultMapping;
     const dimName = nonEmptyString(
+      resolveWarningLevelDimName(config, resolvedMapping),
       resolvedMapping?.x?.[0]?.name,
       resolvedMapping?.label?.[0]?.name,
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
       config?.by,
     );
-    const warningLevelDim =
-      dimName === "风险等级" || dimName === "预警等级" || dimName === "级别" || dimName === "level";
+    const warningLevelDim = isWarningLevelDimName(dimName);
+    const presentation = buildAnalyticsChartPresentationProps(config, {
+      mapping: resolvedMapping,
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
+    });
     return {
       title: String(title || ""),
       data,
       mapping: resolvedMapping,
-      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
       selection_filter_encode: nonEmptyString(
         config?.selection_filter_encode,
         config?.selectionFilterEncode,
@@ -126,7 +159,9 @@
             : dimName === "办理状态"
               ? ["待办", "在办", "办结"]
               : undefined,
-      ...buildAnalyticsChartPresentationProps(config),
+      ...presentation,
+      // 最终锁定：预警/风险等级不可被 pie 默认 category 覆盖
+      ...(warningLevelDim ? { palette_mode: "warning_level" } : {}),
     };
   }
 

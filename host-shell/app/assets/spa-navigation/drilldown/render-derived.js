@@ -111,6 +111,7 @@
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
       resetDrilldownChartSlotHost(host, compositionCaption);
+      const dimTitle = verifiedShare ? "查实占比" : dimension || "label";
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -119,7 +120,9 @@
           tabId,
           grouped,
           {
-            x: [{ field: "label", name: verifiedShare ? "查实占比" : dimension || "label" }],
+            // field 必须是聚合结果列 label；name 保留真实维度名供预警色板识别
+            x: [{ field: "label", name: dimTitle }],
+            label: [{ field: "label", name: dimTitle }],
             y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,
@@ -144,7 +147,11 @@
         });
         return false;
       }
-      const grouped = groupRowsByMonth(rows, trendField, columns);
+      // 024008：与服务端 trend_year_compare 同形（month/year/value + group=year）
+      const grouped = groupRowsYearMonthCompare(rows, trendField, columns, {
+        window: "calendar",
+        maxYears: 5,
+      });
       const trendCaption = resolveDrilldownChartSlotCaption(config) || "趋势";
       if (!grouped.length) {
         renderDrilldownChartEmptyState(host, trendCaption);
@@ -155,16 +162,21 @@
       if (!registered) return false;
       resetDrilldownChartSlotHost(host, trendCaption);
       const node = document.createElement("mei-chart-line");
+      const trendMapping =
+        config?.mapping && typeof config.mapping === "object"
+          ? config.mapping
+          : {
+              x: [{ field: "month", name: "月份" }],
+              y: [{ field: "value", name: "value" }],
+              group: [{ field: "year", name: "年度" }],
+            };
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
           // Empty: slot caption already shows the title.
           "",
           tabId,
           grouped,
-          {
-            x: "month",
-            y: "value",
-          },
+          trendMapping,
           config,
         ),
       );

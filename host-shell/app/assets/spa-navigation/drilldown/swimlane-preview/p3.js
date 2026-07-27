@@ -215,6 +215,125 @@
     return `${prefix}${videoId}${suffix}`;
   }
 
+  /** Parse video-relative seek: `HH:MM:SS` / `MM:SS` / trailing clock in a datetime / bare seconds. */
+  function parseVideoSeekSeconds(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return null;
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      const seconds = Number(text);
+      return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+    }
+    const matches = [...text.matchAll(/(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?/g)];
+    if (!matches.length) return null;
+    const match = matches[matches.length - 1];
+    const a = Number(match[1]);
+    const b = Number(match[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b > 59) return null;
+    if (match[3] != null && match[3] !== "") {
+      const c = Number(match[3]);
+      if (!Number.isFinite(c) || c >= 60) return null;
+      return a * 3600 + b * 60 + c;
+    }
+    // Two-part clock: treat as MM:SS for in-video offsets.
+    if (a > 59) return null;
+    return a * 60 + b;
+  }
+
+  function formatVideoSeekClock(totalSeconds) {
+    const safe = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = safe % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+
+  function resolveVideoSeekSeconds(row, mapping) {
+    if (!row || typeof row !== "object") return null;
+    const field = String(
+      mapping?.video_seek_time_field || mapping?.videoSeekTimeField || "预警时间",
+    ).trim();
+    if (!field) return null;
+    return parseVideoSeekSeconds(resolveCaseDetailFieldValue(row, { field }));
+  }
+
+  function seekVideoToSeconds(video, seconds, { play = true } = {}) {
+    if (!(video instanceof HTMLVideoElement) || !Number.isFinite(seconds) || seconds < 0) {
+      return false;
+    }
+    const apply = () => {
+      const duration = Number(video.duration);
+      const target =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(seconds, Math.max(0, duration - 0.05))
+          : seconds;
+      try {
+        video.currentTime = target;
+      } catch {
+        return;
+      }
+      if (play) {
+        const playResult = video.play?.();
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch(() => {});
+        }
+      }
+    };
+    if (video.readyState >= 1) {
+      apply();
+      return true;
+    }
+    video.addEventListener("loadedmetadata", apply, { once: true });
+    return true;
+  }
+
+  function createVideoSeekToolbar(video, initialSeconds = null) {
+    const bar = document.createElement("div");
+    bar.className = "access-drilldown-video-cockpit-seek";
+    const label = document.createElement("label");
+    label.className = "access-drilldown-video-cockpit-seek-label";
+    label.textContent = "定位";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "access-drilldown-video-cockpit-seek-input";
+    input.placeholder = "时:分:秒";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    input.title = "输入时分秒（如 00:02:15）定位播放位置";
+    if (Number.isFinite(initialSeconds) && initialSeconds >= 0) {
+      input.value = formatVideoSeekClock(initialSeconds);
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "access-drilldown-video-cockpit-seek-btn";
+    button.textContent = "跳转";
+    const hint = document.createElement("span");
+    hint.className = "access-drilldown-video-cockpit-seek-hint";
+    hint.setAttribute("aria-live", "polite");
+    const jump = () => {
+      const seconds = parseVideoSeekSeconds(input.value);
+      if (seconds == null) {
+        hint.textContent = "格式：时:分:秒";
+        input.focus();
+        return;
+      }
+      hint.textContent = "";
+      input.value = formatVideoSeekClock(seconds);
+      seekVideoToSeconds(video, seconds, { play: true });
+    };
+    button.addEventListener("click", jump);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        jump();
+      }
+    });
+    label.appendChild(input);
+    bar.appendChild(label);
+    bar.appendChild(button);
+    bar.appendChild(hint);
+    return { bar, input, jump };
+  }
 
   function createVideoSubtitleCockpitShell({
     title = "视频预览",
@@ -246,7 +365,7 @@
     subtitleSection.appendChild(subtitleBody);
     panel.appendChild(videoSection);
     panel.appendChild(subtitleSection);
-    return { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle };
+    return { panel, videoSection, videoFrame, subtitleBody, videoTitle, subtitleTitle };
   }
 
   function appendVideoCockpitPlaceholder(frame, text, { hint = false } = {}) {
@@ -464,7 +583,7 @@
       field: mapping?.title_field || mapping?.titleField || "视频编号",
       fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
     });
-    const { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle } = createVideoSubtitleCockpitShell({
+    const { panel, videoSection, videoFrame, subtitleBody, videoTitle, subtitleTitle } = createVideoSubtitleCockpitShell({
       title: videoSectionTitle,
       summaryTitle: summarySectionTitle,
     });
@@ -482,21 +601,35 @@
       relPath,
       { inline: true },
     );
+    const initialSeekSeconds = resolveVideoSeekSeconds(row, mapping);
     if (!src) {
       appendVideoCockpitPlaceholder(videoFrame, "暂无可预览的视频");
     } else {
       const video = document.createElement("video");
       video.className = "access-drilldown-video-cockpit-player";
       video.controls = true;
+      // metadata + HTTP Range: browser can seek without downloading the whole MP4.
       video.preload = "metadata";
       video.playsInline = true;
       video.src = src;
       video.title = titleText || "执法视频预览";
+      let seekBar = null;
       video.addEventListener("error", () => {
+        seekBar?.remove();
         videoFrame.replaceChildren();
         appendVideoCockpitPlaceholder(videoFrame, "未找到可播放的视频文件，请确认视频路径已上传");
       });
+      const { bar } = createVideoSeekToolbar(video, initialSeekSeconds);
+      seekBar = bar;
+      if (videoTitle?.parentElement === videoSection) {
+        videoSection.insertBefore(bar, videoFrame);
+      } else {
+        videoSection.appendChild(bar);
+      }
       videoFrame.appendChild(video);
+      if (Number.isFinite(initialSeekSeconds) && initialSeekSeconds >= 0) {
+        seekVideoToSeconds(video, initialSeekSeconds, { play: false });
+      }
     }
     renderSummaryImagePreview(subtitleBody, row, mapping);
     host.appendChild(panel);

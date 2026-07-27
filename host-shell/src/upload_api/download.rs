@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -8,8 +8,8 @@ use axum::{
     body::{Body, Bytes},
     extract::{Json as AxumJson, Path as AxumPath, Query, State},
     http::{
-        header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
-        HeaderValue, StatusCode,
+        header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE},
+        HeaderMap, HeaderValue, StatusCode,
     },
     response::Response,
     Json,
@@ -230,10 +230,78 @@ pub(super) fn download_content_type(path: &Path) -> &'static str {
     }
 }
 
+/// Parse a single `bytes=start-end` / `bytes=start-` Range. Multipart ranges are ignored.
+pub(super) fn parse_bytes_range(headers: &HeaderMap, file_len: u64) -> Option<(u64, u64)> {
+    if file_len == 0 {
+        return None;
+    }
+    let raw = headers.get(RANGE)?.to_str().ok()?.trim();
+    let spec = raw.strip_prefix("bytes=")?.trim();
+    if spec.contains(',') {
+        return None;
+    }
+    let (start_raw, end_raw) = spec.split_once('-')?;
+    if start_raw.is_empty() {
+        let suffix = end_raw.parse::<u64>().ok()?;
+        if suffix == 0 {
+            return None;
+        }
+        let start = file_len.saturating_sub(suffix);
+        return Some((start, file_len - 1));
+    }
+    let start = start_raw.parse::<u64>().ok()?;
+    if start >= file_len {
+        return None;
+    }
+    let end = if end_raw.is_empty() {
+        file_len - 1
+    } else {
+        end_raw.parse::<u64>().ok()?.min(file_len - 1)
+    };
+    if end < start {
+        return None;
+    }
+    Some((start, end))
+}
+
+fn stream_file_bytes(path: PathBuf, start: u64, length: u64) -> Body {
+    Body::from_stream(async_stream::stream! {
+        let mut file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                yield Err(std::io::Error::other(error.to_string()));
+                return;
+            }
+        };
+        if let Err(error) = file.seek(SeekFrom::Start(start)) {
+            yield Err(std::io::Error::other(error.to_string()));
+            return;
+        }
+        let mut remaining = length;
+        let mut buf = vec![0u8; 1024 * 1024];
+        while remaining > 0 {
+            let chunk = remaining.min(buf.len() as u64) as usize;
+            let read = match file.read(&mut buf[..chunk]) {
+                Ok(read) => read,
+                Err(error) => {
+                    yield Err(std::io::Error::other(error.to_string()));
+                    return;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            remaining = remaining.saturating_sub(read as u64);
+            yield Ok(Bytes::from(buf[..read].to_vec()));
+        }
+    })
+}
+
 pub async fn upload_file_download_get(
     State(state): State<SharedState>,
     AxumPath(app_id): AxumPath<String>,
     Query(query): Query<UploadDownloadQuery>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let upload_root = resolve_upload_root_for_app(&state, &app_id)?;
     let rel = sanitize_upload_rel(&query.path)?;
@@ -249,32 +317,56 @@ pub async fn upload_file_download_get(
     let file_name = file_name_from_upload_rel(&rel)?;
     let content_type = download_content_type(&target);
     let file_len = metadata.len();
-    let stream_path = target.clone();
-    let stream = async_stream::stream! {
-        let mut file = match std::fs::File::open(&stream_path) {
-            Ok(file) => file,
-            Err(error) => {
-                yield Err(std::io::Error::other(error.to_string()));
-                return;
-            }
-        };
-        let mut buf = vec![0u8; 1024 * 1024];
-        loop {
-            let read = match file.read(&mut buf) {
-                Ok(read) => read,
-                Err(error) => {
-                    yield Err(std::io::Error::other(error.to_string()));
-                    return;
-                }
-            };
-            if read == 0 {
-                break;
-            }
-            yield Ok(Bytes::from(buf[..read].to_vec()));
-        }
+    let disposition = if query.inline && upload_supports_inline_preview(&target) {
+        content_disposition_inline(&file_name)?
+    } else {
+        content_disposition_attachment(&file_name)?
     };
 
-    let mut response = Response::new(Body::from_stream(stream));
+    let accept_ranges = HeaderValue::from_static("bytes");
+    if let Some((start, end)) = parse_bytes_range(&headers, file_len) {
+        let length = end - start + 1;
+        let mut response = Response::new(stream_file_bytes(target.clone(), start, length));
+        *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+        response.headers_mut().insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&length.to_string())
+                .map_err(|error| ApiError::msg(format!("invalid content length: {error}")))?,
+        );
+        response.headers_mut().insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{file_len}"))
+                .map_err(|error| ApiError::msg(format!("invalid content range: {error}")))?,
+        );
+        response.headers_mut().insert(
+            axum::http::header::ACCEPT_RANGES,
+            accept_ranges,
+        );
+        response
+            .headers_mut()
+            .insert(CONTENT_DISPOSITION, disposition);
+        return Ok(response);
+    }
+
+    if headers.get(RANGE).is_some() && file_len > 0 {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
+        response.headers_mut().insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes */{file_len}"))
+                .map_err(|error| ApiError::msg(format!("invalid content range: {error}")))?,
+        );
+        response.headers_mut().insert(
+            axum::http::header::ACCEPT_RANGES,
+            accept_ranges,
+        );
+        return Ok(response);
+    }
+
+    let mut response = Response::new(stream_file_bytes(target.clone(), 0, file_len));
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -284,12 +376,11 @@ pub async fn upload_file_download_get(
             .map_err(|error| ApiError::msg(format!("invalid content length: {error}")))?,
     );
     response.headers_mut().insert(
-        CONTENT_DISPOSITION,
-        if query.inline && upload_supports_inline_preview(&target) {
-            content_disposition_inline(&file_name)?
-        } else {
-            content_disposition_attachment(&file_name)?
-        },
+        axum::http::header::ACCEPT_RANGES,
+        accept_ranges,
     );
+    response
+        .headers_mut()
+        .insert(CONTENT_DISPOSITION, disposition);
     Ok(response)
 }

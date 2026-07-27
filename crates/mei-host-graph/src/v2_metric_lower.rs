@@ -952,24 +952,30 @@ fn lower_trend_year_compare(
         .unwrap_or("");
     let value_field = map.get("value").cloned().unwrap_or(Value::Null);
     let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
-    let years = map.get("years").cloned().unwrap_or(json!([2024, 2025]));
+    let mut years = map.get("years").cloned().unwrap_or(Value::Null);
+    if years.is_null()
+        || years.as_array().map(|items| items.is_empty()).unwrap_or(false)
+    {
+        // 024008: omit years → runtime auto from filtered rowset (do NOT default 2024/2025).
+        years = Value::Null;
+    }
     let limit = map.get("limit").cloned().unwrap_or(json!(6));
     let window = map
         .get("window")
         .and_then(Value::as_str)
         .unwrap_or("rolling");
-    aek(
-        "trend_year_compare",
-        &[
-            ("rowset", rowset),
-            ("date_field", json!(date_field)),
-            ("value", value_field),
-            ("agg", json!(agg)),
-            ("years", years),
-            ("limit", limit),
-            ("window", json!(window)),
-        ],
-    )
+    let mut fields = vec![
+        ("rowset", rowset),
+        ("date_field", json!(date_field)),
+        ("value", value_field),
+        ("agg", json!(agg)),
+        ("limit", limit),
+        ("window", json!(window)),
+    ];
+    if !years.is_null() {
+        fields.push(("years", years));
+    }
+    aek("trend_year_compare", &fields)
 }
 
 fn lower_pivot_long(args: &Value, ctx: &V2MetricLowerContext) -> Value {

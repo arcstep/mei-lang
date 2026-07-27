@@ -351,6 +351,49 @@
       .sort((a, b) => String(a.month).localeCompare(String(b.month)));
   }
 
+  /** Client fallback for trend_year_compare (024008): month×year grid, years auto (cap 5). */
+  function groupRowsYearMonthCompare(rows, field, columns = [], options = {}) {
+    const maxYears = Math.max(1, Number(options?.maxYears) || 5);
+    const windowMode = String(options?.window || "calendar").trim().toLowerCase();
+    const counts = new Map();
+    const yearSet = new Set();
+    rows.forEach((row) => {
+      const key = monthBucketLabel(rowFieldValue(row, field, columns));
+      if (!/^\d{4}-\d{2}$/.test(key)) return;
+      const year = key.slice(0, 4);
+      const month = key.slice(5, 7);
+      yearSet.add(year);
+      const cell = `${year}|${month}`;
+      counts.set(cell, (counts.get(cell) || 0) + 1);
+    });
+    let years = Array.from(yearSet).sort();
+    if (years.length > maxYears) {
+      years = years.slice(years.length - maxYears);
+    }
+    if (!years.length) return [];
+    const months =
+      windowMode === "rolling"
+        ? Array.from(
+            new Set(
+              Array.from(counts.keys())
+                .map((cell) => cell.split("|")[1])
+                .filter(Boolean),
+            ),
+          ).sort()
+        : Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+    const out = [];
+    months.forEach((month) => {
+      years.forEach((year) => {
+        out.push({
+          month,
+          year,
+          value: counts.get(`${year}|${month}`) || 0,
+        });
+      });
+    });
+    return out;
+  }
+
   function buildStaticTablePropsFromRows(title, columns, rows) {
     return {
       title: String(title || ""),

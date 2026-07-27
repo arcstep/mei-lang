@@ -4,6 +4,44 @@ use super::super::dates::{
     aggregate_month_value, format_month_label, latest_month_window, max_row_month, parse_row_date,
 };
 
+/// Auto-mode cap: keep the most recent N distinct years (024008).
+pub const TREND_YEAR_COMPARE_MAX_YEARS: usize = 5;
+
+/// Resolve years for `trend_year_compare`.
+///
+/// - `requested` empty → distinct years from filtered rows (asc), capped to most recent 5
+/// - `requested` non-empty → intersection with years present in rows (preserve requested order)
+pub fn resolve_trend_compare_years(
+    rows: &[Value],
+    date_field: &str,
+    requested: Option<&[i32]>,
+) -> Vec<i32> {
+    let mut present = std::collections::BTreeSet::new();
+    for row in rows {
+        if let Some((year, _, _)) = parse_row_date(row, date_field) {
+            present.insert(year);
+        }
+    }
+    if present.is_empty() {
+        return Vec::new();
+    }
+    match requested {
+        Some(wanted) if !wanted.is_empty() => wanted
+            .iter()
+            .copied()
+            .filter(|year| present.contains(year))
+            .collect(),
+        _ => {
+            let mut years: Vec<i32> = present.into_iter().collect();
+            if years.len() > TREND_YEAR_COMPARE_MAX_YEARS {
+                let drop_n = years.len() - TREND_YEAR_COMPARE_MAX_YEARS;
+                years.drain(0..drop_n);
+            }
+            years
+        }
+    }
+}
+
 pub fn trend_year_compare_rows(
     rows: &[Value],
     date_field: &str,
@@ -15,6 +53,9 @@ pub fn trend_year_compare_rows(
     year_label_field: &str,
     window_mode: &str,
 ) -> Vec<Value> {
+    if years.is_empty() {
+        return Vec::new();
+    }
     let month_nums: Vec<u32> = if window_mode.eq_ignore_ascii_case("calendar") {
         (1..=12).collect()
     } else {

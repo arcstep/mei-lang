@@ -116,7 +116,7 @@ export const COCKPIT_TYPE = {
   tableBody: "var(--mei-table-body-font-size, var(--mei-font-2, 18px))",
   filterPanel: "var(--mei-filter-panel-font-size, var(--mei-font-2, 18px))",
   body: "var(--mei-body-font-size, var(--mei-font-2, 14px))",
-  muted: "var(--mei-muted-font-size, var(--mei-font-1, 12px))",
+  muted: "var(--mei-muted-font-size, var(--mei-font-1, 16px))",
 };
 
 /** Utility class names for composed text roles (prefer over ad-hoc font-size). */

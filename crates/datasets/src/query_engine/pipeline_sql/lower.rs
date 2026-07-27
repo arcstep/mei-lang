@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::super::connection::{block_on, with_app_session};
 use super::super::register::{ensure_parquet_view, resolve_parquet_for_dataset_view};
-use super::super::sql::{quote_ident, quote_string};
+use super::super::sql::{build_where_clause, quote_ident, quote_string};
 use super::date_sql::sql_parse_date_expr;
 use super::MAX_PIPELINE_SQL_ROWS;
 
@@ -815,9 +815,7 @@ fn lower_trend_year_compare(
         .and_then(Value::as_str)
         .unwrap_or("rolling");
     let years = parse_years(object.get("years"));
-    if years.is_empty() {
-        return Ok(None);
-    }
+    // 024008: omit years → auto from filtered rows; explicit → intersect with present.
     let date_expr = sql_parse_date_expr(date_field)?;
     let agg_expr = match (agg, value_field) {
         ("sum", Some(field)) => {
@@ -830,18 +828,32 @@ fn lower_trend_year_compare(
         }
         _ => "CAST(COUNT(*) AS DOUBLE)".to_string(),
     };
-    let years_list = years
-        .iter()
-        .map(|y| y.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let years_values = years
-        .iter()
-        .map(|y| format!("({y})"))
-        .collect::<Vec<_>>()
-        .join(", ");
     let month_label_sql = quote_ident(month_label)?;
     let year_label_sql = quote_ident(year_label)?;
+
+    // Optional row-level filters pushed from try_page_dataframe_metric_via_sql (024008).
+    let row_filters = parse_row_filter_map(object.get("__mei_row_filters"));
+    let row_search = object
+        .get("__mei_row_search")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let inner_where = if row_filters.is_empty() && row_search.is_none() {
+        String::new()
+    } else {
+        let cols = if inner.columns.is_empty() {
+            // Best-effort: filter keys themselves (mapped dataset columns).
+            row_filters.keys().cloned().collect::<Vec<_>>()
+        } else {
+            inner.columns.clone()
+        };
+        build_where_clause(&row_filters, row_search, &cols)?
+    };
+    let filtered_inner = if inner_where.is_empty() {
+        format!("({})", inner.sql)
+    } else {
+        format!("(SELECT * FROM ({}) AS _mei_trend_src{inner_where})", inner.sql)
+    };
 
     // Rolling months must match kernel `latest_month_window`: emit month numbers
     // in chronological ascending order ending at max(date), even when some months have no rows.
@@ -850,7 +862,7 @@ fn lower_trend_year_compare(
     let month_source = if window_mode.eq_ignore_ascii_case("calendar") {
         "(SELECT m, (m - 1) AS ord FROM generate_series(1, 12) AS t(m))".to_string()
     } else {
-        let ending_month = probe_ending_month(app_root, &inner.sql, &date_expr)?.unwrap_or(12);
+        let ending_month = probe_ending_month(app_root, &filtered_inner, &date_expr)?.unwrap_or(12);
         let values = (0..months)
             .map(|i| {
                 // Match kernel latest_month_window: oldest → newest.
@@ -869,12 +881,41 @@ fn lower_trend_year_compare(
         format!("(SELECT m, ord FROM (VALUES {values}) AS t(m, ord))")
     };
 
+    const MAX_YEARS: usize = 5; // 024008 TREND_YEAR_COMPARE_MAX_YEARS
+    let years_cte = if years.is_empty() {
+        format!(
+            "years AS (\
+               SELECT y FROM (\
+                 SELECT CAST(date_part('year', d) AS INT) AS y \
+                 FROM parsed WHERE d IS NOT NULL \
+                 GROUP BY 1 \
+                 ORDER BY y DESC \
+                 LIMIT {MAX_YEARS}\
+               ) AS recent ORDER BY y\
+             )"
+        )
+    } else {
+        let years_values = years
+            .iter()
+            .map(|y| format!("({y})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "years AS (\
+               SELECT y FROM (VALUES {years_values}) AS t(y) \
+               WHERE y IN (\
+                 SELECT DISTINCT CAST(date_part('year', d) AS INT) FROM parsed WHERE d IS NOT NULL\
+               )\
+             )"
+        )
+    };
+
     let sql = format!(
         "WITH parsed AS (\
-           SELECT {date_expr} AS d, t.* FROM ({inner}) AS t\
+           SELECT {date_expr} AS d, t.* FROM {filtered_inner} AS t\
          ), \
          months AS {month_source}, \
-         years AS (SELECT y FROM (VALUES {years_values}) AS t(y)), \
+         {years_cte}, \
          grid AS (\
            SELECT m.m AS month_num, m.ord AS month_ord, y.y AS year_num \
            FROM months m CROSS JOIN years y\
@@ -882,7 +923,7 @@ fn lower_trend_year_compare(
          agg AS (\
            SELECT CAST(date_part('year', d) AS INT) AS year_num, CAST(date_part('month', d) AS INT) AS month_num, {agg_expr} AS value \
            FROM parsed \
-           WHERE d IS NOT NULL AND CAST(date_part('year', d) AS INT) IN ({years_list}) \
+           WHERE d IS NOT NULL AND CAST(date_part('year', d) AS INT) IN (SELECT y FROM years) \
            GROUP BY 1, 2\
          ) \
          SELECT \
@@ -892,10 +933,9 @@ fn lower_trend_year_compare(
          FROM grid g \
          LEFT JOIN agg a ON a.month_num = g.month_num AND a.year_num = g.year_num \
          ORDER BY g.month_ord, g.year_num",
-        inner = inner.sql,
+        filtered_inner = filtered_inner,
         month_source = month_source,
-        years_values = years_values,
-        years_list = years_list,
+        years_cte = years_cte,
         agg_expr = agg_expr,
         date_expr = date_expr,
         month_label_sql = month_label_sql,
@@ -910,6 +950,26 @@ fn lower_trend_year_compare(
             "value".to_string(),
         ],
     }))
+}
+
+fn parse_row_filter_map(value: Option<&Value>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(map) = value.and_then(Value::as_object) else {
+        return out;
+    };
+    for (key, raw) in map {
+        let text = match raw {
+            Value::String(s) => s.trim().to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            _ => continue,
+        };
+        if key.trim().is_empty() || text.is_empty() {
+            continue;
+        }
+        out.insert(key.trim().to_string(), text);
+    }
+    out
 }
 
 fn lower_party_year_aggregate(

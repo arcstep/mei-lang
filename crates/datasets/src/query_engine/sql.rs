@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{bail, Result};
+use chrono::Datelike;
 
 pub fn quote_ident(name: &str) -> Result<String> {
     let trimmed = name.trim();
@@ -70,6 +71,107 @@ pub fn sql_parse_date_expr(column: &str) -> Result<String> {
     ))
 }
 
+/// Inclusive day range (`YYYY-MM-DD..YYYY-MM-DD`) used by `between:` / `drange:`.
+///
+/// Open-ended forms are allowed:
+/// - `2024-01-15..` → `>= start`
+/// - `..2024-06-30` → `<= end`
+fn sql_date_range_predicate(column: &str, rest: &str) -> Result<Option<String>> {
+    let (lower, upper) = match rest.split_once("..") {
+        Some((l, u)) => (l.trim(), u.trim()),
+        None => return Ok(None),
+    };
+    if lower.is_empty() && upper.is_empty() {
+        return Ok(None);
+    }
+    let date_expr = sql_parse_date_expr(column)?;
+    if lower.is_empty() {
+        return Ok(Some(format!(
+            "{date_expr} <= CAST({} AS DATE)",
+            quote_string(upper)
+        )));
+    }
+    if upper.is_empty() {
+        return Ok(Some(format!(
+            "{date_expr} >= CAST({} AS DATE)",
+            quote_string(lower)
+        )));
+    }
+    Ok(Some(format!(
+        "{date_expr} BETWEEN CAST({} AS DATE) AND CAST({} AS DATE)",
+        quote_string(lower),
+        quote_string(upper)
+    )))
+}
+
+/// Inclusive month range (`YYYY-MM..YYYY-MM`) used by `mrange:`.
+///
+/// Open-ended forms are allowed:
+/// - `2024-01..` → from first day of start month
+/// - `..2024-06` → through last day of end month
+fn sql_month_range_predicate(column: &str, rest: &str) -> Result<Option<String>> {
+    let (start, end) = match rest.split_once("..") {
+        Some((l, u)) => (l.trim(), u.trim()),
+        None => return Ok(None),
+    };
+    let has_start = start.len() >= 7;
+    let has_end = end.len() >= 7;
+    if !has_start && !has_end {
+        return Ok(None);
+    }
+    let date_expr = sql_parse_date_expr(column)?;
+    if has_start && has_end {
+        let lower = format!("{}-01", &start[..7]);
+        let upper = match month_range_end_day(&end[..7]) {
+            Some(day) => day,
+            None => return Ok(None),
+        };
+        return Ok(Some(format!(
+            "{date_expr} BETWEEN CAST({} AS DATE) AND CAST({} AS DATE)",
+            quote_string(&lower),
+            quote_string(&upper)
+        )));
+    }
+    if has_start {
+        let lower = format!("{}-01", &start[..7]);
+        return Ok(Some(format!(
+            "{date_expr} >= CAST({} AS DATE)",
+            quote_string(&lower)
+        )));
+    }
+    let upper = match month_range_end_day(&end[..7]) {
+        Some(day) => day,
+        None => return Ok(None),
+    };
+    Ok(Some(format!(
+        "{date_expr} <= CAST({} AS DATE)",
+        quote_string(&upper)
+    )))
+}
+
+fn month_range_end_day(yyyy_mm: &str) -> Option<String> {
+    let (year_s, month_s) = yyyy_mm.split_once('-')?;
+    let year: i32 = year_s.parse().ok()?;
+    let month: u32 = month_s.parse().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let (end_year, end_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    // Last day = first day of next month minus 1 day (civil calendar).
+    let next = chrono::NaiveDate::from_ymd_opt(end_year, end_month, 1)?;
+    let last = next.pred_opt()?;
+    Some(format!(
+        "{:04}-{:02}-{:02}",
+        last.year(),
+        last.month(),
+        last.day()
+    ))
+}
+
 pub fn build_where_clause(
     filters: &BTreeMap<String, String>,
     search: Option<&str>,
@@ -104,19 +206,19 @@ pub fn build_where_clause(
             ));
         } else if let Some(rest) = expected.strip_prefix("between:") {
             // Encoded as between:YYYY-MM-DD..YYYY-MM-DD (inclusive date range).
-            let (lower, upper) = match rest.split_once("..") {
-                Some((l, u)) => (l.trim(), u.trim()),
-                None => continue,
-            };
-            if lower.is_empty() || upper.is_empty() {
-                continue;
+            if let Some(pred) = sql_date_range_predicate(key, rest)? {
+                parts.push(pred);
             }
-            let date_expr = sql_parse_date_expr(key)?;
-            parts.push(format!(
-                "{date_expr} BETWEEN CAST({} AS DATE) AND CAST({} AS DATE)",
-                quote_string(lower),
-                quote_string(upper)
-            ));
+        } else if let Some(rest) = expected.strip_prefix("drange:") {
+            // filter-bar / query_state contract: drange:YYYY-MM-DD..YYYY-MM-DD
+            if let Some(pred) = sql_date_range_predicate(key, rest)? {
+                parts.push(pred);
+            }
+        } else if let Some(rest) = expected.strip_prefix("mrange:") {
+            // filter-bar contract: mrange:YYYY-MM..YYYY-MM → inclusive calendar months
+            if let Some(pred) = sql_month_range_predicate(key, rest)? {
+                parts.push(pred);
+            }
         } else if let Some(rest) = expected.strip_prefix("in:") {
             let values: Vec<String> = rest
                 .split(',')

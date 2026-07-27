@@ -8,7 +8,10 @@ use crate::model::DatasetView;
 use super::super::build::eval_rowset_with_ctx;
 use crate::compile::analysis::{
     eval_context::EvalContext,
-    transforms::{aggregate_group_rows, trend_rows_by_month, trend_year_compare_rows},
+    transforms::{
+        aggregate_group_rows, resolve_trend_compare_years, trend_rows_by_month,
+        trend_year_compare_rows,
+    },
 };
 
 pub(super) fn eval_rowset_trend(
@@ -86,21 +89,21 @@ pub(super) fn eval_rowset_trend_year_compare(
         .get("window")
         .and_then(Value::as_str)
         .unwrap_or("rolling");
-    let years = map
-        .get("years")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    item.as_i64()
-                        .map(|value| value as i32)
-                        .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .filter(|items| !items.is_empty())
-        .ok_or_else(|| anyhow!("trend_year_compare expression missing years"))?;
+    let requested: Option<Vec<i32>> = map.get("years").and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(|item| {
+                item.as_i64()
+                    .map(|value| value as i32)
+                    .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
+            })
+            .collect::<Vec<_>>()
+    });
+    let years = resolve_trend_compare_years(
+        &rows,
+        date_field,
+        requested.as_deref().filter(|items| !items.is_empty()),
+    );
     Ok(trend_year_compare_rows(
         &rows,
         date_field,

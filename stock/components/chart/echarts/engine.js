@@ -1558,7 +1558,14 @@ function resolveMapping(props, columns) {
       .filter(Boolean)
       .map((field) => ({ field, name: field }));
   }
-  const label = channelList(mapping.label, null, x[0]?.field || "label");
+  // 客户端重聚合常只有 x=[{field:"label", name:"风险等级"}]；合成 label 时必须继承 name，
+  // 否则预警色板检测会把 name 当成 "label" 而回退到分类色板。
+  let label = channelList(mapping.label, null, "");
+  if (label.length === 0 && x[0]) {
+    label = [{ field: x[0].field, name: x[0].name || x[0].field }];
+  } else if (label.length === 0) {
+    label = channelList(null, null, x[0]?.field || "label");
+  }
   const group = channelList(mapping.group, null, "");
   const color = channelList(mapping.color, null, "");
   const shape = channelList(mapping.shape, null, "");
@@ -1788,14 +1795,15 @@ function usesWarningLevelPalette(props, mapping = {}) {
     .toLowerCase()
     .replace(/-/g, "_");
   if (mode === "warning_level") return true;
-  // 客户端重聚合后 mapping.x.field 常为 "label"，需同时看 name（如「风险等级」）
-  const labelField =
-    mapping?.label?.[0]?.field ||
-    mapping?.x?.[0]?.field ||
-    mapping?.label?.[0]?.name ||
-    mapping?.x?.[0]?.name;
-  const labelName = mapping?.label?.[0]?.name || mapping?.x?.[0]?.name || "";
-  return isWarningLevelDimension(labelField) || isWarningLevelDimension(labelName);
+  // 客户端重聚合后 mapping.x.field 常为 "label"，需同时看 name（如「风险等级」）。
+  // 优先检查 x/label 的 name，避免合成 label 通道把 name 冲成 "label"。
+  const candidates = [
+    mapping?.x?.[0]?.name,
+    mapping?.label?.[0]?.name,
+    mapping?.x?.[0]?.field,
+    mapping?.label?.[0]?.field,
+  ];
+  return candidates.some((value) => isWarningLevelDimension(value));
 }
 
 /** palette_mode=value|mono：按数值映射单色阶梯；其余（默认/category）按类目轮转分类色板。 */
@@ -2300,6 +2308,47 @@ function sortCategoriesAsTime(categories) {
   );
 }
 
+function monthNumValue(label) {
+  const n = Number.parseInt(String(label ?? "").trim(), 10);
+  return Number.isFinite(n) && n >= 1 && n <= 12 ? n : NaN;
+}
+
+function sortCategoriesAsMonthNum(categories) {
+  return [...categories].sort((left, right) => monthNumValue(left) - monthNumValue(right));
+}
+
+/** Wrap-aware chronological month sequence (e.g. 09,10,11,12,01,02). */
+function isChronologicalMonthSequence(categories) {
+  const nums = (Array.isArray(categories) ? categories : [])
+    .map(monthNumValue)
+    .filter((n) => Number.isFinite(n));
+  if (nums.length < 2) return true;
+  for (let i = 1; i < nums.length; i += 1) {
+    const prev = nums[i - 1];
+    const next = nums[i];
+    const expected = prev === 12 ? 1 : prev + 1;
+    if (next !== expected) return false;
+  }
+  return true;
+}
+
+function groupsLookLikeYears(groups) {
+  const labels = (Array.isArray(groups) ? groups : [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (labels.length === 0) return false;
+  const hits = labels.filter((label) => /^\d{4}$/.test(label)).length;
+  return hits >= Math.max(1, Math.ceil(labels.length * 0.8));
+}
+
+function sortGroupsAsYears(groups) {
+  return [...groups].sort(
+    (left, right) =>
+      Number.parseInt(String(left ?? "").trim(), 10) -
+      Number.parseInt(String(right ?? "").trim(), 10),
+  );
+}
+
 function resolveChannelDisplayName(channels, field, fallback = "") {
   const channel = Array.isArray(channels)
     ? channels.find((item) => item?.field === field)
@@ -2380,14 +2429,21 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     categories = sortCategoriesAsTime(categories);
     temporalYearMonth = categoriesLookLikeYearMonth(categories);
   } else if (xFieldLooksTemporal(xField) && categoriesLookLikeMonthNum(categories)) {
-    // 年度对比共享月轴（01–12）：保留 pipeline 滚动窗口顺序，禁止按月号重排（跨年会错）。
+    // 年度对比共享月轴（01–12）：calendar 应按月号升序；
+    // rolling 跨年窗口已是时间升序时保留，乱序则回退按月号排序（避免乱序轴）。
+    if (categories.length >= 12 || !isChronologicalMonthSequence(categories)) {
+      categories = sortCategoriesAsMonthNum(categories);
+    }
     temporalYearMonth = false;
   }
   if (!temporalYearMonth && categoriesLookLikeYearMonth(categories)) {
     temporalYearMonth = true;
   }
   const grouped = mapping.group[0]?.field;
-  const groups = grouped ? unique(rows.map((row) => String(row?.[grouped] ?? ""))).filter(Boolean) : [];
+  let groups = grouped ? unique(rows.map((row) => String(row?.[grouped] ?? ""))).filter(Boolean) : [];
+  if (groupsLookLikeYears(groups)) {
+    groups = sortGroupsAsYears(groups);
+  }
   const series = [];
   const isBar = kind === "column" || kind === "bar";
   const seriesType = isBar ? "bar" : "line";
@@ -2556,7 +2612,17 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     grid: legacy.compact
       ? compactGrid
       : { left: 44, right: 22, top: legacy.showLegend ? 38 : 28, bottom: 34 },
-    xAxis: kind === "bar" ? { type: "value" } : { type: "category", data: categories },
+    xAxis:
+      kind === "bar"
+        ? { type: "value" }
+        : {
+            type: "category",
+            data: categories,
+            // line/area/trend：收紧类目轴两端空隙，避免首末刻度与容器内边距脱节。
+            ...(kind === "line" || kind === "area" || kind === "trend"
+              ? { boundaryGap: false }
+              : {}),
+          },
     yAxis: kind === "bar" ? { type: "category", data: categories } : { type: "value" },
     series,
   };

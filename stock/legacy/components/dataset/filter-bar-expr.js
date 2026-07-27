@@ -56,12 +56,14 @@ export function encodeFilterRow(row, profile) {
   } else if (operator === "month_range") {
     const start = String(row?.rangeStart || "").trim();
     const end = String(row?.rangeEnd || "").trim();
-    if (!start || !end) return "";
+    // Open-ended: allow only start or only end.
+    if (!start && !end) return "";
     body = `mrange:${start}..${end}`;
   } else if (operator === "date_range") {
     const start = String(row?.rangeStart || "").trim();
     const end = String(row?.rangeEnd || "").trim();
-    if (!start || !end) return "";
+    // Open-ended: allow only start (`>=`) or only end (`<=`).
+    if (!start && !end) return "";
     body = `drange:${start}..${end}`;
   } else if (operator === "contains") {
     const value = String(row?.value || "").trim();

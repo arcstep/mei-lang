@@ -125,10 +125,12 @@ pub fn try_page_dataframe_metric_via_sql(
         .or_else(|| map.get("value"))
         .unwrap_or(&Value::Null);
     let mut stack = Vec::new();
-    let Some(inlined) = inline_metric_refs_for_sql(expr, metric_defs, 0, &mut stack) else {
+    let Some(mut inlined) = inline_metric_refs_for_sql(expr, metric_defs, 0, &mut stack) else {
         record_pipeline_sql_fallback();
         return Ok(None);
     };
+    // 024008: push mapped filters into trend_year_compare inner rowset (not outer month/year/value).
+    let trend_pushdown = inject_trend_year_compare_row_filters(&mut inlined, filters, search);
     let started = Instant::now();
     let Some(plan) = lower::try_lower_expr(app_root, datasets, &inlined)? else {
         record_pipeline_sql_fallback();
@@ -152,7 +154,12 @@ pub fn try_page_dataframe_metric_via_sql(
     } else {
         plan.result_columns.clone()
     };
-    let where_sql = super::sql::build_where_clause(filters, search, &columns)?;
+    let where_sql = if trend_pushdown {
+        // Filters already applied inside parsed CTE; do not re-apply on month/year/value.
+        String::new()
+    } else {
+        super::sql::build_where_clause(filters, search, &columns)?
+    };
     let order_by_sql = build_order_by_sql(sort)?;
     let page = page.max(1);
     let page_size = page_size.max(1);
@@ -674,6 +681,39 @@ pub fn try_eval_metrics_via_sql_partial(
         }
     }
     Ok(out)
+}
+
+/// Inject query filters into a top-level `trend_year_compare` so SQL lower can
+/// push them into the inner rowset (024008). Returns true when injection applied.
+fn inject_trend_year_compare_row_filters(
+    expr: &mut Value,
+    filters: &BTreeMap<String, String>,
+    search: Option<&str>,
+) -> bool {
+    if filters.is_empty() && search.map(str::trim).filter(|s| !s.is_empty()).is_none() {
+        return false;
+    }
+    let Some(object) = expr.as_object_mut() else {
+        return false;
+    };
+    if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return false;
+    }
+    if object.get("type").and_then(Value::as_str) != Some("trend_year_compare") {
+        return false;
+    }
+    let mut filter_obj = serde_json::Map::new();
+    for (key, value) in filters {
+        filter_obj.insert(key.clone(), Value::String(value.clone()));
+    }
+    object.insert("__mei_row_filters".to_string(), Value::Object(filter_obj));
+    if let Some(keyword) = search.map(str::trim).filter(|s| !s.is_empty()) {
+        object.insert(
+            "__mei_row_search".to_string(),
+            Value::String(keyword.to_string()),
+        );
+    }
+    true
 }
 
 #[cfg(test)]

@@ -75,6 +75,17 @@ pub(super) fn collect_scene_css_vars(theme: &Value) -> Vec<(String, String)> {
         for (key, value) in font {
             if let Some(raw) = value.as_str() {
                 vars.push((format!("--mei-font-{key}"), raw.to_string()));
+                // 字阶最低档同时作为 typography 最小字号真源（图表/二级看板钳位）。
+                if key == "1"
+                    && !vars
+                        .iter()
+                        .any(|(name, _)| name == "--mei-typography-min-font-size")
+                {
+                    vars.push((
+                        "--mei-typography-min-font-size".to_string(),
+                        raw.to_string(),
+                    ));
+                }
             }
         }
     }
