@@ -803,8 +803,8 @@ export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
     }
   }
   if (Object.keys(filters).length) {
+    // Identity only — 禁止双写进 default_filters（024005）。
     detail.drilldown_filters = filters;
-    detail.default_filters = filters;
   }
   return detail;
 }
@@ -954,7 +954,25 @@ function resolveMappingTargetsForCell(spec, row, cellValue) {
     const mapped = expandMappingTargets(map[key]);
     if (mapped.length) return mapped;
   }
-  return [];
+  // IssueResult 等行常缺「规则类型」：按 base + 已有 qualifier 前缀回收候选（多值则交给选择器）。
+  const base = String(cellValue ?? "").trim();
+  if (!base || !map || typeof map !== "object") return [];
+  const quals = qualifierFields
+    .map((field) => String(row?.[field] ?? "").trim())
+    .filter(Boolean);
+  const found = [];
+  const seen = new Set();
+  for (const [key, raw] of Object.entries(map)) {
+    if (key !== base && !key.startsWith(`${base}|`)) continue;
+    const keyQuals = key.split("|").slice(1);
+    if (quals.length && !quals.every((q) => keyQuals.includes(q))) continue;
+    for (const id of expandMappingTargets(raw)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      found.push(id);
+    }
+  }
+  return found;
 }
 
 /**
@@ -965,8 +983,15 @@ export function splitMultiObjectKeys(raw) {
   const text = normalizeObjectIdentityText(raw);
   if (!text) return [];
   return text
-    .split(/[\n\r\s]+/)
-    .map((part) => normalizeObjectIdentityText(String(part ?? "").replace(/^\d+\.\s*/, "")))
+    // 健全机制等多值常用顿号/逗号；ID 类也兼容空白换行
+    .split(/[\n\r\s、，,;；]+/)
+    .map((part) =>
+      normalizeObjectIdentityText(
+        String(part ?? "")
+          .replace(/^\d+\.\s*/, "")
+          .replace(/^[《]+|[》]+$/g, ""),
+      ),
+    )
     .filter(Boolean);
 }
 
@@ -977,9 +1002,11 @@ export function normalizeObjectIdentityText(raw) {
     if (Math.abs(raw % 1) < Number.EPSILON) return String(Math.trunc(raw));
     return String(raw);
   }
-  const text = String(raw).trim();
+  let text = String(raw).trim();
   if (!text) return "";
-  if (/^-?\d+\.0+$/.test(text)) return text.replace(/\.0+$/, "");
+  if (/^-?\d+\.0+$/.test(text)) text = text.replace(/\.0+$/, "");
+  // 健全机制展示常带书名号；身份匹配/过滤时剥离
+  text = text.replace(/^[《]+|[》]+$/g, "").trim();
   return text;
 }
 
@@ -1026,7 +1053,7 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
           hasDetail,
           openPopup,
           detailPage,
-          label: `${objectType} · ${objectKey}`,
+          label: objectKey,
         });
       }
       continue;
@@ -1051,7 +1078,7 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
           hasDetail,
           openPopup,
           detailPage,
-          label: `${objectType} · ${objectKey}`,
+          label: objectKey,
         });
       }
       continue;
@@ -1070,7 +1097,7 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
         hasDetail,
         openPopup,
         detailPage,
-        label: `${objectType} · ${objectKey}`,
+        label: objectKey,
       });
     }
   }
@@ -1124,7 +1151,14 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   });
 
   const filters = {};
-  const filterKey = nonEmptyString(target.filterKey, target.filter_key);
+  let filterKey = nonEmptyString(target.filterKey, target.filter_key);
+  // 机制文档身份常是「机制名称」长文本，启发式以前可能没写出 filterKey。
+  if (
+    !filterKey &&
+    (objectType === "zhifa.MechanismDocument" || objectType.endsWith(".MechanismDocument"))
+  ) {
+    filterKey = "mechanismName";
+  }
   const keyMode = String(target.keyMode || target.key_mode || "identity")
     .trim()
     .toLowerCase();
@@ -1170,8 +1204,8 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
     object_intents: intents,
   };
   if (Object.keys(filters).length) {
+    // Identity only — 禁止双写进 default_filters（024005）。
     detail.drilldown_filters = filters;
-    detail.default_filters = filters;
   }
   host.dispatchEvent(
     new CustomEvent(SCENE_OPEN_EVENT_NAME, {
@@ -1196,6 +1230,22 @@ function resolveObjectOpenTitle(objectType, row, objectKey, target) {
       firstNonEmptyRowValue(row, ["预警ID", "warning_id", "warningId"]),
       objectKey,
       target?.label,
+    );
+  }
+  if (type === "zhifa.IssueResult" || type.endsWith(".IssueResult")) {
+    // 监督成效详情页签标题固定用处理结果ID，勿被预警模型等业务名抢占。
+    return nonEmptyString(
+      firstNonEmptyRowValue(row, ["处理结果ID", "resultId", "result_id"]),
+      objectKey,
+      target?.label,
+    );
+  }
+  if (type === "zhifa.MechanismDocument" || type.endsWith(".MechanismDocument")) {
+    // 多值「健全机制」行上点开单份文档时，标题必须用当前 objectKey，勿回落到整格顿号串。
+    return nonEmptyString(
+      objectKey,
+      target?.label,
+      firstNonEmptyRowValue(row, ["机制名称", "健全机制"]),
     );
   }
   // 页签标题优先用行内业务名称（如风险事项/预警模型），避免序号类主键直接当标题。

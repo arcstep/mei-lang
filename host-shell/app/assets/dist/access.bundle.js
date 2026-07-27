@@ -15843,7 +15843,55 @@
     if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
     const rowDrilldownPopup = raw.row_drilldown_popup ?? raw.rowDrilldownPopup ?? null;
     const rowDrilldown = raw.row_drilldown ?? raw.rowDrilldown ?? null;
-    const objectLocator = raw.object_locator ?? raw.objectLocator ?? null;
+    let objectLocator = raw.object_locator ?? raw.objectLocator ?? null;
+    const objectType = nonEmptyString(
+      objectLocator?.object_type,
+      objectLocator?.objectType,
+      raw.object_type,
+      raw.objectType,
+    );
+    const identityField = nonEmptyString(
+      objectLocator?.identity_field,
+      objectLocator?.identityField,
+      raw.identity_field,
+      raw.identityField,
+    );
+    const identityAliases = (() => {
+      const fromLocator = objectLocator?.identity_aliases ?? objectLocator?.identityAliases;
+      const fromRaw = raw.identity_aliases ?? raw.identityAliases;
+      const list = Array.isArray(fromLocator)
+        ? fromLocator
+        : Array.isArray(fromRaw)
+          ? fromRaw
+          : [];
+      return list.map((entry) => String(entry || "").trim()).filter(Boolean);
+    })();
+    // object_focus_detail_page 常把 object_type/identity_field 写在 local_nav 顶层；
+    // 归一成 object_locator，供详情卡 object_field_links 消歧（勿回落到 Warning 默认）。
+    if (objectType && (!objectLocator || typeof objectLocator !== "object" || Array.isArray(objectLocator))) {
+      objectLocator = {
+        object_type: objectType,
+        objectType,
+        ...(identityField ? { identity_field: identityField, identityField } : {}),
+        ...(identityAliases.length
+          ? { identity_aliases: identityAliases, identityAliases }
+          : {}),
+      };
+    } else if (objectLocator && typeof objectLocator === "object" && !Array.isArray(objectLocator) && objectType) {
+      objectLocator = {
+        ...objectLocator,
+        object_type: objectType,
+        objectType,
+        ...(identityField && !nonEmptyString(objectLocator.identity_field, objectLocator.identityField)
+          ? { identity_field: identityField, identityField }
+          : {}),
+        ...(identityAliases.length &&
+        !Array.isArray(objectLocator.identity_aliases) &&
+        !Array.isArray(objectLocator.identityAliases)
+          ? { identity_aliases: identityAliases, identityAliases }
+          : {}),
+      };
+    }
     return {
       kind,
       sceneId,
@@ -15853,6 +15901,8 @@
       overlaySize,
       items,
       kindOrder,
+      ...(objectType ? { objectType, object_type: objectType } : {}),
+      ...(identityField ? { identityField, identity_field: identityField } : {}),
       ...(rowDrilldownPopup && typeof rowDrilldownPopup === "object" && !Array.isArray(rowDrilldownPopup)
         ? { rowDrilldownPopup, row_drilldown_popup: rowDrilldownPopup }
         : {}),
@@ -16209,16 +16259,18 @@
     );
   }
 
-  /** 下钻表/行级详情卡应使用的 metric：父级传入优先于 board slot / 示例默认。 */
+  /** 下钻表/行级详情卡应使用的 metric：popup/link 分析指标与 board tableMetricId 优先于入口 KPI count。 */
   function resolveDrilldownTableMetricId(detail, config = null) {
-    const metricId = String(detail?.metric_id || "").trim();
     return nonEmptyString(
-      metricId,
-      resolvePopupPassedMetricId(detail, config),
+      metricRefId(detail?.popup?.params?.metric),
+      metricRefId(config?.popup?.params?.metric),
+      metricRefId(config?.params?.metric),
       config?.tableMetricId,
       config?.detailSlot?.metricId,
       config?.runtimeRef?.metricId,
       config?.runtimeRef?.metric_id,
+      String(detail?.metric_id || "").trim(),
+      detail?.__mei_runtime_ref?.metric_id,
     );
   }
 
@@ -17753,11 +17805,21 @@
     const rowsetDatasetId = structuredBoard
       ? rawRowsetDatasetId
       : qualifyDatasetIdForScene(rawRowsetDatasetId, ownerScenePath);
+    // 与 tableMetricId 对齐：用 popup/link_decl 分析指标，勿用入口 KPI count，
+    // 否则待办/在办/办结会各占一份 query_state，且与看板 fetch 键不一致。
+    const boardMetricForQueryState = nonEmptyString(
+      resolvePopupPassedMetricId(detail, {
+        params: boardFields?.params || normalizeSceneParams(popup?.params),
+        popup,
+      }),
+      metricId,
+      defaultSlot?.metricId,
+    );
     const queryStateId = structuredBoard
       ? nonEmptyString(
           popup?.query_state_id,
           popup?.queryStateId,
-          metricId ? `drilldown::${metricId}` : "",
+          boardMetricForQueryState ? `drilldown::${boardMetricForQueryState}` : "",
         )
       : "";
     const slotsByZone = groupProjectionSlotsByZone(projectionSlots);
@@ -17800,6 +17862,23 @@
       queryStateId,
       rowsetDatasetId,
       params: boardFields?.params || normalizeSceneParams(popup?.params),
+      scopeFilters: (() => {
+        const params = boardFields?.params || normalizeSceneParams(popup?.params) || {};
+        const fromDetail =
+          detail?.scope_filters && typeof detail.scope_filters === "object" && !Array.isArray(detail.scope_filters)
+            ? detail.scope_filters
+            : detail?.scopeFilters && typeof detail.scopeFilters === "object" && !Array.isArray(detail.scopeFilters)
+              ? detail.scopeFilters
+              : null;
+        if (fromDetail) return fromDetail;
+        const fromParams =
+          params?.scope_filters && typeof params.scope_filters === "object" && !Array.isArray(params.scope_filters)
+            ? params.scope_filters
+            : params?.scopeFilters && typeof params.scopeFilters === "object" && !Array.isArray(params.scopeFilters)
+              ? params.scopeFilters
+              : null;
+        return fromParams || undefined;
+      })(),
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
@@ -17815,12 +17894,15 @@
       projection,
       title,
       note: "",
+      // link_decl / popup.params.metric（如 issue_handling_analytics）必须优先于
+      // 入口 KPI 卡片自身的 count metric（warnings_pending_count），否则看板会误拉
+      // count::__scalar_rowset__ → uncovered_pipeline。
       tableMetricId: nonEmptyString(
-        metricId,
         resolvePopupPassedMetricId(detail, {
           params: boardFields?.params || normalizeSceneParams(popup?.params),
           popup,
         }),
+        metricId,
         defaultTableSlot?.metricId,
       ),
       datasetId: nonEmptyString(
@@ -18817,12 +18899,19 @@
     });
   }
 
+  function pickFilterMap(...candidates) {
+    for (const source of candidates) {
+      if (source && typeof source === "object" && !Array.isArray(source)) {
+        return source;
+      }
+    }
+    return null;
+  }
+
   /**
-   * 合并 popup / drilldown 拉取用 filters。优先级（后写覆盖）：
-   * 1. 入口 default_filters（仅 query_state 尚未写入时作种子）
-   * 2. query_state（过滤面板用户覆盖；一旦有值则不再回填 default）
-   * 3. drilldown_filters（行级对象打开的身份锁，不可被面板清掉）
-   * 与 024005：default_filters 不是第二套真值，只作初始化。
+   * 合并 popup / drilldown 拉取用 filters（024005 三层语义）。
+   * 不同维 AND；同维后写覆盖：query_state(或 seed) < scope_filters < drilldown_filters。
+   * default_filters 仅在 query_state 为空时作种子，不是第二套真值。
    */
   function mergePopupFetchFilters(detail, config, tableProps) {
     const merged = {};
@@ -18846,6 +18935,7 @@
     const hasSharedFilters = Object.keys(sharedFilters).some(
       (key) => String(sharedFilters[key] ?? "").trim(),
     );
+    // 1) Seed → query_state
     if (!hasSharedFilters) {
       applyFilterMap(merged, popupParams?.default_filters);
       applyFilterMap(merged, config?.params?.default_filters);
@@ -18853,8 +18943,27 @@
       applyFilterMap(merged, tableProps?.default_filters);
     }
     applyFilterMap(merged, sharedFilters);
-
-    applyFilterMap(merged, detail?.drilldown_filters);
+    // 2) Universe（面板不可清）
+    applyFilterMap(
+      merged,
+      pickFilterMap(
+        detail?.scope_filters,
+        detail?.scopeFilters,
+        config?.scopeFilters,
+        config?.scope_filters,
+        config?.params?.scope_filters,
+        config?.params?.scopeFilters,
+        popupParams?.scope_filters,
+        popupParams?.scopeFilters,
+        tableProps?.scope_filters,
+        tableProps?.scopeFilters,
+      ),
+    );
+    // 3) Identity（对象锁，不可被面板清掉）
+    applyFilterMap(
+      merged,
+      pickFilterMap(detail?.drilldown_filters, detail?.drilldownFilters, tableProps?.drilldown_filters),
+    );
 
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
@@ -18865,6 +18974,8 @@
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
     if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
     if (merged["模型ID"] && !merged.modelId) merged.modelId = merged["模型ID"];
+    if (merged.mechanismName && !merged["机制名称"]) merged["机制名称"] = merged.mechanismName;
+    if (merged["机制名称"] && !merged.mechanismName) merged.mechanismName = merged["机制名称"];
     return merged;
   }
 
@@ -18901,6 +19012,9 @@
     const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
     const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
+    const mechanismName = normalizeIdentityText(
+      filters.mechanismName ?? filters["机制名称"] ?? filters["健全机制"],
+    );
     if (warningId) {
       const hit = list.find((row) =>
         identityTextEquals(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId, warningId),
@@ -18929,6 +19043,19 @@
       const hit = list.find((row) => {
         const name = String(row?.["风险事项"] ?? row?.["监督事项"] ?? row?.matter ?? "").trim();
         return name === matterName;
+      });
+      if (hit) return hit;
+    }
+    if (mechanismName) {
+      const stripBooks = (value) =>
+        String(value ?? "")
+          .trim()
+          .replace(/^[《]+|[》]+$/g, "")
+          .trim();
+      const want = stripBooks(mechanismName);
+      const hit = list.find((row) => {
+        const name = stripBooks(row?.["机制名称"] ?? row?.["健全机制"] ?? row?.mechanismName);
+        return Boolean(name) && name === want;
       });
       if (hit) return hit;
     }
@@ -18989,10 +19116,29 @@
             },
           }
         : config;
+    // 已是 scalar/dedicated 时优先配置值；但若它只是入口 KPI 的 ::__scalar_rowset__，
+    // 而 popup 另有分析指标，仍以分析指标为准（避免图表派生路径污染主表）。
+    const configuredTableMetricId = nonEmptyString(config?.tableMetricId);
     const passedMetricId = resolvePopupPassedMetricId(detail, config);
+    const configuredLooksLikeKpiRowset =
+      isScalarRowsetMetricId(configuredTableMetricId) &&
+      passedMetricId &&
+      configuredTableMetricId === resolveCardMetricRowsetId(String(detail?.metric_id || "").trim()) &&
+      configuredTableMetricId !== resolveCardMetricRowsetId(passedMetricId);
+    const preferConfiguredTable =
+      Boolean(configuredTableMetricId) &&
+      !configuredLooksLikeKpiRowset &&
+      (isDedicatedExplainMetricId(configuredTableMetricId) ||
+        isScalarRowsetMetricId(configuredTableMetricId));
     const cardMetricId = nonEmptyString(
-      passedMetricId,
+      preferConfiguredTable ? configuredTableMetricId : "",
+      // 裸 KPI count 不能压过 popup 分析指标
+      passedMetricId && passedMetricId !== String(detail?.metric_id || "").trim()
+        ? passedMetricId
+        : "",
       resolveDrilldownTableMetricId(detail, config),
+      passedMetricId,
+      configuredTableMetricId,
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,
     );
@@ -19188,6 +19334,37 @@
     return Array.from(grouped.entries())
       .map(([label, value]) => ({ label, value }))
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  }
+
+  /**
+   * 查实占比：sum(查实条数) vs sum(预警条数−查实条数)。
+   * 过滤后客户端重聚合专用；勿退化为按「是否查实」行数/查实条数分组。
+   */
+  function groupRowsForVerifiedShare(rows, columns = []) {
+    let verified = 0;
+    let warningTotal = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (!row || typeof row !== "object") return;
+      verified += parseCompositionNumber(rowFieldValue(row, "查实条数", columns));
+      warningTotal += parseCompositionNumber(rowFieldValue(row, "预警条数", columns));
+    });
+    const unverified = Math.max(0, warningTotal - verified);
+    return [
+      { label: "查实", value: verified },
+      { label: "未查实", value: unverified },
+    ].filter((entry) => Number(entry.value) > 0 || verified + unverified === 0);
+  }
+
+  function isVerifiedShareCompositionTab(tabId, config = null) {
+    const id = normalizeTabId(tabId);
+    if (id === "composition_by_verified") return true;
+    const mode = nonEmptyString(
+      config?.compositionMode,
+      config?.composition_mode,
+      config?.slotByTab?.[id]?.compositionMode,
+      config?.slotByTab?.[id]?.composition_mode,
+    ).toLowerCase();
+    return mode === "verified_share" || mode === "verified_vs_unverified";
   }
 
   function normalizeMetricLocalId(metricId) {
@@ -19442,7 +19619,7 @@
       label_max_chars: 6,
       category_label_rotate: 30,
       showLegend: multiSeries,
-      // Color comes from scene theme chart_1..chart_6 (default green mono).
+      // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -19966,33 +20143,44 @@
             ? config.defaultSort
             : null;
     const defaultSort = explicitSort || inferDrilldownDefaultSort(columns);
-    const drilldownFilters =
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
+    const seedFilters =
+      detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
+        ? detail.default_filters
+        : popupParams?.default_filters &&
+            typeof popupParams.default_filters === "object" &&
+            !Array.isArray(popupParams.default_filters)
+          ? popupParams.default_filters
+          : config?.params?.default_filters &&
+              typeof config.params.default_filters === "object" &&
+              !Array.isArray(config.params.default_filters)
+            ? config.params.default_filters
+            : null;
+    const scopeFilters =
+      detail?.scope_filters && typeof detail.scope_filters === "object" && !Array.isArray(detail.scope_filters)
+        ? detail.scope_filters
+        : detail?.scopeFilters && typeof detail.scopeFilters === "object" && !Array.isArray(detail.scopeFilters)
+          ? detail.scopeFilters
+          : config?.scopeFilters && typeof config.scopeFilters === "object" && !Array.isArray(config.scopeFilters)
+            ? config.scopeFilters
+            : config?.params?.scope_filters &&
+                typeof config.params.scope_filters === "object" &&
+                !Array.isArray(config.params.scope_filters)
+              ? config.params.scope_filters
+              : popupParams?.scope_filters &&
+                  typeof popupParams.scope_filters === "object" &&
+                  !Array.isArray(popupParams.scope_filters)
+                ? popupParams.scope_filters
+                : null;
+    const identityFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
-        : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
-          ? detail.default_filters
-          : (() => {
-              const popupParams =
-                config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
-                  ? config.popup.params
-                  : null;
-              const fromPopup =
-                popupParams?.default_filters &&
-                typeof popupParams.default_filters === "object" &&
-                !Array.isArray(popupParams.default_filters)
-                  ? popupParams.default_filters
-                  : null;
-              if (fromPopup) return fromPopup;
-              const fromConfig =
-                config?.params?.default_filters &&
-                typeof config.params.default_filters === "object" &&
-                !Array.isArray(config.params.default_filters)
-                  ? config.params.default_filters
-                  : null;
-              return fromConfig;
-            })();
+        : null;
     const autoSelectFirstRow = Boolean(
-      drilldownFilters &&
+      identityFilters &&
         (config?.hasRowPreviewZone ||
           nonEmptyString(config?.rowPreviewZoneId, config?.row_preview_zone_id)),
     );
@@ -20006,7 +20194,10 @@
       sort: defaultSort.length > 0 ? defaultSort : undefined,
       default_sort: defaultSort.length > 0 ? defaultSort : undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
-      default_filters: drilldownFilters || undefined,
+      // Seed only — 勿把 identity/scope 塞进 default_filters（024005）。
+      default_filters: seedFilters || undefined,
+      scope_filters: scopeFilters || undefined,
+      drilldown_filters: identityFilters || undefined,
       embedded: true,
       autoSelectFirstRow: autoSelectFirstRow || undefined,
       rowSelectionMode:
@@ -20066,6 +20257,12 @@
         active_target_file: resolvedScenePath,
         entry_target: resolvedScenePath,
         preview_scope: previewScope,
+        // 024005 诊断：宇宙 / 种子 / 身份分层快照（面板可改真值在 query_state）
+        filter_layers: {
+          seed: seedFilters || {},
+          scope: scopeFilters || {},
+          identity: identityFilters || {},
+        },
       },
       query_state: queryStateId || undefined,
     };
@@ -20351,11 +20548,21 @@
       detail?.query_state_id,
       detail?.queryStateId,
     );
-    if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
-      // 仅当 query_state 上已有有效筛选时，才基于明细 rowset 客户端重聚合；
-      // 默认无筛选时应走服务端 explain 指标（全量聚合），避免误用分页 rowset 样本。
-      const needsFilterAwareReaggregate = hasActiveDrilldownQueryFilters(sharedQueryStateId);
-      if (!needsFilterAwareReaggregate && dedicatedChartMetric) {
+    if (
+      kind === "composition" ||
+      supportRole === "composition" ||
+      kind === "trend" ||
+      supportRole === "trend" ||
+      isVerifiedShareCompositionTab(tabId, config)
+    ) {
+      // 查实占比：始终从当前明细 __scalar_rowset__ 重算（与表同一真源），
+      // 禁止走独立 composition/dataframe 服务端聚合。
+      if (isVerifiedShareCompositionTab(tabId, config)) {
+        return mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride);
+      }
+      // 其它构成/趋势：无筛选走服务端 explain；有筛选则基于明细客户端重聚合。
+      const hasFilters = hasActiveDrilldownQueryFilters(sharedQueryStateId);
+      if (!hasFilters && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
         }
@@ -20499,7 +20706,10 @@
     const key = nonEmptyString(field.key, field.column);
     const column = nonEmptyString(field.column, field.key);
     const declaredOptions = Array.isArray(field.options) ? field.options : [];
-    const optionsFrom = nonEmptyString(field.options_from, field.optionsFrom) || "rowset";
+    const authoredOptionsFrom = nonEmptyString(field.options_from, field.optionsFrom);
+    // 已声明静态枚举时勿默认成 rowset，否则 additive 会走空 facet 并盖掉静态项。
+    const optionsFrom =
+      authoredOptionsFrom || (declaredOptions.length > 0 ? "static" : "rowset");
     // 风险等级等组合面值必须走 rowset facet，才能带计数并按计数排序；
     // 不要再注入无 count 的 static 组合列表。
     return {
@@ -20536,6 +20746,62 @@
       tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
       tableProps?.dataset?.id,
     );
+    // issue_handling_list 等是 metric 派生 rowset：无 metric_id 时 rows/facets 皆空。
+    // filter-bar 选项请求必须复用明细表的 metric runtime ref（含 ::__scalar_rowset__）。
+    const tableRuntimeRef =
+      tableProps?.dataset?.__mei_runtime_ref && typeof tableProps.dataset.__mei_runtime_ref === "object"
+        ? tableProps.dataset.__mei_runtime_ref
+        : {};
+    const filterMetricId = nonEmptyString(
+      tableRuntimeRef.metric_id,
+      tableRuntimeRef.metricId,
+      typeof resolveCardMetricRowsetId === "function"
+        ? resolveCardMetricRowsetId(
+            nonEmptyString(config?.tableMetricId, config?.metricId, detail?.metric_id),
+          )
+        : "",
+    );
+    const filterRuntimeRef = rowsetDatasetId
+      ? {
+          ...tableRuntimeRef,
+          kind: filterMetricId ? "metric" : nonEmptyString(tableRuntimeRef.kind, "data") || "data",
+          dataset_id: rowsetDatasetId,
+          ...(filterMetricId ? { metric_id: filterMetricId } : {}),
+          scene_id: nonEmptyString(
+            tableRuntimeRef.scene_id,
+            config?.runtimeSceneId,
+            config?.hostSceneId,
+            config?.sceneId,
+          ),
+          scene_path: nonEmptyString(tableRuntimeRef.scene_path, config?.runtimeSceneFile),
+        }
+      : null;
+    // Seed only — 不要把 tableProps 里误混的 identity 当种子（table 已拆分）。
+    const seedFilters = (() => {
+      const seed = tableProps?.default_filters;
+      if (seed && typeof seed === "object" && !Array.isArray(seed)) return seed;
+      const fromDetail = detail?.default_filters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      const fromParams = config?.params?.default_filters;
+      if (fromParams && typeof fromParams === "object" && !Array.isArray(fromParams)) return fromParams;
+      return null;
+    })();
+    const scopeFilters = (() => {
+      const fromTable = tableProps?.scope_filters;
+      if (fromTable && typeof fromTable === "object" && !Array.isArray(fromTable)) return fromTable;
+      const fromConfig = config?.scopeFilters || config?.scope_filters;
+      if (fromConfig && typeof fromConfig === "object" && !Array.isArray(fromConfig)) return fromConfig;
+      const fromDetail = detail?.scope_filters || detail?.scopeFilters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      return null;
+    })();
+    const identityFilters = (() => {
+      const fromTable = tableProps?.drilldown_filters;
+      if (fromTable && typeof fromTable === "object" && !Array.isArray(fromTable)) return fromTable;
+      const fromDetail = detail?.drilldown_filters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      return null;
+    })();
     return {
       mode: "additive",
       live: false,
@@ -20550,20 +20816,31 @@
         config?.tableMetricId ? `drilldown::${config.tableMetricId}` : "",
         config?.metricId ? `drilldown::${config.metricId}` : "",
       ) || undefined,
-      default_filters: tableProps?.default_filters || undefined,
+      default_filters: seedFilters || undefined,
+      scope_filters: scopeFilters || undefined,
+      drilldown_filters: identityFilters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
-      dataset: rowsetDatasetId
+      dataset: filterRuntimeRef
         ? {
             id: rowsetDatasetId,
-            shape: "table",
-            __mei_runtime_ref: {
-              dataset_id: rowsetDatasetId,
-              scene_id: nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId),
-            },
+            shape: filterMetricId ? "dataframe" : "table",
+            __mei_runtime_ref: filterRuntimeRef,
           }
         : tableProps.dataset,
-      data: rowsetDatasetId ? { id: rowsetDatasetId } : tableProps.dataset,
-      _mei: tableProps._mei,
+      data: filterRuntimeRef
+        ? {
+            id: rowsetDatasetId,
+            __mei_runtime_ref: filterRuntimeRef,
+          }
+        : tableProps.dataset,
+      _mei: {
+        ...(tableProps._mei && typeof tableProps._mei === "object" ? tableProps._mei : {}),
+        filter_layers: {
+          seed: seedFilters || {},
+          scope: scopeFilters || {},
+          identity: identityFilters || {},
+        },
+      },
       column_catalog: columnCatalog,
       fields: columnCatalog,
     };
@@ -20699,7 +20976,13 @@
           : slotConfig.mapping && typeof slotConfig.mapping === "object"
             ? slotConfig.mapping
             : null;
-      const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id, boardMetricId);
+      // 图表 composition 父级同样优先 board / popup 分析指标，勿用入口 KPI count。
+      const cardMetricId = nonEmptyString(
+        boardMetricId,
+        resolvePopupPassedMetricId(detail, config),
+        detail?.metric_id,
+        detail?.__mei_runtime_ref?.metric_id,
+      );
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
       const resolvedChartMetricId = nonEmptyString(
         isDedicatedExplainMetricId(slot.metricId, { supportRole: slot.supportRole })
@@ -21000,7 +21283,15 @@
 
   function isPreviewOnlyMapping(config) {
     const mapping = resolveListPreviewMapping(config);
-    return Boolean(mapping?.preview_only || mapping?.previewOnly);
+    if (!Boolean(mapping?.preview_only || mapping?.previewOnly)) return false;
+    // 左清单 + 右预览：preview_only 只表示右侧是纯 PDF，不能把整板折成独立预览。
+    if (String(config?.sceneLocalNav?.kind || config?.scene_local_nav?.kind || "").trim() === "list_preview_drilldown_page") {
+      return false;
+    }
+    if (nonEmptyString(config?.rowPreviewSourceZoneId, config?.row_preview_source_zone_id)) {
+      return false;
+    }
+    return true;
   }
 
   function resolveCaseDetailFieldValue(row, spec) {
@@ -21091,6 +21382,24 @@
         enriched["模型ID"] = normalized;
         return;
       }
+      if (key === "mechanismName" || key === "机制名称" || key === "健全机制") {
+        // 过滤值可能是顿号多值；只取首个可匹配的机制名称，避免整串无法命中 CSV 行。
+        const parts = String(text || "")
+          .split(/[、,，;；]/)
+          .map((entry) =>
+            String(entry || "")
+              .trim()
+              .replace(/^[《]+|[》]+$/g, "")
+              .trim(),
+          )
+          .filter(Boolean);
+        const normalized = parts[0] || String(text).replace(/^[《]+|[》]+$/g, "").trim();
+        if (!normalized) return;
+        enriched.mechanismName = normalized;
+        enriched["机制名称"] = normalized;
+        enriched["健全机制"] = normalized;
+        return;
+      }
     });
     deriveWarningHandlingStatusFlags(enriched);
     return applyExternalCaseDetailRowEnricher(enriched, detail);
@@ -21129,27 +21438,53 @@
   }
 
   function caseCardObjectProps(config) {
+    const nav =
+      config?.sceneLocalNav && typeof config.sceneLocalNav === "object" ? config.sceneLocalNav : {};
     const locator =
-      (config?.sceneLocalNav?.object_locator &&
-      typeof config.sceneLocalNav.object_locator === "object"
-        ? config.sceneLocalNav.object_locator
+      (nav.object_locator && typeof nav.object_locator === "object" && !Array.isArray(nav.object_locator)
+        ? nav.object_locator
         : null) ||
-      (config?.sceneLocalNav?.objectLocator && typeof config.sceneLocalNav.objectLocator === "object"
-        ? config.sceneLocalNav.objectLocator
+      (nav.objectLocator && typeof nav.objectLocator === "object" && !Array.isArray(nav.objectLocator)
+        ? nav.objectLocator
         : null) ||
-      (config?.object_locator && typeof config.object_locator === "object"
+      (config?.object_locator && typeof config.object_locator === "object" && !Array.isArray(config.object_locator)
         ? config.object_locator
         : null) ||
-      (config?.objectLocator && typeof config.objectLocator === "object"
+      (config?.objectLocator && typeof config.objectLocator === "object" && !Array.isArray(config.objectLocator)
         ? config.objectLocator
-        : null) ||
-      {
-        object_type: "zhifa.Warning",
-        identity_field: "预警ID",
-      };
+        : null);
+    const objectType = nonEmptyString(
+      locator?.object_type,
+      locator?.objectType,
+      nav.object_type,
+      nav.objectType,
+      config?.object_type,
+      config?.objectType,
+    );
+    const identityField = nonEmptyString(
+      locator?.identity_field,
+      locator?.identityField,
+      nav.identity_field,
+      nav.identityField,
+      config?.identity_field,
+      config?.identityField,
+    );
+    const resolved =
+      objectType || identityField
+        ? {
+            ...(locator && typeof locator === "object" ? locator : {}),
+            ...(objectType ? { object_type: objectType, objectType } : {}),
+            ...(identityField ? { identity_field: identityField, identityField } : {}),
+          }
+        : {
+            object_type: "zhifa.Warning",
+            objectType: "zhifa.Warning",
+            identity_field: "预警ID",
+            identityField: "预警ID",
+          };
     return {
-      object_locator: locator,
-      objectLocator: locator,
+      object_locator: resolved,
+      objectLocator: resolved,
     };
   }
 
@@ -21209,17 +21544,137 @@
       event?.stopPropagation?.();
       const meta = await loadCaseCardDrilldownMeta();
       if (!meta?.resolveObjectFieldTargets || !meta?.emitObjectFieldOpen) return;
-      const props = caseCardObjectProps(config);
-      let targets = filterCaseCardObjectTargets(
-        meta.resolveObjectFieldTargets(props, row, field),
-        spec,
-      );
+      const fieldCandidates = [
+        field,
+        ...cloneArray(spec?.fallback_fields || spec?.fallbackFields),
+      ]
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean);
+      const uniqueFields = [...new Set(fieldCandidates)];
+      let props = caseCardObjectProps(config);
+      let targets = [];
+      const tryResolve = (nextProps) => {
+        for (const candidate of uniqueFields) {
+          const resolved = filterCaseCardObjectTargets(
+            meta.resolveObjectFieldTargets(nextProps, row, candidate),
+            spec,
+          );
+          if (resolved.length) return resolved;
+        }
+        return [];
+      };
+      targets = tryResolve(props);
+      // 典型案例等页缺 object_locator 时会回落到 Warning，关联预警ID/健全机制会空；按字段再试 IssueResult。
+      if (!targets.length) {
+        const retryTypes = ["zhifa.IssueResult", "zhifa.Warning", "zhifa.MechanismDocument"];
+        for (const type of retryTypes) {
+          const locator = {
+            object_type: type,
+            objectType: type,
+            ...(type === "zhifa.IssueResult"
+              ? { identity_field: "处理结果ID", identityField: "处理结果ID" }
+              : type === "zhifa.MechanismDocument"
+                ? { identity_field: "机制名称", identityField: "机制名称" }
+                : { identity_field: "预警ID", identityField: "预警ID" }),
+          };
+          const retryProps = { object_locator: locator, objectLocator: locator };
+          targets = tryResolve(retryProps);
+          if (targets.length) {
+            props = retryProps;
+            break;
+          }
+        }
+      }
       // 多值 ID 芯片：仅打开当前 chip 对应 identity
       const chipKey = String(el.dataset?.objectKey || "").trim();
       if (chipKey) {
-        targets = targets.filter(
-          (target) => String(target?.objectKey || target?.object_key || "").trim() === chipKey,
-        );
+        const normalizeKey = (raw) =>
+          String(raw ?? "")
+            .trim()
+            .replace(/^[《]+|[》]+$/g, "")
+            .trim();
+        const chipNorm = normalizeKey(chipKey);
+        const filtered = targets.filter((target) => {
+          const key = String(target?.objectKey || target?.object_key || "").trim();
+          return key === chipKey || normalizeKey(key) === chipNorm;
+        });
+        if (filtered.length) {
+          targets = filtered;
+        } else if (targets.length && chipNorm) {
+          // 多值顿号拆分后仍对不上时：用当前 chip 身份覆盖模板 target（健全机制常见）
+          const template = targets[0];
+          targets = [
+            {
+              ...template,
+              objectKey: chipNorm,
+              object_key: chipNorm,
+              label: chipNorm,
+              filterKey: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
+              filter_key: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
+            },
+          ];
+        } else if (chipNorm && (field === "健全机制" || field === "机制名称")) {
+          // 完全解析失败时仍尝试打开机制 PDF 详情
+          const locator = {
+            object_type: "zhifa.MechanismDocument",
+            objectType: "zhifa.MechanismDocument",
+            identity_field: "机制名称",
+            identityField: "机制名称",
+          };
+          props = { object_locator: locator, objectLocator: locator };
+          const links = meta.resolveObjectFieldLinks?.(props) || {};
+          const specs = Array.isArray(links["机制名称"])
+            ? links["机制名称"]
+            : Array.isArray(links["健全机制"])
+              ? links["健全机制"]
+              : [];
+          const spec0 = specs[0] || {};
+          const openPopup =
+            (spec0.openPopup && typeof spec0.openPopup === "object" ? spec0.openPopup : null) ||
+            (spec0.open_popup && typeof spec0.open_popup === "object" ? spec0.open_popup : null) ||
+            {
+              kind: "scene_open",
+              mode: "popup",
+              type: "popup",
+              projection: "overlay",
+              overlay_size: "large",
+              scene_id: "mechanism_document_detail_page",
+              scene_file:
+                "src/scene/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail.mei",
+              page_scene_id: "mechanism_document_detail_page",
+              page_scene_file:
+                "src/scene/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail.mei",
+              params: {
+                metric: {
+                  __ref: "metric_ref",
+                  __args: {
+                    arg0: "mechanism_document_detail",
+                    bundle: "metrics/effectiveness.bundle.mei",
+                  },
+                },
+                rowset_dataset_id: "mechanism_documents",
+              },
+            };
+          targets = [
+            {
+              role: "relation",
+              objectType: "zhifa.MechanismDocument",
+              objectKey: chipNorm,
+              keyMode: "identity",
+              filterKey: "mechanismName",
+              filter_key: "mechanismName",
+              hasDetail: true,
+              openPopup,
+              detailPage:
+                spec0.detailPage ||
+                spec0.detail_page ||
+                "zhifa/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail",
+              label: chipNorm,
+            },
+          ];
+        } else {
+          targets = [];
+        }
       }
       if (!targets.length) return;
       const emitHost = host instanceof HTMLElement ? host : el;
@@ -21229,7 +21684,7 @@
       }
       openCaseCardObjectChooser(el, targets, (target) => {
         meta.emitObjectFieldOpen(emitHost, target, row, props);
-      });
+      }, field);
     };
     el.addEventListener("click", open);
     el.addEventListener("keydown", (event) => {
@@ -21237,7 +21692,7 @@
     });
   }
 
-  function openCaseCardObjectChooser(anchor, targets, onPick) {
+  function openCaseCardObjectChooser(anchor, targets, onPick, fieldLabel = "") {
     const existing = document.querySelector(".access-drilldown-object-chooser");
     if (existing) existing.remove();
     const menu = document.createElement("div");
@@ -21245,15 +21700,17 @@
     menu.setAttribute("role", "menu");
     const title = document.createElement("div");
     title.className = "access-drilldown-object-chooser-title";
-    title.textContent = "选择智能对象";
+    const fieldName = String(fieldLabel || "").trim();
+    title.textContent = fieldName ? `选择${fieldName}` : "选择智能对象";
     menu.appendChild(title);
     targets.forEach((target) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "access-drilldown-object-chooser-item";
       button.setAttribute("role", "menuitem");
-      button.textContent =
-        target?.label || `${target?.objectType || ""} · ${target?.objectKey || ""}`;
+      button.textContent = String(
+        target?.label || target?.objectKey || target?.object_key || "",
+      ).trim();
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -21543,12 +22000,24 @@
     }
     const body = document.createElement("div");
     body.className = "access-drilldown-case-detail-section-body";
-    if ((label === "健全机制" || label === "制度文件") && value) {
+    if ((label === "健全机制" || label === "制度文件" || field === "健全机制") && value) {
       const list = document.createElement("ul");
       list.className = "access-drilldown-case-detail-mechanism-list";
+      const wantsLink = section?.object_link === true || section?.objectLink === true;
       splitMechanismDocuments(value).forEach((doc) => {
         const li = document.createElement("li");
-        li.textContent = doc;
+        if (wantsLink && field) {
+          const link = createCaseCardObjectLinkButton(doc);
+          // 机制名称 identity 通常不含书名号；展示可带《》，匹配时剥离
+          link.dataset.objectKey = String(doc || "")
+            .trim()
+            .replace(/^[《]+|[》]+$/g, "")
+            .trim();
+          bindCaseCardObjectOpen(link, block, row, field, section, config);
+          li.appendChild(link);
+        } else {
+          li.textContent = doc;
+        }
         list.appendChild(li);
       });
       if (!list.childElementCount) {
@@ -21590,7 +22059,8 @@
     titleEl.textContent = title || "典型案例详情";
     main.appendChild(titleEl);
     const subtitleId = resolveCaseDetailHeaderSubtitle(row, detail);
-    if (subtitleId) {
+    // 标题已是身份 ID 时不再重复副标题
+    if (subtitleId && subtitleId !== title) {
       const sub = document.createElement("span");
       sub.className = "access-drilldown-case-detail-subtitle";
       sub.textContent = subtitleId;
@@ -21661,14 +22131,80 @@
     if (tagRow.childElementCount) panel.appendChild(tagRow);
   }
 
+  function closeCaseCardFactPopover() {
+    const existing = document.querySelector(".access-drilldown-case-fact-popover");
+    if (existing) existing.remove();
+    if (typeof window.__meiCaseFactPopoverCleanup === "function") {
+      window.__meiCaseFactPopoverCleanup();
+      window.__meiCaseFactPopoverCleanup = null;
+    }
+  }
+
+  function openCaseCardFactPopover(anchor, fullText, title) {
+    closeCaseCardFactPopover();
+    const pop = document.createElement("div");
+    pop.className = "access-drilldown-case-fact-popover";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", title || "详细内容");
+    const head = document.createElement("div");
+    head.className = "access-drilldown-case-fact-popover-head";
+    const titleEl = document.createElement("div");
+    titleEl.className = "access-drilldown-case-fact-popover-title";
+    titleEl.textContent = title || "详细内容";
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "access-drilldown-case-fact-popover-close";
+    closeBtn.setAttribute("aria-label", "关闭");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCaseCardFactPopover();
+    });
+    head.appendChild(titleEl);
+    head.appendChild(closeBtn);
+    const body = document.createElement("div");
+    body.className = "access-drilldown-case-fact-popover-body";
+    body.textContent = fullText;
+    pop.appendChild(head);
+    pop.appendChild(body);
+    document.body.appendChild(pop);
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(420, Math.max(280, window.innerWidth - 24));
+    pop.style.position = "fixed";
+    pop.style.width = `${width}px`;
+    pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+    pop.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 12)}px`;
+    const onDoc = (event) => {
+      if (pop.contains(event.target) || anchor.contains?.(event.target)) return;
+      closeCaseCardFactPopover();
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") closeCaseCardFactPopover();
+    };
+    setTimeout(() => {
+      document.addEventListener("mousedown", onDoc, true);
+      document.addEventListener("keydown", onKey, true);
+    }, 0);
+    window.__meiCaseFactPopoverCleanup = () => {
+      document.removeEventListener("mousedown", onDoc, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }
+
   function appendTypicalCaseFacts(panel, row, mapping) {
     const facts = cloneArray(mapping?.facts);
     if (!facts.length) return;
     const factsRoot = document.createElement("div");
     factsRoot.className = "access-drilldown-typical-case-facts";
+    const maxChars = Math.max(
+      8,
+      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 16) || 16,
+    );
     facts.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
+      const full = resolveCaseDetailFieldValue(row, spec) || "—";
       const item = document.createElement("div");
       item.className = "access-drilldown-typical-case-fact";
       const labelEl = document.createElement("div");
@@ -21676,9 +22212,59 @@
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-fact-value";
-      valueEl.textContent = resolveCaseDetailFieldValue(row, spec) || "—";
-      item.appendChild(labelEl);
-      item.appendChild(valueEl);
+      const chars = [...full];
+      const needsTruncate = full !== "—" && chars.length > maxChars;
+      const bindFullText = (anchor) => {
+        const open = (event) => {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          openCaseCardFactPopover(anchor, full, label);
+        };
+        anchor.addEventListener("click", open);
+        anchor.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") open(event);
+        });
+      };
+      if (needsTruncate) {
+        valueEl.classList.add("is-truncated");
+        valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
+        valueEl.title = "点击查看全文";
+        valueEl.setAttribute("role", "button");
+        valueEl.tabIndex = 0;
+        bindFullText(valueEl);
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "access-drilldown-case-fact-more";
+        more.textContent = "查看全文";
+        more.title = "查看全文";
+        bindFullText(more);
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        item.appendChild(more);
+      } else {
+        valueEl.textContent = full;
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        // 窄列 CSS 省略时补「查看全文」
+        requestAnimationFrame(() => {
+          if (!(valueEl.scrollWidth > valueEl.clientWidth + 1 || valueEl.scrollHeight > valueEl.clientHeight + 1)) {
+            return;
+          }
+          if (item.querySelector(".access-drilldown-case-fact-more")) return;
+          valueEl.classList.add("is-truncated");
+          valueEl.title = "点击查看全文";
+          valueEl.setAttribute("role", "button");
+          valueEl.tabIndex = 0;
+          bindFullText(valueEl);
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "access-drilldown-case-fact-more";
+          more.textContent = "查看全文";
+          more.title = "查看全文";
+          bindFullText(more);
+          item.appendChild(more);
+        });
+      }
       factsRoot.appendChild(item);
     });
     if (factsRoot.childElementCount) panel.appendChild(factsRoot);
@@ -21787,22 +22373,60 @@
     if (!metrics.length) return;
     const metricsRoot = document.createElement("div");
     metricsRoot.className = "access-drilldown-typical-case-metrics";
+    const maxChars = Math.max(
+      12,
+      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 28) || 28,
+    );
     metrics.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
+      const kind = String(spec?.kind || "").trim();
+      const isText = kind === "text" || kind === "fact";
       const card = document.createElement("div");
-      card.className = "access-drilldown-typical-case-metric";
+      card.className = isText
+        ? "access-drilldown-typical-case-metric access-drilldown-typical-case-metric--text"
+        : "access-drilldown-typical-case-metric";
       const labelEl = document.createElement("div");
       labelEl.className = "access-drilldown-typical-case-metric-label";
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-metric-value";
-      valueEl.textContent = formatTypicalCaseMetricValue(row, spec);
+      if (isText) {
+        const full = resolveCaseDetailFieldValue(row, spec) || "—";
+        const chars = [...full];
+        const needsTruncate = full !== "—" && chars.length > maxChars;
+        if (needsTruncate) {
+          valueEl.classList.add("is-truncated");
+          valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
+          valueEl.title = "点击查看全文";
+          valueEl.setAttribute("role", "button");
+          valueEl.tabIndex = 0;
+          const open = (event) => {
+            event?.preventDefault?.();
+            event?.stopPropagation?.();
+            openCaseCardFactPopover(valueEl, full, label);
+          };
+          valueEl.addEventListener("click", open);
+          valueEl.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") open(event);
+          });
+        } else {
+          valueEl.textContent = full;
+        }
+      } else {
+        valueEl.textContent = formatTypicalCaseMetricValue(row, spec);
+      }
       card.appendChild(labelEl);
       card.appendChild(valueEl);
       metricsRoot.appendChild(card);
     });
-    if (metricsRoot.childElementCount) panel.appendChild(metricsRoot);
+    if (metricsRoot.childElementCount) {
+      metricsRoot.style.setProperty(
+        "--case-metric-count",
+        String(metricsRoot.childElementCount),
+      );
+      panel.appendChild(metricsRoot);
+    }
   }
 
   function applyCaseDetailWarningTone(panel, row) {
@@ -21817,19 +22441,38 @@
     }
   }
 
-  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null } = {}) {
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null, factsOutsideBand = false } = {}) {
     if (!mappingHasTypicalCaseStats(mapping)) return;
-    const target = (() => {
+    const bandTarget = (() => {
       if (!wrapBand) return panel;
       const band = document.createElement("div");
       band.className = "access-drilldown-case-detail-stats-band";
+      const hideBandLabel =
+        mapping?.hide_stats_band_label === true || mapping?.hideStatsBandLabel === true;
+      if (hideBandLabel) {
+        band.dataset.statsBandLabelHidden = "true";
+      } else {
+        const bandLabel = String(
+          mapping?.stats_band_label ||
+            mapping?.statsBandLabel ||
+            mapping?.card_badge ||
+            mapping?.cardBadge ||
+            "实时预警",
+        ).trim();
+        if (bandLabel) band.dataset.statsBandLabel = bandLabel;
+      }
       panel.appendChild(band);
       return band;
     })();
-    appendTypicalCaseTagRow(target, row, mapping, config);
-    appendTypicalCaseFacts(target, row, mapping);
-    appendTypicalCaseStatusRow(target, row, mapping, config);
-    appendTypicalCaseMetricsRow(target, row, mapping);
+    appendTypicalCaseTagRow(bandTarget, row, mapping, config);
+    if (!factsOutsideBand) {
+      appendTypicalCaseFacts(bandTarget, row, mapping);
+    }
+    appendTypicalCaseStatusRow(bandTarget, row, mapping, config);
+    appendTypicalCaseMetricsRow(bandTarget, row, mapping);
+    if (factsOutsideBand) {
+      appendTypicalCaseFacts(panel, row, mapping);
+    }
   }
 
   function renderSheetDetailCardPanel(host, row, config, detail) {
@@ -21919,8 +22562,11 @@
       host.classList.add("access-drilldown-case-detail-host--hybrid");
     }
     applyCaseDetailWarningTone(panel, enrichedRow);
+
+    const top = document.createElement("div");
+    top.className = "access-drilldown-case-detail-top";
     if (mappingShowsHeader(mapping)) {
-      appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
+      appendCaseDetailHeader(top, enrichedRow, mapping, detail);
     }
     if (mappingShowsSummary(mapping)) {
       const summary = resolveCaseDetailFieldValue(enrichedRow, {
@@ -21937,21 +22583,32 @@
       summaryText.textContent = summary || "—";
       summaryBlock.appendChild(summaryLabel);
       summaryBlock.appendChild(summaryText);
-      panel.appendChild(summaryBlock);
+      top.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, {
+    const factsOutsideBand =
+      mapping?.facts_outside_band === true ||
+      mapping?.factsOutsideBand === true ||
+      cloneArray(mapping?.facts).length > 0;
+    appendTypicalCaseStatsSection(top, enrichedRow, mapping, {
       wrapBand: hybridStats,
       config,
+      factsOutsideBand,
     });
     if (mappingShowsMeta(mapping)) {
-      appendCaseDetailMetaRow(panel, enrichedRow, mapping);
+      appendCaseDetailMetaRow(top, enrichedRow, mapping);
     }
     if (mappingWantsRowForm(mapping)) {
-      appendRowFormFields(panel, enrichedRow, mapping);
+      appendRowFormFields(top, enrichedRow, mapping);
     }
+    panel.appendChild(top);
+
     const columnsRoot = document.createElement("div");
     columnsRoot.className = "access-drilldown-case-detail-columns";
-    cloneArray(mapping?.columns).forEach((column) => {
+    const columns = cloneArray(mapping?.columns);
+    const laneCount = columns.length > 0 ? columns.length : 3;
+    columnsRoot.style.setProperty("--case-detail-lane-count", String(laneCount));
+    columnsRoot.dataset.laneCount = String(laneCount);
+    columns.forEach((column) => {
       const columnEl = document.createElement("div");
       columnEl.className = "access-drilldown-case-detail-column";
       const columnId = String(column?.id || "").trim();
@@ -21974,6 +22631,9 @@
     });
     if (columnsRoot.childElementCount) {
       panel.appendChild(columnsRoot);
+    } else {
+      // 无泳道时顶区占满，避免空行留白。
+      panel.style.gridTemplateRows = "minmax(0, 1fr)";
     }
     host.appendChild(panel);
     loadCaseCardDrilldownMeta();
@@ -22243,13 +22903,16 @@
         host.appendChild(empty);
         return;
       }
+      const previewOnly = Boolean(mapping?.preview_only || mapping?.previewOnly);
       const panel = createDocumentPreviewPanelShell({
         idle: true,
-        title: "制度文件预览",
+        title: previewOnly ? "健全机制文档" : "制度文件预览",
       });
       appendDocumentPreviewPlaceholder(
         panel,
-        "点击左侧清单中的机制名称，在此预览 PDF 制度文件",
+        previewOnly
+          ? "正在加载制度文件…"
+          : "点击左侧清单中的机制名称，在此预览 PDF 制度文件",
         { hint: true },
       );
       host.appendChild(panel);
@@ -23072,7 +23735,20 @@
         zone.style.gridArea = "preview";
       }
     });
-    renderSheetDetailCardPanel(previewHost, null, config, detail);
+    const renderPreviewOnlyPanel = (row) => {
+      // 健全机制等 document_preview：只渲染 PDF，禁止走典型案例/case 卡壳。
+      if (isDocumentPreview(config)) {
+        renderListPreviewItemPanel(previewHost, row, { ...config, drilldownDetail: detail });
+        return;
+      }
+      renderSheetDetailCardPanel(
+        previewHost,
+        row ? enrichCaseDetailRow(row, detail) : null,
+        config,
+        detail,
+      );
+    };
+    renderPreviewOnlyPanel(null);
     try {
       const fetchConfig = {
         ...config,
@@ -23098,37 +23774,54 @@
           ),
         },
         tableMetricId: nonEmptyString(
-          resolvePopupPassedMetricId(detail, config),
-          config?.tableMetricId,
+          // preview-only / document_preview：优先用 rowPreview 的 explain 子 metric
+          //（如 mechanism_document_detail::mechanism_document_preview），勿先落到 parent::__scalar_rowset__。
           config?.rowPreviewSlot?.metricId,
+          config?.tableMetricId,
+          resolvePopupPassedMetricId(detail, config),
         ),
       };
+      const parentMetricId = nonEmptyString(
+        resolvePopupPassedMetricId(detail, config),
+        config?.tableMetricId,
+      );
+      const explainBlockId = nonEmptyString(
+        config?.rowPreviewSlot?.explainBlockId,
+        config?.rowPreviewSlot?.id,
+      );
+      if (
+        parentMetricId &&
+        explainBlockId &&
+        !String(fetchConfig.tableMetricId || "").includes("::") &&
+        typeof resolveCompositionScopedMetricId === "function"
+      ) {
+        const scoped = resolveCompositionScopedMetricId(parentMetricId, explainBlockId);
+        if (scoped) fetchConfig.tableMetricId = scoped;
+      }
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
       const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
       const matched = pickRowMatchingDrilldownFilters(rows, detail);
-      renderSheetDetailCardPanel(
-        previewHost,
-        enrichCaseDetailRow(matched || null, detail),
-        config,
-        detail,
-      );
+      renderPreviewOnlyPanel(matched || null);
       return true;
     } catch (error) {
+      const isDoc = isDocumentPreview(config);
       const traceId = recordPopupDebugIssue({
         level: "error",
-        message: String(error?.message || error || "典型案例详情卡加载失败"),
-        phase: "case_detail_card_fetch_error",
+        message: String(
+          error?.message || error || (isDoc ? "健全机制文档加载失败" : "典型案例详情卡加载失败"),
+        ),
+        phase: isDoc ? "mechanism_document_preview_fetch_error" : "case_detail_card_fetch_error",
         detail,
         config,
         root,
         stack: error?.stack || "",
       });
-      renderSheetDetailCardPanel(previewHost, null, config, detail);
+      renderPreviewOnlyPanel(null);
       const empty = previewHost.querySelector(".access-drilldown-list-preview-empty");
       if (empty instanceof HTMLElement) {
         empty.textContent = traceId
-          ? `案例详情加载失败（追踪编号：${traceId}）`
-          : "案例详情加载失败";
+          ? `${isDoc ? "文档预览" : "案例详情"}加载失败（追踪编号：${traceId}）`
+          : `${isDoc ? "文档预览" : "案例详情"}加载失败`;
       }
       return false;
     }
@@ -23260,7 +23953,14 @@
       });
       return false;
     }
-    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    // 构成/趋势派生必须用看板分析指标（popup / tableMetricId），勿用入口 KPI count，
+    // 否则有 default_filters 时会走 useDetailRowset → count::__scalar_rowset__ → 500。
+    const cardMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolvePopupPassedMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+    );
     const fetchConfig = { ...config, datasetId };
     const sharedQueryStateId = nonEmptyString(
       config?.queryStateId,
@@ -23269,17 +23969,20 @@
     );
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
-      nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+      nonEmptyString(config?.supportRole).toLowerCase() === "composition" ||
+      isVerifiedShareCompositionTab(tabId, config);
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    const useFilteredRowset = Boolean(
-      sharedQueryStateId &&
-        cardMetricId &&
+    const verifiedShare = isVerifiedShareCompositionTab(tabId, config);
+    const useDetailRowset = Boolean(
+      cardMetricId &&
         (isCompositionTab || isTrendTab) &&
-        hasActiveDrilldownQueryFilters(sharedQueryStateId),
+        (verifiedShare ||
+          (sharedQueryStateId && hasActiveDrilldownQueryFilters(sharedQueryStateId))),
     );
-    if (useFilteredRowset) {
+    if (useDetailRowset) {
+      // 查实占比与有筛选的构成图：一律拉当前明细 scalar rowset 再聚合（单一真源）。
       fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
       fetchConfig.supportRole = "";
       fetchConfig.clientAggregate = true;
@@ -23307,10 +24010,11 @@
         datasetId,
       });
     }
-    if (explainMetricKind(config, tabId) === "composition") {
+    if (explainMetricKind(config, tabId) === "composition" || isVerifiedShareCompositionTab(tabId, config)) {
       const columns = Array.isArray(dataset?.columns) ? dataset.columns : [];
-      const dimension = compositionFieldForTab(config, tabId);
-      if (!dimension) {
+      const verifiedShare = isVerifiedShareCompositionTab(tabId, config);
+      const dimension = verifiedShare ? "查实占比" : compositionFieldForTab(config, tabId);
+      if (!dimension && !verifiedShare) {
         recordPopupDebugIssue({
           level: "error",
           message: `构成 tab 未解析到分组字段（tab=${normalizeTabId(tabId)}）`,
@@ -23323,7 +24027,9 @@
         return false;
       }
       const grouped = limitCompositionRows(
-        groupRowsForComposition(rows, dimension, columns, config, detail),
+        verifiedShare
+          ? groupRowsForVerifiedShare(rows, columns)
+          : groupRowsForComposition(rows, dimension, columns, config, detail),
         config,
       );
       if (!grouped.length) return false;
@@ -23332,7 +24038,7 @@
       if (!registered) return false;
       resetDrilldownChartSlotHost(
         host,
-        resolveDrilldownChartSlotCaption(config) || `${dimension}构成`,
+        resolveDrilldownChartSlotCaption(config) || (verifiedShare ? "查实占比" : `${dimension}构成`),
       );
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
@@ -23342,7 +24048,7 @@
           tabId,
           grouped,
           {
-            x: [{ field: "label", name: dimension || "label" }],
+            x: [{ field: "label", name: verifiedShare ? "查实占比" : dimension || "label" }],
             y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,
@@ -27382,6 +28088,44 @@
     );
   }
 
+  /** link/KPI 入口打开时重置 query_state，再种 default_filters（可为空对象）。 */
+  function seedDrilldownQueryStateOnOpen(config, detail) {
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) return;
+    const runtime = window.__meiDatasetRuntime;
+    if (!runtime || typeof runtime.setQueryState !== "function") return;
+    const popupParams =
+      (config?.params && typeof config.params === "object" && !Array.isArray(config.params)
+        ? config.params
+        : null) ||
+      (config?.popup?.params && typeof config.popup.params === "object" && !Array.isArray(config.popup.params)
+        ? config.popup.params
+        : null) ||
+      (detail?.popup?.params && typeof detail.popup.params === "object" && !Array.isArray(detail.popup.params)
+        ? detail.popup.params
+        : null) ||
+      {};
+    const seedSource =
+      (popupParams.default_filters &&
+      typeof popupParams.default_filters === "object" &&
+      !Array.isArray(popupParams.default_filters)
+        ? popupParams.default_filters
+        : null) ||
+      (detail?.default_filters &&
+      typeof detail.default_filters === "object" &&
+      !Array.isArray(detail.default_filters)
+        ? detail.default_filters
+        : null) ||
+      {};
+    const seed =
+      typeof runtime.mergeFilters === "function" ? runtime.mergeFilters(seedSource) : { ...seedSource };
+    runtime.setQueryState(
+      queryStateId,
+      { filters: seed },
+      { filterIntentSource: "drilldown_open", transitionSource: "drilldown_open" },
+    );
+  }
+
   async function openSceneProjection(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
@@ -27660,6 +28404,10 @@
     };
     await prewarmProjectionScope(layer2Config);
     await activateProjectionScope(layer2Config);
+    // 每次从 link/KPI 入口打开：按 default_filters 重置 query_state（可为空）。
+    // 关闭 overlay 不清理 store，否则会粘住上次 chart_selection（如主责单位=生态局），
+    // 导致重开看板「莫名其妙」过滤；overlay 内图表 toggle 不会再进本函数。
+    seedDrilldownQueryStateOnOpen(layer2Config, detail);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       // 多标签由 openLayer2Tab 按 tab_policy append/focus 管理；

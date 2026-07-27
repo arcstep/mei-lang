@@ -109,13 +109,16 @@
         host.appendChild(empty);
         return;
       }
+      const previewOnly = Boolean(mapping?.preview_only || mapping?.previewOnly);
       const panel = createDocumentPreviewPanelShell({
         idle: true,
-        title: "制度文件预览",
+        title: previewOnly ? "健全机制文档" : "制度文件预览",
       });
       appendDocumentPreviewPlaceholder(
         panel,
-        "点击左侧清单中的机制名称，在此预览 PDF 制度文件",
+        previewOnly
+          ? "正在加载制度文件…"
+          : "点击左侧清单中的机制名称，在此预览 PDF 制度文件",
         { hint: true },
       );
       host.appendChild(panel);

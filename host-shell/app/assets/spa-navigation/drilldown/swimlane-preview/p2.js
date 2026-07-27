@@ -15,22 +15,60 @@
     if (!metrics.length) return;
     const metricsRoot = document.createElement("div");
     metricsRoot.className = "access-drilldown-typical-case-metrics";
+    const maxChars = Math.max(
+      12,
+      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 28) || 28,
+    );
     metrics.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
+      const kind = String(spec?.kind || "").trim();
+      const isText = kind === "text" || kind === "fact";
       const card = document.createElement("div");
-      card.className = "access-drilldown-typical-case-metric";
+      card.className = isText
+        ? "access-drilldown-typical-case-metric access-drilldown-typical-case-metric--text"
+        : "access-drilldown-typical-case-metric";
       const labelEl = document.createElement("div");
       labelEl.className = "access-drilldown-typical-case-metric-label";
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-metric-value";
-      valueEl.textContent = formatTypicalCaseMetricValue(row, spec);
+      if (isText) {
+        const full = resolveCaseDetailFieldValue(row, spec) || "—";
+        const chars = [...full];
+        const needsTruncate = full !== "—" && chars.length > maxChars;
+        if (needsTruncate) {
+          valueEl.classList.add("is-truncated");
+          valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
+          valueEl.title = "点击查看全文";
+          valueEl.setAttribute("role", "button");
+          valueEl.tabIndex = 0;
+          const open = (event) => {
+            event?.preventDefault?.();
+            event?.stopPropagation?.();
+            openCaseCardFactPopover(valueEl, full, label);
+          };
+          valueEl.addEventListener("click", open);
+          valueEl.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") open(event);
+          });
+        } else {
+          valueEl.textContent = full;
+        }
+      } else {
+        valueEl.textContent = formatTypicalCaseMetricValue(row, spec);
+      }
       card.appendChild(labelEl);
       card.appendChild(valueEl);
       metricsRoot.appendChild(card);
     });
-    if (metricsRoot.childElementCount) panel.appendChild(metricsRoot);
+    if (metricsRoot.childElementCount) {
+      metricsRoot.style.setProperty(
+        "--case-metric-count",
+        String(metricsRoot.childElementCount),
+      );
+      panel.appendChild(metricsRoot);
+    }
   }
 
   function applyCaseDetailWarningTone(panel, row) {
@@ -45,19 +83,38 @@
     }
   }
 
-  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null } = {}) {
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false, config = null, factsOutsideBand = false } = {}) {
     if (!mappingHasTypicalCaseStats(mapping)) return;
-    const target = (() => {
+    const bandTarget = (() => {
       if (!wrapBand) return panel;
       const band = document.createElement("div");
       band.className = "access-drilldown-case-detail-stats-band";
+      const hideBandLabel =
+        mapping?.hide_stats_band_label === true || mapping?.hideStatsBandLabel === true;
+      if (hideBandLabel) {
+        band.dataset.statsBandLabelHidden = "true";
+      } else {
+        const bandLabel = String(
+          mapping?.stats_band_label ||
+            mapping?.statsBandLabel ||
+            mapping?.card_badge ||
+            mapping?.cardBadge ||
+            "实时预警",
+        ).trim();
+        if (bandLabel) band.dataset.statsBandLabel = bandLabel;
+      }
       panel.appendChild(band);
       return band;
     })();
-    appendTypicalCaseTagRow(target, row, mapping, config);
-    appendTypicalCaseFacts(target, row, mapping);
-    appendTypicalCaseStatusRow(target, row, mapping, config);
-    appendTypicalCaseMetricsRow(target, row, mapping);
+    appendTypicalCaseTagRow(bandTarget, row, mapping, config);
+    if (!factsOutsideBand) {
+      appendTypicalCaseFacts(bandTarget, row, mapping);
+    }
+    appendTypicalCaseStatusRow(bandTarget, row, mapping, config);
+    appendTypicalCaseMetricsRow(bandTarget, row, mapping);
+    if (factsOutsideBand) {
+      appendTypicalCaseFacts(panel, row, mapping);
+    }
   }
 
   function renderSheetDetailCardPanel(host, row, config, detail) {
@@ -147,8 +204,11 @@
       host.classList.add("access-drilldown-case-detail-host--hybrid");
     }
     applyCaseDetailWarningTone(panel, enrichedRow);
+
+    const top = document.createElement("div");
+    top.className = "access-drilldown-case-detail-top";
     if (mappingShowsHeader(mapping)) {
-      appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
+      appendCaseDetailHeader(top, enrichedRow, mapping, detail);
     }
     if (mappingShowsSummary(mapping)) {
       const summary = resolveCaseDetailFieldValue(enrichedRow, {
@@ -165,21 +225,32 @@
       summaryText.textContent = summary || "—";
       summaryBlock.appendChild(summaryLabel);
       summaryBlock.appendChild(summaryText);
-      panel.appendChild(summaryBlock);
+      top.appendChild(summaryBlock);
     }
-    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, {
+    const factsOutsideBand =
+      mapping?.facts_outside_band === true ||
+      mapping?.factsOutsideBand === true ||
+      cloneArray(mapping?.facts).length > 0;
+    appendTypicalCaseStatsSection(top, enrichedRow, mapping, {
       wrapBand: hybridStats,
       config,
+      factsOutsideBand,
     });
     if (mappingShowsMeta(mapping)) {
-      appendCaseDetailMetaRow(panel, enrichedRow, mapping);
+      appendCaseDetailMetaRow(top, enrichedRow, mapping);
     }
     if (mappingWantsRowForm(mapping)) {
-      appendRowFormFields(panel, enrichedRow, mapping);
+      appendRowFormFields(top, enrichedRow, mapping);
     }
+    panel.appendChild(top);
+
     const columnsRoot = document.createElement("div");
     columnsRoot.className = "access-drilldown-case-detail-columns";
-    cloneArray(mapping?.columns).forEach((column) => {
+    const columns = cloneArray(mapping?.columns);
+    const laneCount = columns.length > 0 ? columns.length : 3;
+    columnsRoot.style.setProperty("--case-detail-lane-count", String(laneCount));
+    columnsRoot.dataset.laneCount = String(laneCount);
+    columns.forEach((column) => {
       const columnEl = document.createElement("div");
       columnEl.className = "access-drilldown-case-detail-column";
       const columnId = String(column?.id || "").trim();
@@ -202,6 +273,9 @@
     });
     if (columnsRoot.childElementCount) {
       panel.appendChild(columnsRoot);
+    } else {
+      // 无泳道时顶区占满，避免空行留白。
+      panel.style.gridTemplateRows = "minmax(0, 1fr)";
     }
     host.appendChild(panel);
     loadCaseCardDrilldownMeta();

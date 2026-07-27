@@ -17,6 +17,7 @@
     "test:mcp:author-adapter": "node ./scripts/test/test-author-mcp-adapter.mjs",
     "test:mcp:access-adapter": "node ./scripts/test/test-access-mcp-adapter.mjs",
     "test:phase4-regressions": "bash ./scripts/check/check-phase4-regressions.sh",
+    "test:filter-layer-contract": "node ./scripts/check/lint-filter-layer-contract.mjs",
     "test:auth-regressions": "bash ./scripts/check/check-auth-regressions.sh",
     "test:host-perf-regress": "bash ./scripts/check/check-host-perf-regress.sh",
     "assets:list-large": "node ./scripts/build/list-large-files.mjs",

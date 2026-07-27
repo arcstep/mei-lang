@@ -106,33 +106,48 @@ pub(super) fn slot_from_explain_block(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let shape = block_map
+        .get("shape")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let component = component_for_support_role(&support_role, block_map);
     let label = block_map
         .get("label")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let slot_metric_id = if support_role == "composition" || support_role == "trend" {
+    // 合约侧 dataframe product 常被写成 support_role=detail，但必须仍挂子 metric。
+    // 否则客户端会回退 parent::__scalar_rowset__，健全机制清单错拿 issue 结果行。
+    let needs_scoped_child = support_role == "composition"
+        || support_role == "trend"
+        || support_role == "dataframe"
+        || shape == "dataframe";
+    let scoped_from_block_id = || {
         block_map
             .get("id")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|block_id| format!("{}::{}", metric_id.trim(), block_id))
-            .or_else(|| {
-                block_map
-                    .get("metric_id")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| metric_id.to_string())
+    };
+    let explicit_metric_id = block_map
+        .get("analysis_scoped_id")
+        .or_else(|| block_map.get("metric_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let slot_metric_id = if let Some(explicit) = explicit_metric_id {
+        // 已是 parent::child 则沿用；若合约误写成裸 local id，在需要作用域时补全。
+        if explicit.contains("::") || !needs_scoped_child {
+            explicit
+        } else {
+            scoped_from_block_id().unwrap_or(explicit)
+        }
+    } else if needs_scoped_child {
+        scoped_from_block_id().unwrap_or_else(|| metric_id.to_string())
     } else {
-        block_map
-            .get("metric_id")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| metric_id.to_string())
+        metric_id.to_string()
     };
     let block_dataset_id = block_map
         .get("dataset_id")

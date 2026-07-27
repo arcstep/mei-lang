@@ -87,6 +87,37 @@
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
   }
 
+  /**
+   * 查实占比：sum(查实条数) vs sum(预警条数−查实条数)。
+   * 过滤后客户端重聚合专用；勿退化为按「是否查实」行数/查实条数分组。
+   */
+  function groupRowsForVerifiedShare(rows, columns = []) {
+    let verified = 0;
+    let warningTotal = 0;
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (!row || typeof row !== "object") return;
+      verified += parseCompositionNumber(rowFieldValue(row, "查实条数", columns));
+      warningTotal += parseCompositionNumber(rowFieldValue(row, "预警条数", columns));
+    });
+    const unverified = Math.max(0, warningTotal - verified);
+    return [
+      { label: "查实", value: verified },
+      { label: "未查实", value: unverified },
+    ].filter((entry) => Number(entry.value) > 0 || verified + unverified === 0);
+  }
+
+  function isVerifiedShareCompositionTab(tabId, config = null) {
+    const id = normalizeTabId(tabId);
+    if (id === "composition_by_verified") return true;
+    const mode = nonEmptyString(
+      config?.compositionMode,
+      config?.composition_mode,
+      config?.slotByTab?.[id]?.compositionMode,
+      config?.slotByTab?.[id]?.composition_mode,
+    ).toLowerCase();
+    return mode === "verified_share" || mode === "verified_vs_unverified";
+  }
+
   function normalizeMetricLocalId(metricId) {
     const text = String(metricId || "").trim();
     if (!text) return "";

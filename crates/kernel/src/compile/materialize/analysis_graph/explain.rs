@@ -274,10 +274,20 @@ pub(super) fn unique_lineage_dataset_id_from_metric_values(
 }
 
 pub(super) fn scoped_dataframe_metric_id(item_map: &Map<String, Value>) -> Option<String> {
-    first_non_empty_string(
-        item_map,
-        &["analysis_scoped_id", "analysis_node_id", "id", "key"],
-    )
+    if let Some(scoped) = first_non_empty_string(item_map, &["analysis_scoped_id"]) {
+        return Some(scoped);
+    }
+    if let Some(node_id) = first_non_empty_string(item_map, &["analysis_node_id"]) {
+        if node_id.contains("::") {
+            return Some(node_id);
+        }
+    }
+    let local = first_non_empty_string(item_map, &["analysis_local_id", "id", "key"])?;
+    if local.contains("::") {
+        return Some(local);
+    }
+    let parent = first_non_empty_string(item_map, &["analysis_parent_metric_id"])?;
+    Some(scoped_child_metric_id(&parent, &local))
 }
 
 pub(super) fn infer_explain_scoped_dataframe(

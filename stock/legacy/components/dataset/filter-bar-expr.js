@@ -40,6 +40,15 @@ export function encodeFilterRow(row, profile) {
     const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
     if (!values.length) return "";
     body = `in:${values.join(",")}`;
+  } else if (operator === "contains_any") {
+    const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
+    if (!values.length) {
+      const single = String(row?.value || "").trim();
+      if (!single) return "";
+      body = `contains_any:${single}`;
+    } else {
+      body = `contains_any:${values.join(",")}`;
+    }
   } else if (operator === "month_in") {
     const values = Array.isArray(row?.values) ? row.values.filter(Boolean) : [];
     if (!values.length) return "";
@@ -57,7 +66,8 @@ export function encodeFilterRow(row, profile) {
   } else if (operator === "contains") {
     const value = String(row?.value || "").trim();
     if (!value) return "";
-    body = value.includes(":") ? `contains:${value}` : value;
+    // 必须带 contains: 前缀：SQL 路径对裸值走等值匹配，关键字过滤会失效。
+    body = `contains:${value}`;
   } else if (["eq", "gt", "gte", "lt", "lte"].includes(operator)) {
     const value = String(row?.value ?? "").trim();
     if (!value) return "";
@@ -82,6 +92,11 @@ export function decodeFilterRow(encoded, column, profile) {
   if (body.startsWith("in:")) {
     row.operator = "in";
     row.values = splitEncodedList(body.slice(3));
+    return row;
+  }
+  if (body.startsWith("contains_any:")) {
+    row.operator = "contains_any";
+    row.values = splitEncodedList(body.slice("contains_any:".length));
     return row;
   }
   if (body.startsWith("mrange:")) {
@@ -141,8 +156,11 @@ function fieldQueryKey(field) {
 }
 
 function filterStateKey(field) {
+  // 物理列名优先：rowset/SQL 按列名匹配。逻辑 key（agency）在无 binding 的派生
+  // dataset 上会 unresolved，导致整次过滤失效。
   const column = String(field?.column || "").trim();
-  return column || fieldQueryKey(field);
+  if (column) return column;
+  return fieldQueryKey(field);
 }
 
 function findCatalogFieldByStateKey(catalog, stateKey) {
@@ -157,6 +175,18 @@ function findCatalogFieldByStateKey(catalog, stateKey) {
   );
 }
 
+/** Drop filter dimensions that are not in the author catalog (e.g. stale 监督类别). */
+export function sanitizeFiltersToCatalog(filters, catalog) {
+  const out = {};
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (!String(value ?? "").trim()) continue;
+    if (findCatalogFieldByStateKey(catalog, key)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export function filtersToRows(filters, catalog, profiles, nextRowId) {
   const entries = Object.entries(filters || {}).filter(([, raw]) => String(raw ?? "").trim());
   if (!entries.length) {
@@ -164,8 +194,15 @@ export function filtersToRows(filters, catalog, profiles, nextRowId) {
   }
   return entries.map(([stateKey, raw]) => {
     const field = findCatalogFieldByStateKey(catalog, stateKey);
-    const rowColumn = field ? fieldQueryKey(field) : stateKey;
-    const profile = profiles?.get(rowColumn) || profiles?.get(stateKey) || null;
+    // 行绑定优先数据列名，保证与 SQL/明细列一致（勿回写成 matter 这类逻辑 key）。
+    const rowColumn = field
+      ? String(field?.column || fieldQueryKey(field)).trim()
+      : stateKey;
+    const profile =
+      profiles?.get(rowColumn) ||
+      profiles?.get(fieldQueryKey(field)) ||
+      profiles?.get(stateKey) ||
+      null;
     const row = decodeFilterRow(String(raw ?? ""), rowColumn, profile);
     row.id = nextRowId();
     row.status = "active";

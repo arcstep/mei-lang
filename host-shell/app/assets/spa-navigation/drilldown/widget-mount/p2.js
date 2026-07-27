@@ -125,7 +125,10 @@
     const key = nonEmptyString(field.key, field.column);
     const column = nonEmptyString(field.column, field.key);
     const declaredOptions = Array.isArray(field.options) ? field.options : [];
-    const optionsFrom = nonEmptyString(field.options_from, field.optionsFrom) || "rowset";
+    const authoredOptionsFrom = nonEmptyString(field.options_from, field.optionsFrom);
+    // 已声明静态枚举时勿默认成 rowset，否则 additive 会走空 facet 并盖掉静态项。
+    const optionsFrom =
+      authoredOptionsFrom || (declaredOptions.length > 0 ? "static" : "rowset");
     // 风险等级等组合面值必须走 rowset facet，才能带计数并按计数排序；
     // 不要再注入无 count 的 static 组合列表。
     return {
@@ -162,6 +165,62 @@
       tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
       tableProps?.dataset?.id,
     );
+    // issue_handling_list 等是 metric 派生 rowset：无 metric_id 时 rows/facets 皆空。
+    // filter-bar 选项请求必须复用明细表的 metric runtime ref（含 ::__scalar_rowset__）。
+    const tableRuntimeRef =
+      tableProps?.dataset?.__mei_runtime_ref && typeof tableProps.dataset.__mei_runtime_ref === "object"
+        ? tableProps.dataset.__mei_runtime_ref
+        : {};
+    const filterMetricId = nonEmptyString(
+      tableRuntimeRef.metric_id,
+      tableRuntimeRef.metricId,
+      typeof resolveCardMetricRowsetId === "function"
+        ? resolveCardMetricRowsetId(
+            nonEmptyString(config?.tableMetricId, config?.metricId, detail?.metric_id),
+          )
+        : "",
+    );
+    const filterRuntimeRef = rowsetDatasetId
+      ? {
+          ...tableRuntimeRef,
+          kind: filterMetricId ? "metric" : nonEmptyString(tableRuntimeRef.kind, "data") || "data",
+          dataset_id: rowsetDatasetId,
+          ...(filterMetricId ? { metric_id: filterMetricId } : {}),
+          scene_id: nonEmptyString(
+            tableRuntimeRef.scene_id,
+            config?.runtimeSceneId,
+            config?.hostSceneId,
+            config?.sceneId,
+          ),
+          scene_path: nonEmptyString(tableRuntimeRef.scene_path, config?.runtimeSceneFile),
+        }
+      : null;
+    // Seed only — 不要把 tableProps 里误混的 identity 当种子（table 已拆分）。
+    const seedFilters = (() => {
+      const seed = tableProps?.default_filters;
+      if (seed && typeof seed === "object" && !Array.isArray(seed)) return seed;
+      const fromDetail = detail?.default_filters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      const fromParams = config?.params?.default_filters;
+      if (fromParams && typeof fromParams === "object" && !Array.isArray(fromParams)) return fromParams;
+      return null;
+    })();
+    const scopeFilters = (() => {
+      const fromTable = tableProps?.scope_filters;
+      if (fromTable && typeof fromTable === "object" && !Array.isArray(fromTable)) return fromTable;
+      const fromConfig = config?.scopeFilters || config?.scope_filters;
+      if (fromConfig && typeof fromConfig === "object" && !Array.isArray(fromConfig)) return fromConfig;
+      const fromDetail = detail?.scope_filters || detail?.scopeFilters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      return null;
+    })();
+    const identityFilters = (() => {
+      const fromTable = tableProps?.drilldown_filters;
+      if (fromTable && typeof fromTable === "object" && !Array.isArray(fromTable)) return fromTable;
+      const fromDetail = detail?.drilldown_filters;
+      if (fromDetail && typeof fromDetail === "object" && !Array.isArray(fromDetail)) return fromDetail;
+      return null;
+    })();
     return {
       mode: "additive",
       live: false,
@@ -176,20 +235,31 @@
         config?.tableMetricId ? `drilldown::${config.tableMetricId}` : "",
         config?.metricId ? `drilldown::${config.metricId}` : "",
       ) || undefined,
-      default_filters: tableProps?.default_filters || undefined,
+      default_filters: seedFilters || undefined,
+      scope_filters: scopeFilters || undefined,
+      drilldown_filters: identityFilters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
-      dataset: rowsetDatasetId
+      dataset: filterRuntimeRef
         ? {
             id: rowsetDatasetId,
-            shape: "table",
-            __mei_runtime_ref: {
-              dataset_id: rowsetDatasetId,
-              scene_id: nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId),
-            },
+            shape: filterMetricId ? "dataframe" : "table",
+            __mei_runtime_ref: filterRuntimeRef,
           }
         : tableProps.dataset,
-      data: rowsetDatasetId ? { id: rowsetDatasetId } : tableProps.dataset,
-      _mei: tableProps._mei,
+      data: filterRuntimeRef
+        ? {
+            id: rowsetDatasetId,
+            __mei_runtime_ref: filterRuntimeRef,
+          }
+        : tableProps.dataset,
+      _mei: {
+        ...(tableProps._mei && typeof tableProps._mei === "object" ? tableProps._mei : {}),
+        filter_layers: {
+          seed: seedFilters || {},
+          scope: scopeFilters || {},
+          identity: identityFilters || {},
+        },
+      },
       column_catalog: columnCatalog,
       fields: columnCatalog,
     };

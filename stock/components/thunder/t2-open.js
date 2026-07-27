@@ -181,7 +181,7 @@ export function openThunderT2(boardKey, options = {}) {
     title: popup.title,
     params,
     ...(options.filters && typeof options.filters === "object"
-      ? { drilldown_filters: options.filters, default_filters: options.filters }
+      ? { drilldown_filters: options.filters }
       : {}),
     scene_projection_assembly_by_id: drilldownContext()?.scene_projection_assembly_by_id || null,
     scene_bindings_by_id: drilldownContext()?.scene_bindings_by_id || null,

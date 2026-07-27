@@ -156,10 +156,11 @@ function fieldQueryKey(field) {
 }
 
 function filterStateKey(field) {
-  // Prefer authored filter key (modelType / supervisionCategory) so query_state
-  // aligns with dataset filters `… in filter.<key>` and filter_intents dimensions.
-  // Fall back to physical column when key is absent.
-  return fieldQueryKey(field) || String(field?.column || "").trim();
+  // 物理列名优先：rowset/SQL 按列名匹配。逻辑 key（agency）在无 binding 的派生
+  // dataset 上会 unresolved，导致整次过滤失效。
+  const column = String(field?.column || "").trim();
+  if (column) return column;
+  return fieldQueryKey(field);
 }
 
 function findCatalogFieldByStateKey(catalog, stateKey) {

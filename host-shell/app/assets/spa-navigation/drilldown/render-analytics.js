@@ -12,7 +12,13 @@
           : slotConfig.mapping && typeof slotConfig.mapping === "object"
             ? slotConfig.mapping
             : null;
-      const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id, boardMetricId);
+      // 图表 composition 父级同样优先 board / popup 分析指标，勿用入口 KPI count。
+      const cardMetricId = nonEmptyString(
+        boardMetricId,
+        resolvePopupPassedMetricId(detail, config),
+        detail?.metric_id,
+        detail?.__mei_runtime_ref?.metric_id,
+      );
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
       const resolvedChartMetricId = nonEmptyString(
         isDedicatedExplainMetricId(slot.metricId, { supportRole: slot.supportRole })

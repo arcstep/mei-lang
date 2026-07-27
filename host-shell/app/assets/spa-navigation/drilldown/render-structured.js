@@ -235,7 +235,20 @@
         zone.style.gridArea = "preview";
       }
     });
-    renderSheetDetailCardPanel(previewHost, null, config, detail);
+    const renderPreviewOnlyPanel = (row) => {
+      // 健全机制等 document_preview：只渲染 PDF，禁止走典型案例/case 卡壳。
+      if (isDocumentPreview(config)) {
+        renderListPreviewItemPanel(previewHost, row, { ...config, drilldownDetail: detail });
+        return;
+      }
+      renderSheetDetailCardPanel(
+        previewHost,
+        row ? enrichCaseDetailRow(row, detail) : null,
+        config,
+        detail,
+      );
+    };
+    renderPreviewOnlyPanel(null);
     try {
       const fetchConfig = {
         ...config,
@@ -261,37 +274,54 @@
           ),
         },
         tableMetricId: nonEmptyString(
-          resolvePopupPassedMetricId(detail, config),
-          config?.tableMetricId,
+          // preview-only / document_preview：优先用 rowPreview 的 explain 子 metric
+          //（如 mechanism_document_detail::mechanism_document_preview），勿先落到 parent::__scalar_rowset__。
           config?.rowPreviewSlot?.metricId,
+          config?.tableMetricId,
+          resolvePopupPassedMetricId(detail, config),
         ),
       };
+      const parentMetricId = nonEmptyString(
+        resolvePopupPassedMetricId(detail, config),
+        config?.tableMetricId,
+      );
+      const explainBlockId = nonEmptyString(
+        config?.rowPreviewSlot?.explainBlockId,
+        config?.rowPreviewSlot?.id,
+      );
+      if (
+        parentMetricId &&
+        explainBlockId &&
+        !String(fetchConfig.tableMetricId || "").includes("::") &&
+        typeof resolveCompositionScopedMetricId === "function"
+      ) {
+        const scoped = resolveCompositionScopedMetricId(parentMetricId, explainBlockId);
+        if (scoped) fetchConfig.tableMetricId = scoped;
+      }
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
       const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
       const matched = pickRowMatchingDrilldownFilters(rows, detail);
-      renderSheetDetailCardPanel(
-        previewHost,
-        enrichCaseDetailRow(matched || null, detail),
-        config,
-        detail,
-      );
+      renderPreviewOnlyPanel(matched || null);
       return true;
     } catch (error) {
+      const isDoc = isDocumentPreview(config);
       const traceId = recordPopupDebugIssue({
         level: "error",
-        message: String(error?.message || error || "典型案例详情卡加载失败"),
-        phase: "case_detail_card_fetch_error",
+        message: String(
+          error?.message || error || (isDoc ? "健全机制文档加载失败" : "典型案例详情卡加载失败"),
+        ),
+        phase: isDoc ? "mechanism_document_preview_fetch_error" : "case_detail_card_fetch_error",
         detail,
         config,
         root,
         stack: error?.stack || "",
       });
-      renderSheetDetailCardPanel(previewHost, null, config, detail);
+      renderPreviewOnlyPanel(null);
       const empty = previewHost.querySelector(".access-drilldown-list-preview-empty");
       if (empty instanceof HTMLElement) {
         empty.textContent = traceId
-          ? `案例详情加载失败（追踪编号：${traceId}）`
-          : "案例详情加载失败";
+          ? `${isDoc ? "文档预览" : "案例详情"}加载失败（追踪编号：${traceId}）`
+          : `${isDoc ? "文档预览" : "案例详情"}加载失败`;
       }
       return false;
     }

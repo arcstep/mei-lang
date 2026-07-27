@@ -136,6 +136,16 @@ export const COCKPIT_TEXT_CLASS = {
 };
 
 const CHART_COLOR_KEYS = ["chart_1", "chart_2", "chart_3", "chart_4", "chart_5", "chart_6"];
+const CHART_CATEGORICAL_COLOR_KEYS = [
+  "chart_cat_1",
+  "chart_cat_2",
+  "chart_cat_3",
+  "chart_cat_4",
+  "chart_cat_5",
+  "chart_cat_6",
+  "chart_cat_7",
+  "chart_cat_8",
+];
 
 /** 静态 fallback（无 DOM / 无 theme 注入时）— 默认绿色系单色阶梯（ECharts 需实色 hex） */
 export const COCKPIT_CHART_PALETTE_FALLBACK = [
@@ -145,6 +155,18 @@ export const COCKPIT_CHART_PALETTE_FALLBACK = [
   "#34d399",
   "#10b981",
   "#059669",
+];
+
+/** 饼/环/玫瑰分类色板 fallback（避开红/黄/蓝预警业务色） */
+export const COCKPIT_CHART_CATEGORICAL_PALETTE_FALLBACK = [
+  "#14b8a6",
+  "#22c55e",
+  "#f97316",
+  "#8b5cf6",
+  "#0ea5e9",
+  "#ec4899",
+  "#84cc16",
+  "#64748b",
 ];
 
 /** @deprecated 请用 readThemeChartPalette(host)；保留作静态 fallback */
@@ -278,6 +300,20 @@ export function readThemeChartPalette(host) {
     return raw || COCKPIT_CHART_PALETTE_FALLBACK[index];
   }).filter(Boolean);
   return colors.length > 0 ? colors : [...COCKPIT_CHART_PALETTE_FALLBACK];
+}
+
+/** 从宿主读取 theme.tokens.color.chart_cat_* 分类色板（饼/环/玫瑰按类目轮转） */
+export function readThemeChartCategoricalPalette(host) {
+  if (typeof window === "undefined" || !(host instanceof Element)) {
+    return [...COCKPIT_CHART_CATEGORICAL_PALETTE_FALLBACK];
+  }
+  const style = window.getComputedStyle(host);
+  const colors = CHART_CATEGORICAL_COLOR_KEYS.map((key, index) => {
+    const cssKey = key.replace(/_/g, "-");
+    const raw = style.getPropertyValue(`--mei-color-${cssKey}`).trim();
+    return raw || COCKPIT_CHART_CATEGORICAL_PALETTE_FALLBACK[index];
+  }).filter(Boolean);
+  return colors.length > 0 ? colors : [...COCKPIT_CHART_CATEGORICAL_PALETTE_FALLBACK];
 }
 
 /** 从宿主 computed style 读取 theme.tokens.color.* 实色（ECharts/canvas 用） */

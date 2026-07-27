@@ -358,11 +358,21 @@
     const rowsetDatasetId = structuredBoard
       ? rawRowsetDatasetId
       : qualifyDatasetIdForScene(rawRowsetDatasetId, ownerScenePath);
+    // 与 tableMetricId 对齐：用 popup/link_decl 分析指标，勿用入口 KPI count，
+    // 否则待办/在办/办结会各占一份 query_state，且与看板 fetch 键不一致。
+    const boardMetricForQueryState = nonEmptyString(
+      resolvePopupPassedMetricId(detail, {
+        params: boardFields?.params || normalizeSceneParams(popup?.params),
+        popup,
+      }),
+      metricId,
+      defaultSlot?.metricId,
+    );
     const queryStateId = structuredBoard
       ? nonEmptyString(
           popup?.query_state_id,
           popup?.queryStateId,
-          metricId ? `drilldown::${metricId}` : "",
+          boardMetricForQueryState ? `drilldown::${boardMetricForQueryState}` : "",
         )
       : "";
     const slotsByZone = groupProjectionSlotsByZone(projectionSlots);
@@ -405,6 +415,23 @@
       queryStateId,
       rowsetDatasetId,
       params: boardFields?.params || normalizeSceneParams(popup?.params),
+      scopeFilters: (() => {
+        const params = boardFields?.params || normalizeSceneParams(popup?.params) || {};
+        const fromDetail =
+          detail?.scope_filters && typeof detail.scope_filters === "object" && !Array.isArray(detail.scope_filters)
+            ? detail.scope_filters
+            : detail?.scopeFilters && typeof detail.scopeFilters === "object" && !Array.isArray(detail.scopeFilters)
+              ? detail.scopeFilters
+              : null;
+        if (fromDetail) return fromDetail;
+        const fromParams =
+          params?.scope_filters && typeof params.scope_filters === "object" && !Array.isArray(params.scope_filters)
+            ? params.scope_filters
+            : params?.scopeFilters && typeof params.scopeFilters === "object" && !Array.isArray(params.scopeFilters)
+              ? params.scopeFilters
+              : null;
+        return fromParams || undefined;
+      })(),
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
@@ -420,12 +447,15 @@
       projection,
       title,
       note: "",
+      // link_decl / popup.params.metric（如 issue_handling_analytics）必须优先于
+      // 入口 KPI 卡片自身的 count metric（warnings_pending_count），否则看板会误拉
+      // count::__scalar_rowset__ → uncovered_pipeline。
       tableMetricId: nonEmptyString(
-        metricId,
         resolvePopupPassedMetricId(detail, {
           params: boardFields?.params || normalizeSceneParams(popup?.params),
           popup,
         }),
+        metricId,
         defaultTableSlot?.metricId,
       ),
       datasetId: nonEmptyString(

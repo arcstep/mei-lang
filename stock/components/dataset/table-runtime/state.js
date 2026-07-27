@@ -20,12 +20,22 @@ export function activeTableFilters(props, queryStateId, localFilters = {}) {
       : props?.defaultFilters && typeof props.defaultFilters === "object" && !Array.isArray(props.defaultFilters)
         ? props.defaultFilters
         : {};
+  const scopeFilters =
+    props?.scope_filters && typeof props.scope_filters === "object" && !Array.isArray(props.scope_filters)
+      ? props.scope_filters
+      : props?.scopeFilters && typeof props.scopeFilters === "object" && !Array.isArray(props.scopeFilters)
+        ? props.scopeFilters
+        : {};
+  const identityFilters =
+    props?.drilldown_filters && typeof props.drilldown_filters === "object" && !Array.isArray(props.drilldown_filters)
+      ? props.drilldown_filters
+      : props?.drilldownFilters && typeof props.drilldownFilters === "object" && !Array.isArray(props.drilldownFilters)
+        ? props.drilldownFilters
+        : {};
   const id = String(queryStateId || "").trim();
-  // 绑定 query_state 后以共享真值为准（024005）；default_filters 仅由 filter-bar 空态注入一次。
-  if (id) {
-    return mergeFilters(sharedFiltersForProps(props, id), localFilters);
-  }
-  return mergeFilters(defaultFilters, localFilters);
+  // 024005：QS 绑定时 seed 不盖面板；scope / identity 始终 AND（后写覆盖同维）。
+  const base = id ? sharedFiltersForProps(props, id) : defaultFilters;
+  return mergeFilters(base, scopeFilters, identityFilters, localFilters);
 }
 
 export function normalizeSort(sort) {

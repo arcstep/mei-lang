@@ -18,7 +18,14 @@
       });
       return false;
     }
-    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    // 构成/趋势派生必须用看板分析指标（popup / tableMetricId），勿用入口 KPI count，
+    // 否则有 default_filters 时会走 useDetailRowset → count::__scalar_rowset__ → 500。
+    const cardMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolvePopupPassedMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+    );
     const fetchConfig = { ...config, datasetId };
     const sharedQueryStateId = nonEmptyString(
       config?.queryStateId,
@@ -27,17 +34,20 @@
     );
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
-      nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+      nonEmptyString(config?.supportRole).toLowerCase() === "composition" ||
+      isVerifiedShareCompositionTab(tabId, config);
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    const useFilteredRowset = Boolean(
-      sharedQueryStateId &&
-        cardMetricId &&
+    const verifiedShare = isVerifiedShareCompositionTab(tabId, config);
+    const useDetailRowset = Boolean(
+      cardMetricId &&
         (isCompositionTab || isTrendTab) &&
-        hasActiveDrilldownQueryFilters(sharedQueryStateId),
+        (verifiedShare ||
+          (sharedQueryStateId && hasActiveDrilldownQueryFilters(sharedQueryStateId))),
     );
-    if (useFilteredRowset) {
+    if (useDetailRowset) {
+      // 查实占比与有筛选的构成图：一律拉当前明细 scalar rowset 再聚合（单一真源）。
       fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
       fetchConfig.supportRole = "";
       fetchConfig.clientAggregate = true;
@@ -65,10 +75,11 @@
         datasetId,
       });
     }
-    if (explainMetricKind(config, tabId) === "composition") {
+    if (explainMetricKind(config, tabId) === "composition" || isVerifiedShareCompositionTab(tabId, config)) {
       const columns = Array.isArray(dataset?.columns) ? dataset.columns : [];
-      const dimension = compositionFieldForTab(config, tabId);
-      if (!dimension) {
+      const verifiedShare = isVerifiedShareCompositionTab(tabId, config);
+      const dimension = verifiedShare ? "查实占比" : compositionFieldForTab(config, tabId);
+      if (!dimension && !verifiedShare) {
         recordPopupDebugIssue({
           level: "error",
           message: `构成 tab 未解析到分组字段（tab=${normalizeTabId(tabId)}）`,
@@ -81,7 +92,9 @@
         return false;
       }
       const grouped = limitCompositionRows(
-        groupRowsForComposition(rows, dimension, columns, config, detail),
+        verifiedShare
+          ? groupRowsForVerifiedShare(rows, columns)
+          : groupRowsForComposition(rows, dimension, columns, config, detail),
         config,
       );
       if (!grouped.length) return false;
@@ -90,7 +103,7 @@
       if (!registered) return false;
       resetDrilldownChartSlotHost(
         host,
-        resolveDrilldownChartSlotCaption(config) || `${dimension}构成`,
+        resolveDrilldownChartSlotCaption(config) || (verifiedShare ? "查实占比" : `${dimension}构成`),
       );
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
@@ -100,7 +113,7 @@
           tabId,
           grouped,
           {
-            x: [{ field: "label", name: dimension || "label" }],
+            x: [{ field: "label", name: verifiedShare ? "查实占比" : dimension || "label" }],
             y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,

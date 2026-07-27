@@ -149,7 +149,8 @@ export function isLongTextColumnKey(key) {
   if (isDepartmentLikeColumnKey(key)) return false;
   const name = String(key || "").trim();
   // 短标题列（风险事项/预警模型）按内容列，不吃 fr 留白。
-  if (/^(风险事项|监督事项|预警模型|事项名称)$/.test(name)) return false;
+  // 「事项名称」留给 fr 吃满剩余宽（执法事项等明细板）。
+  if (/^(风险事项|监督事项|预警模型)$/.test(name)) return false;
   return /(notes|note|remark|comment|desc|description|memo|summary|content|备注|说明|摘要|内容|描述|表现|问题|事项|原因|依据|措施|意见|详情)/i.test(
     name,
   );
@@ -197,6 +198,17 @@ export function columnPrefersContentWidth(descriptor) {
   return columnIsContentSizedSemantic(descriptor);
 }
 
+/** 作者显式 truncate:false 的部门列：改为吃剩余宽（长部门名 + 板面撑满）。 */
+function departmentPrefersFlexFill(descriptor) {
+  return (
+    isDepartmentLikeColumnKey(descriptor?.key) &&
+    isFalseyFlag(descriptor?.format?.truncate) &&
+    String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
+      .trim()
+      .toLowerCase() !== "fixed"
+  );
+}
+
 /** 语义上应按内容测宽的列（忽略作者 width_mode=fixed 锁定）。 */
 function columnIsContentSizedSemantic(descriptor) {
   if (!descriptor) return false;
@@ -204,7 +216,10 @@ function columnIsContentSizedSemantic(descriptor) {
   if (descriptor.tag || isTagLikeColumnKey(descriptor?.key)) return true;
   if (isSerialNumberColumnKey(descriptor?.key)) return true;
   if (isIdentifierLikeColumnKey(descriptor?.key)) return true;
-  if (/(部门|单位|主责)/.test(String(descriptor?.key || ""))) return true;
+  if (/(部门|单位|主责)/.test(String(descriptor?.key || ""))) {
+    if (departmentPrefersFlexFill(descriptor)) return false;
+    return true;
+  }
   if (/时间$|日期$/.test(String(descriptor?.key || ""))) return true;
   // 短标题业务名列：按内容测宽，不作长文弹性。
   if (/^(风险事项|监督事项|预警模型)$/.test(String(descriptor?.key || "").trim())) return true;
@@ -216,6 +231,7 @@ function columnIsContentSizedSemantic(descriptor) {
 function columnIsFlexFillSemantic(descriptor) {
   if (!descriptor || columnIsContentSizedSemantic(descriptor)) return false;
   const key = String(descriptor?.key || "");
+  if (departmentPrefersFlexFill(descriptor)) return true;
   if (isAddressLikeColumnKey(key)) return true;
   if (descriptor.layoutClamp || columnFormatClampsWidth(descriptor)) return true;
   if (isLongTextColumnKey(key)) return true;

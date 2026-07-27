@@ -20,12 +20,22 @@ export function activeTableFilters(props, queryStateId, localFilters = {}) {
       : props?.defaultFilters && typeof props.defaultFilters === "object" && !Array.isArray(props.defaultFilters)
         ? props.defaultFilters
         : {};
+  const scopeFilters =
+    props?.scope_filters && typeof props.scope_filters === "object" && !Array.isArray(props.scope_filters)
+      ? props.scope_filters
+      : props?.scopeFilters && typeof props.scopeFilters === "object" && !Array.isArray(props.scopeFilters)
+        ? props.scopeFilters
+        : {};
+  const identityFilters =
+    props?.drilldown_filters && typeof props.drilldown_filters === "object" && !Array.isArray(props.drilldown_filters)
+      ? props.drilldown_filters
+      : props?.drilldownFilters && typeof props.drilldownFilters === "object" && !Array.isArray(props.drilldownFilters)
+        ? props.drilldownFilters
+        : {};
   const id = String(queryStateId || "").trim();
-  // 绑定 query_state 后以共享真值为准（024005）；default_filters 仅由 filter-bar 空态注入一次。
-  if (id) {
-    return mergeFilters(sharedFiltersForProps(props, id), localFilters);
-  }
-  return mergeFilters(defaultFilters, localFilters);
+  // 024005：QS 绑定时 seed 不盖面板；scope / identity 始终 AND（后写覆盖同维）。
+  const base = id ? sharedFiltersForProps(props, id) : defaultFilters;
+  return mergeFilters(base, scopeFilters, identityFilters, localFilters);
 }
 
 export function normalizeSort(sort) {
@@ -47,22 +57,53 @@ export function sameSort(left, right) {
   );
 }
 
+function collectColumnKeys(props) {
+  const keys = [];
+  const push = (value) => {
+    const name = String(value || "").trim();
+    if (name) keys.push(name);
+  };
+  (Array.isArray(props?.columns) ? props.columns : []).forEach(push);
+  (Array.isArray(props?.dataset?.columns) ? props.dataset.columns : []).forEach(push);
+  const stateColumns = props?.column_state?.columns || props?.columnState?.columns;
+  (Array.isArray(stateColumns) ? stateColumns : []).forEach((entry) => push(entry?.key));
+  return keys;
+}
+
+/** 有序号列且未指定排序时，默认按序号升序。 */
+export function inferDefaultSortFromColumns(props) {
+  const serial = collectColumnKeys(props).find(
+    (name) => name === "序号" || name.endsWith("序号")
+  );
+  return serial ? [{ field: serial, direction: "asc" }] : [];
+}
+
 export function resolveSortConfig(props, fallback = []) {
   const raw = props?.sort ?? props?.defaultSort ?? props?.default_sort;
   if (Array.isArray(raw)) {
-    return normalizeSort(raw);
-  }
-  if (typeof raw === "string") {
+    const normalized = normalizeSort(raw);
+    if (normalized.length > 0) return normalized;
+    // 显式空数组：仍回落到序号默认序（用户通过表头三次点击清空后走 localSort=[]，不经此路径）
+  } else if (typeof raw === "string") {
     const text = raw.trim();
-    if (!text) return normalizeSort(fallback);
-    try {
-      const parsed = JSON.parse(text);
-      return Array.isArray(parsed) ? normalizeSort(parsed) : normalizeSort(fallback);
-    } catch (_) {
-      return normalizeSort(fallback);
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          const normalized = normalizeSort(parsed);
+          if (normalized.length > 0) return normalized;
+        }
+      } catch (_) {
+        /* fall through */
+      }
     }
+  } else {
+    const fromFallback = normalizeSort(fallback);
+    if (fromFallback.length > 0) return fromFallback;
   }
-  return normalizeSort(fallback);
+  const inferred = inferDefaultSortFromColumns(props);
+  if (inferred.length > 0) return inferred;
+  return normalizeSort(Array.isArray(raw) ? [] : fallback);
 }
 
 export function sharedSortForProps(props, queryStateId) {

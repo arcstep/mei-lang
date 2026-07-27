@@ -57,7 +57,15 @@
 
   function isPreviewOnlyMapping(config) {
     const mapping = resolveListPreviewMapping(config);
-    return Boolean(mapping?.preview_only || mapping?.previewOnly);
+    if (!Boolean(mapping?.preview_only || mapping?.previewOnly)) return false;
+    // 左清单 + 右预览：preview_only 只表示右侧是纯 PDF，不能把整板折成独立预览。
+    if (String(config?.sceneLocalNav?.kind || config?.scene_local_nav?.kind || "").trim() === "list_preview_drilldown_page") {
+      return false;
+    }
+    if (nonEmptyString(config?.rowPreviewSourceZoneId, config?.row_preview_source_zone_id)) {
+      return false;
+    }
+    return true;
   }
 
   function resolveCaseDetailFieldValue(row, spec) {
@@ -148,6 +156,24 @@
         enriched["模型ID"] = normalized;
         return;
       }
+      if (key === "mechanismName" || key === "机制名称" || key === "健全机制") {
+        // 过滤值可能是顿号多值；只取首个可匹配的机制名称，避免整串无法命中 CSV 行。
+        const parts = String(text || "")
+          .split(/[、,，;；]/)
+          .map((entry) =>
+            String(entry || "")
+              .trim()
+              .replace(/^[《]+|[》]+$/g, "")
+              .trim(),
+          )
+          .filter(Boolean);
+        const normalized = parts[0] || String(text).replace(/^[《]+|[》]+$/g, "").trim();
+        if (!normalized) return;
+        enriched.mechanismName = normalized;
+        enriched["机制名称"] = normalized;
+        enriched["健全机制"] = normalized;
+        return;
+      }
     });
     deriveWarningHandlingStatusFlags(enriched);
     return applyExternalCaseDetailRowEnricher(enriched, detail);
@@ -186,27 +212,53 @@
   }
 
   function caseCardObjectProps(config) {
+    const nav =
+      config?.sceneLocalNav && typeof config.sceneLocalNav === "object" ? config.sceneLocalNav : {};
     const locator =
-      (config?.sceneLocalNav?.object_locator &&
-      typeof config.sceneLocalNav.object_locator === "object"
-        ? config.sceneLocalNav.object_locator
+      (nav.object_locator && typeof nav.object_locator === "object" && !Array.isArray(nav.object_locator)
+        ? nav.object_locator
         : null) ||
-      (config?.sceneLocalNav?.objectLocator && typeof config.sceneLocalNav.objectLocator === "object"
-        ? config.sceneLocalNav.objectLocator
+      (nav.objectLocator && typeof nav.objectLocator === "object" && !Array.isArray(nav.objectLocator)
+        ? nav.objectLocator
         : null) ||
-      (config?.object_locator && typeof config.object_locator === "object"
+      (config?.object_locator && typeof config.object_locator === "object" && !Array.isArray(config.object_locator)
         ? config.object_locator
         : null) ||
-      (config?.objectLocator && typeof config.objectLocator === "object"
+      (config?.objectLocator && typeof config.objectLocator === "object" && !Array.isArray(config.objectLocator)
         ? config.objectLocator
-        : null) ||
-      {
-        object_type: "zhifa.Warning",
-        identity_field: "预警ID",
-      };
+        : null);
+    const objectType = nonEmptyString(
+      locator?.object_type,
+      locator?.objectType,
+      nav.object_type,
+      nav.objectType,
+      config?.object_type,
+      config?.objectType,
+    );
+    const identityField = nonEmptyString(
+      locator?.identity_field,
+      locator?.identityField,
+      nav.identity_field,
+      nav.identityField,
+      config?.identity_field,
+      config?.identityField,
+    );
+    const resolved =
+      objectType || identityField
+        ? {
+            ...(locator && typeof locator === "object" ? locator : {}),
+            ...(objectType ? { object_type: objectType, objectType } : {}),
+            ...(identityField ? { identity_field: identityField, identityField } : {}),
+          }
+        : {
+            object_type: "zhifa.Warning",
+            objectType: "zhifa.Warning",
+            identity_field: "预警ID",
+            identityField: "预警ID",
+          };
     return {
-      object_locator: locator,
-      objectLocator: locator,
+      object_locator: resolved,
+      objectLocator: resolved,
     };
   }
 
@@ -266,17 +318,137 @@
       event?.stopPropagation?.();
       const meta = await loadCaseCardDrilldownMeta();
       if (!meta?.resolveObjectFieldTargets || !meta?.emitObjectFieldOpen) return;
-      const props = caseCardObjectProps(config);
-      let targets = filterCaseCardObjectTargets(
-        meta.resolveObjectFieldTargets(props, row, field),
-        spec,
-      );
+      const fieldCandidates = [
+        field,
+        ...cloneArray(spec?.fallback_fields || spec?.fallbackFields),
+      ]
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean);
+      const uniqueFields = [...new Set(fieldCandidates)];
+      let props = caseCardObjectProps(config);
+      let targets = [];
+      const tryResolve = (nextProps) => {
+        for (const candidate of uniqueFields) {
+          const resolved = filterCaseCardObjectTargets(
+            meta.resolveObjectFieldTargets(nextProps, row, candidate),
+            spec,
+          );
+          if (resolved.length) return resolved;
+        }
+        return [];
+      };
+      targets = tryResolve(props);
+      // 典型案例等页缺 object_locator 时会回落到 Warning，关联预警ID/健全机制会空；按字段再试 IssueResult。
+      if (!targets.length) {
+        const retryTypes = ["zhifa.IssueResult", "zhifa.Warning", "zhifa.MechanismDocument"];
+        for (const type of retryTypes) {
+          const locator = {
+            object_type: type,
+            objectType: type,
+            ...(type === "zhifa.IssueResult"
+              ? { identity_field: "处理结果ID", identityField: "处理结果ID" }
+              : type === "zhifa.MechanismDocument"
+                ? { identity_field: "机制名称", identityField: "机制名称" }
+                : { identity_field: "预警ID", identityField: "预警ID" }),
+          };
+          const retryProps = { object_locator: locator, objectLocator: locator };
+          targets = tryResolve(retryProps);
+          if (targets.length) {
+            props = retryProps;
+            break;
+          }
+        }
+      }
       // 多值 ID 芯片：仅打开当前 chip 对应 identity
       const chipKey = String(el.dataset?.objectKey || "").trim();
       if (chipKey) {
-        targets = targets.filter(
-          (target) => String(target?.objectKey || target?.object_key || "").trim() === chipKey,
-        );
+        const normalizeKey = (raw) =>
+          String(raw ?? "")
+            .trim()
+            .replace(/^[《]+|[》]+$/g, "")
+            .trim();
+        const chipNorm = normalizeKey(chipKey);
+        const filtered = targets.filter((target) => {
+          const key = String(target?.objectKey || target?.object_key || "").trim();
+          return key === chipKey || normalizeKey(key) === chipNorm;
+        });
+        if (filtered.length) {
+          targets = filtered;
+        } else if (targets.length && chipNorm) {
+          // 多值顿号拆分后仍对不上时：用当前 chip 身份覆盖模板 target（健全机制常见）
+          const template = targets[0];
+          targets = [
+            {
+              ...template,
+              objectKey: chipNorm,
+              object_key: chipNorm,
+              label: chipNorm,
+              filterKey: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
+              filter_key: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
+            },
+          ];
+        } else if (chipNorm && (field === "健全机制" || field === "机制名称")) {
+          // 完全解析失败时仍尝试打开机制 PDF 详情
+          const locator = {
+            object_type: "zhifa.MechanismDocument",
+            objectType: "zhifa.MechanismDocument",
+            identity_field: "机制名称",
+            identityField: "机制名称",
+          };
+          props = { object_locator: locator, objectLocator: locator };
+          const links = meta.resolveObjectFieldLinks?.(props) || {};
+          const specs = Array.isArray(links["机制名称"])
+            ? links["机制名称"]
+            : Array.isArray(links["健全机制"])
+              ? links["健全机制"]
+              : [];
+          const spec0 = specs[0] || {};
+          const openPopup =
+            (spec0.openPopup && typeof spec0.openPopup === "object" ? spec0.openPopup : null) ||
+            (spec0.open_popup && typeof spec0.open_popup === "object" ? spec0.open_popup : null) ||
+            {
+              kind: "scene_open",
+              mode: "popup",
+              type: "popup",
+              projection: "overlay",
+              overlay_size: "large",
+              scene_id: "mechanism_document_detail_page",
+              scene_file:
+                "src/scene/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail.mei",
+              page_scene_id: "mechanism_document_detail_page",
+              page_scene_file:
+                "src/scene/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail.mei",
+              params: {
+                metric: {
+                  __ref: "metric_ref",
+                  __args: {
+                    arg0: "mechanism_document_detail",
+                    bundle: "metrics/effectiveness.bundle.mei",
+                  },
+                },
+                rowset_dataset_id: "mechanism_documents",
+              },
+            };
+          targets = [
+            {
+              role: "relation",
+              objectType: "zhifa.MechanismDocument",
+              objectKey: chipNorm,
+              keyMode: "identity",
+              filterKey: "mechanismName",
+              filter_key: "mechanismName",
+              hasDetail: true,
+              openPopup,
+              detailPage:
+                spec0.detailPage ||
+                spec0.detail_page ||
+                "zhifa/home/t1/region-right-rail/section-effect/plane-mechanism-document-detail",
+              label: chipNorm,
+            },
+          ];
+        } else {
+          targets = [];
+        }
       }
       if (!targets.length) return;
       const emitHost = host instanceof HTMLElement ? host : el;
@@ -286,7 +458,7 @@
       }
       openCaseCardObjectChooser(el, targets, (target) => {
         meta.emitObjectFieldOpen(emitHost, target, row, props);
-      });
+      }, field);
     };
     el.addEventListener("click", open);
     el.addEventListener("keydown", (event) => {
@@ -294,7 +466,7 @@
     });
   }
 
-  function openCaseCardObjectChooser(anchor, targets, onPick) {
+  function openCaseCardObjectChooser(anchor, targets, onPick, fieldLabel = "") {
     const existing = document.querySelector(".access-drilldown-object-chooser");
     if (existing) existing.remove();
     const menu = document.createElement("div");
@@ -302,15 +474,17 @@
     menu.setAttribute("role", "menu");
     const title = document.createElement("div");
     title.className = "access-drilldown-object-chooser-title";
-    title.textContent = "选择智能对象";
+    const fieldName = String(fieldLabel || "").trim();
+    title.textContent = fieldName ? `选择${fieldName}` : "选择智能对象";
     menu.appendChild(title);
     targets.forEach((target) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "access-drilldown-object-chooser-item";
       button.setAttribute("role", "menuitem");
-      button.textContent =
-        target?.label || `${target?.objectType || ""} · ${target?.objectKey || ""}`;
+      button.textContent = String(
+        target?.label || target?.objectKey || target?.object_key || "",
+      ).trim();
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -600,12 +774,24 @@
     }
     const body = document.createElement("div");
     body.className = "access-drilldown-case-detail-section-body";
-    if ((label === "健全机制" || label === "制度文件") && value) {
+    if ((label === "健全机制" || label === "制度文件" || field === "健全机制") && value) {
       const list = document.createElement("ul");
       list.className = "access-drilldown-case-detail-mechanism-list";
+      const wantsLink = section?.object_link === true || section?.objectLink === true;
       splitMechanismDocuments(value).forEach((doc) => {
         const li = document.createElement("li");
-        li.textContent = doc;
+        if (wantsLink && field) {
+          const link = createCaseCardObjectLinkButton(doc);
+          // 机制名称 identity 通常不含书名号；展示可带《》，匹配时剥离
+          link.dataset.objectKey = String(doc || "")
+            .trim()
+            .replace(/^[《]+|[》]+$/g, "")
+            .trim();
+          bindCaseCardObjectOpen(link, block, row, field, section, config);
+          li.appendChild(link);
+        } else {
+          li.textContent = doc;
+        }
         list.appendChild(li);
       });
       if (!list.childElementCount) {
@@ -647,7 +833,8 @@
     titleEl.textContent = title || "典型案例详情";
     main.appendChild(titleEl);
     const subtitleId = resolveCaseDetailHeaderSubtitle(row, detail);
-    if (subtitleId) {
+    // 标题已是身份 ID 时不再重复副标题
+    if (subtitleId && subtitleId !== title) {
       const sub = document.createElement("span");
       sub.className = "access-drilldown-case-detail-subtitle";
       sub.textContent = subtitleId;
@@ -718,14 +905,80 @@
     if (tagRow.childElementCount) panel.appendChild(tagRow);
   }
 
+  function closeCaseCardFactPopover() {
+    const existing = document.querySelector(".access-drilldown-case-fact-popover");
+    if (existing) existing.remove();
+    if (typeof window.__meiCaseFactPopoverCleanup === "function") {
+      window.__meiCaseFactPopoverCleanup();
+      window.__meiCaseFactPopoverCleanup = null;
+    }
+  }
+
+  function openCaseCardFactPopover(anchor, fullText, title) {
+    closeCaseCardFactPopover();
+    const pop = document.createElement("div");
+    pop.className = "access-drilldown-case-fact-popover";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", title || "详细内容");
+    const head = document.createElement("div");
+    head.className = "access-drilldown-case-fact-popover-head";
+    const titleEl = document.createElement("div");
+    titleEl.className = "access-drilldown-case-fact-popover-title";
+    titleEl.textContent = title || "详细内容";
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "access-drilldown-case-fact-popover-close";
+    closeBtn.setAttribute("aria-label", "关闭");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCaseCardFactPopover();
+    });
+    head.appendChild(titleEl);
+    head.appendChild(closeBtn);
+    const body = document.createElement("div");
+    body.className = "access-drilldown-case-fact-popover-body";
+    body.textContent = fullText;
+    pop.appendChild(head);
+    pop.appendChild(body);
+    document.body.appendChild(pop);
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(420, Math.max(280, window.innerWidth - 24));
+    pop.style.position = "fixed";
+    pop.style.width = `${width}px`;
+    pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+    pop.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 12)}px`;
+    const onDoc = (event) => {
+      if (pop.contains(event.target) || anchor.contains?.(event.target)) return;
+      closeCaseCardFactPopover();
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") closeCaseCardFactPopover();
+    };
+    setTimeout(() => {
+      document.addEventListener("mousedown", onDoc, true);
+      document.addEventListener("keydown", onKey, true);
+    }, 0);
+    window.__meiCaseFactPopoverCleanup = () => {
+      document.removeEventListener("mousedown", onDoc, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }
+
   function appendTypicalCaseFacts(panel, row, mapping) {
     const facts = cloneArray(mapping?.facts);
     if (!facts.length) return;
     const factsRoot = document.createElement("div");
     factsRoot.className = "access-drilldown-typical-case-facts";
+    const maxChars = Math.max(
+      8,
+      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 16) || 16,
+    );
     facts.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
+      const full = resolveCaseDetailFieldValue(row, spec) || "—";
       const item = document.createElement("div");
       item.className = "access-drilldown-typical-case-fact";
       const labelEl = document.createElement("div");
@@ -733,9 +986,59 @@
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-fact-value";
-      valueEl.textContent = resolveCaseDetailFieldValue(row, spec) || "—";
-      item.appendChild(labelEl);
-      item.appendChild(valueEl);
+      const chars = [...full];
+      const needsTruncate = full !== "—" && chars.length > maxChars;
+      const bindFullText = (anchor) => {
+        const open = (event) => {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          openCaseCardFactPopover(anchor, full, label);
+        };
+        anchor.addEventListener("click", open);
+        anchor.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") open(event);
+        });
+      };
+      if (needsTruncate) {
+        valueEl.classList.add("is-truncated");
+        valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
+        valueEl.title = "点击查看全文";
+        valueEl.setAttribute("role", "button");
+        valueEl.tabIndex = 0;
+        bindFullText(valueEl);
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "access-drilldown-case-fact-more";
+        more.textContent = "查看全文";
+        more.title = "查看全文";
+        bindFullText(more);
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        item.appendChild(more);
+      } else {
+        valueEl.textContent = full;
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        // 窄列 CSS 省略时补「查看全文」
+        requestAnimationFrame(() => {
+          if (!(valueEl.scrollWidth > valueEl.clientWidth + 1 || valueEl.scrollHeight > valueEl.clientHeight + 1)) {
+            return;
+          }
+          if (item.querySelector(".access-drilldown-case-fact-more")) return;
+          valueEl.classList.add("is-truncated");
+          valueEl.title = "点击查看全文";
+          valueEl.setAttribute("role", "button");
+          valueEl.tabIndex = 0;
+          bindFullText(valueEl);
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "access-drilldown-case-fact-more";
+          more.textContent = "查看全文";
+          more.title = "查看全文";
+          bindFullText(more);
+          item.appendChild(more);
+        });
+      }
       factsRoot.appendChild(item);
     });
     if (factsRoot.childElementCount) panel.appendChild(factsRoot);

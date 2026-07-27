@@ -228,12 +228,19 @@
     });
   }
 
+  function pickFilterMap(...candidates) {
+    for (const source of candidates) {
+      if (source && typeof source === "object" && !Array.isArray(source)) {
+        return source;
+      }
+    }
+    return null;
+  }
+
   /**
-   * 合并 popup / drilldown 拉取用 filters。优先级（后写覆盖）：
-   * 1. 入口 default_filters（仅 query_state 尚未写入时作种子）
-   * 2. query_state（过滤面板用户覆盖；一旦有值则不再回填 default）
-   * 3. drilldown_filters（行级对象打开的身份锁，不可被面板清掉）
-   * 与 024005：default_filters 不是第二套真值，只作初始化。
+   * 合并 popup / drilldown 拉取用 filters（024005 三层语义）。
+   * 不同维 AND；同维后写覆盖：query_state(或 seed) < scope_filters < drilldown_filters。
+   * default_filters 仅在 query_state 为空时作种子，不是第二套真值。
    */
   function mergePopupFetchFilters(detail, config, tableProps) {
     const merged = {};
@@ -257,6 +264,7 @@
     const hasSharedFilters = Object.keys(sharedFilters).some(
       (key) => String(sharedFilters[key] ?? "").trim(),
     );
+    // 1) Seed → query_state
     if (!hasSharedFilters) {
       applyFilterMap(merged, popupParams?.default_filters);
       applyFilterMap(merged, config?.params?.default_filters);
@@ -264,8 +272,27 @@
       applyFilterMap(merged, tableProps?.default_filters);
     }
     applyFilterMap(merged, sharedFilters);
-
-    applyFilterMap(merged, detail?.drilldown_filters);
+    // 2) Universe（面板不可清）
+    applyFilterMap(
+      merged,
+      pickFilterMap(
+        detail?.scope_filters,
+        detail?.scopeFilters,
+        config?.scopeFilters,
+        config?.scope_filters,
+        config?.params?.scope_filters,
+        config?.params?.scopeFilters,
+        popupParams?.scope_filters,
+        popupParams?.scopeFilters,
+        tableProps?.scope_filters,
+        tableProps?.scopeFilters,
+      ),
+    );
+    // 3) Identity（对象锁，不可被面板清掉）
+    applyFilterMap(
+      merged,
+      pickFilterMap(detail?.drilldown_filters, detail?.drilldownFilters, tableProps?.drilldown_filters),
+    );
 
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
@@ -276,6 +303,8 @@
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
     if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
     if (merged["模型ID"] && !merged.modelId) merged.modelId = merged["模型ID"];
+    if (merged.mechanismName && !merged["机制名称"]) merged["机制名称"] = merged.mechanismName;
+    if (merged["机制名称"] && !merged.mechanismName) merged.mechanismName = merged["机制名称"];
     return merged;
   }
 
@@ -312,6 +341,9 @@
     const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
     const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
+    const mechanismName = normalizeIdentityText(
+      filters.mechanismName ?? filters["机制名称"] ?? filters["健全机制"],
+    );
     if (warningId) {
       const hit = list.find((row) =>
         identityTextEquals(row?.["预警ID"] ?? row?.warning_id ?? row?.warningId, warningId),
@@ -340,6 +372,19 @@
       const hit = list.find((row) => {
         const name = String(row?.["风险事项"] ?? row?.["监督事项"] ?? row?.matter ?? "").trim();
         return name === matterName;
+      });
+      if (hit) return hit;
+    }
+    if (mechanismName) {
+      const stripBooks = (value) =>
+        String(value ?? "")
+          .trim()
+          .replace(/^[《]+|[》]+$/g, "")
+          .trim();
+      const want = stripBooks(mechanismName);
+      const hit = list.find((row) => {
+        const name = stripBooks(row?.["机制名称"] ?? row?.["健全机制"] ?? row?.mechanismName);
+        return Boolean(name) && name === want;
       });
       if (hit) return hit;
     }
@@ -400,10 +445,29 @@
             },
           }
         : config;
+    // 已是 scalar/dedicated 时优先配置值；但若它只是入口 KPI 的 ::__scalar_rowset__，
+    // 而 popup 另有分析指标，仍以分析指标为准（避免图表派生路径污染主表）。
+    const configuredTableMetricId = nonEmptyString(config?.tableMetricId);
     const passedMetricId = resolvePopupPassedMetricId(detail, config);
+    const configuredLooksLikeKpiRowset =
+      isScalarRowsetMetricId(configuredTableMetricId) &&
+      passedMetricId &&
+      configuredTableMetricId === resolveCardMetricRowsetId(String(detail?.metric_id || "").trim()) &&
+      configuredTableMetricId !== resolveCardMetricRowsetId(passedMetricId);
+    const preferConfiguredTable =
+      Boolean(configuredTableMetricId) &&
+      !configuredLooksLikeKpiRowset &&
+      (isDedicatedExplainMetricId(configuredTableMetricId) ||
+        isScalarRowsetMetricId(configuredTableMetricId));
     const cardMetricId = nonEmptyString(
-      passedMetricId,
+      preferConfiguredTable ? configuredTableMetricId : "",
+      // 裸 KPI count 不能压过 popup 分析指标
+      passedMetricId && passedMetricId !== String(detail?.metric_id || "").trim()
+        ? passedMetricId
+        : "",
       resolveDrilldownTableMetricId(detail, config),
+      passedMetricId,
+      configuredTableMetricId,
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,
     );

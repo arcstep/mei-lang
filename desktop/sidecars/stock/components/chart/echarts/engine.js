@@ -19,6 +19,7 @@ import { createComponentTracer } from "../../perf/render-trace.js";
 import {
   clampThemeFontPx,
   cockpitCssVars,
+  readThemeChartCategoricalPalette,
   readThemeChartPalette,
   readThemeColor,
   readThemeTypography,
@@ -1651,6 +1652,24 @@ function colorizePieDataByValue(data, palette) {
   });
 }
 
+/** 饼/环/玫瑰：按类目序轮转色板（同类占比不再撞成同色）。 */
+function colorizePieDataByCategory(data, palette) {
+  const colors = Array.isArray(palette) ? palette.filter(Boolean) : [];
+  if (colors.length === 0 || !Array.isArray(data) || data.length === 0) return data;
+  return data.map((entry, index) => {
+    const color = colors[index % colors.length];
+    const labelStyle = echartsLabelOnFill(color);
+    return {
+      ...entry,
+      itemStyle: { ...(entry?.itemStyle || {}), color },
+      label: {
+        ...(entry?.label && typeof entry.label === "object" ? entry.label : {}),
+        ...labelStyle,
+      },
+    };
+  });
+}
+
 /** 风险/预警等级：扇区按业务色（多色取最高严重度；空值用灰）。 */
 function colorizePieDataByWarningLevel(data, host) {
   if (!Array.isArray(data) || data.length === 0) return data;
@@ -1768,6 +1787,39 @@ function usesWarningLevelPalette(props, mapping = {}) {
   return isWarningLevelDimension(labelField) || isWarningLevelDimension(labelName);
 }
 
+/** palette_mode=value|mono：按数值映射单色阶梯；其余（默认）按类目轮转分类色板。 */
+function usesValueRampPiePalette(props) {
+  const mode = String(props?.palette_mode ?? props?.paletteMode ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  return mode === "value" || mode === "mono" || mode === "monochrome";
+}
+
+function resolveExplicitColorPalette(props) {
+  const raw = props?.palette ?? props?.color_palette ?? props?.colors;
+  if (Array.isArray(raw)) {
+    const fromProps = raw.map((item) => String(item || "").trim()).filter(Boolean);
+    if (fromProps.length > 0) return fromProps;
+  } else if (typeof raw === "string" && raw.trim()) {
+    const fromProps = raw
+      .split(",")
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    if (fromProps.length > 0) return fromProps;
+  }
+  return null;
+}
+
+function resolvePieColorPalette(props) {
+  const explicit = resolveExplicitColorPalette(props);
+  if (explicit) return explicit;
+  if (usesValueRampPiePalette(props)) {
+    return readThemeChartPalette(props?.__host);
+  }
+  return readThemeChartCategoricalPalette(props?.__host);
+}
+
 function metricSparkBarItemStyle(host) {
   const palette = readThemeChartPalette(host);
   const top = palette[0] || "#d1fae5";
@@ -1838,17 +1890,8 @@ function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false, host } = {}
 }
 
 function resolveColorPalette(props) {
-  const raw = props?.palette ?? props?.color_palette ?? props?.colors;
-  if (Array.isArray(raw)) {
-    const fromProps = raw.map((item) => String(item || "").trim()).filter(Boolean);
-    if (fromProps.length > 0) return fromProps;
-  } else if (typeof raw === "string" && raw.trim()) {
-    const fromProps = raw
-      .split(",")
-      .map((item) => String(item || "").trim())
-      .filter(Boolean);
-    if (fromProps.length > 0) return fromProps;
-  }
+  const explicit = resolveExplicitColorPalette(props);
+  if (explicit) return explicit;
   // Default: scene theme chart_1..chart_6 (app/workspace configurable monochrome ramp).
   return readThemeChartPalette(props?.__host);
 }
@@ -2349,7 +2392,10 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     diagnostics.push("pie/donut/rose 需要 mapping.label(x) 与 mapping.y");
   }
   const host = legacy.__host;
-  const warningLevelPalette = usesWarningLevelPalette(legacy.chartProps || {}, mapping);
+  const chartProps = legacy.chartProps || {};
+  const warningLevelPalette = usesWarningLevelPalette(chartProps, mapping);
+  const valueRampPalette = usesValueRampPiePalette(chartProps);
+  const piePalette = resolvePieColorPalette({ ...chartProps, __host: host });
   const baseData = rows
     .map((row) => ({
       name: String(row?.[labelField] ?? ""),
@@ -2358,7 +2404,9 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     .filter((item) => item.name && Number.isFinite(item.value));
   const data = warningLevelPalette
     ? colorizePieDataByWarningLevel(baseData, host)
-    : colorizePieDataByValue(baseData, Array.isArray(legacy.palette) ? legacy.palette : []);
+    : valueRampPalette
+      ? colorizePieDataByValue(baseData, piePalette)
+      : colorizePieDataByCategory(baseData, piePalette);
   if (data.length === 0) {
     diagnostics.push(`pie/donut/rose 无有效数据点 (label=${labelField || "-"}, y=${valueField || "-"})`);
   }
@@ -2367,7 +2415,6 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   const themeTypography = readThemeTypography(host);
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
   // compact 默认仍隐藏图例；环内占比见下方 showLabel（donut 非 tight 默认开）。
-  const chartProps = legacy.chartProps || {};
   const explicitLegendOn =
     chartProps.showLegend === true ||
     chartProps.showLegend === "true" ||
@@ -2461,8 +2508,8 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   if (warningLevelPalette) {
     const levelColors = readWarningLevelColors(host);
     option.color = [levelColors.红, levelColors.黄, levelColors.蓝, levelColors.灰];
-  } else if (Array.isArray(legacy.palette) && legacy.palette.length > 0) {
-    option.color = legacy.palette;
+  } else if (Array.isArray(piePalette) && piePalette.length > 0) {
+    option.color = piePalette;
   }
   return option;
 }

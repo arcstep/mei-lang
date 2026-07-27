@@ -1,0 +1,28 @@
+use template "cockpit/t2/t2-tab-session" as t2_tab
+
+link_decl(
+    key = "fx-diag-default-filters/home/t1/region-main/section-metric/links/fx-unknown-seed",
+    type = "popup",
+    projection = "overlay",
+    overlay_size = "large",
+    overlay_workspace = t2_tab.default_t2_tab_session(size = "large"),
+    title = "Unknown default_filters field",
+    target = assembly_ref("fx-diag-default-filters/home/t1/region-main/section-metric/plane-target"),
+    params = {
+        "default_filters": {"notAField": "in:x"},
+    },
+)
+
+link_decl(
+    key = "fx-diag-default-filters/home/t1/region-main/section-metric/links/fx-not-preset-seed",
+    type = "popup",
+    projection = "overlay",
+    overlay_size = "large",
+    overlay_workspace = t2_tab.default_t2_tab_session(size = "large"),
+    title = "default_filters outside preset set",
+    target = assembly_ref("fx-diag-default-filters/home/t1/region-main/section-metric/plane-target"),
+    params = {
+        # warningLevel is 3rd visible field; preset_filter_count=2 → not in preset
+        "default_filters": {"预警等级": "in:红"},
+    },
+)

@@ -72,7 +72,7 @@ fn value_slot_popup(panel: &UiNodeDecl) -> Option<Value> {
 }
 
 #[test]
-fn zhifa_warning_metric_cards_derive_read_only_analytics_popup() {
+fn zhifa_warning_metric_cards_open_explicit_analytics_popups() {
     let Some(workspace) = ensure_zhifa_imported() else {
         eprintln!("skip: set MEI_TEST_WORKSPACE for private demo probes");
         return;
@@ -122,19 +122,6 @@ fn zhifa_warning_metric_cards_derive_read_only_analytics_popup() {
             popup.get("scene_id").and_then(|v| v.as_str()),
             Some(scene_id),
             "unexpected scene for `{card_id}`: {popup}"
-        );
-        assert_eq!(
-            popup
-                .get("interaction")
-                .and_then(|v| v.get("intent"))
-                .and_then(|v| v.as_str()),
-            Some("explain_metric"),
-            "expected explain_metric intent for `{card_id}`: {popup}"
-        );
-        assert_eq!(
-            popup.get("derived").and_then(|v| v.as_bool()),
-            Some(true),
-            "expected derived popup for `{card_id}`: {popup}"
         );
         assert_eq!(
             popup
@@ -244,7 +231,7 @@ fn zhifa_issue_metric_cards_open_shared_handling_analytics_with_status_filters()
                 .get("params")
                 .and_then(|v| v.get("rowset_dataset_id"))
                 .and_then(|v| v.as_str()),
-            Some("warning_list"),
+            Some("issue_handling_list"),
             "unexpected rowset for `{card_id}`: {popup}"
         );
         let metric = popup

@@ -39,7 +39,7 @@
       label_max_chars: 6,
       category_label_rotate: 30,
       showLegend: multiSeries,
-      // Color comes from scene theme chart_1..chart_6 (default green mono).
+      // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -563,33 +563,44 @@
             ? config.defaultSort
             : null;
     const defaultSort = explicitSort || inferDrilldownDefaultSort(columns);
-    const drilldownFilters =
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
+    const seedFilters =
+      detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
+        ? detail.default_filters
+        : popupParams?.default_filters &&
+            typeof popupParams.default_filters === "object" &&
+            !Array.isArray(popupParams.default_filters)
+          ? popupParams.default_filters
+          : config?.params?.default_filters &&
+              typeof config.params.default_filters === "object" &&
+              !Array.isArray(config.params.default_filters)
+            ? config.params.default_filters
+            : null;
+    const scopeFilters =
+      detail?.scope_filters && typeof detail.scope_filters === "object" && !Array.isArray(detail.scope_filters)
+        ? detail.scope_filters
+        : detail?.scopeFilters && typeof detail.scopeFilters === "object" && !Array.isArray(detail.scopeFilters)
+          ? detail.scopeFilters
+          : config?.scopeFilters && typeof config.scopeFilters === "object" && !Array.isArray(config.scopeFilters)
+            ? config.scopeFilters
+            : config?.params?.scope_filters &&
+                typeof config.params.scope_filters === "object" &&
+                !Array.isArray(config.params.scope_filters)
+              ? config.params.scope_filters
+              : popupParams?.scope_filters &&
+                  typeof popupParams.scope_filters === "object" &&
+                  !Array.isArray(popupParams.scope_filters)
+                ? popupParams.scope_filters
+                : null;
+    const identityFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
-        : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
-          ? detail.default_filters
-          : (() => {
-              const popupParams =
-                config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
-                  ? config.popup.params
-                  : null;
-              const fromPopup =
-                popupParams?.default_filters &&
-                typeof popupParams.default_filters === "object" &&
-                !Array.isArray(popupParams.default_filters)
-                  ? popupParams.default_filters
-                  : null;
-              if (fromPopup) return fromPopup;
-              const fromConfig =
-                config?.params?.default_filters &&
-                typeof config.params.default_filters === "object" &&
-                !Array.isArray(config.params.default_filters)
-                  ? config.params.default_filters
-                  : null;
-              return fromConfig;
-            })();
+        : null;
     const autoSelectFirstRow = Boolean(
-      drilldownFilters &&
+      identityFilters &&
         (config?.hasRowPreviewZone ||
           nonEmptyString(config?.rowPreviewZoneId, config?.row_preview_zone_id)),
     );
@@ -603,7 +614,10 @@
       sort: defaultSort.length > 0 ? defaultSort : undefined,
       default_sort: defaultSort.length > 0 ? defaultSort : undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
-      default_filters: drilldownFilters || undefined,
+      // Seed only — 勿把 identity/scope 塞进 default_filters（024005）。
+      default_filters: seedFilters || undefined,
+      scope_filters: scopeFilters || undefined,
+      drilldown_filters: identityFilters || undefined,
       embedded: true,
       autoSelectFirstRow: autoSelectFirstRow || undefined,
       rowSelectionMode:
@@ -663,6 +677,12 @@
         active_target_file: resolvedScenePath,
         entry_target: resolvedScenePath,
         preview_scope: previewScope,
+        // 024005 诊断：宇宙 / 种子 / 身份分层快照（面板可改真值在 query_state）
+        filter_layers: {
+          seed: seedFilters || {},
+          scope: scopeFilters || {},
+          identity: identityFilters || {},
+        },
       },
       query_state: queryStateId || undefined,
     };

@@ -1065,18 +1065,23 @@ export class MeiCockpitDataTable extends HTMLElement {
     }
   }
 
-  openObjectFieldChooser(anchor, targets, row) {
+  function openObjectFieldChooser(anchor, targets, row) {
     this.closeObjectFieldChooser();
     if (!this.shadowRoot || !anchor) return;
+    const fieldName = String(
+      anchor?.dataset?.objectField || anchor?.dataset?.c || "",
+    ).trim();
     const menu = document.createElement("div");
     menu.className = "object-field-chooser";
     menu.setAttribute("role", "menu");
     menu.innerHTML = [
-      `<div class="object-field-chooser-title">选择智能对象</div>`,
+      `<div class="object-field-chooser-title">${escapeHtml(
+        fieldName ? `选择${fieldName}` : "选择智能对象",
+      )}</div>`,
       ...targets.map(
         (target, index) =>
           `<button type="button" class="object-field-chooser-item" data-target-index="${index}" role="menuitem">${escapeHtml(
-            target.label || `${target.objectType} · ${target.objectKey}`,
+            target.label || target.objectKey || "",
           )}</button>`,
       ),
     ].join("");

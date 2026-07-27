@@ -246,7 +246,55 @@
     if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
     const rowDrilldownPopup = raw.row_drilldown_popup ?? raw.rowDrilldownPopup ?? null;
     const rowDrilldown = raw.row_drilldown ?? raw.rowDrilldown ?? null;
-    const objectLocator = raw.object_locator ?? raw.objectLocator ?? null;
+    let objectLocator = raw.object_locator ?? raw.objectLocator ?? null;
+    const objectType = nonEmptyString(
+      objectLocator?.object_type,
+      objectLocator?.objectType,
+      raw.object_type,
+      raw.objectType,
+    );
+    const identityField = nonEmptyString(
+      objectLocator?.identity_field,
+      objectLocator?.identityField,
+      raw.identity_field,
+      raw.identityField,
+    );
+    const identityAliases = (() => {
+      const fromLocator = objectLocator?.identity_aliases ?? objectLocator?.identityAliases;
+      const fromRaw = raw.identity_aliases ?? raw.identityAliases;
+      const list = Array.isArray(fromLocator)
+        ? fromLocator
+        : Array.isArray(fromRaw)
+          ? fromRaw
+          : [];
+      return list.map((entry) => String(entry || "").trim()).filter(Boolean);
+    })();
+    // object_focus_detail_page 常把 object_type/identity_field 写在 local_nav 顶层；
+    // 归一成 object_locator，供详情卡 object_field_links 消歧（勿回落到 Warning 默认）。
+    if (objectType && (!objectLocator || typeof objectLocator !== "object" || Array.isArray(objectLocator))) {
+      objectLocator = {
+        object_type: objectType,
+        objectType,
+        ...(identityField ? { identity_field: identityField, identityField } : {}),
+        ...(identityAliases.length
+          ? { identity_aliases: identityAliases, identityAliases }
+          : {}),
+      };
+    } else if (objectLocator && typeof objectLocator === "object" && !Array.isArray(objectLocator) && objectType) {
+      objectLocator = {
+        ...objectLocator,
+        object_type: objectType,
+        objectType,
+        ...(identityField && !nonEmptyString(objectLocator.identity_field, objectLocator.identityField)
+          ? { identity_field: identityField, identityField }
+          : {}),
+        ...(identityAliases.length &&
+        !Array.isArray(objectLocator.identity_aliases) &&
+        !Array.isArray(objectLocator.identityAliases)
+          ? { identity_aliases: identityAliases, identityAliases }
+          : {}),
+      };
+    }
     return {
       kind,
       sceneId,
@@ -256,6 +304,8 @@
       overlaySize,
       items,
       kindOrder,
+      ...(objectType ? { objectType, object_type: objectType } : {}),
+      ...(identityField ? { identityField, identity_field: identityField } : {}),
       ...(rowDrilldownPopup && typeof rowDrilldownPopup === "object" && !Array.isArray(rowDrilldownPopup)
         ? { rowDrilldownPopup, row_drilldown_popup: rowDrilldownPopup }
         : {}),

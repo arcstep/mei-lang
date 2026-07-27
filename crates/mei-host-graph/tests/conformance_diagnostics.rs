@@ -8,9 +8,9 @@ use mei_lang_kernel::{
     build_runtime_warmup_manifest, take_warmup_build_diagnostics, Diagnostic, Severity,
 };
 use mei_test_support::{
-    conformance_workspace, ensure_imported, mei_lang_root, APP_DIAG_FILTER_KEY,
-    APP_DIAG_GRID_TRACK, APP_DIAG_LINK_PARAM, APP_DIAG_LINK_TARGET, APP_DIAG_UNKNOWN_COMPONENT,
-    APP_DIAG_WARMUP_FOCUS,
+    conformance_workspace, ensure_imported, mei_lang_root, APP_DIAG_DEFAULT_FILTERS,
+    APP_DIAG_FILTER_KEY, APP_DIAG_GRID_TRACK, APP_DIAG_LINK_PARAM, APP_DIAG_LINK_TARGET,
+    APP_DIAG_UNKNOWN_COMPONENT, APP_DIAG_WARMUP_FOCUS,
 };
 
 fn assert_has_diag(diags: &[Diagnostic], code: &str, source_substr: &str) {
@@ -78,6 +78,26 @@ fn conformance_diag_filter_key_mismatch() {
         &diags,
         "row_drilldown_filter_key_mismatch",
         "plane-analytics.mei",
+    );
+}
+
+#[test]
+fn conformance_diag_default_filters_seed_contract() {
+    let workspace = ensure_imported(APP_DIAG_DEFAULT_FILTERS);
+    let err = assemble_scope_from_registry(workspace.as_path(), APP_DIAG_DEFAULT_FILTERS, "home")
+        .expect_err("default_filters seed contract must hard-fail assemble");
+    let text = format!("{err:#}");
+    assert!(
+        text.contains("default_filters_unknown_field"),
+        "missing unknown_field in: {text}"
+    );
+    assert!(
+        text.contains("default_filters_not_in_preset_set"),
+        "missing not_in_preset_set in: {text}"
+    );
+    assert!(
+        text.contains("links.mei"),
+        "expected links.mei source_path in: {text}"
     );
 }
 

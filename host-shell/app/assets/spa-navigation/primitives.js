@@ -96,16 +96,18 @@
     );
   }
 
-  /** 下钻表/行级详情卡应使用的 metric：父级传入优先于 board slot / 示例默认。 */
+  /** 下钻表/行级详情卡应使用的 metric：popup/link 分析指标与 board tableMetricId 优先于入口 KPI count。 */
   function resolveDrilldownTableMetricId(detail, config = null) {
-    const metricId = String(detail?.metric_id || "").trim();
     return nonEmptyString(
-      metricId,
-      resolvePopupPassedMetricId(detail, config),
+      metricRefId(detail?.popup?.params?.metric),
+      metricRefId(config?.popup?.params?.metric),
+      metricRefId(config?.params?.metric),
       config?.tableMetricId,
       config?.detailSlot?.metricId,
       config?.runtimeRef?.metricId,
       config?.runtimeRef?.metric_id,
+      String(detail?.metric_id || "").trim(),
+      detail?.__mei_runtime_ref?.metric_id,
     );
   }
 

@@ -14,6 +14,44 @@
     );
   }
 
+  /** link/KPI 入口打开时重置 query_state，再种 default_filters（可为空对象）。 */
+  function seedDrilldownQueryStateOnOpen(config, detail) {
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) return;
+    const runtime = window.__meiDatasetRuntime;
+    if (!runtime || typeof runtime.setQueryState !== "function") return;
+    const popupParams =
+      (config?.params && typeof config.params === "object" && !Array.isArray(config.params)
+        ? config.params
+        : null) ||
+      (config?.popup?.params && typeof config.popup.params === "object" && !Array.isArray(config.popup.params)
+        ? config.popup.params
+        : null) ||
+      (detail?.popup?.params && typeof detail.popup.params === "object" && !Array.isArray(detail.popup.params)
+        ? detail.popup.params
+        : null) ||
+      {};
+    const seedSource =
+      (popupParams.default_filters &&
+      typeof popupParams.default_filters === "object" &&
+      !Array.isArray(popupParams.default_filters)
+        ? popupParams.default_filters
+        : null) ||
+      (detail?.default_filters &&
+      typeof detail.default_filters === "object" &&
+      !Array.isArray(detail.default_filters)
+        ? detail.default_filters
+        : null) ||
+      {};
+    const seed =
+      typeof runtime.mergeFilters === "function" ? runtime.mergeFilters(seedSource) : { ...seedSource };
+    runtime.setQueryState(
+      queryStateId,
+      { filters: seed },
+      { filterIntentSource: "drilldown_open", transitionSource: "drilldown_open" },
+    );
+  }
+
   async function openSceneProjection(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
@@ -292,6 +330,10 @@
     };
     await prewarmProjectionScope(layer2Config);
     await activateProjectionScope(layer2Config);
+    // 每次从 link/KPI 入口打开：按 default_filters 重置 query_state（可为空）。
+    // 关闭 overlay 不清理 store，否则会粘住上次 chart_selection（如主责单位=生态局），
+    // 导致重开看板「莫名其妙」过滤；overlay 内图表 toggle 不会再进本函数。
+    seedDrilldownQueryStateOnOpen(layer2Config, detail);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       // 多标签由 openLayer2Tab 按 tab_policy append/focus 管理；

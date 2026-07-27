@@ -174,3 +174,4 @@ pub const APP_DIAG_GRID_TRACK: &str = "fx-diag-grid-track";
 pub const APP_DIAG_UNKNOWN_COMPONENT: &str = "fx-diag-unknown-component";
 pub const APP_DIAG_WARMUP_FOCUS: &str = "fx-diag-warmup-focus";
 pub const APP_DIAG_FILTER_KEY: &str = "fx-diag-filter-key";
+pub const APP_DIAG_DEFAULT_FILTERS: &str = "fx-diag-default-filters";

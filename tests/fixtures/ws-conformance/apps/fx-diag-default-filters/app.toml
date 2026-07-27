@@ -1,0 +1,53 @@
+schema_version = "mei-app-v1"
+title = "Conformance Diag Default Filters Seed"
+default_stage = "home"
+app_id = "fx-diag-default-filters"
+generation = "current"
+data_mode_ceiling = "static"
+
+[paths]
+upload = "upload"
+prototype = "prototype"
+
+[features]
+aiChat = false
+
+[discover]
+skip_directories = []
+
+[[menu.items]]
+app_id = "fx-diag-default-filters"
+label = "fx-diag-default-filters"
+order = 10
+
+[ops]
+strictFillDown = true
+fillDown = true
+
+[ops.themes.cockpit.tokens.color]
+panel_title = "#ffffff"
+surface_bg = "rgb(14, 48, 92)"
+text_body = "#e2e8f0"
+text_muted = "#a8c8e6"
+text_primary = "#ffffff"
+text_unit = "#7dd3fc"
+text_value = "#ffffff"
+
+[ops.themes.cockpit.tokens.shell]
+bg = "rgb(14, 48, 92)"
+stage = "rgb(14, 48, 92)"
+text = "#ffffff"
+
+[ops.sources]
+
+[ops.params]
+layout_debug_enabled = false
+
+[warmup]
+enabled = false
+
+[warmup.apps.fx-diag-default-filters]
+hot_stages = ["home"]
+
+[warmup.apps.fx-diag-default-filters.compileScope]
+skipDiscover = true

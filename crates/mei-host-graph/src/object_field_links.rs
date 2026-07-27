@@ -334,6 +334,9 @@ fn heuristic_filter_key(field: &str) -> Option<String> {
         "序号" | "matterId" | "matter_id" => Some("matterId".to_string()),
         "监督事项" | "风险事项" | "matter" => Some("matter".to_string()),
         "问题分类名称" | "预警模型" | "category" => Some("category".to_string()),
+        "机制名称" | "健全机制" | "mechanismName" | "mechanism_name" => {
+            Some("mechanismName".to_string())
+        }
         _ => None,
     }
 }

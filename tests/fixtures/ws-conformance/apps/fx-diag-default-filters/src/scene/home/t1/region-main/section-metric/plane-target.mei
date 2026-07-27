@@ -1,0 +1,61 @@
+plane_layout(
+    id = "p-target",
+    key = "fx-diag-default-filters/home/t1/region-main/section-metric/plane-target",
+    tier = "t2",
+    budget = budget(width = "100%"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "0",
+    ),
+    regions = [],
+)
+
+page_instance(
+    key = "fx-diag-default-filters/home/t1/region-main/section-metric/plane-target",
+    scene = "fx_target_page",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "Target board: preset=2, third field not preset",
+    capabilities = ["filterable"],
+    accepts = {
+        "default_filters": param(type = "object"),
+    },
+    bindings = {
+        "filter_schema": {
+            "preset_filter_count": 2,
+            "fields": [
+                {
+                    "key": "agency",
+                    "label": "主责单位",
+                    "column": "主责单位",
+                },
+                {
+                    "key": "category",
+                    "label": "预警模型",
+                    "column": "预警模型",
+                },
+                {
+                    "key": "warningLevel",
+                    "label": "预警等级",
+                    "column": "预警等级",
+                },
+            ],
+        },
+        "projection_slots": [
+            {
+                "id": "main",
+                "layout_zone": "main",
+                "kind": "placeholder",
+            },
+        ],
+    },
+    examples = [
+        {
+            "id": "default",
+            "title": "Default",
+            "params": {},
+        },
+    ],
+)

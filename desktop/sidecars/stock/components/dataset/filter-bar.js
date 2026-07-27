@@ -350,11 +350,20 @@ class MeiDatasetFilterBar extends HTMLElement {
         if (optionsFrom && optionsFrom !== "rowset") continue;
         pushFacet(field?.options_field || field?.optionsField || field?.column || field?.key || field?.field);
       }
-      const result = await fetchDatasetRows(props, {
+      // 选项枚举必须不受当前 query_state / default_filters 影响：
+      // 否则入口注入「办理状态=待办」后，facet 只能看到「待办」一项，无法再改选在办/办结。
+      const optionsProps = {
+        ...props,
+        query_state: "",
+        queryState: "",
+      };
+      const result = await fetchDatasetRows(optionsProps, {
         page: 1,
         pageSize: 1,
         full: false,
         facetColumns,
+        queryStateId: "",
+        filters: {},
         meta: { component: "dataset.filter-bar", request_id: "filter-bar-options" },
       });
       const facets =
@@ -372,18 +381,28 @@ class MeiDatasetFilterBar extends HTMLElement {
         this._columnProfiles = buildColumnProfiles(profileCatalog, profileRows);
         for (const field of profileCatalog) {
           const column = fieldQueryKey(field);
+          const optionsField = String(
+            field?.options_field || field?.optionsField || field?.column || column,
+          ).trim();
           if (!shouldLoadRowsetOptions(field)) {
             if (Array.isArray(field?.options) && field.options.length > 0) {
               this._fieldOptions.set(column, field.options);
             }
             continue;
           }
-          const facetOptions = normalizeFacetOptions(facets[column]);
+          // facets 按物理列名（主责单位）返回；query key 可能是 agency。
+          const facetOptions = normalizeFacetOptions(
+            facets[optionsField] || facets[column] || facets[String(field?.column || "").trim()] || [],
+          );
           if (facetOptions.length > 0) {
             this._fieldOptions.set(column, facetOptions);
             continue;
           }
-          const profile = this._columnProfiles.get(column) || null;
+          const profile =
+            this._columnProfiles.get(column) ||
+            this._columnProfiles.get(optionsField) ||
+            this._columnProfiles.get(String(field?.column || "").trim()) ||
+            null;
           if (Array.isArray(profile?.options) && profile.options.length > 0) {
             this._fieldOptions.set(column, profile.options);
           }
@@ -568,6 +587,7 @@ class MeiDatasetFilterBar extends HTMLElement {
     const catalogExhausted = allCatalogFieldsUsed(this._columnCatalog, rows);
     const addableFields = availableCatalogFieldsForAdd(this._columnCatalog, rows);
 
+    const lockedContextMarkup = renderLockedFilterContext(this._props);
     cleanupHostFloatingPanels(this);
     this.shadowRoot.innerHTML = `
       <style>${sharedStyles()}${additiveStyles()}</style>
@@ -580,6 +600,7 @@ class MeiDatasetFilterBar extends HTMLElement {
           </button>
         </div>
         <div class="filter-panel-body">
+          ${lockedContextMarkup}
           ${loadingOptions ? `<div class="loading">正在加载筛选项…</div>` : ""}
           <div class="filter-panel-main">
             <div class="additive-rows">
@@ -800,6 +821,9 @@ class MeiDatasetFilterBar extends HTMLElement {
 
   queryFilters() {
     this.syncAdditiveRowsFromDom();
+    // 用户点「查询/应用」后视为已交互，避免 syncRowsFromFilters 走 mergePresets
+    // 把入口注入但不在前 N 个预置位的条件（如办理状态）丢掉。
+    this._additiveUserTouched = true;
     this.applyActiveFilters({ skipDomSync: true });
   }
 
@@ -1138,7 +1162,11 @@ function availableCatalogFieldsForAdd(catalog, rows) {
   const used = usedCatalogFieldKeys(rows);
   return visibleCatalogFields(catalog).filter((field) => {
     const key = fieldQueryKey(field);
-    return key && !used.has(key);
+    const column = String(field?.column || "").trim();
+    if (!key) return false;
+    if (used.has(key)) return false;
+    if (column && used.has(column)) return false;
+    return true;
   });
 }
 
@@ -1168,10 +1196,13 @@ function resolvePanelCollapsed(props) {
 }
 
 function filterStateKey(field) {
-  // Prefer authored filter key (modelType / supervisionCategory) so query_state
-  // aligns with dataset filters `… in filter.<key>` and filter_intents dimensions.
-  // Fall back to physical column when key is absent.
-  return fieldQueryKey(field) || String(field?.column || "").trim();
+  // 物理列名优先：rowset/SQL 按列名匹配（办理状态、主责单位）。
+  // 逻辑 key（agency / supervisionCategory）在无 dimension binding 的派生 dataset
+  // （如 issue_handling_list）上会变成 unresolved，进而导致整次过滤失效、显示全量。
+  // warning_list 等同时接受列名与逻辑 key 的 dataset 用列名也正确。
+  const column = String(field?.column || "").trim();
+  if (column) return column;
+  return fieldQueryKey(field);
 }
 
 function findCatalogField(catalog, column) {
@@ -1358,16 +1389,8 @@ function resolveMultiOptions(options, selectedValues) {
       count: hasCount ? count : undefined,
     });
   }
-  // 有计数时按 count 降序；无计数保持原序（已由 normalizeFacetOptions 排过）。
-  if (items.some((item) => Number(item.count) > 0)) {
-    items.sort(
-      (a, b) =>
-        (Number(b.count) || 0) - (Number(a.count) || 0) ||
-        String(a.value).localeCompare(String(b.value), "zh-CN"),
-    );
-  }
   for (const value of selectedValues || []) {
-    const text = String(value || "").trim();
+    const text = String(value).trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     items.push({ value: text, label: text });
@@ -1401,8 +1424,7 @@ function normalizeFacetOptions(rawOptions) {
         count: Number.isFinite(count) && count > 0 ? count : 0,
       };
     })
-    .filter(Boolean)
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "zh-CN"));
+    .filter(Boolean);
 }
 
 function profileForColumn(column, profiles) {
@@ -1464,6 +1486,21 @@ function readSingleAdditiveRowFromDom(rowEl, previous = null) {
       if (!checkbox.checked) continue;
       const item = String(checkbox.value || "").trim();
       if (item) values.push(item);
+    }
+    // 未编辑本行时不要把已有多选值误清空：勾选态可能因浮层/重绘暂时全未勾选。
+    if (
+      values.length === 0 &&
+      Array.isArray(previous?.values) &&
+      previous.values.length > 0
+    ) {
+      const panelInRow = rowEl.querySelector(".multi-panel.is-open");
+      const floated = id ? findFloatingMultiPanel(id) : null;
+      const panelOpen = Boolean(
+        panelInRow || (floated && floated.classList.contains("is-open")),
+      );
+      if (!panelOpen) {
+        values.push(...previous.values.filter(Boolean));
+      }
     }
   } else if (Array.isArray(previous?.values) && previous.values.length > 0) {
     values.push(...previous.values.filter(Boolean));
@@ -1955,6 +1992,10 @@ function bindMultiPanelInteractions(host, options = {}) {
       } else if (!schemaMode) {
         host.syncClassicMultiFromDom();
       }
+      // 先钉住打开态，再回调 live apply（可能同步触发 query_state → render）。
+      if (panelKey) {
+        host._openDropdownKey = panelKey;
+      }
       if (typeof onCheckboxChange === "function") {
         onCheckboxChange();
       }
@@ -2219,10 +2260,44 @@ function catalogManagedFilterKeys(catalog) {
   for (const field of catalog || []) {
     const queryKey = fieldQueryKey(field);
     const stateKey = filterStateKey(field);
+    const column = String(field?.column || "").trim();
+    // 列名与逻辑 key 都算受管，以便清掉历史 agency 等残留。
     if (queryKey) keys.add(queryKey);
     if (stateKey) keys.add(stateKey);
+    if (column) keys.add(column);
   }
   return keys;
+}
+
+/** 024005：scope / identity 只读上下文，不进入 additive 可删行。 */
+function renderLockedFilterContext(props) {
+  const scope =
+    props?.scope_filters && typeof props.scope_filters === "object" && !Array.isArray(props.scope_filters)
+      ? props.scope_filters
+      : props?.scopeFilters && typeof props.scopeFilters === "object" && !Array.isArray(props.scopeFilters)
+        ? props.scopeFilters
+        : {};
+  const identity =
+    props?.drilldown_filters && typeof props.drilldown_filters === "object" && !Array.isArray(props.drilldown_filters)
+      ? props.drilldown_filters
+      : props?.drilldownFilters && typeof props.drilldownFilters === "object" && !Array.isArray(props.drilldownFilters)
+        ? props.drilldownFilters
+        : {};
+  const chips = [];
+  const pushChips = (map, kindLabel) => {
+    for (const [key, value] of Object.entries(map || {})) {
+      const dim = String(key || "").trim();
+      const raw = String(value ?? "").trim();
+      if (!dim || !raw) continue;
+      chips.push(
+        `<span class="locked-chip" title="${escapeHtmlAttr(`${kindLabel} · 面板不可清除`)}"><span class="locked-chip-kind">${escapeHtml(kindLabel)}</span><span class="locked-chip-dim">${escapeHtml(dim)}</span><span class="locked-chip-val">${escapeHtml(raw)}</span></span>`,
+      );
+    }
+  };
+  pushChips(scope, "宇宙");
+  pushChips(identity, "身份");
+  if (!chips.length) return "";
+  return `<div class="locked-filter-context" aria-label="锁定过滤上下文">${chips.join("")}</div>`;
 }
 
 function buildAdditiveFilterMap(rows, profiles, catalog, queryStateId) {
@@ -2241,12 +2316,17 @@ function buildAdditiveFilterMap(rows, profiles, catalog, queryStateId) {
     const profile = profileForColumn(column, profiles);
     const field = findCatalogField(catalog, column);
     const stateKey = filterStateKey(field) || column;
+    const logicalKey = fieldQueryKey(field);
     const normalizedRow = { ...row, operator: resolveRowOperator(row, profile, field) };
     const encoded = encodeFilterRow(normalizedRow, profile);
     if (encoded) {
       filters[stateKey] = encoded;
     } else {
       delete filters[stateKey];
+    }
+    // 清掉历史逻辑 key（agency），避免与列名并存时派生 dataset 整次过滤失效。
+    if (logicalKey && logicalKey !== stateKey) {
+      delete filters[logicalKey];
     }
   }
   return filters;
@@ -2545,6 +2625,37 @@ function additiveStyles() {
       text-align: left;
     }
     .panel-title { flex: 1; font-weight: 600; letter-spacing: 0.04em; }
+
+    .locked-filter-context {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 8px;
+    }
+    .locked-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(56, 160, 240, 0.35);
+      background: rgba(14, 48, 88, 0.72);
+      color: var(--mei-color-text-body, #e2e8f0);
+      font-size: calc(${FILTER_PANEL_FONT} * 0.85);
+      line-height: 1.3;
+    }
+    .locked-chip-kind {
+      color: var(--mei-color-text-highlight, #7dd3fc);
+      font-weight: 600;
+    }
+    .locked-chip-dim { opacity: 0.85; }
+    .locked-chip-val {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 10em;
+    }
     .panel-active-badge {
       display: inline-flex;
       align-items: center;

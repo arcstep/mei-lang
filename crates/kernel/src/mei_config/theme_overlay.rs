@@ -147,6 +147,14 @@ pub fn scene_theme_studio_editable_keys() -> Value {
             "chart_4",
             "chart_5",
             "chart_6",
+            "chart_cat_1",
+            "chart_cat_2",
+            "chart_cat_3",
+            "chart_cat_4",
+            "chart_cat_5",
+            "chart_cat_6",
+            "chart_cat_7",
+            "chart_cat_8",
             "text_primary",
             "text_body",
             "text_muted",
@@ -372,7 +380,7 @@ pub fn resolve_assembled_scene_theme(
     Some(theme)
 }
 
-/// Extract app-level `tokens.color.chart_*` / `warning_level_*` overrides for charts & tables.
+/// Extract app-level `tokens.color.chart_*` / `chart_cat_*` / `warning_level_*` overrides for charts & tables.
 fn app_chart_color_overlay(app: &MeiConfig, theme_id: &str) -> Option<serde_json::Map<String, Value>> {
     const CHART_KEYS: &[&str] = &[
         "chart_1",
@@ -381,6 +389,14 @@ fn app_chart_color_overlay(app: &MeiConfig, theme_id: &str) -> Option<serde_json
         "chart_4",
         "chart_5",
         "chart_6",
+        "chart_cat_1",
+        "chart_cat_2",
+        "chart_cat_3",
+        "chart_cat_4",
+        "chart_cat_5",
+        "chart_cat_6",
+        "chart_cat_7",
+        "chart_cat_8",
         "warning_level_red",
         "warning_level_yellow",
         "warning_level_blue",
@@ -696,6 +712,8 @@ mod tests {
                 "tokens": {"color": {
                     "chart_1": "#d1fae5",
                     "chart_3": "#6ee7b7",
+                    "chart_cat_1": "#14b8a6",
+                    "chart_cat_3": "#f97316",
                     "warning_level_red": "#E53935",
                     "warning_level_yellow": "#FFB300"
                 }}
@@ -715,6 +733,14 @@ mod tests {
         assert_eq!(
             theme.pointer("/tokens/color/chart_3").and_then(Value::as_str),
             Some("#6ee7b7")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/chart_cat_1").and_then(Value::as_str),
+            Some("#14b8a6")
+        );
+        assert_eq!(
+            theme.pointer("/tokens/color/chart_cat_3").and_then(Value::as_str),
+            Some("#f97316")
         );
         assert_eq!(
             theme.pointer("/tokens/color/warning_level_red").and_then(Value::as_str),

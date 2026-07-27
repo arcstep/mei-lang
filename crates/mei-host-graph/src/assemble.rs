@@ -532,6 +532,12 @@ fn assemble_scope_from_registry_uncached(
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
 
+    if let Some(summary) =
+        default_filters_seed_contract_failure_summary(&compiled.diagnostics)
+    {
+        return Err(anyhow::anyhow!(summary));
+    }
+
     Ok(Some(AssembleOutcome {
         compiled,
         compile_revision: registry.registry_revision.clone(),
@@ -1279,7 +1285,300 @@ fn load_projection_map(
         }
     }
     diagnostics.extend(validate_row_drilldown_filter_keys(app_root, registry, &map));
+    diagnostics.extend(validate_default_filters_against_filter_schema(
+        app_root, registry, &map,
+    ));
     (map, diagnostics)
+}
+
+/// Seed (`default_filters`) must be a catalog field **and** fall in the preset set
+/// (`fields` 中 `visible != false` 的前 `preset_filter_count` 项). Otherwise the filter
+/// panel cannot host/clear the seed dimension, and facet totals diverge from cleared-panel
+/// detail totals.
+fn validate_default_filters_against_filter_schema(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    projection_map: &BTreeMap<String, Value>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for (scene_id, assembly) in projection_map {
+        let Some(catalog) = FilterSeedCatalog::from_assembly(assembly) else {
+            continue;
+        };
+        for (example_id, params) in iter_example_params(assembly.get("examples")) {
+            let Some(defaults) = params.get("default_filters").and_then(Value::as_object) else {
+                continue;
+            };
+            push_default_filters_seed_diagnostics(
+                &mut diagnostics,
+                defaults,
+                &catalog,
+                format!("page_instance `{scene_id}` example `{example_id}`"),
+                assembly_source_file_from_payload(assembly),
+            );
+        }
+    }
+
+    for node in registry.nodes_of_kind(GraphNodeKind::Navigation) {
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(app_root, pref) else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+        let Some(defaults) = payload
+            .get("params")
+            .and_then(|params| params.get("default_filters"))
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+        if defaults.is_empty() {
+            continue;
+        }
+        let Some(target) = payload.get("target") else {
+            continue;
+        };
+        let Some(board_key) = extract_ref_arg0(target) else {
+            continue;
+        };
+        let Some(target_scene) = resolve_page_instance_scene_id(app_root, registry, board_key)
+        else {
+            continue;
+        };
+        let Some(target_assembly) = projection_map.get(target_scene.as_str()) else {
+            continue;
+        };
+        let Some(catalog) = FilterSeedCatalog::from_assembly(target_assembly) else {
+            // Target has default_filters but no usable filter_schema → every key is unknown.
+            let empty = FilterSeedCatalog::empty();
+            push_default_filters_seed_diagnostics(
+                &mut diagnostics,
+                defaults,
+                &empty,
+                format!("link_decl `{}` → `{target_scene}`", node.id.key),
+                assembly_source_file_from_payload(&payload),
+            );
+            continue;
+        };
+        push_default_filters_seed_diagnostics(
+            &mut diagnostics,
+            defaults,
+            &catalog,
+            format!("link_decl `{}` → `{target_scene}`", node.id.key),
+            assembly_source_file_from_payload(&payload),
+        );
+    }
+
+    diagnostics
+}
+
+#[derive(Debug, Default)]
+struct FilterSeedCatalog {
+    /// Aliases (key / column / label) for every catalog field.
+    all_aliases: BTreeSet<String>,
+    /// Aliases belonging to the preset set (first N visible fields).
+    preset_aliases: BTreeSet<String>,
+    preset_count: usize,
+}
+
+impl FilterSeedCatalog {
+    fn empty() -> Self {
+        Self::default()
+    }
+
+    fn from_assembly(assembly: &Value) -> Option<Self> {
+        let schema = assembly
+            .pointer("/bindings/filter_schema")
+            .or_else(|| assembly.get("filter_schema"))?;
+        let fields = schema.get("fields").and_then(Value::as_array)?;
+        let preset_count = schema
+            .get("preset_filter_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let mut all_aliases = BTreeSet::new();
+        let mut preset_aliases = BTreeSet::new();
+        let mut visible_idx = 0usize;
+        for field in fields {
+            let record = filter_field_record(field);
+            let aliases = filter_field_aliases(field);
+            if aliases.is_empty() {
+                continue;
+            }
+            for alias in &aliases {
+                all_aliases.insert(alias.clone());
+            }
+            let visible = record
+                .get("visible")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            if !visible {
+                continue;
+            }
+            if visible_idx < preset_count {
+                for alias in &aliases {
+                    preset_aliases.insert(alias.clone());
+                }
+            }
+            visible_idx += 1;
+        }
+        Some(Self {
+            all_aliases,
+            preset_aliases,
+            preset_count,
+        })
+    }
+}
+
+fn filter_field_record(field: &Value) -> &Value {
+    if field
+        .get("__call")
+        .and_then(Value::as_str)
+        .is_some_and(|name| name == "filter_field")
+    {
+        if let Some(args) = field.get("__args") {
+            return args;
+        }
+    }
+    field
+}
+
+fn filter_field_aliases(field: &Value) -> Vec<String> {
+    let field = filter_field_record(field);
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    for key in ["key", "column", "label"] {
+        let Some(raw) = field
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if seen.insert(raw.to_string()) {
+            out.push(raw.to_string());
+        }
+    }
+    out
+}
+
+fn iter_example_params(examples: Option<&Value>) -> Vec<(String, Value)> {
+    let Some(examples) = examples else {
+        return Vec::new();
+    };
+    match examples {
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                let id = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("[{idx}]"));
+                let params = item.get("params").cloned().unwrap_or(json!({}));
+                Some((id, params))
+            })
+            .collect(),
+        Value::Object(map) => map
+            .iter()
+            .map(|(id, item)| {
+                let params = item
+                    .get("params")
+                    .cloned()
+                    .unwrap_or_else(|| item.clone());
+                (id.clone(), params)
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn push_default_filters_seed_diagnostics(
+    diagnostics: &mut Vec<Diagnostic>,
+    defaults: &serde_json::Map<String, Value>,
+    catalog: &FilterSeedCatalog,
+    context: String,
+    source_path: Option<String>,
+) {
+    for seed_key in defaults.keys() {
+        let key = seed_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        if !catalog.all_aliases.contains(key) {
+            diagnostics.push(Diagnostic {
+                severity: mei_lang_kernel::Severity::Error,
+                code: "default_filters_unknown_field".to_string(),
+                message: format!(
+                    "{context}: default_filters key `{key}` is not in target filter_schema.fields (key/column/label); Seed must be a candidate filter field so the panel can host and clear it"
+                ),
+                source_path: source_path.clone(),
+            });
+            continue;
+        }
+        if catalog.preset_count == 0 || !catalog.preset_aliases.contains(key) {
+            diagnostics.push(Diagnostic {
+                severity: mei_lang_kernel::Severity::Error,
+                code: "default_filters_not_in_preset_set".to_string(),
+                message: format!(
+                    "{context}: default_filters key `{key}` is not in the preset set (first {} visible filter_schema.fields); Seed dims must be default-visible preset rows or facet totals diverge from cleared-panel detail totals",
+                    catalog.preset_count
+                ),
+                source_path: source_path.clone(),
+            });
+        }
+    }
+}
+
+fn resolve_page_instance_scene_id(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    board_key: &str,
+) -> Option<String> {
+    let page_node = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key)?;
+    let page_pref = page_node.payload_ref.as_ref()?;
+    let page_artifact = load_block_artifact(app_root, page_pref).ok()??;
+    page_artifact
+        .get("payload")
+        .and_then(|payload| payload.get("scene"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn default_filters_seed_contract_failure_summary(diagnostics: &[Diagnostic]) -> Option<String> {
+    let bad: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| {
+            d.severity == mei_lang_kernel::Severity::Error
+                && (d.code == "default_filters_unknown_field"
+                    || d.code == "default_filters_not_in_preset_set")
+        })
+        .collect();
+    if bad.is_empty() {
+        return None;
+    }
+    let body = bad
+        .iter()
+        .map(|d| {
+            format!(
+                "{}: {} ({})",
+                d.code,
+                d.message,
+                d.source_path.as_deref().unwrap_or("<unknown>")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "default_filters seed contract violated (must ⊆ filter_schema catalog ∩ preset set):\n{body}"
+    ))
 }
 
 fn validate_row_drilldown_filter_keys(
@@ -1956,6 +2255,51 @@ mod tests {
             assembly_source_file_from_payload(&prefixed),
             Some("src/scene/home/assembly.mei".to_string())
         );
+    }
+
+    #[test]
+    fn filter_seed_catalog_unwraps_filter_field_call_and_preset() {
+        let assembly = json!({
+            "bindings": {
+                "filter_schema": {
+                    "preset_filter_count": 2,
+                    "fields": [
+                        {
+                            "__call": "filter_field",
+                            "__args": {
+                                "key": "办理状态",
+                                "column": "办理状态",
+                                "label": "办理状态"
+                            }
+                        },
+                        {
+                            "__call": "filter_field",
+                            "__args": {
+                                "key": "agency",
+                                "column": "主责单位",
+                                "label": "主责单位"
+                            }
+                        },
+                        {
+                            "__call": "filter_field",
+                            "__args": {
+                                "key": "warningLevel",
+                                "column": "预警等级",
+                                "label": "预警等级"
+                            }
+                        }
+                    ]
+                }
+            }
+        });
+        let catalog = FilterSeedCatalog::from_assembly(&assembly).expect("catalog");
+        assert!(catalog.all_aliases.contains("办理状态"));
+        assert!(catalog.all_aliases.contains("agency"));
+        assert!(catalog.all_aliases.contains("主责单位"));
+        assert!(catalog.all_aliases.contains("预警等级"));
+        assert!(catalog.preset_aliases.contains("办理状态"));
+        assert!(catalog.preset_aliases.contains("主责单位"));
+        assert!(!catalog.preset_aliases.contains("预警等级"));
     }
 
     #[test]
