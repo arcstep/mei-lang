@@ -196,7 +196,9 @@ template row_metric_card(
     metric = None,
     popup = None,
     placements = None,
+    patch = None,
     gap = "4px",
+    padding = LAYOUT_SPACE_1,
 ):
     metric_card(
         id = id,
@@ -205,6 +207,7 @@ template row_metric_card(
         metric = metric,
         popup = popup,
         placements = placements,
+        patch = patch,
         surface = "compound_top_row",
         layout = grid(
             rows = ["1fr"],
@@ -215,7 +218,7 @@ template row_metric_card(
             justify = "stretch",
         ),
         props = {
-            "padding": LAYOUT_SPACE_1,
+            "padding": padding,
             "border": "none",
             "__mei_metric_inline_align": "compact",
         },
@@ -360,6 +363,7 @@ template icon_metric_card(
     icon_position = "11px center",
     surface = "icon_left",
     padding = "10px 8px 10px 70px",
+    inline_align = "compact",
 ):
     metric_card(
         id = id,
@@ -379,6 +383,7 @@ template icon_metric_card(
             },
             "radius": "0",
             "border": "none",
+            "__mei_metric_inline_align": inline_align,
         },
     )
 
@@ -432,6 +437,7 @@ template row_solid_metric_card(
     surface = "solid_row_accent",
     border = "1px solid rgba(98,190,235,1)",
     variant = None,
+    padding = "0 10px",
 ):
     metric_card(
         id = id,
@@ -456,7 +462,7 @@ template row_solid_metric_card(
                 "origin": "border-box",
                 "clip": "border-box",
             },
-            "padding": "0 2px",
+            "padding": padding,
             "radius": "0",
             "border": border,
             "label_vertical_align": "center",

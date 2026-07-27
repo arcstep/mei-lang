@@ -23,6 +23,15 @@
     if (caption) host.appendChild(caption);
   }
 
+  /** 构成/趋势图空结果：保留槽位标题并显示「暂无数据」，视为挂载成功（勿触发整板 error）。 */
+  function renderDrilldownChartEmptyState(host, title) {
+    resetDrilldownChartSlotHost(host, title);
+    const empty = document.createElement("div");
+    empty.className = "access-drilldown-chart-empty";
+    empty.textContent = "暂无数据";
+    host.appendChild(empty);
+  }
+
   function drilldownChartTag(chartKind, tabId) {
     const explicit = String(chartKind || "").trim().toLowerCase();
     const fallback = normalizeTabId(tabId) === "trend" ? "line" : "bar";

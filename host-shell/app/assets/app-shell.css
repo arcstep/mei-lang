@@ -4161,6 +4161,16 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   padding: 2px 4px 0;
   text-align: center;
 }
+.access-drilldown-chart-empty {
+  display: grid;
+  place-items: center;
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding: 16px;
+  color: var(--mei-color-text-muted);
+  font-size: var(--mei-font-2);
+  text-align: center;
+}
 .access-drilldown-list-preview-empty {
   display: grid;
   place-items: center;

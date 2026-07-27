@@ -1311,6 +1311,170 @@ fn uncovered_pipeline_returns_none_for_fail_fast_callers() {
 }
 
 #[test]
+fn zhifa_park_relocation_bucket_date_and_pivot_group_by_sql() {
+    // Mirrors park_count::relocation_* in enforcement-elements.bundle.mei.
+    let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path();
+    write_parquet_table(
+        app_root,
+        "upload/data/enterprise_relocation.xlsx",
+        &[
+            ("年月", DataType::Utf8),
+            ("类型", DataType::Utf8),
+            ("镇街/园区", DataType::Utf8),
+            ("企业名称", DataType::Utf8),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "2025-03-15",
+                "2025-03-20",
+                "2025-03-22",
+                "2025-06-01",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["迁入", "迁入", "迁出", "迁入"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["甲园", "甲园", "甲园", "乙园"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["A", "B", "C", "D"])) as ArrayRef,
+        ],
+    );
+    let columns = vec![
+        "年月".into(),
+        "类型".into(),
+        "镇街/园区".into(),
+        "企业名称".into(),
+    ];
+    let view = DatasetView {
+        id: "enterprise_relocation".into(),
+        title: None,
+        purpose: None,
+        schema: vec![
+            col("年月", "date"),
+            col("类型", "string"),
+            col("镇街/园区", "string"),
+            col("企业名称", "string"),
+        ],
+        stage_schema: Vec::new(),
+        columns: columns.clone(),
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: "file".into(),
+            path: "upload/data/enterprise_relocation.xlsx".into(),
+            sheet: None,
+            header_row: Some(1),
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: AnalysisGraph::default(),
+        runtime_analysis_contracts: BTreeMap::new(),
+    };
+    let mut datasets = BTreeMap::new();
+    datasets.insert(view.id.clone(), view);
+
+    let bucketed = json!({
+        "__kind": "analysis_expr",
+        "type": "bucket_date",
+        "field": "年月",
+        "label_field": "年月",
+        "rowset": {
+            "__kind": "analysis_expr",
+            "type": "rows",
+            "dataset": "enterprise_relocation"
+        }
+    });
+    let by_month = json!({
+        "__kind": "analysis_expr",
+        "type": "group_by",
+        "by": "年月",
+        "pivot_field": "类型",
+        "pivot_columns": ["迁入", "迁出"],
+        "rowset": bucketed
+    });
+    let month_rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &by_month)
+        .expect("sql ok")
+        .expect("pivot by month lowered");
+    assert_eq!(month_rows.len(), 2, "rows={month_rows:?}");
+    let mar = month_rows
+        .iter()
+        .find(|r| r.get("年月").and_then(|v| v.as_str()) == Some("2025-03"))
+        .expect("2025-03");
+    assert_eq!(mar.get("迁入").and_then(|v| v.as_i64()), Some(2));
+    assert_eq!(mar.get("迁出").and_then(|v| v.as_i64()), Some(1));
+    let jun = month_rows
+        .iter()
+        .find(|r| r.get("年月").and_then(|v| v.as_str()) == Some("2025-06"))
+        .expect("2025-06");
+    assert_eq!(jun.get("迁入").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(jun.get("迁出").and_then(|v| v.as_i64()), Some(0));
+
+    let by_park = json!({
+        "__kind": "analysis_expr",
+        "type": "group_by",
+        "by": "镇街/园区",
+        "pivot_field": "类型",
+        "pivot_columns": ["迁入", "迁出"],
+        "rowset": {
+            "__kind": "analysis_expr",
+            "type": "bucket_date",
+            "field": "年月",
+            "label_field": "年月",
+            "rowset": {
+                "__kind": "analysis_expr",
+                "type": "rows",
+                "dataset": "enterprise_relocation"
+            }
+        }
+    });
+    let park_rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &by_park)
+        .expect("sql ok")
+        .expect("pivot by park lowered");
+    let a = park_rows
+        .iter()
+        .find(|r| r.get("镇街/园区").and_then(|v| v.as_str()) == Some("甲园"))
+        .expect("甲园");
+    assert_eq!(a.get("迁入").and_then(|v| v.as_i64()), Some(2));
+    assert_eq!(a.get("迁出").and_then(|v| v.as_i64()), Some(1));
+
+    let summary = json!({
+        "__kind": "analysis_expr",
+        "type": "group_by",
+        "fields": ["年月", "镇街/园区"],
+        "pivot_field": "类型",
+        "pivot_columns": ["迁入", "迁出"],
+        "rowset": {
+            "__kind": "analysis_expr",
+            "type": "bucket_date",
+            "field": "年月",
+            "label_field": "年月",
+            "rowset": {
+                "__kind": "analysis_expr",
+                "type": "rows",
+                "dataset": "enterprise_relocation"
+            }
+        }
+    });
+    let summary_rows = try_eval_analysis_expr_via_sql(app_root, &datasets, &summary)
+        .expect("sql ok")
+        .expect("multi-key pivot lowered");
+    assert_eq!(summary_rows.len(), 2, "rows={summary_rows:?}");
+    let a_mar = summary_rows
+        .iter()
+        .find(|r| {
+            r.get("年月").and_then(|v| v.as_str()) == Some("2025-03")
+                && r.get("镇街/园区").and_then(|v| v.as_str()) == Some("甲园")
+        })
+        .expect("甲园 2025-03");
+    assert_eq!(a_mar.get("迁入").and_then(|v| v.as_i64()), Some(2));
+    assert_eq!(a_mar.get("迁出").and_then(|v| v.as_i64()), Some(1));
+}
+
+#[test]
 fn latest_days_pipeline_sql_matches_max_date_window() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app_root = dir.path();

@@ -3,7 +3,6 @@ use serde_json::{json, Value};
 use super::super::dates::{
     aggregate_month_value, format_month_label, latest_month_window, max_row_month, parse_row_date,
 };
-use super::super::schema::row_string;
 
 pub fn trend_year_compare_rows(
     rows: &[Value],
@@ -22,11 +21,12 @@ pub fn trend_year_compare_rows(
         let Some(anchor) = max_row_month(rows, date_field) else {
             return Vec::new();
         };
+        // 保持 latest_month_window 的时间升序（勿 BTreeSet：跨年窗口会变成 01..03,10..12）。
+        let mut seen = std::collections::HashSet::new();
         latest_month_window(anchor, months)
             .into_iter()
             .map(|(_, month)| month)
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
+            .filter(|month| seen.insert(*month))
             .collect()
     };
     if month_nums.is_empty() {
@@ -49,15 +49,6 @@ pub fn trend_year_compare_rows(
             out.push(Value::Object(row));
         }
     }
-    out.sort_by(|left, right| {
-        let left_month = row_string(left, month_label_field);
-        let left_year = row_string(left, year_label_field);
-        let right_month = row_string(right, month_label_field);
-        let right_year = row_string(right, year_label_field);
-        left_month
-            .cmp(&right_month)
-            .then_with(|| left_year.cmp(&right_year))
-    });
     out
 }
 

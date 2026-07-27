@@ -807,8 +807,9 @@ function syncChartShellTitle(shadowRoot, defaultTitle, props = {}) {
   const title = String(props.title ?? defaultTitle).trim();
   titleEl.textContent = title || defaultTitle;
   // rankingLayout=above renders its own title inside the list; hide shell head to avoid duplicates.
+  // titleInPlot：标题画在 ECharts 画布内；默认壳头在画布外（同园区罚金统计）。
   const rankingAbove = resolveRankingLayout(props) === "above";
-  const showHead = Boolean(title) && !rankingAbove;
+  const showHead = Boolean(title) && !rankingAbove && !titleInPlotEnabled(props);
   headEl.style.display = showHead ? "flex" : "none";
 }
 
@@ -831,27 +832,36 @@ function chartShellHtml(defaultTitle, props = {}) {
   const title = String(props.title ?? defaultTitle).trim();
   const rankingAbove = resolveRankingLayout(props) === "above";
   // above layout owns the title node; shell .head would duplicate it.
+  // titleInPlot：标题进画布；默认壳头在画布外（对齐 cockpit.park-amount-list）。
   // 轮播：校名放 head，但用更紧凑行高，把垂直空间留给画布与 hint。
-  const showHead = title.length > 0 && !rankingAbove;
+  const showHead = title.length > 0 && !rankingAbove && !titleInPlotEnabled(props);
+  // 壳头在画布外时：固定 chartHeight 表示「整卡预算」，画布高度减去标题行，避免父级 overflow 裁切 X 轴。
+  const headReservePx = showHead ? (compact ? 18 : 24) : 0;
+  const plotHeight =
+    Number(props.chartHeight) > 0 ? Math.max(40, chartHeight - headReservePx) : chartHeight;
   const chartSizeCss = fillHeight
-    ? "min-height: 96px; flex: 1 1 0; height: auto; max-height: none;"
-    : `min-height: ${chartHeight}px; height: ${compact ? chartHeight + "px" : "auto"}; max-height: ${compact ? chartHeight + "px" : "none"};`;
+    ? "min-height: 0; flex: 1 1 0; height: auto; max-height: none;"
+    : `min-height: ${plotHeight}px; height: ${compact ? plotHeight + "px" : "auto"}; max-height: ${compact ? plotHeight + "px" : "none"};`;
+  const hostHeightCss =
+    !fillHeight && compact && Number(props.chartHeight) > 0
+      ? `height: ${chartHeight}px; max-height: ${chartHeight}px;`
+      : "";
   return `
     <style>
       :host {
         display: ${fillHeight ? "flex" : "block"};
         flex-direction: column;
         width: 100%;
-        ${fillHeight ? "height: 100%; min-height: 0; align-self: stretch; justify-content: flex-start;" : ""}
+        ${fillHeight ? "height: 100%; min-height: 0; align-self: stretch; justify-content: flex-start;" : hostHeightCss}
         min-width: 0;
         overflow: hidden;
         box-sizing: border-box;
         ${cockpitCssVars()}
       }
       .wrap {
-        display: ${fillHeight ? "flex" : "grid"};
-        ${fillHeight ? "flex-direction: column; height: 100%; min-height: 0; flex: 1 1 0; justify-content: flex-start; align-items: stretch;" : ""}
-        gap: ${compact ? (showHead ? "1px" : "0") : "8px"};
+        display: ${fillHeight || showHead ? "flex" : "grid"};
+        ${fillHeight || showHead ? "flex-direction: column; height: 100%; min-height: 0; flex: 1 1 0; justify-content: flex-start; align-items: stretch;" : ""}
+        gap: ${compact ? (showHead ? "2px" : "0") : "8px"};
         padding: ${compact ? "0" : "14px"};
         border-radius: 0;
         border: ${compact ? "none" : "1px solid rgba(148,163,184,.2)"};
@@ -863,19 +873,20 @@ function chartShellHtml(defaultTitle, props = {}) {
       .head {
         display: ${showHead ? "flex" : "none"};
         flex: 0 0 auto;
-        justify-content: flex-end;
+        justify-content: flex-start;
         gap: 6px;
         align-items: baseline;
-        color: #e2e8f0;
         min-width: 0;
         margin: 0;
-        line-height: 1.15;
+        padding: 0 2px;
+        line-height: 1.2;
       }
       .title {
         margin: 0;
         font-size: var(--cockpit-font-chart-title);
         font-weight: 600;
-        color: ${compact ? "#94a3b8" : "#f8fafc"};
+        /* 与园区罚金统计 .head 一致：画布外左上、反色字 */
+        color: ${compact ? "var(--mei-color-text-inverse, #f8fafc)" : "#f8fafc"};
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1787,12 +1798,20 @@ function usesWarningLevelPalette(props, mapping = {}) {
   return isWarningLevelDimension(labelField) || isWarningLevelDimension(labelName);
 }
 
-/** palette_mode=value|mono：按数值映射单色阶梯；其余（默认）按类目轮转分类色板。 */
+/** palette_mode=value|mono：按数值映射单色阶梯；其余（默认/category）按类目轮转分类色板。 */
 function usesValueRampPiePalette(props) {
   const mode = String(props?.palette_mode ?? props?.paletteMode ?? "")
     .trim()
     .toLowerCase()
     .replace(/-/g, "_");
+  if (
+    mode === "category" ||
+    mode === "categorical" ||
+    mode === "categories" ||
+    mode === "cat"
+  ) {
+    return false;
+  }
   return mode === "value" || mode === "mono" || mode === "monochrome";
 }
 
@@ -2013,6 +2032,67 @@ function readLegendRight(props, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function readLegendLeft(props, fallback = 0) {
+  const raw = props?.legendLeft ?? props?.legend_left;
+  if (raw === undefined || raw === null || raw === "") {
+    return fallback;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** 图例水平位置：left | center | right（默认 right，兼容旧 legendRight）。 */
+function resolveLegendAlign(props) {
+  const align = String(props?.legendAlign ?? props?.legend_align ?? "")
+    .trim()
+    .toLowerCase();
+  if (align === "left" || align === "center" || align === "right") return align;
+  const rawLeft = props?.legendLeft ?? props?.legend_left;
+  if (rawLeft !== undefined && rawLeft !== null && rawLeft !== "") return "left";
+  return "right";
+}
+
+function buildLegendPosition(props) {
+  const align = resolveLegendAlign(props);
+  if (align === "center") {
+    return { left: "center", right: "auto" };
+  }
+  if (align === "left") {
+    return { left: readLegendLeft(props, 0), right: "auto" };
+  }
+  return { right: readLegendRight(props, 0), left: "auto" };
+}
+
+/** 分组系列图例仅显示 group 名（如 2024/2025），不拼 y 指标名。 */
+function legendGroupOnlyEnabled(props) {
+  const raw = props?.legendGroupOnly ?? props?.legend_group_only;
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+/**
+ * 标题画在 ECharts 画布内（仅显式 titleInPlot）。
+ * 默认 false：壳头在画布外左上，对齐园区罚金统计。
+ */
+function titleInPlotEnabled(props) {
+  const raw = props?.titleInPlot ?? props?.title_in_plot;
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+function categoryAxisVisible(props) {
+  const raw = props?.showCategoryAxis ?? props?.show_category_axis;
+  if (raw === false || raw === "false" || raw === 0 || raw === "0") return false;
+  if (raw === true || raw === "true" || raw === 1 || raw === "1") return true;
+  return true;
+}
+
+/** tooltip confine：默认 true（收进图表）；false 时允许飘出图表但仍由 ECharts/视口约束。 */
+function tooltipConfineEnabled(props) {
+  const raw = props?.tooltipConfine ?? props?.tooltip_confine;
+  if (raw === false || raw === "false" || raw === 0 || raw === "0") return false;
+  if (raw === true || raw === "true" || raw === 1 || raw === "1") return true;
+  return true;
+}
+
 function readGridInset(props, side, fallback) {
   const key = side.toLowerCase();
   const camel = `grid${key.charAt(0).toUpperCase()}${key.slice(1)}`;
@@ -2053,29 +2133,72 @@ function compactAxisValueLabel(value) {
   return String(n);
 }
 
+function valueAxisIntegerEnabled(props) {
+  const raw = props?.y_axis_integer ?? props?.yAxisInteger ?? props?.minInterval;
+  return (
+    raw === true ||
+    raw === "true" ||
+    raw === 1 ||
+    raw === "1" ||
+    Number(raw) === 1
+  );
+}
+
+function compactIntegerAxisValueLabel(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return String(value ?? "");
+  }
+  const abs = Math.abs(n);
+  if (abs >= 100000000) {
+    return `${(n / 100000000).toFixed(abs >= 1000000000 ? 0 : 1)}亿`;
+  }
+  if (abs >= 10000) {
+    return `${(n / 10000).toFixed(abs % 10000 === 0 ? 0 : 1)}万`;
+  }
+  if (abs >= 1000) {
+    return `${(n / 1000).toFixed(0)}k`;
+  }
+  return String(Math.round(n));
+}
+
 function resolveCompactCartesianGrid(props, legacy, categoryAxisRotate = 0) {
   const containLabel = gridContainLabelEnabled(props, true);
   const showLegend = legacy.showLegend === true;
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
   // Tight cockpit slots (~70–90px): shrink legend/axis insets so x-axis stays visible.
   const tight = chartHeight > 0 && chartHeight <= 96;
-  const bottomDefault = Math.abs(categoryAxisRotate) >= 30
-    ? tight ? 28 : 40
-    : tight ? 14 : 22;
-  const topDefault = showLegend ? (tight ? 10 : 16) : tight ? 2 : 4;
+  const hideCategory = !categoryAxisVisible(props);
+  const bottomDefault = hideCategory
+    ? tight
+      ? 2
+      : 4
+    : Math.abs(categoryAxisRotate) >= 30
+      ? tight
+        ? 28
+        : 40
+      : tight
+        ? 14
+        : 22;
+  const topDefault = showLegend || titleInPlotEnabled(props) ? (tight ? 14 : 18) : tight ? 2 : 4;
   return {
     left: readGridInset(props, "left", containLabel ? 2 : 24),
-    right: readGridInset(props, "right", showLegend ? 2 : 6),
+    right: readGridInset(props, "right", showLegend || titleInPlotEnabled(props) ? 2 : 6),
     top: readGridInset(props, "top", topDefault),
     bottom: readGridInset(props, "bottom", bottomDefault),
-    containLabel,
+    containLabel: hideCategory ? false : containLabel,
     backgroundColor: COCKPIT_CARTESIAN_GRID_BG,
     borderWidth: 0,
   };
 }
 
-function resolveCategoryAxisLabelFormatter(props) {
-  const maxChars = Number(props?.label_max_chars);
+function resolveCategoryAxisLabelFormatter(props, extras = {}) {
+  let maxChars = Number(props?.label_max_chars);
+  // yyyy-mm 时间轴：至少保留 7 字符，避免被分析看板默认 label_max_chars=6 截成「2025-0...」
+  if (extras.temporalYearMonth) {
+    const floor = 7;
+    maxChars = Number.isFinite(maxChars) && maxChars > 0 ? Math.max(maxChars, floor) : floor;
+  }
   if (!Number.isFinite(maxChars) || maxChars <= 0) {
     return undefined;
   }
@@ -2098,8 +2221,8 @@ function resolveCategoryAxisLabelRotate(props) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function buildCategoryAxisLabel(chartProps, typography) {
-  const formatter = resolveCategoryAxisLabelFormatter(chartProps);
+function buildCategoryAxisLabel(chartProps, typography, extras = {}) {
+  const formatter = resolveCategoryAxisLabelFormatter(chartProps, extras);
   const rotate = resolveCategoryAxisLabelRotate(chartProps);
   const host = chartProps?.__host;
   const color = canvasThemeColor(host, "text_muted");
@@ -2116,6 +2239,65 @@ function buildCategoryAxisLabel(chartProps, typography) {
     label.rotate = rotate;
   }
   return label;
+}
+
+/** YYYY-MM（bucket_date / 年月标签） */
+function isYearMonthCategoryLabel(value) {
+  return /^\d{4}-\d{2}$/.test(String(value ?? "").trim());
+}
+
+function categoriesLookLikeYearMonth(categories) {
+  const labels = (Array.isArray(categories) ? categories : [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (labels.length === 0) return false;
+  const hits = labels.filter(isYearMonthCategoryLabel).length;
+  return hits >= Math.max(1, Math.ceil(labels.length * 0.8));
+}
+
+function xFieldLooksTemporal(field) {
+  const name = String(field || "").trim().toLowerCase();
+  return (
+    name === "年月" ||
+    name === "月份" ||
+    name === "month" ||
+    name === "year_month" ||
+    name === "year-month" ||
+    name.endsWith("年月")
+  );
+}
+
+/** MM / M（01–12）：年度对比柱的共享横轴。 */
+function isMonthNumCategoryLabel(value) {
+  return /^(0?[1-9]|1[0-2])$/.test(String(value ?? "").trim());
+}
+
+function categoriesLookLikeMonthNum(categories) {
+  const labels = (Array.isArray(categories) ? categories : [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+  if (labels.length === 0) return false;
+  const hits = labels.filter(isMonthNumCategoryLabel).length;
+  return hits >= Math.max(1, Math.ceil(labels.length * 0.8));
+}
+
+/** 保留数据首次出现顺序（滚动窗口时间序），仅去重。 */
+function uniquePreserveOrder(values) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of values) {
+    const key = String(raw ?? "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+function sortCategoriesAsTime(categories) {
+  return [...categories].sort((left, right) =>
+    String(left ?? "").trim().localeCompare(String(right ?? "").trim(), "en"),
+  );
 }
 
 function resolveChannelDisplayName(channels, field, fallback = "") {
@@ -2175,10 +2357,13 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   if (kind === "trend" && yFields.length !== 1) {
     diagnostics.push("chart.trend 需要且仅支持一个 y 通道");
   }
-  let categories = unique(rows.map((row) => String(row?.[xField] ?? ""))).filter(Boolean);
+  let categories = uniquePreserveOrder(rows.map((row) => String(row?.[xField] ?? ""))).filter(
+    Boolean,
+  );
   const fixedOrder = Array.isArray(legacy.fixedCategoryOrder)
     ? legacy.fixedCategoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
     : resolveFixedCategoryOrder(legacy.chartProps, xField);
+  let temporalYearMonth = false;
   if (fixedOrder && fixedOrder.length > 0) {
     // 固定顺序：即使当前筛选只剩一类，也保留连续状态轴（缺省为 0）
     categories = fixedOrder;
@@ -2187,6 +2372,19 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     if (ranked.length > 0) {
       categories = ranked.filter((label) => categories.includes(label));
     }
+  } else if (
+    categoriesLookLikeYearMonth(categories) ||
+    (xFieldLooksTemporal(xField) && categories.some(isYearMonthCategoryLabel))
+  ) {
+    // 年月按时间升序，勿当离散类目保留 SQL/首次出现顺序。
+    categories = sortCategoriesAsTime(categories);
+    temporalYearMonth = categoriesLookLikeYearMonth(categories);
+  } else if (xFieldLooksTemporal(xField) && categoriesLookLikeMonthNum(categories)) {
+    // 年度对比共享月轴（01–12）：保留 pipeline 滚动窗口顺序，禁止按月号重排（跨年会错）。
+    temporalYearMonth = false;
+  }
+  if (!temporalYearMonth && categoriesLookLikeYearMonth(categories)) {
+    temporalYearMonth = true;
   }
   const grouped = mapping.group[0]?.field;
   const groups = grouped ? unique(rows.map((row) => String(row?.[grouped] ?? ""))).filter(Boolean) : [];
@@ -2195,7 +2393,15 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   const seriesType = isBar ? "bar" : "line";
   const compact = legacy.compact === true || legacy.compact === "true";
   const metricSpark = legacy.barGradient === "metric-spark";
-  const palette = Array.isArray(legacy.palette) ? legacy.palette : [];
+  // 多 y 指标或 mapping.group 多系列（如年度对比线）必须用分类色板；
+  // 单色阶梯（chart_1..6）数值着色会让各系列挤在相近绿色里。
+  const multiMeasure = yFields.length > 1;
+  const multiGroup = groups.length > 1;
+  const explicitPalette = resolveExplicitColorPalette(legacy.chartProps || {});
+  let palette = Array.isArray(legacy.palette) ? legacy.palette.slice() : [];
+  if (!explicitPalette && (multiMeasure || multiGroup)) {
+    palette = readThemeChartCategoricalPalette(host);
+  }
   for (const yField of yFields) {
     const yDisplayName = resolveChannelDisplayName(mapping.y, yField);
     if (groups.length === 0) {
@@ -2239,8 +2445,9 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
       } else {
         const sparkBar =
           metricSpark && seriesType === "bar" && (kind === "column" || kind === "bar");
+        // 单系列柱：按数值映射单色阶梯；多系列保留 option.color 系列色，勿逐柱重着色。
         const coloredData =
-          !sparkBar && isBar && palette.length > 1
+          !sparkBar && isBar && !multiMeasure && palette.length > 1
             ? colorizeBarDataByValue(data, palette)
             : data;
         series.push({
@@ -2260,10 +2467,11 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
       }
     } else {
       const yearDuoGradient = isBar && legacy.barGradient === "cockpit-year-duo";
+      const groupOnlyLegend = legendGroupOnlyEnabled(legacy.chartProps || {});
       let groupSeriesIndex = 0;
       for (const groupName of groups) {
         const seriesItem = {
-          name: `${groupName} · ${yDisplayName}`,
+          name: groupOnlyLegend ? groupName : `${groupName} · ${yDisplayName}`,
           type: seriesType,
           smooth: kind === "trend",
           areaStyle: kind === "area" ? {} : undefined,
@@ -2298,23 +2506,52 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   const compactGrid = metricSpark
     ? { left: 2, right: 2, top: 4, bottom: 4, containLabel: false }
     : resolveCompactCartesianGrid(chartProps, legacy, categoryAxisRotate);
-  const categoryAxisLabel = buildCategoryAxisLabel(chartProps, themeTypography);
+  const showCategoryLabels = categoryAxisVisible(chartProps);
+  const categoryAxisLabel = showCategoryLabels
+    ? buildCategoryAxisLabel(chartProps, themeTypography, {
+        temporalYearMonth,
+      })
+    : { show: false };
+  const plotTitleText =
+    titleInPlotEnabled(chartProps) ? String(chartProps.title ?? "").trim() : "";
   const option = {
     backgroundColor: "transparent",
-    tooltip: echartsTooltip(themeTypography, "axis", {}, host),
+    tooltip: echartsTooltip(
+      themeTypography,
+      "axis",
+      { confine: tooltipConfineEnabled(chartProps) },
+      host,
+    ),
     legend: legacy.showLegend
       ? {
           show: true,
           top: 0,
-          right: readLegendRight(chartProps, 0),
-          left: "auto",
+          ...buildLegendPosition(chartProps),
           orient: "horizontal",
           itemWidth: 10,
           itemHeight: 8,
           itemGap: 6,
-          textStyle: { fontSize: themeTypography.unit, color: mutedColor },
+          textStyle: {
+            fontSize: themeTypography.unit,
+            color: mutedColor,
+            ...echartsTextStrokeStyle(mutedColor),
+          },
         }
       : { show: false },
+    title: plotTitleText
+      ? {
+          text: plotTitleText,
+          right: 2,
+          top: 0,
+          padding: [1, 2, 0, 0],
+          textStyle: {
+            fontSize: themeTypography.chartTitle || themeTypography.unit,
+            fontWeight: 600,
+            color: mutedColor,
+            ...echartsTextStrokeStyle(mutedColor),
+          },
+        }
+      : undefined,
     toolbox: legacy.compact ? undefined : { feature: { saveAsImage: {} } },
     grid: legacy.compact
       ? compactGrid
@@ -2327,34 +2564,40 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     option.color = palette;
   }
   if (legacy.compact && !metricSpark) {
+    const integerAxis = valueAxisIntegerEnabled(chartProps);
+    const valueFormatter = integerAxis ? compactIntegerAxisValueLabel : compactAxisValueLabel;
     if (kind === "bar") {
       option.xAxis = {
         ...option.xAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
           color: mutedColor,
-          formatter: compactAxisValueLabel,
+          formatter: valueFormatter,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
+        ...(integerAxis ? { minInterval: 1 } : {}),
       };
       option.yAxis = {
         ...option.yAxis,
         axisLabel: categoryAxisLabel,
+        ...(showCategoryLabels ? {} : { axisTick: { show: false } }),
       };
     } else {
       option.xAxis = {
         ...option.xAxis,
         axisLabel: categoryAxisLabel,
+        ...(showCategoryLabels ? {} : { axisTick: { show: false } }),
       };
       option.yAxis = {
         ...option.yAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
           color: mutedColor,
-          formatter: compactAxisValueLabel,
+          formatter: valueFormatter,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
         splitNumber: 4,
+        ...(integerAxis ? { minInterval: 1 } : {}),
       };
     }
   }

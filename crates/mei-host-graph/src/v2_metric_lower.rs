@@ -1397,6 +1397,28 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                     ),
                 ],
             ),
+            // Align with kernel eval_rowset_bucket_date: overwrite label_field/by with YYYY-MM.
+            "bucket_date" => {
+                let field = kw_or_arg(&args, "field", 1)
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default();
+                let label_field = args
+                    .get("label_field")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        kw_or_arg(&args, "by", 2).and_then(|v| v.as_str().map(str::to_string))
+                    })
+                    .unwrap_or_else(|| "month".to_string());
+                aek(
+                    "bucket_date",
+                    &[
+                        ("rowset", lower_rowset(arg0(&args), ctx)),
+                        ("field", json!(field)),
+                        ("label_field", json!(label_field)),
+                    ],
+                )
+            }
             "first_by" => aek(
                 "first_by",
                 &[
@@ -2257,6 +2279,99 @@ mod tests {
                 .pointer("/values/value/rowset/days")
                 .and_then(Value::as_u64),
             Some(7)
+        );
+    }
+
+    #[test]
+    fn lower_bucket_date_dataset_view_inlines_yyyy_mm_label() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "enterprise_relocation",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "enterprise_relocation"}},
+                },
+            },
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "enforcement_parks",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "park_vector"}},
+                },
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "relocation_rows",
+                    "from": "enterprise_relocation",
+                    "rowset": {
+                        "__call": "bucket_date",
+                        "__args": {
+                            "arg0": {
+                                "__call": "data_ref",
+                                "__args": {"arg0": "enterprise_relocation"}
+                            },
+                            "field": "年月",
+                            "by": "年月"
+                        }
+                    }
+                }
+            }
+        ]);
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "park_count",
+                "dataset": "enforcement_parks",
+                "agg": {"__call": "count", "__args": {}},
+                "explain": [{
+                    "__call": "dataframe",
+                    "__args": {
+                        "id": "relocation_by_month",
+                        "value": {
+                            "__call": "group_by",
+                            "__args": {
+                                "arg0": {
+                                    "__call": "data_ref",
+                                    "__args": {"arg0": "relocation_rows"}
+                                },
+                                "by": "年月",
+                                "pivot_field": "类型",
+                                "pivot_columns": ["迁入", "迁出"]
+                            }
+                        }
+                    }
+                }]
+            }
+        });
+        let lowered = lower_v2_metric("park_count", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered
+                .pointer("/explain/0/value/type")
+                .and_then(Value::as_str),
+            Some("group_by"),
+            "got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/explain/0/value/rowset/type")
+                .and_then(Value::as_str),
+            Some("bucket_date"),
+            "relocation_rows must inline bucket_date, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/explain/0/value/rowset/label_field")
+                .and_then(Value::as_str),
+            Some("年月")
+        );
+        assert_eq!(
+            lowered
+                .pointer("/explain/0/value/pivot_field")
+                .and_then(Value::as_str),
+            Some("类型")
         );
     }
 

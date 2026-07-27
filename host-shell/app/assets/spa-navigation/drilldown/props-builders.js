@@ -26,6 +26,16 @@
       ? overrides.mapping
       : config?.mapping;
     const multiSeries = chartMappingHasMultipleSeries(mapping);
+    const chartKind = String(config?.chartKind || config?.chart_kind || "")
+      .trim()
+      .toLowerCase();
+    const isPieFamily = chartKind === "pie" || chartKind === "donut" || chartKind === "rose";
+    const explicitPaletteMode = nonEmptyString(
+      overrides?.palette_mode,
+      overrides?.paletteMode,
+      config?.palette_mode,
+      config?.paletteMode,
+    );
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -40,6 +50,8 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
+      ...(isPieFamily && !explicitPaletteMode ? { palette_mode: "category" } : {}),
+      ...(explicitPaletteMode ? { palette_mode: explicitPaletteMode } : {}),
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -51,6 +63,22 @@
     }
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
       props.showLegend = true;
+    }
+    if (
+      config?.y_axis_integer === true ||
+      config?.yAxisInteger === true ||
+      overrides?.y_axis_integer === true ||
+      overrides?.yAxisInteger === true ||
+      // 构成柱图默认次数轴；显式 false 可关掉
+      ((chartKind === "column" || chartKind === "bar") &&
+        String(config?.supportRole || "").toLowerCase() === "composition" &&
+        config?.y_axis_integer !== false &&
+        config?.yAxisInteger !== false &&
+        overrides?.y_axis_integer !== false &&
+        overrides?.yAxisInteger !== false)
+    ) {
+      props.y_axis_integer = true;
+      props.minInterval = 1;
     }
     if (topN > 0) {
       props.top_n = topN;

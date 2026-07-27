@@ -483,12 +483,15 @@
           resolveCompositionMetricId(config, detail),
           detailSlotMetricId,
         );
+    // 客户端重聚合必须拉父级明细 ::__scalar_rowset__，禁止 composition_by_*（已 top-N）行集。
     const detailRowsetMetricId =
-      tableMetricId && !isScalarRowsetMetricId(tableMetricId)
-        ? isDedicatedExplainMetricId(tableMetricId)
-          ? tableMetricId
-          : resolveCardMetricRowsetId(tableMetricId)
-        : tableMetricId;
+      config?.clientAggregate === true
+        ? resolveCardMetricRowsetId(resolveBoardParentMetricId(detail, { ...config, tableMetricId }))
+        : tableMetricId && !isScalarRowsetMetricId(tableMetricId)
+          ? isDedicatedExplainMetricId(tableMetricId)
+            ? tableMetricId
+            : resolveCardMetricRowsetId(tableMetricId)
+          : tableMetricId;
     const scopedConfig = detailRowsetMetricId ? { ...metricFetchConfig, tableMetricId: detailRowsetMetricId } : metricFetchConfig;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const popupFetchFilters = mergePopupFetchFilters(detail, scopedConfig, tableProps);
@@ -523,13 +526,23 @@
               },
             },
           );
-          if (result && Array.isArray(result.rows) && result.rows.length > 0) {
+          // 0 行是合法筛选结果：必须原样返回，禁止 fall through 到未按当前 filter 重算的 composition_*。
+          if (result && Array.isArray(result.rows)) {
             return {
-              rows: Array.isArray(result.rows) ? result.rows : [],
+              rows: result.rows,
               columns: Array.isArray(result.columns) ? result.columns : [],
               column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
               summary: result?.summary || null,
               query_state_echo: result?.query_state_echo || null,
+            };
+          }
+          if (scopedConfig.clientAggregate === true) {
+            return {
+              rows: [],
+              columns: [],
+              column_meta: [],
+              summary: null,
+              query_state_echo: null,
             };
           }
           return null;

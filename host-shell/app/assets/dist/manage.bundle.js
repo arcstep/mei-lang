@@ -15912,6 +15912,12 @@
           : Array.isArray(entry.categoryOrder)
             ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
             : null,
+        paletteMode: nonEmptyString(entry.palette_mode, entry.paletteMode),
+        yAxisInteger:
+          entry.y_axis_integer === true ||
+          entry.y_axis_integer === "true" ||
+          entry.yAxisInteger === true ||
+          entry.yAxisInteger === "true",
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
@@ -16288,6 +16294,8 @@
               Array.isArray(slot.categoryOrder) && slot.categoryOrder.length > 0
                 ? slot.categoryOrder
                 : undefined,
+            palette_mode: nonEmptyString(slot.paletteMode, slot.palette_mode) || undefined,
+            y_axis_integer: slot.yAxisInteger === true || slot.y_axis_integer === true || undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",
@@ -17493,12 +17501,15 @@
           resolveCompositionMetricId(config, detail),
           detailSlotMetricId,
         );
+    // 客户端重聚合必须拉父级明细 ::__scalar_rowset__，禁止 composition_by_*（已 top-N）行集。
     const detailRowsetMetricId =
-      tableMetricId && !isScalarRowsetMetricId(tableMetricId)
-        ? isDedicatedExplainMetricId(tableMetricId)
-          ? tableMetricId
-          : resolveCardMetricRowsetId(tableMetricId)
-        : tableMetricId;
+      config?.clientAggregate === true
+        ? resolveCardMetricRowsetId(resolveBoardParentMetricId(detail, { ...config, tableMetricId }))
+        : tableMetricId && !isScalarRowsetMetricId(tableMetricId)
+          ? isDedicatedExplainMetricId(tableMetricId)
+            ? tableMetricId
+            : resolveCardMetricRowsetId(tableMetricId)
+          : tableMetricId;
     const scopedConfig = detailRowsetMetricId ? { ...metricFetchConfig, tableMetricId: detailRowsetMetricId } : metricFetchConfig;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const popupFetchFilters = mergePopupFetchFilters(detail, scopedConfig, tableProps);
@@ -17533,13 +17544,23 @@
               },
             },
           );
-          if (result && Array.isArray(result.rows) && result.rows.length > 0) {
+          // 0 行是合法筛选结果：必须原样返回，禁止 fall through 到未按当前 filter 重算的 composition_*。
+          if (result && Array.isArray(result.rows)) {
             return {
-              rows: Array.isArray(result.rows) ? result.rows : [],
+              rows: result.rows,
               columns: Array.isArray(result.columns) ? result.columns : [],
               column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
               summary: result?.summary || null,
               query_state_echo: result?.query_state_echo || null,
+            };
+          }
+          if (scopedConfig.clientAggregate === true) {
+            return {
+              rows: [],
+              columns: [],
+              column_meta: [],
+              summary: null,
+              query_state_echo: null,
             };
           }
           return null;
@@ -17730,6 +17751,41 @@
   function isScalarRowsetMetricId(metricId) {
     const text = String(metricId || "").trim();
     return text.endsWith("::__scalar_rowset__");
+  }
+
+  /**
+   * 从 composition/trend 作用域 metric（如 key_enterprises_count::composition_by_street
+   * 或 …::__scalar_rowset__）还原看板父级 metric，供筛选后客户端重聚合拉明细 rowset。
+   */
+  function resolveParentMetricIdFromScoped(metricId) {
+    let text = String(metricId || "").trim();
+    if (!text) return "";
+    if (text.endsWith("::__scalar_rowset__")) {
+      text = text.slice(0, -"::__scalar_rowset__".length);
+    }
+    if (!text.includes("::")) return text;
+    const parts = text
+      .split("::")
+      .map((part) => String(part || "").trim())
+      .filter(Boolean);
+    if (parts.length >= 2 && /\.mei$/i.test(parts[0])) {
+      return `${parts[0]}::${parts[1]}`;
+    }
+    if (parts.length >= 2) {
+      return parts[0];
+    }
+    return text;
+  }
+
+  /** 分析看板父级 metric：popup/detail 优先；勿用 composition_by_* 子 metric。 */
+  function resolveBoardParentMetricId(detail, config = null) {
+    return nonEmptyString(
+      resolvePopupPassedMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      resolveParentMetricIdFromScoped(config?.tableMetricId),
+      resolveParentMetricIdFromScoped(config?.boardParentMetricId),
+    );
   }
 
   /** scene-qualified 指标 id 在 `.mei::` 之后是否还带 explain 派生后缀（如 composition_by_agency）。 */
@@ -17945,6 +18001,16 @@
       ? overrides.mapping
       : config?.mapping;
     const multiSeries = chartMappingHasMultipleSeries(mapping);
+    const chartKind = String(config?.chartKind || config?.chart_kind || "")
+      .trim()
+      .toLowerCase();
+    const isPieFamily = chartKind === "pie" || chartKind === "donut" || chartKind === "rose";
+    const explicitPaletteMode = nonEmptyString(
+      overrides?.palette_mode,
+      overrides?.paletteMode,
+      config?.palette_mode,
+      config?.paletteMode,
+    );
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -17959,6 +18025,8 @@
       category_label_rotate: 30,
       showLegend: multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
+      ...(isPieFamily && !explicitPaletteMode ? { palette_mode: "category" } : {}),
+      ...(explicitPaletteMode ? { palette_mode: explicitPaletteMode } : {}),
       ...overrides,
     };
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
@@ -17970,6 +18038,22 @@
     }
     if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
       props.showLegend = true;
+    }
+    if (
+      config?.y_axis_integer === true ||
+      config?.yAxisInteger === true ||
+      overrides?.y_axis_integer === true ||
+      overrides?.yAxisInteger === true ||
+      // 构成柱图默认次数轴；显式 false 可关掉
+      ((chartKind === "column" || chartKind === "bar") &&
+        String(config?.supportRole || "").toLowerCase() === "composition" &&
+        config?.y_axis_integer !== false &&
+        config?.yAxisInteger !== false &&
+        overrides?.y_axis_integer !== false &&
+        overrides?.yAxisInteger !== false)
+    ) {
+      props.y_axis_integer = true;
+      props.minInterval = 1;
     }
     if (topN > 0) {
       props.top_n = topN;
@@ -18634,6 +18718,15 @@
     host.replaceChildren();
     const caption = createDrilldownChartSlotCaption(title);
     if (caption) host.appendChild(caption);
+  }
+
+  /** 构成/趋势图空结果：保留槽位标题并显示「暂无数据」，视为挂载成功（勿触发整板 error）。 */
+  function renderDrilldownChartEmptyState(host, title) {
+    resetDrilldownChartSlotHost(host, title);
+    const empty = document.createElement("div");
+    empty.className = "access-drilldown-chart-empty";
+    empty.textContent = "暂无数据";
+    host.appendChild(empty);
   }
 
   function drilldownChartTag(chartKind, tabId) {
@@ -19317,10 +19410,11 @@
             : null;
       // 图表 composition 父级同样优先 board / popup 分析指标，勿用入口 KPI count。
       const cardMetricId = nonEmptyString(
-        boardMetricId,
         resolvePopupPassedMetricId(detail, config),
+        resolveParentMetricIdFromScoped(boardMetricId),
         detail?.metric_id,
         detail?.__mei_runtime_ref?.metric_id,
+        boardMetricId,
       );
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
       const resolvedChartMetricId = nonEmptyString(
@@ -19348,10 +19442,22 @@
         runtimeSceneFile: config.runtimeSceneFile,
         queryStateId: config.queryStateId,
         supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
+        boardParentMetricId: cardMetricId,
         tableMetricId: resolvedChartMetricId,
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
+        palette_mode: nonEmptyString(
+          slot.paletteMode,
+          slot.palette_mode,
+          slotConfig.palette_mode,
+          slotConfig.paletteMode,
+        ),
+        y_axis_integer:
+          slot.yAxisInteger === true ||
+          slot.y_axis_integer === true ||
+          slotConfig.y_axis_integer === true ||
+          slotConfig.yAxisInteger === true,
         by: explainBy,
         compositionBy: explainBy
           ? [explainBy]
@@ -19360,6 +19466,22 @@
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
               : [],
+        valueField: nonEmptyString(
+          slot.valueField,
+          slot.value_field,
+          slotConfig.valueField,
+          slotConfig.value_field,
+          config.explainMetrics?.[slot.id]?.valueField,
+          config.valueField,
+        ),
+        compositionAgg: nonEmptyString(
+          slot.compositionAgg,
+          slot.agg,
+          slotConfig.compositionAgg,
+          slotConfig.agg,
+          config.explainMetrics?.[slot.id]?.compositionAgg,
+          config.compositionAgg,
+        ),
         trendField: nonEmptyString(slot.trendField, slot.dateField, slotConfig.trendField),
         trendGrain: nonEmptyString(slot.grain, slotConfig.trendGrain),
         runtimeRef: {
@@ -22292,13 +22414,11 @@
       });
       return false;
     }
-    // 构成/趋势派生必须用看板分析指标（popup / tableMetricId），勿用入口 KPI count，
-    // 否则有 default_filters 时会走 useDetailRowset → count::__scalar_rowset__ → 500。
+    // 构成/趋势派生：父级看板 metric 优先；筛选重聚合时绝不能用 composition_by_* 子 metric。
+    const boardParentMetricId = resolveBoardParentMetricId(detail, config);
     const cardMetricId = nonEmptyString(
+      boardParentMetricId,
       config?.tableMetricId,
-      resolvePopupPassedMetricId(detail, config),
-      detail?.metric_id,
-      detail?.__mei_runtime_ref?.metric_id,
     );
     const fetchConfig = { ...config, datasetId };
     const sharedQueryStateId = nonEmptyString(
@@ -22322,12 +22442,16 @@
     );
     if (useDetailRowset) {
       // 查实占比与有筛选的构成图：一律拉当前明细 scalar rowset 再聚合（单一真源）。
-      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(boardParentMetricId || cardMetricId);
+      fetchConfig.boardParentMetricId = boardParentMetricId || cardMetricId;
       fetchConfig.supportRole = "";
       fetchConfig.clientAggregate = true;
     } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
-      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
+      const compositionMetricId = resolveCompositionScopedMetricId(
+        boardParentMetricId || cardMetricId,
+        tabId,
+      );
       if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
         fetchConfig.tableMetricId = slotMetricId;
       } else if (compositionMetricId) {
@@ -22335,7 +22459,7 @@
         fetchConfig.supportRole = "composition";
       }
     } else if (cardMetricId && isTrendTab) {
-      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(boardParentMetricId || cardMetricId);
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
@@ -22371,14 +22495,18 @@
           : groupRowsForComposition(rows, dimension, columns, config, detail),
         config,
       );
-      if (!grouped.length) return false;
+      const compositionCaption =
+        resolveDrilldownChartSlotCaption(config) ||
+        (verifiedShare ? "查实占比" : `${dimension}构成`);
+      if (!grouped.length) {
+        renderDrilldownChartEmptyState(host, compositionCaption);
+        dispatchPreviewUpdated("drilldown");
+        return true;
+      }
       const chartTag = drilldownChartTag(config?.chartKind, tabId) || "mei-chart-bar";
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
-      resetDrilldownChartSlotHost(
-        host,
-        resolveDrilldownChartSlotCaption(config) || (verifiedShare ? "查实占比" : `${dimension}构成`),
-      );
+      resetDrilldownChartSlotHost(host, compositionCaption);
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -22413,10 +22541,15 @@
         return false;
       }
       const grouped = groupRowsByMonth(rows, trendField, columns);
-      if (!grouped.length) return false;
+      const trendCaption = resolveDrilldownChartSlotCaption(config) || "趋势";
+      if (!grouped.length) {
+        renderDrilldownChartEmptyState(host, trendCaption);
+        dispatchPreviewUpdated("drilldown");
+        return true;
+      }
       const registered = await ensureDrilldownChartRegistered("mei-chart-line");
       if (!registered) return false;
-      resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config) || "趋势");
+      resetDrilldownChartSlotHost(host, trendCaption);
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -26429,7 +26562,22 @@
 
   /** link/KPI 入口打开时重置 query_state，再种 default_filters（可为空对象）。 */
   function seedDrilldownQueryStateOnOpen(config, detail) {
-    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    // structured board 的 queryStateId 常在后续 assembly 才写成 drilldown::<metric>；
+    // 此处若为空会跳过播种，filter-bar 又会沿用旧 query_state → 入口筛选「对应不准」。
+    let queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) {
+      const boardMetricId =
+        typeof resolvePopupPassedMetricId === "function"
+          ? resolvePopupPassedMetricId(detail, config)
+          : nonEmptyString(
+              metricRefId?.(detail?.popup?.params?.metric),
+              metricRefId?.(config?.params?.metric),
+              metricRefId?.(config?.popup?.params?.metric),
+            );
+      if (boardMetricId) {
+        queryStateId = `drilldown::${boardMetricId}`;
+      }
+    }
     if (!queryStateId) return;
     const runtime = window.__meiDatasetRuntime;
     if (!runtime || typeof runtime.setQueryState !== "function") return;
@@ -26534,7 +26682,26 @@
     );
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
-    return [sceneId, datasetId, metricId].filter(Boolean).join("|");
+    const params =
+      (config?.params && typeof config.params === "object" && !Array.isArray(config.params)
+        ? config.params
+        : null) ||
+      (config?.popup?.params && typeof config.popup.params === "object" && !Array.isArray(config.popup.params)
+        ? config.popup.params
+        : null) ||
+      (detail?.popup?.params && typeof detail.popup.params === "object" && !Array.isArray(detail.popup.params)
+        ? detail.popup.params
+        : null) ||
+      {};
+    const seed =
+      params.default_filters && typeof params.default_filters === "object" && !Array.isArray(params.default_filters)
+        ? params.default_filters
+        : {};
+    const seedKey = Object.keys(seed)
+      .sort()
+      .map((key) => `${key}=${String(seed[key] ?? "").trim()}`)
+      .join("&");
+    return [sceneId, datasetId, metricId, seedKey].filter(Boolean).join("|");
   }
 
   function markProjectionOpenHandled(detail, config) {
@@ -39721,6 +39888,22 @@
       // 横排看板默认（作者声明 ui.row_accent_* 即可）：
       // 标签列用 max-content（不可再被压回 4em）；数值拿走剩余宽 + 单位保底宽左跟。
       // minmax(4em, max-content) 在窄槽仍会缩到 4em，导致「执法记…」截断。
+      const centerValuePack =
+        inlineAlign === "center" || inlineAlign === "middle" || inlineAlign === "center_value";
+      if (centerValuePack) {
+        // 查实率等长条：label 左置；value+unit 作为整体居中于内容区。
+        style.gridTemplateColumns = "1fr auto auto 1fr";
+        style.gridTemplateRows = "1fr";
+        style.gridTemplateAreas = '"label value unit ."';
+        style.alignItems = "center";
+        style.justifyItems = "stretch";
+        style.justifyContent = "stretch";
+        style.gap = "0 0.3em";
+        card.setAttribute("data-mei-metric-value-unit-tight", "true");
+        card.setAttribute("data-mei-metric-inline-align", "center");
+        applyRowMetricCenterAlign(target);
+        return;
+      }
       style.gridTemplateColumns = "max-content minmax(0, 1fr) minmax(1.25em, auto)";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
@@ -39836,6 +40019,26 @@
       } else if (role === "value") {
         slot.style.justifySelf = "stretch";
         patchMetricTextAlign(text, "decimal");
+      } else if (role === "unit") {
+        slot.style.justifySelf = "start";
+        patchMetricTextAlign(text, "left");
+      }
+    });
+  }
+
+  /** 长条查实率等：value+unit 紧挨并居于内容区水平中线；label 仍在左侧。 */
+  function applyRowMetricCenterAlign(bodyCell) {
+    if (!(bodyCell instanceof HTMLElement)) return;
+    bodyCell.querySelectorAll(":scope > .component-card").forEach((slot) => {
+      if (!(slot instanceof HTMLElement)) return;
+      const text = slot.querySelector("mei-text, MEI-TEXT");
+      const role = String(parseHostProps(text).metric_role || "").trim();
+      if (role === "label") {
+        slot.style.justifySelf = "start";
+        patchMetricTextAlign(text, "left");
+      } else if (role === "value") {
+        slot.style.justifySelf = "end";
+        patchMetricTextAlign(text, "left");
       } else if (role === "unit") {
         slot.style.justifySelf = "start";
         patchMetricTextAlign(text, "left");

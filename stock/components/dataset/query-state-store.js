@@ -7,6 +7,25 @@ function queryStateStorageKey(appId, sceneId) {
   return `${QUERY_STATE_LS_PREFIX}${app}:${scene}`;
 }
 
+/** 二级看板 query_state（含 chart_selection）不应跨 F5 粘住。 */
+function isEphemeralDrilldownQueryStateId(id) {
+  return String(id || "")
+    .trim()
+    .startsWith("drilldown::");
+}
+
+function stripEphemeralQueryStates(store) {
+  if (!store || typeof store !== "object" || Array.isArray(store)) {
+    return {};
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(store)) {
+    if (isEphemeralDrilldownQueryStateId(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 export function readPersistedQueryStateStore(appId, sceneId) {
   if (typeof window === "undefined") return null;
   try {
@@ -22,11 +41,12 @@ export function readPersistedQueryStateStore(appId, sceneId) {
 export function writePersistedQueryStateStore(appId, sceneId, store) {
   if (typeof window === "undefined") return false;
   try {
-    if (!store || typeof store !== "object" || Object.keys(store).length === 0) {
+    const durable = stripEphemeralQueryStates(store);
+    if (Object.keys(durable).length === 0) {
       localStorage.removeItem(queryStateStorageKey(appId, sceneId));
       return true;
     }
-    localStorage.setItem(queryStateStorageKey(appId, sceneId), JSON.stringify(store));
+    localStorage.setItem(queryStateStorageKey(appId, sceneId), JSON.stringify(durable));
     return true;
   } catch (_) {
     return false;
@@ -37,11 +57,16 @@ export function hydrateQueryStateStore(appId, sceneId) {
   if (typeof window === "undefined") return 0;
   const persisted = readPersistedQueryStateStore(appId, sceneId);
   if (!persisted) return 0;
+  const durable = stripEphemeralQueryStates(persisted);
+  // 一次性清掉历史里粘住的 drilldown::（如主责单位=生态局）。
+  if (Object.keys(durable).length !== Object.keys(persisted).length) {
+    writePersistedQueryStateStore(appId, sceneId, durable);
+  }
   if (!window[QUERY_STATE_STORE_KEY] || typeof window[QUERY_STATE_STORE_KEY] !== "object") {
     window[QUERY_STATE_STORE_KEY] = {};
   }
   let restored = 0;
-  for (const [key, value] of Object.entries(persisted)) {
+  for (const [key, value] of Object.entries(durable)) {
     window[QUERY_STATE_STORE_KEY][key] = value;
     restored += 1;
   }

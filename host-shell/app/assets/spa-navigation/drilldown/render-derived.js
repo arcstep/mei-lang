@@ -18,13 +18,11 @@
       });
       return false;
     }
-    // 构成/趋势派生必须用看板分析指标（popup / tableMetricId），勿用入口 KPI count，
-    // 否则有 default_filters 时会走 useDetailRowset → count::__scalar_rowset__ → 500。
+    // 构成/趋势派生：父级看板 metric 优先；筛选重聚合时绝不能用 composition_by_* 子 metric。
+    const boardParentMetricId = resolveBoardParentMetricId(detail, config);
     const cardMetricId = nonEmptyString(
+      boardParentMetricId,
       config?.tableMetricId,
-      resolvePopupPassedMetricId(detail, config),
-      detail?.metric_id,
-      detail?.__mei_runtime_ref?.metric_id,
     );
     const fetchConfig = { ...config, datasetId };
     const sharedQueryStateId = nonEmptyString(
@@ -48,12 +46,16 @@
     );
     if (useDetailRowset) {
       // 查实占比与有筛选的构成图：一律拉当前明细 scalar rowset 再聚合（单一真源）。
-      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(boardParentMetricId || cardMetricId);
+      fetchConfig.boardParentMetricId = boardParentMetricId || cardMetricId;
       fetchConfig.supportRole = "";
       fetchConfig.clientAggregate = true;
     } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
-      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
+      const compositionMetricId = resolveCompositionScopedMetricId(
+        boardParentMetricId || cardMetricId,
+        tabId,
+      );
       if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
         fetchConfig.tableMetricId = slotMetricId;
       } else if (compositionMetricId) {
@@ -61,7 +63,7 @@
         fetchConfig.supportRole = "composition";
       }
     } else if (cardMetricId && isTrendTab) {
-      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(boardParentMetricId || cardMetricId);
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
@@ -97,14 +99,18 @@
           : groupRowsForComposition(rows, dimension, columns, config, detail),
         config,
       );
-      if (!grouped.length) return false;
+      const compositionCaption =
+        resolveDrilldownChartSlotCaption(config) ||
+        (verifiedShare ? "查实占比" : `${dimension}构成`);
+      if (!grouped.length) {
+        renderDrilldownChartEmptyState(host, compositionCaption);
+        dispatchPreviewUpdated("drilldown");
+        return true;
+      }
       const chartTag = drilldownChartTag(config?.chartKind, tabId) || "mei-chart-bar";
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
-      resetDrilldownChartSlotHost(
-        host,
-        resolveDrilldownChartSlotCaption(config) || (verifiedShare ? "查实占比" : `${dimension}构成`),
-      );
+      resetDrilldownChartSlotHost(host, compositionCaption);
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -139,10 +145,15 @@
         return false;
       }
       const grouped = groupRowsByMonth(rows, trendField, columns);
-      if (!grouped.length) return false;
+      const trendCaption = resolveDrilldownChartSlotCaption(config) || "趋势";
+      if (!grouped.length) {
+        renderDrilldownChartEmptyState(host, trendCaption);
+        dispatchPreviewUpdated("drilldown");
+        return true;
+      }
       const registered = await ensureDrilldownChartRegistered("mei-chart-line");
       if (!registered) return false;
-      resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config) || "趋势");
+      resetDrilldownChartSlotHost(host, trendCaption);
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(

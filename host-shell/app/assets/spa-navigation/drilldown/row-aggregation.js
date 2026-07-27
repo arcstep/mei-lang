@@ -144,6 +144,41 @@
     return text.endsWith("::__scalar_rowset__");
   }
 
+  /**
+   * 从 composition/trend 作用域 metric（如 key_enterprises_count::composition_by_street
+   * 或 …::__scalar_rowset__）还原看板父级 metric，供筛选后客户端重聚合拉明细 rowset。
+   */
+  function resolveParentMetricIdFromScoped(metricId) {
+    let text = String(metricId || "").trim();
+    if (!text) return "";
+    if (text.endsWith("::__scalar_rowset__")) {
+      text = text.slice(0, -"::__scalar_rowset__".length);
+    }
+    if (!text.includes("::")) return text;
+    const parts = text
+      .split("::")
+      .map((part) => String(part || "").trim())
+      .filter(Boolean);
+    if (parts.length >= 2 && /\.mei$/i.test(parts[0])) {
+      return `${parts[0]}::${parts[1]}`;
+    }
+    if (parts.length >= 2) {
+      return parts[0];
+    }
+    return text;
+  }
+
+  /** 分析看板父级 metric：popup/detail 优先；勿用 composition_by_* 子 metric。 */
+  function resolveBoardParentMetricId(detail, config = null) {
+    return nonEmptyString(
+      resolvePopupPassedMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      resolveParentMetricIdFromScoped(config?.tableMetricId),
+      resolveParentMetricIdFromScoped(config?.boardParentMetricId),
+    );
+  }
+
   /** scene-qualified 指标 id 在 `.mei::` 之后是否还带 explain 派生后缀（如 composition_by_agency）。 */
   function sceneQualifiedMetricHasExplainSuffix(metricId) {
     const text = String(metricId || "").trim();

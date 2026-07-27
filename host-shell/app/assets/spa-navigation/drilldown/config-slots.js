@@ -126,6 +126,12 @@
           : Array.isArray(entry.categoryOrder)
             ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
             : null,
+        paletteMode: nonEmptyString(entry.palette_mode, entry.paletteMode),
+        yAxisInteger:
+          entry.y_axis_integer === true ||
+          entry.y_axis_integer === "true" ||
+          entry.yAxisInteger === true ||
+          entry.yAxisInteger === "true",
         trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
         dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
         grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
@@ -502,6 +508,8 @@
               Array.isArray(slot.categoryOrder) && slot.categoryOrder.length > 0
                 ? slot.categoryOrder
                 : undefined,
+            palette_mode: nonEmptyString(slot.paletteMode, slot.palette_mode) || undefined,
+            y_axis_integer: slot.yAxisInteger === true || slot.y_axis_integer === true || undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",

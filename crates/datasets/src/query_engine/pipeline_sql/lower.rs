@@ -140,6 +140,7 @@ fn lower_rel(
         "unpivot_columns" => lower_unpivot_columns(app_root, datasets, object, setup, depth),
         "lookup_value" => lower_lookup_value(app_root, datasets, object, setup, depth),
         "group_by" => lower_group_by(app_root, datasets, object, setup, depth),
+        "bucket_date" => lower_bucket_date(app_root, datasets, object, setup, depth),
         "first_by" => lower_first_by(app_root, datasets, object, setup, depth),
         "mutate" => lower_mutate(app_root, datasets, object, setup, depth),
         "concat_rowsets" => lower_concat_rowsets(app_root, datasets, object, setup, depth),
@@ -843,23 +844,29 @@ fn lower_trend_year_compare(
     let year_label_sql = quote_ident(year_label)?;
 
     // Rolling months must match kernel `latest_month_window`: emit month numbers
-    // for the last N months ending at max(date), even when some months have no rows.
+    // in chronological ascending order ending at max(date), even when some months have no rows.
     // DataFusion cannot multiply Interval by a column, so resolve ending month in Rust.
+    // IMPORTANT: ORDER BY window ordinal — not month_num (year-wrap would become 01,02,03,10…).
     let month_source = if window_mode.eq_ignore_ascii_case("calendar") {
-        "(SELECT m FROM generate_series(1, 12) AS t(m))".to_string()
+        "(SELECT m, (m - 1) AS ord FROM generate_series(1, 12) AS t(m))".to_string()
     } else {
         let ending_month = probe_ending_month(app_root, &inner.sql, &date_expr)?.unwrap_or(12);
         let values = (0..months)
             .map(|i| {
-                let mut m = ending_month as i32 - i as i32;
+                // Match kernel latest_month_window: oldest → newest.
+                let delta = -(months as i32 - 1) + i as i32;
+                let mut m = ending_month as i32 + delta;
                 while m <= 0 {
                     m += 12;
                 }
-                format!("({m})")
+                while m > 12 {
+                    m -= 12;
+                }
+                format!("({m}, {i})")
             })
             .collect::<Vec<_>>()
             .join(", ");
-        format!("(SELECT m FROM (VALUES {values}) AS t(m))")
+        format!("(SELECT m, ord FROM (VALUES {values}) AS t(m, ord))")
     };
 
     let sql = format!(
@@ -869,7 +876,7 @@ fn lower_trend_year_compare(
          months AS {month_source}, \
          years AS (SELECT y FROM (VALUES {years_values}) AS t(y)), \
          grid AS (\
-           SELECT m.m AS month_num, y.y AS year_num \
+           SELECT m.m AS month_num, m.ord AS month_ord, y.y AS year_num \
            FROM months m CROSS JOIN years y\
          ), \
          agg AS (\
@@ -884,7 +891,7 @@ fn lower_trend_year_compare(
            COALESCE(a.value, 0) AS value \
          FROM grid g \
          LEFT JOIN agg a ON a.month_num = g.month_num AND a.year_num = g.year_num \
-         ORDER BY g.month_num, g.year_num",
+         ORDER BY g.month_ord, g.year_num",
         inner = inner.sql,
         month_source = month_source,
         years_values = years_values,
@@ -1069,7 +1076,7 @@ fn lower_unpivot_columns(
     }))
 }
 
-fn lower_group_by(
+fn lower_bucket_date(
     app_root: &Path,
     datasets: &BTreeMap<String, DatasetView>,
     object: &serde_json::Map<String, Value>,
@@ -1082,11 +1089,65 @@ fn lower_group_by(
     let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
         return Ok(None);
     };
-    // Pivot group_by is not covered in this round — fail-fast via Ok(None).
-    if object.get("pivot_field").is_some() || object.get("pivot_columns").is_some() {
+    let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+    if field.is_empty() {
         return Ok(None);
     }
-    let group_fields = object
+    let label_field = object
+        .get("label_field")
+        .and_then(Value::as_str)
+        .or_else(|| object.get("by").and_then(Value::as_str))
+        .unwrap_or("month");
+    let date_expr = sql_parse_date_expr(field)?;
+    let label_q = quote_ident(label_field)?;
+    // Match kernel format_month_label → "YYYY-MM"; unparseable dates become "".
+    let month_label_expr = format!(
+        "CASE WHEN ({date_expr}) IS NOT NULL THEN \
+           concat(\
+             CAST(CAST(date_part('year', {date_expr}) AS INT) AS VARCHAR), '-', \
+             lpad(CAST(CAST(date_part('month', {date_expr}) AS INT) AS VARCHAR), 2, '0')\
+           ) \
+         ELSE '' END"
+    );
+    if inner.columns.is_empty() {
+        // Unknown projection: overlay label (may duplicate name; group_by still reads alias).
+        return Ok(Some(Rel {
+            sql: format!(
+                "SELECT _bd.*, ({month_label_expr}) AS {label_q} FROM ({}) AS _bd",
+                inner.sql
+            ),
+            columns: Vec::new(),
+        }));
+    }
+    let mut select_parts = Vec::new();
+    let mut cols = Vec::new();
+    let mut replaced = false;
+    for col in &inner.columns {
+        if col == label_field {
+            select_parts.push(format!("({month_label_expr}) AS {label_q}"));
+            cols.push(label_field.to_string());
+            replaced = true;
+        } else {
+            select_parts.push(quote_ident(col)?);
+            cols.push(col.clone());
+        }
+    }
+    if !replaced {
+        select_parts.push(format!("({month_label_expr}) AS {label_q}"));
+        cols.push(label_field.to_string());
+    }
+    Ok(Some(Rel {
+        sql: format!(
+            "SELECT {} FROM ({}) AS _bd",
+            select_parts.join(", "),
+            inner.sql
+        ),
+        columns: cols,
+    }))
+}
+
+fn parse_group_by_fields(object: &serde_json::Map<String, Value>) -> Option<Vec<String>> {
+    object
         .get("fields")
         .and_then(Value::as_array)
         .map(|items| {
@@ -1122,16 +1183,103 @@ fn lower_group_by(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(|field| vec![field.to_string()])
-        });
-    let Some(group_fields) = group_fields else {
-        return Ok(None);
-    };
-    // Multi-key group_by is not required for zhifa park_* metrics this round.
-    if group_fields.len() != 1 {
+        })
+}
+
+fn lower_group_by_pivot(
+    inner: &Rel,
+    group_fields: &[String],
+    object: &serde_json::Map<String, Value>,
+) -> Result<Option<Rel>> {
+    // Pivot + universe (year grid / first-dim pad) stays uncovered this round.
+    if object.get("universe").is_some() {
         return Ok(None);
     }
-    let group_field = group_fields[0].as_str();
-    let group_q = quote_ident(group_field)?;
+    let pivot_field = object
+        .get("pivot_field")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let Some(pivot_columns) = object.get("pivot_columns").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let pivot_cols: Vec<String> = pivot_columns
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect();
+    if pivot_field.is_empty() || pivot_cols.is_empty() || group_fields.is_empty() {
+        return Ok(None);
+    }
+    // Kernel year-universe expansion (group_fields contains "年份") is not lowered here.
+    if group_fields.iter().any(|f| f == "年份") {
+        return Ok(None);
+    }
+    let pivot_q = quote_ident(pivot_field)?;
+    let mut select_parts = Vec::new();
+    let mut where_parts = Vec::new();
+    let mut columns = Vec::new();
+    for (idx, field) in group_fields.iter().enumerate() {
+        let q = quote_ident(field)?;
+        select_parts.push(format!("CAST({q} AS VARCHAR) AS {q}"));
+        where_parts.push(format!(
+            "{q} IS NOT NULL AND TRIM(CAST({q} AS VARCHAR)) <> ''"
+        ));
+        columns.push(field.clone());
+        let _ = idx;
+    }
+    for col in &pivot_cols {
+        let col_q = quote_ident(col)?;
+        let lit = quote_string(col);
+        // Match kernel aggregate_group_rows_pivot: count rows whose pivot equals the column.
+        select_parts.push(format!(
+            "CAST(SUM(CASE WHEN CAST({pivot_q} AS VARCHAR) = {lit} THEN 1 ELSE 0 END) AS BIGINT) AS {col_q}"
+        ));
+        columns.push(col.clone());
+    }
+    let group_by_ordinals = (1..=group_fields.len())
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut sql = format!(
+        "SELECT {select} FROM ({inner}) AS _gbp WHERE {where} GROUP BY {group_by}",
+        select = select_parts.join(", "),
+        inner = inner.sql,
+        where = where_parts.join(" AND "),
+        group_by = group_by_ordinals,
+    );
+    if let Some(n) = object
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| n.min(MAX_PIPELINE_SQL_ROWS as u64))
+    {
+        sql = format!("SELECT * FROM ({sql}) AS _gbplimit LIMIT {n}");
+    }
+    Ok(Some(Rel { sql, columns }))
+}
+
+fn lower_group_by(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let Some(group_fields) = parse_group_by_fields(object) else {
+        return Ok(None);
+    };
+    if object.get("pivot_field").is_some() || object.get("pivot_columns").is_some() {
+        return lower_group_by_pivot(&inner, &group_fields, object);
+    }
     let value_field = object.get("value").and_then(Value::as_str);
     let agg = object.get("agg").and_then(Value::as_str).unwrap_or("count");
     let agg_expr = match (agg, value_field) {
@@ -1157,15 +1305,37 @@ fn lower_group_by(
         .get("limit")
         .and_then(Value::as_u64)
         .map(|n| n.min(MAX_PIPELINE_SQL_ROWS as u64));
+    let mut select_parts = Vec::new();
+    let mut where_parts = Vec::new();
+    let mut columns = Vec::new();
+    for field in &group_fields {
+        let q = quote_ident(field)?;
+        select_parts.push(format!("CAST({q} AS VARCHAR) AS {q}"));
+        where_parts.push(format!(
+            "{q} IS NOT NULL AND TRIM(CAST({q} AS VARCHAR)) <> ''"
+        ));
+        columns.push(field.clone());
+    }
+    select_parts.push(format!("{agg_expr} AS value"));
+    columns.push("value".to_string());
+    let group_by_ordinals = (1..=group_fields.len())
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let grouped_sql = format!(
-        "SELECT CAST({group_q} AS VARCHAR) AS {group_q}, {agg_expr} AS value \
-         FROM ({}) AS _gb \
-         WHERE {group_q} IS NOT NULL AND TRIM(CAST({group_q} AS VARCHAR)) <> '' \
-         GROUP BY 1",
-        inner.sql
+        "SELECT {select} FROM ({inner}) AS _gb WHERE {where} GROUP BY {group_by}",
+        select = select_parts.join(", "),
+        inner = inner.sql,
+        where = where_parts.join(" AND "),
+        group_by = group_by_ordinals,
     );
-    let columns = vec![group_field.to_string(), "value".to_string()];
     let sql = if let Some(universe_expr) = object.get("universe") {
+        // Universe pad only for single-key group_by (kernel apply_universe shape).
+        if group_fields.len() != 1 {
+            return Ok(None);
+        }
+        let group_field = group_fields[0].as_str();
+        let group_q = quote_ident(group_field)?;
         let Some(universe) = lower_rel(app_root, datasets, universe_expr, setup, depth + 1)? else {
             return Ok(None);
         };

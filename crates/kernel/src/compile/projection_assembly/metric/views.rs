@@ -178,6 +178,18 @@ pub(super) fn slot_from_board_view(
     {
         slot.insert("column_formats".to_string(), column_formats.clone());
     }
+    if let Some(palette_mode) = map
+        .get("palette_mode")
+        .or_else(|| map.get("paletteMode"))
+    {
+        slot.insert("palette_mode".to_string(), palette_mode.clone());
+    }
+    if let Some(y_axis_integer) = map
+        .get("y_axis_integer")
+        .or_else(|| map.get("yAxisInteger"))
+    {
+        slot.insert("y_axis_integer".to_string(), y_axis_integer.clone());
+    }
     Some(slot)
 }
 

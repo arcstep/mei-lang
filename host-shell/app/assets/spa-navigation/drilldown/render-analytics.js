@@ -14,10 +14,11 @@
             : null;
       // 图表 composition 父级同样优先 board / popup 分析指标，勿用入口 KPI count。
       const cardMetricId = nonEmptyString(
-        boardMetricId,
         resolvePopupPassedMetricId(detail, config),
+        resolveParentMetricIdFromScoped(boardMetricId),
         detail?.metric_id,
         detail?.__mei_runtime_ref?.metric_id,
+        boardMetricId,
       );
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
       const resolvedChartMetricId = nonEmptyString(
@@ -45,10 +46,22 @@
         runtimeSceneFile: config.runtimeSceneFile,
         queryStateId: config.queryStateId,
         supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
+        boardParentMetricId: cardMetricId,
         tableMetricId: resolvedChartMetricId,
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
+        palette_mode: nonEmptyString(
+          slot.paletteMode,
+          slot.palette_mode,
+          slotConfig.palette_mode,
+          slotConfig.paletteMode,
+        ),
+        y_axis_integer:
+          slot.yAxisInteger === true ||
+          slot.y_axis_integer === true ||
+          slotConfig.y_axis_integer === true ||
+          slotConfig.yAxisInteger === true,
         by: explainBy,
         compositionBy: explainBy
           ? [explainBy]
@@ -57,6 +70,22 @@
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
               : [],
+        valueField: nonEmptyString(
+          slot.valueField,
+          slot.value_field,
+          slotConfig.valueField,
+          slotConfig.value_field,
+          config.explainMetrics?.[slot.id]?.valueField,
+          config.valueField,
+        ),
+        compositionAgg: nonEmptyString(
+          slot.compositionAgg,
+          slot.agg,
+          slotConfig.compositionAgg,
+          slotConfig.agg,
+          config.explainMetrics?.[slot.id]?.compositionAgg,
+          config.compositionAgg,
+        ),
         trendField: nonEmptyString(slot.trendField, slot.dateField, slotConfig.trendField),
         trendGrain: nonEmptyString(slot.grain, slotConfig.trendGrain),
         runtimeRef: {

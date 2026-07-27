@@ -16,7 +16,22 @@
 
   /** link/KPI 入口打开时重置 query_state，再种 default_filters（可为空对象）。 */
   function seedDrilldownQueryStateOnOpen(config, detail) {
-    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    // structured board 的 queryStateId 常在后续 assembly 才写成 drilldown::<metric>；
+    // 此处若为空会跳过播种，filter-bar 又会沿用旧 query_state → 入口筛选「对应不准」。
+    let queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) {
+      const boardMetricId =
+        typeof resolvePopupPassedMetricId === "function"
+          ? resolvePopupPassedMetricId(detail, config)
+          : nonEmptyString(
+              metricRefId?.(detail?.popup?.params?.metric),
+              metricRefId?.(config?.params?.metric),
+              metricRefId?.(config?.popup?.params?.metric),
+            );
+      if (boardMetricId) {
+        queryStateId = `drilldown::${boardMetricId}`;
+      }
+    }
     if (!queryStateId) return;
     const runtime = window.__meiDatasetRuntime;
     if (!runtime || typeof runtime.setQueryState !== "function") return;
@@ -121,7 +136,26 @@
     );
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
-    return [sceneId, datasetId, metricId].filter(Boolean).join("|");
+    const params =
+      (config?.params && typeof config.params === "object" && !Array.isArray(config.params)
+        ? config.params
+        : null) ||
+      (config?.popup?.params && typeof config.popup.params === "object" && !Array.isArray(config.popup.params)
+        ? config.popup.params
+        : null) ||
+      (detail?.popup?.params && typeof detail.popup.params === "object" && !Array.isArray(detail.popup.params)
+        ? detail.popup.params
+        : null) ||
+      {};
+    const seed =
+      params.default_filters && typeof params.default_filters === "object" && !Array.isArray(params.default_filters)
+        ? params.default_filters
+        : {};
+    const seedKey = Object.keys(seed)
+      .sort()
+      .map((key) => `${key}=${String(seed[key] ?? "").trim()}`)
+      .join("&");
+    return [sceneId, datasetId, metricId, seedKey].filter(Boolean).join("|");
   }
 
   function markProjectionOpenHandled(detail, config) {

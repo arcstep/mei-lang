@@ -643,6 +643,22 @@
       // 横排看板默认（作者声明 ui.row_accent_* 即可）：
       // 标签列用 max-content（不可再被压回 4em）；数值拿走剩余宽 + 单位保底宽左跟。
       // minmax(4em, max-content) 在窄槽仍会缩到 4em，导致「执法记…」截断。
+      const centerValuePack =
+        inlineAlign === "center" || inlineAlign === "middle" || inlineAlign === "center_value";
+      if (centerValuePack) {
+        // 查实率等长条：label 左置；value+unit 作为整体居中于内容区。
+        style.gridTemplateColumns = "1fr auto auto 1fr";
+        style.gridTemplateRows = "1fr";
+        style.gridTemplateAreas = '"label value unit ."';
+        style.alignItems = "center";
+        style.justifyItems = "stretch";
+        style.justifyContent = "stretch";
+        style.gap = "0 0.3em";
+        card.setAttribute("data-mei-metric-value-unit-tight", "true");
+        card.setAttribute("data-mei-metric-inline-align", "center");
+        applyRowMetricCenterAlign(target);
+        return;
+      }
       style.gridTemplateColumns = "max-content minmax(0, 1fr) minmax(1.25em, auto)";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
@@ -758,6 +774,26 @@
       } else if (role === "value") {
         slot.style.justifySelf = "stretch";
         patchMetricTextAlign(text, "decimal");
+      } else if (role === "unit") {
+        slot.style.justifySelf = "start";
+        patchMetricTextAlign(text, "left");
+      }
+    });
+  }
+
+  /** 长条查实率等：value+unit 紧挨并居于内容区水平中线；label 仍在左侧。 */
+  function applyRowMetricCenterAlign(bodyCell) {
+    if (!(bodyCell instanceof HTMLElement)) return;
+    bodyCell.querySelectorAll(":scope > .component-card").forEach((slot) => {
+      if (!(slot instanceof HTMLElement)) return;
+      const text = slot.querySelector("mei-text, MEI-TEXT");
+      const role = String(parseHostProps(text).metric_role || "").trim();
+      if (role === "label") {
+        slot.style.justifySelf = "start";
+        patchMetricTextAlign(text, "left");
+      } else if (role === "value") {
+        slot.style.justifySelf = "end";
+        patchMetricTextAlign(text, "left");
       } else if (role === "unit") {
         slot.style.justifySelf = "start";
         patchMetricTextAlign(text, "left");

@@ -1374,23 +1374,10 @@ export class MeiCockpitDataTable extends HTMLElement {
     const hasObjectFieldLinks = Object.keys(fieldLinks).some(
       (key) => Array.isArray(fieldLinks[key]) && fieldLinks[key].length > 0,
     );
-    const locatorHint =
-      p?.object_locator ||
-      p?.objectLocator ||
-      p?.capabilities?.object_locator ||
-      p?.capabilities?.objectLocator ||
-      p?.row_drilldown?.object_locator ||
-      p?.rowDrilldown?.object_locator ||
-      p?.row_drilldown?.objectLocator ||
-      p?.rowDrilldown?.objectLocator;
-    const hasObjectLocator = Boolean(
-      locatorHint &&
-        typeof locatorHint === "object" &&
-        String(locatorHint.object_type || locatorHint.objectType || "").trim(),
-    );
     // Field-level object links own navigation; never treat the whole row as a link.
-    const drilldownEnabled =
-      Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks && !hasObjectLocator;
+    // object_locator 仅用于行级 identity → drilldown_filters，不应关闭整行下钻
+    //（首页实时预警表靠整行打开 预警ID 详情卡）。
+    const drilldownEnabled = Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks;
     const selectionMode = tableRowSelectionMode(p);
     const selectableRows = selectionMode === "single";
     const body = rows
