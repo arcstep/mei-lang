@@ -2,7 +2,7 @@
   "name": "mei-lang",
   "displayName": "MeiLang",
   "description": "MeiLang (.mei) language support: TextMate highlighting, file icon, mei-lsp, and app.toml schema.",
-  "version": "2.7.27",
+  "version": "2.7.28",
   "publisher": "mei-lang",
   "license": "MIT",
   "repository": {
