@@ -40595,7 +40595,10 @@
       key === "cockpit.park-amount-list" ||
       key === "cockpit.scroll-list" ||
       key === "cockpit.data-table" ||
-      key === "cockpit.metric-progress";
+      key === "cockpit.metric-progress" ||
+      // thunder 时间标尺 / 雷暴列表 / 右栏统计等：禁止默认 preview-card 圆角底
+      key.startsWith("thunder.") ||
+      key === "map.maplibre";
     section.className = bareChrome
       ? "preview-card preview-card-bare mei-compose-block"
       : "preview-card mei-compose-block";

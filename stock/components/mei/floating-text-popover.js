@@ -256,7 +256,7 @@ export function textPopoverStyleBlock(variant = "large") {
   `;
 }
 
-const FLOATING_TEXT_POPOVER_STYLE_VERSION = "right-chrome-v11-backdrop";
+const FLOATING_TEXT_POPOVER_STYLE_VERSION = "right-chrome-v12-drag-surface";
 
 /** 飘窗可能挂 body 或 viewport stage（.mei-viewport-floating-in-stage），选择器须同时覆盖。 */
 export function scopeFloatingPopoverCss(css) {
@@ -348,9 +348,14 @@ export function ensureFloatingTextPopoverStyles() {
         linear-gradient(135deg, transparent 58%, #38bdf8 58%, #38bdf8 66%, transparent 66%);
     }
     ${popRootDrag} {
-      cursor: move;
+      cursor: grab;
       user-select: none;
       touch-action: none;
+    }
+    ${popRoots.map((s) => `${s}.is-dragging`).join(", ")},
+    ${popRoots.map((s) => `${s}.is-dragging .cell-pop-drag-handle`).join(", ")} {
+      cursor: grabbing;
+      user-select: none;
     }
     ${shell}
   `;
@@ -477,34 +482,42 @@ export function removeTextPopoverBackdrop(owner) {
 }
 
 export function bindFloatingPopoverDrag(pop, handle) {
-  if (!pop || !handle) {
+  if (!pop) {
     return () => {};
   }
+  // 短正文时右侧 chrome 几乎被标题/按钮占满；命中绑在整窗上，
+  // 仅排除可交互控件与正文滚动区，避免「看起来能拖、实际拖不动」。
+  const dragSurface = pop;
+  const cursorHandle = handle instanceof HTMLElement ? handle : pop.querySelector?.(".cell-pop-drag-handle");
   let dragging = false;
+  let pointerId = null;
   let startX = 0;
   let startY = 0;
   let startLeft = 0;
   let startTop = 0;
 
-  const onPointerDown = (event) => {
-    if (event.button !== 0) return;
-    if (event.target?.closest?.("button, a, input, textarea, select, label, .cell-pop-scroll, .cell-pop-actions")) return;
-    dragging = true;
-    const rect = pop.getBoundingClientRect();
-    startX = event.clientX;
-    startY = event.clientY;
-    startLeft = rect.left;
-    startTop = rect.top;
-    pop.style.left = `${Math.round(startLeft)}px`;
-    pop.style.top = `${Math.round(startTop)}px`;
-    pop.style.right = "auto";
-    pop.style.bottom = "auto";
-    handle.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
+  const stopDragging = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    pop.classList.remove("is-dragging");
+    if (cursorHandle) cursorHandle.style.cursor = "";
+    const id = event?.pointerId ?? pointerId;
+    pointerId = null;
+    if (id != null) {
+      try {
+        dragSurface.releasePointerCapture?.(id);
+      } catch {
+        /* ignore */
+      }
+    }
+    window.removeEventListener("pointermove", onPointerMove, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerUp, true);
   };
 
   const onPointerMove = (event) => {
     if (!dragging) return;
+    if (pointerId != null && event.pointerId !== pointerId) return;
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     const width = pop.offsetWidth;
@@ -515,26 +528,52 @@ export function bindFloatingPopoverDrag(pop, handle) {
     const top = Math.min(maxTop, Math.max(8, startTop + dy));
     pop.style.left = `${Math.round(left)}px`;
     pop.style.top = `${Math.round(top)}px`;
+    event.preventDefault();
   };
 
   const onPointerUp = (event) => {
-    if (!dragging) return;
-    dragging = false;
+    if (pointerId != null && event.pointerId !== pointerId) return;
+    stopDragging(event);
+  };
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    // 只挡真正可点控件与正文滚动；勿排除整个 .cell-pop-actions 容器
+    // （短窗时该容器几乎占满右侧栏，会导致拖拽失效）。
+    if (
+      event.target?.closest?.(
+        "button, a, input, textarea, select, label, .cell-pop-scroll, .cell-pop-text",
+      )
+    ) {
+      return;
+    }
+    dragging = true;
+    pointerId = event.pointerId;
+    const rect = pop.getBoundingClientRect();
+    startX = event.clientX;
+    startY = event.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+    pop.style.left = `${Math.round(startLeft)}px`;
+    pop.style.top = `${Math.round(startTop)}px`;
+    pop.style.right = "auto";
+    pop.style.bottom = "auto";
+    pop.classList.add("is-dragging");
+    if (cursorHandle) cursorHandle.style.cursor = "grabbing";
     try {
-      handle.releasePointerCapture?.(event.pointerId);
+      dragSurface.setPointerCapture?.(event.pointerId);
     } catch {
       /* ignore */
     }
+    window.addEventListener("pointermove", onPointerMove, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerUp, true);
+    event.preventDefault();
   };
 
-  handle.addEventListener("pointerdown", onPointerDown);
-  handle.addEventListener("pointermove", onPointerMove);
-  handle.addEventListener("pointerup", onPointerUp);
-  handle.addEventListener("pointercancel", onPointerUp);
+  dragSurface.addEventListener("pointerdown", onPointerDown);
   return () => {
-    handle.removeEventListener("pointerdown", onPointerDown);
-    handle.removeEventListener("pointermove", onPointerMove);
-    handle.removeEventListener("pointerup", onPointerUp);
-    handle.removeEventListener("pointercancel", onPointerUp);
+    stopDragging();
+    dragSurface.removeEventListener("pointerdown", onPointerDown);
   };
 }

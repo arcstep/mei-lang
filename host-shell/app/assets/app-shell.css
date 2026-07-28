@@ -2775,10 +2775,12 @@ body > .mei-floating-text-pop-backdrop {
 .preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="map_viewport"] .preview-card[data-mei-panel-name="map-tools-slot"] {
   pointer-events: auto;
 }
-/* 回放条：禁止主题 panel radius 裁切左侧级别徽章直角 */
+/* 回放条 / thunder 组件宿主：禁止默认 preview-card 14px 圆角底 */
 .preview-card[data-mei-panel-name="playback"],
 .mei-compose-section[data-preview-scope*="playback"] > .preview-card,
-.mei-compose-section[data-preview-scope*="playback"] .preview-card[data-mei-panel-name="playback"] {
+.mei-compose-section[data-preview-scope*="playback"] .preview-card[data-mei-panel-name="playback"],
+.preview-card.mei-compose-block[data-mei-use-key^="thunder."],
+.preview-card.mei-compose-block[data-mei-use-key="map.maplibre"] {
   border-radius: 0 !important;
 }
 /* T0–C 上下文浮层（layer2 内） */
@@ -7904,7 +7906,9 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
 .preview-card.mei-compose-block[data-mei-use-key="cockpit.park-amount-list"],
 .preview-card.mei-compose-block[data-mei-use-key="cockpit.scroll-list"],
 .preview-card.mei-compose-block[data-mei-use-key="cockpit.data-table"],
-.preview-card.mei-compose-block[data-mei-use-key="cockpit.metric-progress"] {
+.preview-card.mei-compose-block[data-mei-use-key="cockpit.metric-progress"],
+.preview-card.mei-compose-block[data-mei-use-key^="thunder."],
+.preview-card.mei-compose-block[data-mei-use-key="map.maplibre"] {
   gap: 0;
   padding: 0;
   box-shadow: none;
