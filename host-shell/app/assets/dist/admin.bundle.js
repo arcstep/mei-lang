@@ -1657,6 +1657,10 @@
   let coordinatorStopped = false;
   const seenMessages = new Set();
 
+  function isHostStartingPath(path) {
+    return path === "/host/starting" || path.startsWith("/host/starting/");
+  }
+
   function currentAppId() {
     const parsed = global.__mei?.view_revision_envelope?.app_id;
     if (parsed) return String(parsed).trim();
@@ -1665,6 +1669,12 @@
     if (match) return decodeURIComponent(match[1]);
     match = path.match(/^\/admin\/apps\/([^/]+)/);
     if (match) return decodeURIComponent(match[1]);
+    // `/host/starting?app=zhifa` — keep target app while runtime demand-loads.
+    if (isHostStartingPath(path)) {
+      const params = new URLSearchParams(global.location?.search || "");
+      const fromQuery = String(params.get("app") || params.get("app_id") || "").trim();
+      if (fromQuery) return fromQuery;
+    }
     const fromDom =
       global.document?.body?.getAttribute?.("data-app-id") ||
       global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-app-id") ||
@@ -1675,6 +1685,8 @@
 
   function shellNavFromLocation() {
     const path = String(global.location?.pathname || "");
+    // Starting gate keeps Access-style chrome for ?app=… — do not treat as workspace home.
+    if (isHostStartingPath(path)) return "";
     if (path === "/runtime" || path.startsWith("/runtime/") || path.startsWith("/mcg")) {
       return "runtime";
     }
@@ -1786,13 +1798,22 @@
 
   function chromeQueryFromLocation() {
     const params = new URLSearchParams(global.location?.search || "");
+    const path = String(global.location?.pathname || "");
     const pathApp = currentAppId();
     const scene =
       params.get("scene") ||
+      params.get("scene_id") ||
       global.document?.body?.getAttribute?.("data-scene-id") ||
       global.document?.getElementById?.("mei-view-host")?.getAttribute?.("data-scene-id") ||
       "home";
-    const surface = surfaceFromLocation();
+    // starting?mode=app|admin → Access chrome for the target app (never first enabled app)
+    let surface = surfaceFromLocation();
+    if (isHostStartingPath(path)) {
+      const mode = String(params.get("mode") || "app")
+        .trim()
+        .toLowerCase();
+      surface = mode === "view" ? "app" : mode || "app";
+    }
     const chrome = params.get("chrome") || "";
     const adminId = adminIdFromLocation();
     const shellNav = shellNavFromLocation();

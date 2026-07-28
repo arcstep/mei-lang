@@ -4164,9 +4164,13 @@ function studioStyles() {
 }
 
 class ThemeStudio extends HTMLElement {
+  static observedAttributes = ["data-props"];
+
   connectedCallback() {
-    this._props = typeof parseProps === "function" ? parseProps(this) : {};
-    this.attachShadow({ mode: "open" });
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    this.syncPropsFromDom();
+    if (this._bootStarted) return;
+    this._bootStarted = true;
     this._themes = [];
     this._themeId = "";
     this._draft = null;
@@ -4178,7 +4182,19 @@ class ThemeStudio extends HTMLElement {
     this.bootstrap();
   }
 
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (name !== "data-props" || oldValue === newValue) return;
+    // Thin-shell mounts the element before data-props arrives.
+    this.syncPropsFromDom();
+  }
+
+  syncPropsFromDom() {
+    this._props = typeof parseProps === "function" ? parseProps(this) : {};
+    return this._props || {};
+  }
+
   currentAdminAppId() {
+    this.syncPropsFromDom();
     const match = String(location.pathname || "").match(/\/admin\/apps\/([^/]+)/);
     return match?.[1] || this._props.app_id || this._props.appId || "";
   }
@@ -4205,6 +4221,7 @@ class ThemeStudio extends HTMLElement {
   }
 
   async resolveActiveThemeId(fallback) {
+    this.syncPropsFromDom();
     const getRef = this._props.selection_get || this._props.selectionGet;
     if (getRef) {
       try {
@@ -4385,6 +4402,7 @@ class ThemeStudio extends HTMLElement {
     this._status = "应用到当前应用…";
     this.updateDirtyChrome();
     try {
+      this.syncPropsFromDom();
       const putRef = this._props.selection_put || this._props.selectionPut;
       if (!putRef) throw new Error("缺少 selection_put provider");
       let revision = 0;
