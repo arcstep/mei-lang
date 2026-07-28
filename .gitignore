@@ -17,8 +17,9 @@ node_modules/
 /vendor/
 /.cargo/config.toml
 
-# 本地 Martin 源码/构建缓存（勿入库；曾误以 gitlink 跟踪导致 release dirty）
+# 本地隐藏/临时目录（工具缓存、草稿落盘；勿入库，避免 release dirty）
 /.cache/
+/.tmp/
 
 # Host perf：本地 ad-hoc 采样/报告（正式台账见 docs/archive/mei-lang-v1/benchmarks/*.jsonl）
 /scripts/perf/perf-wave*.jsonl
