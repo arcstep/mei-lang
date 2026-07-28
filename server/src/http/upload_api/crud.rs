@@ -164,6 +164,10 @@ mod tests {
             "xzzf20251105_cgj_143859"
         ));
         assert!(upload_file_stem_matches_basename(
+            "xzzf20251105_cgj_143859.MP4",
+            "xzzf20251105_cgj_143859"
+        ));
+        assert!(upload_file_stem_matches_basename(
             "xzzf20251105_cgj_143859-1.png",
             "xzzf20251105_cgj_143859"
         ));

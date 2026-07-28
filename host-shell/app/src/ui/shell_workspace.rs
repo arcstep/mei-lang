@@ -53,13 +53,18 @@ pub(crate) fn workspace_shell(
     main_inner_html: &str,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    // Target app while on `/host/starting` (avoid flashing the first enabled app).
+    pending_app_id: Option<&str>,
+    pending_scene: Option<&str>,
 ) -> AnyView {
+    let active_app = pending_app_id.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
+    let access_scene = pending_scene.map(str::trim).filter(|s| !s.is_empty());
     let topbar = topbar_view(
         apps,
-        "",
+        active_app,
         topbar_menu,
         UiRouteMode::App,
-        None,
+        access_scene,
         None,
         None,
         None,
@@ -76,7 +81,12 @@ pub(crate) fn workspace_shell(
         &[],
         None,
     );
-    let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
+    let statusbar = statusbar_view(
+        active_app,
+        "workspace",
+        shell_nav.status_path(),
+        None,
+    );
     let main_class = match shell_nav {
         WorkspaceShellNav::Share | WorkspaceShellNav::Runtime => {
             "workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3"
@@ -89,11 +99,29 @@ pub(crate) fn workspace_shell(
         }
         _ => "mei-workspace-page",
     };
+    let page_attrs = if active_app.is_empty() {
+        view! {
+            <div class=page_class inner_html=main_inner_html.to_string()></div>
+        }
+        .into_any()
+    } else {
+        let app_id = active_app.to_string();
+        let scene_id = access_scene.unwrap_or("home").to_string();
+        view! {
+            <div
+                class=page_class
+                data-app-id=app_id
+                data-scene-id=scene_id
+                inner_html=main_inner_html.to_string()
+            ></div>
+        }
+        .into_any()
+    };
     view! {
         <div class="shell shell-surface workspace-view-shell mei-text-primary min-h-0 flex flex-1 flex-col">
             <div id="mei-host-topbar-slot" data-mei-host-chrome="top">{topbar}</div>
             <main class=main_class>
-                <div class=page_class inner_html=main_inner_html.to_string()></div>
+                {page_attrs}
             </main>
             <div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom">{statusbar}</div>
         </div>
@@ -145,6 +173,32 @@ pub fn render_workspace_page(
     auth_account: Option<&HostAccountView>,
     shell_body_theme_style: &str,
 ) -> String {
+    render_workspace_page_with_pending_app(
+        page_title,
+        shell_nav,
+        apps,
+        topbar_menu,
+        main_inner_html,
+        auth_enabled,
+        auth_account,
+        shell_body_theme_style,
+        None,
+        None,
+    )
+}
+
+pub fn render_workspace_page_with_pending_app(
+    page_title: &str,
+    shell_nav: WorkspaceShellNav,
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: Option<&TopbarMenuContext>,
+    main_inner_html: &str,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
+    pending_app_id: Option<&str>,
+    pending_scene: Option<&str>,
+) -> String {
     let route_mode = shell_nav.document_route_mode();
     let shell = workspace_shell(
         apps,
@@ -153,6 +207,8 @@ pub fn render_workspace_page(
         main_inner_html,
         auth_enabled,
         auth_account,
+        pending_app_id,
+        pending_scene,
     );
     let html = render_document(
         page_title,

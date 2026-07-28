@@ -202,17 +202,29 @@
     );
   }
 
-  function resolveVideoPreviewPath(row, mapping) {
+  /** Prefer basename match so `.mp4` / `.MP4` both resolve on case-sensitive hosts. */
+  function resolveVideoPreviewDownloadUrl(row, mapping) {
     if (!row || typeof row !== "object" || !mapping || typeof mapping !== "object") return "";
+    const appId = mapping?.upload_app_id || mapping?.uploadAppId;
     const pathField = String(mapping?.video_path_field || mapping?.videoPathField || "视频路径").trim();
-    let path = resolveCaseDetailFieldValue(row, { field: pathField });
-    if (path) return path;
+    const explicitPath = resolveCaseDetailFieldValue(row, { field: pathField });
+    if (explicitPath) {
+      return resolveUploadDownloadUrl(appId, explicitPath, { inline: true });
+    }
     const idField = String(mapping?.video_id_field || mapping?.videoIdField || "视频编号").trim();
     const videoId = resolveCaseDetailFieldValue(row, { field: idField });
     if (!videoId) return "";
-    const prefix = String(mapping?.video_path_prefix || mapping?.videoPathPrefix || "videos/").trim();
-    const suffix = String(mapping?.video_path_suffix || mapping?.videoPathSuffix || ".mp4").trim();
-    return `${prefix}${videoId}${suffix}`;
+    const prefix = String(mapping?.video_path_prefix || mapping?.videoPathPrefix || "videos/")
+      .trim()
+      .replace(/\/+$/, "");
+    if (!prefix) {
+      return resolveUploadDownloadUrl(appId, `${videoId}.mp4`, { inline: true });
+    }
+    return resolveUploadDownloadUrl(appId, prefix, {
+      inline: true,
+      matchBasename: true,
+      basename: videoId,
+    });
   }
 
   /** Parse video-relative seek: `HH:MM:SS` / `MM:SS` / trailing clock in a datetime / bare seconds. */
@@ -595,12 +607,7 @@
     if (subtitleTitle instanceof HTMLElement) {
       subtitleTitle.textContent = summarySectionTitle;
     }
-    const relPath = resolveVideoPreviewPath(row, mapping);
-    const src = resolveUploadDownloadUrl(
-      mapping?.upload_app_id || mapping?.uploadAppId,
-      relPath,
-      { inline: true },
-    );
+    const src = resolveVideoPreviewDownloadUrl(row, mapping);
     const initialSeekSeconds = resolveVideoSeekSeconds(row, mapping);
     if (!src) {
       appendVideoCockpitPlaceholder(videoFrame, "暂无可预览的视频");

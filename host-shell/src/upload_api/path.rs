@@ -87,23 +87,95 @@ pub(super) fn resolve_upload_target(upload_root: &Path, rel: &str) -> Result<Pat
     Ok(resolved)
 }
 
+/// When exact path miss (e.g. Linux + `.mp4` vs `.MP4`), match file name ignoring ASCII case.
+pub(super) fn resolve_upload_file_ignore_name_case(
+    canonical_root: &Path,
+    rel: &str,
+) -> Result<PathBuf, ApiError> {
+    let path = Path::new(rel);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::msg(format!("upload file not found: {rel}")))?;
+    let parent_rel = path
+        .parent()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .trim_end_matches('/');
+    let dir_path = if parent_rel.is_empty() {
+        canonical_root.to_path_buf()
+    } else {
+        let joined = canonical_root.join(parent_rel);
+        let canonical_dir = joined.canonicalize().map_err(|error| {
+            ApiError::msg(format!("upload file not found: {rel} ({error})"))
+        })?;
+        if !canonical_dir.starts_with(canonical_root) {
+            return Err(ApiError::status(
+                StatusCode::BAD_REQUEST,
+                "upload path escapes upload directory",
+            ));
+        }
+        if !canonical_dir.is_dir() {
+            return Err(ApiError::msg(format!("upload file not found: {rel}")));
+        }
+        canonical_dir
+    };
+
+    let mut matches = Vec::new();
+    for entry in fs::read_dir(&dir_path)
+        .map_err(|error| ApiError::msg(format!("failed to read upload directory: {error}")))?
+    {
+        let entry =
+            entry.map_err(|error| ApiError::msg(format!("failed to read upload entry: {error}")))?;
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
+        if !name_str.eq_ignore_ascii_case(file_name) {
+            continue;
+        }
+        let entry_path = entry.path();
+        if !entry_path.is_file() {
+            continue;
+        }
+        let canonical_file = entry_path.canonicalize().map_err(|error| {
+            ApiError::msg(format!("upload file not found: {rel} ({error})"))
+        })?;
+        if !canonical_file.starts_with(canonical_root) {
+            return Err(ApiError::status(
+                StatusCode::BAD_REQUEST,
+                "upload path escapes upload directory",
+            ));
+        }
+        matches.push(canonical_file);
+    }
+    matches.sort();
+    matches
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::msg(format!("upload file not found: {rel}")))
+}
+
 pub(super) fn resolve_existing_upload_file(
     upload_root: &Path,
     rel: &str,
 ) -> Result<PathBuf, ApiError> {
     let rel = sanitize_upload_rel(rel)?;
     let canonical_root = canonical_upload_root(upload_root)?;
-    let canonical_file = canonical_root
-        .join(&rel)
-        .canonicalize()
-        .map_err(|error| ApiError::msg(format!("upload file not found: {error}")))?;
-    if !canonical_file.starts_with(&canonical_root) {
-        return Err(ApiError::status(
-            StatusCode::BAD_REQUEST,
-            "upload path escapes upload directory",
-        ));
+    match canonical_root.join(&rel).canonicalize() {
+        Ok(canonical_file) => {
+            if !canonical_file.starts_with(&canonical_root) {
+                return Err(ApiError::status(
+                    StatusCode::BAD_REQUEST,
+                    "upload path escapes upload directory",
+                ));
+            }
+            Ok(canonical_file)
+        }
+        Err(_) => resolve_upload_file_ignore_name_case(&canonical_root, &rel),
     }
-    Ok(canonical_file)
 }
 
 pub(super) fn build_upload_rel(
@@ -247,4 +319,32 @@ pub(super) fn expected_chunk_len(meta: &UploadChunkSessionMeta, index: usize) ->
     let start = index as u64 * chunk_size;
     let end = std::cmp::min(start + chunk_size, meta.size_bytes);
     end.saturating_sub(start) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_file_ignore_name_case_matches_extension_case() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let root = temp.path();
+        let video_dir = root.join("执法记录视频");
+        fs::create_dir_all(&video_dir).expect("video dir");
+        let on_disk = video_dir.join("clip001.MP4");
+        fs::write(&on_disk, b"mp4").expect("write video");
+
+        let canonical_root = root.canonicalize().expect("root");
+        let found = resolve_upload_file_ignore_name_case(
+            &canonical_root,
+            "执法记录视频/clip001.mp4",
+        )
+        .expect("case-insensitive match");
+        assert!(found.is_file());
+        let name = found
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        assert!(name.eq_ignore_ascii_case("clip001.mp4"));
+    }
 }

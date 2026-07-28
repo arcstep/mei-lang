@@ -35,7 +35,8 @@ mod view_routing;
 pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_workspace::{
-    render_workspace_page, render_workspace_shell_chrome_html, WorkspaceShellNav,
+    render_workspace_page, render_workspace_page_with_pending_app,
+    render_workspace_shell_chrome_html, WorkspaceShellNav,
 };
 pub use topbar::AdminNavItem;
 pub use view_routing::mcg_href;

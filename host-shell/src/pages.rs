@@ -77,7 +77,7 @@ fn redirect_access_app_not_running(
             "blocked",
         );
         let topbar_menu = load_topbar_menu_context(workspace.as_path());
-        let html = crate::workspace_page::render_workspace_shell_page(
+        let html = crate::workspace_page::render_workspace_shell_page_with_pending_app(
             workspace.as_path(),
             &[],
             &topbar_menu,
@@ -86,6 +86,8 @@ fn redirect_access_app_not_running(
             body.as_str(),
             false,
             None,
+            Some(app_id),
+            Some(scene),
         );
         return (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response();
     }
@@ -1263,7 +1265,7 @@ pub async fn host_starting_page(
         poll_scene.as_str(),
         poll_mode.as_str(),
     );
-    let html = crate::workspace_page::render_workspace_shell_page(
+    let html = crate::workspace_page::render_workspace_shell_page_with_pending_app(
         workspace.as_path(),
         running_apps.as_slice(),
         &topbar_menu,
@@ -1272,6 +1274,8 @@ pub async fn host_starting_page(
         body_html.as_str(),
         auth_enabled,
         account_view.as_ref(),
+        Some(poll_app.as_str()),
+        Some(poll_scene.as_str()),
     );
     let html = if let Some(idx) = html.rfind("</body>") {
         let mut out = String::with_capacity(html.len() + poll_script.len());

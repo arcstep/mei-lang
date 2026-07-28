@@ -420,6 +420,19 @@ fn parse_workspace_shell_nav(raw: Option<&str>) -> Option<mei_lang_app::Workspac
     }
 }
 
+/// Resolve Access chrome app id from query. Empty means workspace "选择应用" —
+/// never invent `apps.first()` (that flashes the wrong toolbar on `/host/starting`).
+fn resolve_shell_chrome_app_id(query: &ShellChromeQuery) -> String {
+    query
+        .app_id
+        .as_deref()
+        .or(query.app.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+}
+
 pub fn render_shell_chrome_payload(
     http: &HostHttpState,
     query: &ShellChromeQuery,
@@ -448,15 +461,17 @@ pub fn render_shell_chrome_payload(
                 auth_account,
             )
         } else {
-            let app_id = query
-                .app_id
-                .as_deref()
-                .or(query.app.as_deref())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .or_else(|| apps.first().map(|app| app.id.clone()))
-                .unwrap_or_default();
+            let app_id = resolve_shell_chrome_app_id(query);
+            if app_id.is_empty() {
+                // No target app → workspace "选择应用". Never assemble `apps/` with empty id.
+                mei_lang_app::render_workspace_shell_chrome_html(
+                    apps.as_slice(),
+                    Some(&topbar_menu),
+                    mei_lang_app::WorkspaceShellNav::Starting,
+                    auth_enabled,
+                    auth_account,
+                )
+            } else {
             let scene = query
                 .scene
                 .as_deref()
@@ -553,6 +568,7 @@ pub fn render_shell_chrome_payload(
                 admin_nav.as_slice(),
                 admin_active_id,
             )
+            }
         };
     topbar_html = crate::build_info::fill_page_shell_placeholders(topbar_html, workspace.as_path());
     statusbar_html =
@@ -664,5 +680,22 @@ title: Intro
             redirect_unknown_access_stage(workspace, "mei-tutorial", "intro", None),
             None
         );
+    }
+
+    #[test]
+    fn shell_chrome_app_id_does_not_invent_first_enabled_app() {
+        let empty = ShellChromeQuery::default();
+        assert_eq!(resolve_shell_chrome_app_id(&empty), "");
+        let with_app = ShellChromeQuery {
+            app: Some("zhifa".into()),
+            ..ShellChromeQuery::default()
+        };
+        assert_eq!(resolve_shell_chrome_app_id(&with_app), "zhifa");
+        let with_app_id = ShellChromeQuery {
+            app_id: Some(" mini-buildings ".into()),
+            app: Some("ignored".into()),
+            ..ShellChromeQuery::default()
+        };
+        assert_eq!(resolve_shell_chrome_app_id(&with_app_id), "mini-buildings");
     }
 }

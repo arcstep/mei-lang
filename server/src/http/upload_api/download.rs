@@ -124,10 +124,12 @@ pub(super) fn upload_file_stem_matches_basename(file_name: &str, basename: &str)
     if stem.is_empty() || base.is_empty() {
         return false;
     }
-    if stem == base {
+    if stem.eq_ignore_ascii_case(base) {
         return true;
     }
-    stem.starts_with(&format!("{base}-")) || stem.starts_with(&format!("{base}."))
+    let stem_l = stem.to_ascii_lowercase();
+    let base_l = base.to_ascii_lowercase();
+    stem_l.starts_with(&format!("{base_l}-")) || stem_l.starts_with(&format!("{base_l}."))
 }
 
 pub(super) fn resolve_upload_file_by_basename(
