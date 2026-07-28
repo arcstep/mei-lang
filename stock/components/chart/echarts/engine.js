@@ -131,19 +131,19 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       if (!this.shadowRoot) {
         this.attachShadow({ mode: "open" });
       }
-      const bootProps = parseProps(this);
+      const bootProps = Object.assign({}, parseProps(this), { __chartKind: chartKind });
       this.shadowRoot.innerHTML = chartShellHtml(defaultTitle, bootProps);
       this.chartEl = this.shadowRoot.querySelector(".chart");
       this.metaEl = this.shadowRoot.querySelector(".meta");
       this.errorEl = this.shadowRoot.querySelector(".error");
-      this._props = parseProps(this);
+      this._props = Object.assign({}, parseProps(this), { __chartKind: chartKind });
       this._runtimeProps = null;
       this._sharedFilters = {};
       this._renderTrace = createComponentTracer(this, tagName, {
         chart_kind: chartKind,
       });
       this.refresh = () => {
-        this._props = parseProps(this);
+        this._props = Object.assign({}, parseProps(this), { __chartKind: chartKind });
         // props 可能在 bootstrap 之后才带上 fillHeight / carousel；就地改 shell。
         this.applyFillHeightShell(this._props);
         syncChartShellTitle(this.shadowRoot, defaultTitle, this._props);
@@ -270,16 +270,19 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       }
       const props = Object.assign({}, parseProps(this), this._runtimeProps || {}, {
         __host: this,
+        __chartKind: chartKind,
       });
       if (this.chart) {
         const { width, height } = this.readChartSurfaceBox();
         if (width < 8 || height < 8) {
+          this.rebindTruncatedTitles(props);
           return;
         }
         const prev = this._lastSurfaceBox || { width: 0, height: 0 };
         // 尺寸未变也允许强制对齐（SPA 切回后 canvas 常仍是旧 px）
         const force = meta.force === true;
         if (!force && prev.width === width && prev.height === height) {
+          this.rebindTruncatedTitles(props);
           return;
         }
         this._lastSurfaceBox = { width, height };
@@ -292,22 +295,41 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
             /* ignore */
           }
         }
+        this.rebindTruncatedTitles(props);
         return;
       }
-      // rankingLayout=above + fillHeight：无 ECharts 实例，需随格子尺寸重算行高。
+      // ranking 的 DOM 布局（above / bar）+ fillHeight：无 ECharts 实例，需随格子尺寸重算行高。
+      const rankingKind = normalizeKind(chartKind);
+      const rankingLayout =
+        rankingKind === "ranking-bar" ? "bar" : resolveRankingLayout(props);
       if (
-        normalizeKind(chartKind) !== "ranking" ||
-        resolveRankingLayout(props) !== "above" ||
+        (rankingKind !== "ranking" && rankingKind !== "ranking-bar") ||
+        (rankingLayout !== "above" && rankingLayout !== "bar") ||
         !rankingFillHeightEnabled(props)
       ) {
+        this.rebindTruncatedTitles(props);
         return;
       }
       const nextH = Math.round(
         meta.entryHeight || this.readChartSurfaceBox().height || this.clientHeight || 0,
       );
-      if (nextH <= 0 || nextH === this._rankingFillHeightPx) return;
+      if (nextH <= 0 || nextH === this._rankingFillHeightPx) {
+        this.rebindTruncatedTitles(props);
+        return;
+      }
       this._rankingFillHeightPx = nextH;
       void this.renderChart();
+    }
+
+    rebindTruncatedTitles(props = {}) {
+      this.bindShellTitlePopover(props);
+      const titleEl = this.chartEl?.querySelector?.(
+        ".mei-rank-bar-title-text, .mei-rank-above-title",
+      );
+      if (titleEl instanceof HTMLElement) {
+        const full = titleEl.dataset.meiFullTitle || String(titleEl.textContent || "").trim();
+        this.bindTruncatedTitleClick(titleEl, full);
+      }
     }
 
     /**
@@ -353,7 +375,11 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       }
       if (this.chartEl instanceof HTMLElement) {
         // flex-basis:0 强制画布吃满头/脚之外的剩余高度，避免上下大块留白。
-        this.chartEl.style.minHeight = "96px";
+        // ranking-bar：对齐校服排名图可视高度（约 5 行 + 标题），避免矮轨 section 把条压扁。
+        const rankingBarFloor =
+          normalizeKind(props?.__chartKind || chartKind) === "ranking-bar" ||
+          resolveRankingLayout(props) === "bar";
+        this.chartEl.style.minHeight = rankingBarFloor ? "200px" : "96px";
         this.chartEl.style.flex = "1 1 0";
         this.chartEl.style.height = "auto";
         this.chartEl.style.maxHeight = "none";
@@ -484,11 +510,15 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
     }
 
     async renderChart() {
-      let props = Object.assign({}, parseProps(this), this._runtimeProps || {}, { __host: this });
+      let props = Object.assign({}, parseProps(this), this._runtimeProps || {}, {
+        __host: this,
+        __chartKind: chartKind,
+      });
       props = applyChartCarouselFilter(this, props);
       this.applyFillHeightShell(props);
       if (this.shadowRoot) {
         syncChartShellTitle(this.shadowRoot, defaultTitle, props);
+        this.bindShellTitlePopover(props);
       }
       if (isStaticSkeletonDisplay(props)) {
         this.classList.add("mei-chart--static-skeleton");
@@ -507,7 +537,10 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       } else {
         this.errorEl.textContent = "";
       }
-      if (chartKind === "ranking" && model.layout === "above") {
+      if (
+        (chartKind === "ranking" || chartKind === "ranking-bar") &&
+        (model.layout === "above" || model.layout === "bar")
+      ) {
         releaseChartSurface(this.chartEl, this.chart);
         this.chart = null;
         this._rankingFullLabels = Array.isArray(model.fullLabels) ? model.fullLabels : [];
@@ -517,16 +550,30 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         } else {
           this.style.removeProperty("overflow");
         }
-        renderRankingAboveDom(this.chartEl, model, props, (fullText, event) => {
-          this.openLabelPopover(fullText, event);
-        });
+        if (model.layout === "bar") {
+          renderRankingBarDom(this.chartEl, model, props, {
+            onLabelClick: (fullText, event) => {
+              this.openLabelPopover(fullText, event);
+            },
+            bindTitle: (el, fullText) => this.bindTruncatedTitleClick(el, fullText),
+          });
+        } else {
+          renderRankingAboveDom(this.chartEl, model, props, {
+            onLabelClick: (fullText, event) => {
+              this.openLabelPopover(fullText, event);
+            },
+            bindTitle: (el, fullText) => this.bindTruncatedTitleClick(el, fullText),
+          });
+        }
         this.syncCarouselHint(props);
         this.stopCarousel();
         return;
       }
       try {
         const renderSeq = (this._renderSeq = (this._renderSeq || 0) + 1);
-        const hadDomRanking = Boolean(this.chartEl?.querySelector?.(".mei-rank-above"));
+        const hadDomRanking = Boolean(
+          this.chartEl?.querySelector?.(".mei-rank-above, .mei-rank-bar"),
+        );
         const canReuse =
           !hadDomRanking && isEChartsInstanceAlive(this.chart, this.chartEl);
         if (!canReuse) {
@@ -542,7 +589,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         if (!this.chart) {
           this.chart = echarts.init(this.chartEl);
         }
-        if (chartKind === "ranking") {
+        if (chartKind === "ranking" || chartKind === "ranking-bar") {
           this._rankingFullLabels = Array.isArray(model.fullLabels) ? model.fullLabels : [];
           const fillHeight = rankingFillHeightEnabled(props);
           const shellH = resolveRankingShellHeight(props, model.rowCount);
@@ -618,16 +665,17 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       });
     }
 
-    openLabelPopover(fullText, anchorEvent) {
+    openLabelPopover(fullText, anchorEvent, options = {}) {
       this.closeLabelPopover();
       ensureFloatingTextPopoverStyles();
+      const dialogTitle = String(options.dialogTitle || "完整名称").trim() || "完整名称";
       const pop = document.createElement("div");
       pop.className = "cell-pop cell-pop--large";
       pop.setAttribute("role", "dialog");
       pop.setAttribute("aria-modal", "true");
-      pop.setAttribute("aria-label", "完整名称");
+      pop.setAttribute("aria-label", dialogTitle);
       pop.innerHTML = buildTextPopoverShellHtml(
-        { title: "完整名称", subtitle: "", fullText },
+        { title: dialogTitle, subtitle: "", fullText },
         escapeHtml,
       );
       mountFloatingPopoverOnBody(pop, { width: 420 });
@@ -663,6 +711,74 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         copyTextToClipboard(fullText);
       });
       (pop.querySelector(".cell-pop-done") || pop.querySelector(".cell-pop-close"))?.focus();
+    }
+
+    /**
+     * 标题 CSS 截断后可点击查看全文（与排名标签飘窗同壳）。
+     * 布局未结算时 scrollWidth 可能不准，故 rAF 后再判定。
+     */
+    bindTruncatedTitleClick(el, fullText) {
+      if (!(el instanceof HTMLElement)) return;
+      const full = String(fullText ?? "").trim();
+      if (typeof el._meiTruncatedTitleClick === "function") {
+        el.removeEventListener("click", el._meiTruncatedTitleClick);
+        el._meiTruncatedTitleClick = null;
+      }
+      el.classList.remove("is-truncated-title");
+      el.style.cursor = "";
+      el.removeAttribute("role");
+      el.removeAttribute("tabindex");
+      el.removeAttribute("aria-label");
+      if (el.getAttribute("title") === el.dataset.meiFullTitle) {
+        el.removeAttribute("title");
+      }
+      delete el.dataset.meiFullTitle;
+      if (!full) return;
+      el.dataset.meiFullTitle = full;
+      const apply = () => {
+        if (!el.isConnected || el.dataset.meiFullTitle !== full) return;
+        const truncated = el.scrollWidth > el.clientWidth + 1;
+        if (!truncated) {
+          el.classList.remove("is-truncated-title");
+          el.style.cursor = "";
+          el.removeAttribute("role");
+          el.removeAttribute("tabindex");
+          el.removeAttribute("aria-label");
+          if (el.getAttribute("title") === full) el.removeAttribute("title");
+          if (typeof el._meiTruncatedTitleClick === "function") {
+            el.removeEventListener("click", el._meiTruncatedTitleClick);
+            el._meiTruncatedTitleClick = null;
+          }
+          return;
+        }
+        el.classList.add("is-truncated-title");
+        el.style.cursor = "pointer";
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("title", full);
+        el.setAttribute("aria-label", `查看完整标题：${full}`);
+        if (typeof el._meiTruncatedTitleClick === "function") {
+          el.removeEventListener("click", el._meiTruncatedTitleClick);
+        }
+        el._meiTruncatedTitleClick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.openLabelPopover(full, event, { dialogTitle: "完整标题" });
+        };
+        el.addEventListener("click", el._meiTruncatedTitleClick);
+      };
+      requestAnimationFrame(() => requestAnimationFrame(apply));
+    }
+
+    bindShellTitlePopover(props = {}) {
+      const titleEl = this.shadowRoot?.querySelector(".head .title");
+      if (!(titleEl instanceof HTMLElement)) return;
+      const headEl = this.shadowRoot?.querySelector(".head");
+      const headVisible =
+        headEl instanceof HTMLElement && getComputedStyle(headEl).display !== "none";
+      if (!headVisible) return;
+      const full = String(props.title ?? titleEl.textContent ?? "").trim();
+      this.bindTruncatedTitleClick(titleEl, full);
     }
 
     closeLabelPopover() {
@@ -806,11 +922,18 @@ function syncChartShellTitle(shadowRoot, defaultTitle, props = {}) {
   if (!(titleEl instanceof HTMLElement) || !(headEl instanceof HTMLElement)) return;
   const title = String(props.title ?? defaultTitle).trim();
   titleEl.textContent = title || defaultTitle;
-  // rankingLayout=above renders its own title inside the list; hide shell head to avoid duplicates.
+  // rankingLayout=above/bar 自带标题行；hide shell head to avoid duplicates.
   // titleInPlot：标题画在 ECharts 画布内；默认壳头在画布外（同园区罚金统计）。
-  const rankingAbove = resolveRankingLayout(props) === "above";
-  const showHead = Boolean(title) && !rankingAbove && !titleInPlotEnabled(props);
+  const rankingOwnsTitle = rankingLayoutOwnsTitle(props);
+  const showHead = Boolean(title) && !rankingOwnsTitle && !titleInPlotEnabled(props);
   headEl.style.display = showHead ? "flex" : "none";
+}
+
+function rankingLayoutOwnsTitle(props = {}) {
+  const kind = normalizeKind(props?.__chartKind || props?.chartKind || "");
+  if (kind === "ranking-bar") return true;
+  const layout = resolveRankingLayout(props);
+  return layout === "above" || layout === "bar";
 }
 
 function chartFillHeightEnabled(props = {}) {
@@ -830,11 +953,11 @@ function chartShellHtml(defaultTitle, props = {}) {
   const fillHeight = chartFillHeightEnabled(props);
   const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : compact ? 64 : 260;
   const title = String(props.title ?? defaultTitle).trim();
-  const rankingAbove = resolveRankingLayout(props) === "above";
-  // above layout owns the title node; shell .head would duplicate it.
+  const rankingOwnsTitle = rankingLayoutOwnsTitle(props);
+  // above/bar layout owns the title node; shell .head would duplicate it.
   // titleInPlot：标题进画布；默认壳头在画布外（对齐 cockpit.park-amount-list）。
   // 轮播：校名放 head，但用更紧凑行高，把垂直空间留给画布与 hint。
-  const showHead = title.length > 0 && !rankingAbove && !titleInPlotEnabled(props);
+  const showHead = title.length > 0 && !rankingOwnsTitle && !titleInPlotEnabled(props);
   // 壳头在画布外时：固定 chartHeight 表示「整卡预算」，画布高度减去标题行，避免父级 overflow 裁切 X 轴。
   const headReservePx = showHead ? (compact ? 18 : 24) : 0;
   const plotHeight =
@@ -892,6 +1015,11 @@ function chartShellHtml(defaultTitle, props = {}) {
         text-overflow: ellipsis;
         max-width: 100%;
       }
+      .title.is-truncated-title,
+      .mei-rank-bar-title-text.is-truncated-title,
+      .mei-rank-above-title.is-truncated-title {
+        cursor: pointer;
+      }
       .meta { font-size: var(--cockpit-font-unit); color: #94a3b8; }
       .chart {
         width: 100%;
@@ -912,8 +1040,8 @@ function chartShellHtml(defaultTitle, props = {}) {
         margin: 0 0 2px;
         font-size: var(--cockpit-font-chart-title);
         font-weight: 600;
-        color: #94a3b8;
-        line-height: 1.1;
+        color: var(--mei-color-text-inverse, #f8fafc);
+        line-height: 1.2;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -981,6 +1109,113 @@ function chartShellHtml(defaultTitle, props = {}) {
         box-shadow: 0 1px 5px rgba(56, 189, 248, 0.35);
         z-index: 1;
         pointer-events: none;
+      }
+      .mei-rank-bar {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      .mei-rank-bar-title {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: baseline;
+        justify-content: flex-start;
+        gap: 6px;
+        min-width: 0;
+        margin: 0 0 2px;
+        padding: 0 2px;
+        line-height: 1.2;
+      }
+      .mei-rank-bar-title-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 0;
+        font-size: var(--cockpit-font-chart-title);
+        font-weight: 600;
+        /* 对齐柱图壳头标题：固定反色白字 */
+        color: var(--mei-color-text-inverse, #f8fafc);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mei-rank-bar-unit {
+        display: none;
+      }
+      .mei-rank-bar-list {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 2px;
+      }
+      .mei-rank-bar-row {
+        position: relative;
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        align-items: stretch;
+        overflow: hidden;
+        cursor: pointer;
+        border: 1px solid rgba(100, 116, 139, 0.28);
+        background: rgba(15, 23, 42, 0.22);
+        box-sizing: border-box;
+      }
+      .mei-rank-bar-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        min-width: 4px;
+        z-index: 0;
+        pointer-events: none;
+      }
+      .mei-rank-bar-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+        padding: 0 8px;
+        box-sizing: border-box;
+      }
+      .mei-rank-bar-label {
+        flex: 1 1 0;
+        min-width: 0;
+        font-size: var(--cockpit-font-label);
+        line-height: 1.2;
+        font-weight: 600;
+        color: #f8fafc;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        /* 描边：暗/亮底都能读 */
+        -webkit-text-stroke: 0.55px rgba(8, 28, 52, 0.92);
+        paint-order: stroke fill;
+        text-shadow:
+          0 0 2px rgba(8, 28, 52, 0.75),
+          0 1px 1px rgba(8, 28, 52, 0.55);
+      }
+      .mei-rank-bar-value {
+        flex: 0 0 auto;
+        font-size: var(--cockpit-font-label);
+        line-height: 1.2;
+        font-weight: 700;
+        color: #f8fafc;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        white-space: nowrap;
+        -webkit-text-stroke: 0.55px rgba(8, 28, 52, 0.92);
+        paint-order: stroke fill;
+        text-shadow:
+          0 0 2px rgba(8, 28, 52, 0.75),
+          0 1px 1px rgba(8, 28, 52, 0.55);
       }
       .error {
         flex: 0 0 auto;
@@ -1249,23 +1484,28 @@ function buildChartModel(kind, props, diagnostics) {
     legacy.sortCategoriesByYTotal = false;
     legacy.fixedCategoryOrder = fixedCategoryOrder;
   }
-  if (normalized === "ranking") {
-    const layout = resolveRankingLayout(props);
+  if (normalized === "ranking" || normalized === "ranking-bar") {
+    const layout =
+      normalized === "ranking-bar" ? "bar" : resolveRankingLayout(props);
     const compact = props.compact === true || props.compact === "true";
-    if (layout === "above") {
+    if (layout === "above" || layout === "bar") {
       const { items, valueName } = buildRankingItems(chartRows, mapping, diagnostics);
-      const configuredMaxChars = resolveRankingLabelMaxChars(props, "above");
-      const maxChars = configuredMaxChars > 0 ? configuredMaxChars : 20;
+      const configuredMaxChars = resolveRankingLabelMaxChars(props, layout);
+      const maxChars = configuredMaxChars > 0 ? configuredMaxChars : layout === "bar" ? 16 : 20;
       return {
         kind: normalized,
-        layout: "above",
+        layout,
         rows: chartRows,
         mapping,
         items,
         valueName,
         theme: resolveRankingTheme(props),
         maxChars,
-        meta: compact ? "" : `排名 ${items.length} 项 · 标签置顶（点击查看全文）`,
+        meta: compact
+          ? ""
+          : layout === "bar"
+            ? `水平排名 ${items.length} 项 · 横条底图（悬停/点击查看全文）`
+            : `排名 ${items.length} 项 · 标签置顶（点击查看全文）`,
         fullLabels: items.map((item) => item.label),
         rowCount: items.length,
       };
@@ -2975,6 +3215,13 @@ function resolveRankingLayout(props) {
   if (["above", "label_above", "label-above", "stacked", "top"].includes(raw)) {
     return "above";
   }
+  if (
+    ["bar", "fill", "inline", "inline-bar", "inline_bar", "ranking-bar", "ranking_bar"].includes(
+      raw,
+    )
+  ) {
+    return "bar";
+  }
   return "side";
 }
 
@@ -3025,7 +3272,10 @@ function resolveRankingAboveHeight(chartEl, props) {
   return 152;
 }
 
-function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
+function renderRankingAboveDom(chartEl, model, props, handlers = {}) {
+  const onLabelClick =
+    typeof handlers === "function" ? handlers : handlers?.onLabelClick;
+  const bindTitle = typeof handlers === "function" ? null : handlers?.bindTitle;
   const theme = model.theme || resolveRankingTheme(props);
   const fillHeight = rankingFillHeightEnabled(props);
   const chartHeight = resolveRankingAboveHeight(chartEl, props);
@@ -3090,6 +3340,120 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
       }
     });
   });
+  if (showTitle && typeof bindTitle === "function") {
+    const titleEl = chartEl.querySelector(".mei-rank-above-title");
+    bindTitle(titleEl, title);
+  }
+}
+
+/**
+ * 水平排名横条图：标题行（标题+单位）+ 行内文字叠在按比例实心横条底图上。
+ * 单位只出现在标题行；数值统一位数、tabular 右对齐；长标签 CSS 截断 + title/点击飘窗。
+ */
+function renderRankingBarDom(chartEl, model, props, handlers = {}) {
+  const onLabelClick =
+    typeof handlers === "function" ? handlers : handlers?.onLabelClick;
+  const bindTitle = typeof handlers === "function" ? null : handlers?.bindTitle;
+  const theme = model.theme || resolveRankingTheme(props);
+  const fillHeight = rankingFillHeightEnabled(props);
+  const chartHeight = resolveRankingAboveHeight(chartEl, props);
+  const items = Array.isArray(model.items) ? model.items : [];
+  const maxChars = Number(model.maxChars) > 0 ? Number(model.maxChars) : 16;
+  const maxValue = rankingValueAxisMax(items.map((item) => item.value));
+  const title = String(props.title || "").trim();
+  const valueUnit = String(model.valueName || "").trim();
+  const showTitle = title.length > 0;
+  const showUnit = valueUnit.length > 0 && valueUnit.length <= 6;
+  const pullUp = Math.max(0, Number(props.rankingPullUp ?? props.ranking_pull_up ?? 0));
+  const padLeft = Math.max(0, Number(props.contentPadLeft ?? props.content_pad_left ?? 0));
+  const titleFontPx = readThemeTypography(props.__host).chartTitle;
+  const titleH = showTitle ? Math.max(14, Math.ceil(titleFontPx * 1.2)) : 0;
+  const listHeight = Math.max(48, chartHeight - titleH + pullUp);
+  const slotPx = items.length > 0 ? Math.floor(listHeight / items.length) : 0;
+  if (fillHeight) {
+    chartEl.style.height = "100%";
+    chartEl.style.minHeight = "0";
+    chartEl.style.maxHeight = "none";
+    chartEl.style.flex = "1 1 auto";
+  } else {
+    chartEl.style.height = `${chartHeight}px`;
+    chartEl.style.minHeight = `${chartHeight}px`;
+    chartEl.style.maxHeight = `${chartHeight}px`;
+  }
+  chartEl.style.overflow = pullUp > 0 ? "visible" : "hidden";
+  if (chartEl.parentElement) {
+    chartEl.parentElement.style.overflow = pullUp > 0 ? "visible" : "hidden";
+  }
+  // 默认实心单色：theme chart_5（zhifa「图表主色」），不是阶梯最浅的 chart_1。
+  const barColor =
+    String(props.barColor || props.bar_color || "").trim() ||
+    canvasThemeColor(props.__host, "chart_5") ||
+    theme.barColor ||
+    canvasThemeColor(props.__host, "chart_4") ||
+    "#10b981";
+  const useFixedOneDecimal = items.some((item) => {
+    const n = Number(item.value);
+    if (!Number.isFinite(n)) return false;
+    return Math.abs(n - Math.round(n)) > 1e-9;
+  });
+  const valueTexts = items.map((item) =>
+    formatRankingBarValue(item.value, useFixedOneDecimal),
+  );
+  const maxValueChars = valueTexts.reduce(
+    (peak, text) => Math.max(peak, [...String(text)].length),
+    3,
+  );
+  const valueMinCh = Math.max(3, maxValueChars);
+  const rowsHtml = items
+    .map((item, index) => {
+      const ratio = maxValue > 0 ? item.value / maxValue : 0;
+      const pct = Math.max(4, Math.min(100, Math.round(ratio * 1000) / 10));
+      const label = formatRankingNameLabel(item.label, maxChars);
+      const tip = escapeHtml(item.label);
+      return `<div class="mei-rank-bar-row" data-idx="${index}" title="${tip}" style="max-height:${Math.max(22, slotPx)}px">
+        <div class="mei-rank-bar-fill" style="width:${pct}%;background-color:${barColor}"></div>
+        <div class="mei-rank-bar-content">
+          <span class="mei-rank-bar-label">${escapeHtml(label.display)}</span>
+          <span class="mei-rank-bar-value" style="min-width:${valueMinCh}ch">${escapeHtml(valueTexts[index])}</span>
+        </div>
+      </div>`;
+    })
+    .join("");
+  const heightCss = fillHeight ? "height:100%;min-height:0;" : `height:${chartHeight}px;`;
+  // 对齐柱图标题写法：标题（单位）
+  const titleText =
+    showTitle && showUnit ? `${title}（${valueUnit}）` : title;
+  chartEl.innerHTML = `<div class="mei-rank-bar" style="${heightCss}padding-left:${padLeft}px;margin-top:${-pullUp}px;box-sizing:border-box">
+    ${
+      showTitle
+        ? `<div class="mei-rank-bar-title"><span class="mei-rank-bar-title-text">${escapeHtml(titleText)}</span></div>`
+        : ""
+    }
+    <div class="mei-rank-bar-list">${rowsHtml}</div>
+  </div>`;
+  chartEl.querySelectorAll(".mei-rank-bar-row").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      const index = Number(row.getAttribute("data-idx"));
+      const full = model.fullLabels?.[index];
+      if (full && typeof onLabelClick === "function") {
+        onLabelClick(full, event);
+      }
+    });
+  });
+  if (showTitle && typeof bindTitle === "function") {
+    const titleEl = chartEl.querySelector(".mei-rank-bar-title-text");
+    bindTitle(titleEl, titleText);
+  }
+}
+
+/** 水平排名数值：同表统一整数或 1 位小数，便于右对齐。 */
+function formatRankingBarValue(value, forceOneDecimal) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value ?? "").trim();
+  if (forceOneDecimal) {
+    return (Math.round(n * 10) / 10).toFixed(1);
+  }
+  return String(Math.trunc(Math.round(n)));
 }
 
 function resolveRankingTheme(props) {
@@ -3097,7 +3461,9 @@ function resolveRankingTheme(props) {
   return {
     barColor:
       String(props.barColor || props.bar_color || "").trim() ||
-      canvasThemeColor(host, "chart_2"),
+      canvasThemeColor(host, "chart_5") ||
+      canvasThemeColor(host, "chart_4") ||
+      "#10b981",
     barBackground:
       String(props.barBackground || props.bar_background || "").trim() ||
       "transparent",
@@ -3162,7 +3528,7 @@ function resolveRankingBarFill(theme, props = null) {
     .toLowerCase();
   const host = props?.__host;
   const palette = readThemeChartPalette(host);
-  const solid = theme.barColor || palette[3] || "#34d399";
+  const solid = theme.barColor || palette[4] || "#10b981";
   if (
     gradient === "ranking-cyan" ||
     gradient === "cyan" ||
@@ -3541,7 +3907,7 @@ function resolveRankingShellHeight(props, rowCount) {
   }
   const count = Number(rowCount) > 0 ? Number(rowCount) : 0;
   if (count > 0) {
-    const perRow = layout === "above" ? 50 : 42;
+    const perRow = layout === "above" || layout === "bar" ? 50 : 42;
     return Math.max(200, count * perRow);
   }
   return compact ? 64 : 260;
@@ -3572,6 +3938,7 @@ function inferLabelField(rows) {
 function normalizeKind(kind) {
   if (kind === "chart.trend") return "trend";
   if (kind === "chart.ranking") return "ranking";
+  if (kind === "chart.ranking-bar" || kind === "ranking_bar") return "ranking-bar";
   return String(kind || "").replace("chart.", "");
 }
 

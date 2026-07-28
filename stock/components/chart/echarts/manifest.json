@@ -23,6 +23,10 @@
     "chart.ranking": {
       "tag": "mei-chart-ranking",
       "script": "ranking.js"
+    },
+    "chart.ranking-bar": {
+      "tag": "mei-chart-ranking-bar",
+      "script": "ranking-bar.js"
     }
   }
 }
