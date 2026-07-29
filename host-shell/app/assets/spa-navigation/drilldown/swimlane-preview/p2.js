@@ -142,7 +142,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail, config);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-typical-case-panel";
     applyCaseDetailWarningTone(panel, enrichedRow);
@@ -187,7 +187,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail, config);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
     const previewMode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();

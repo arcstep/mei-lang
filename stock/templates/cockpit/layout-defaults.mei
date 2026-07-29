@@ -10,10 +10,9 @@
 METRICS_ASSET = "/workspace-app-assets/templates/cockpit/assets/metrics"
 
 # zhifa card_solid_stack_corner：四角装饰叠在 theme token 底色上（可随配色方案切换）
-CORNER_DECOR_IMAGE = "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left top / 4px 2px no-repeat,"
-    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right top / 4px 2px no-repeat,"
-    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left bottom / 4px 2px no-repeat,"
-    + "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right bottom / 4px 2px no-repeat"
+# 必须是单字面量：用 `+` 拼接时 semantic_scene 可能残留 `__binop`，
+# materializer 会 String(obj) → url("[object Object]") → 控制台 404。
+CORNER_DECOR_IMAGE = "linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left top / 4px 2px no-repeat,linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right top / 4px 2px no-repeat,linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) left bottom / 4px 2px no-repeat,linear-gradient(var(--mei-color-tone-cyan),var(--mei-color-tone-cyan)) right bottom / 4px 2px no-repeat"
 CORNER_DECOR_BG = {
     "color": "metric_accent_tint",
     "image": CORNER_DECOR_IMAGE,

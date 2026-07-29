@@ -243,7 +243,7 @@
       }
       renderSheetDetailCardPanel(
         previewHost,
-        row ? enrichCaseDetailRow(row, detail) : null,
+        row ? enrichCaseDetailRow(row, detail, config) : null,
         config,
         detail,
       );

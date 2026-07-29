@@ -1910,9 +1910,32 @@
     );
   }
 
+  /** Fold residual Mei `__binop` Add trees of string leaves (unevaluated template concat). */
+  function foldBinopStringAdd(value) {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    if (value.__binop !== "Add" && value.__binop !== "add") return "";
+    const left = foldBinopStringAdd(value.left);
+    const right = foldBinopStringAdd(value.right);
+    if (!left && !right) return "";
+    return `${left}${right}`;
+  }
+
+  function coerceBackgroundCssText(raw) {
+    if (raw == null) return "";
+    if (typeof raw === "string") return raw.trim();
+    // Unevaluated IR / maps must never become url("[object Object]").
+    if (typeof raw === "object") {
+      const folded = foldBinopStringAdd(raw);
+      if (folded) return folded.trim();
+      return "";
+    }
+    return "";
+  }
+
   function normalizeBackgroundImageValue(raw) {
-    const image = String(raw || "").trim();
-    if (!image) return "";
+    const image = coerceBackgroundCssText(raw);
+    if (!image || image === "[object Object]") return "";
     if (
       image.startsWith("linear-gradient") ||
       image.startsWith("radial-gradient") ||
@@ -1929,11 +1952,9 @@
 
   function normalizeBackgroundLayerList(raw) {
     if (Array.isArray(raw)) {
-      return raw
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
+      return raw.map((item) => coerceBackgroundCssText(item)).filter(Boolean);
     }
-    const text = String(raw || "").trim();
+    const text = coerceBackgroundCssText(raw);
     return text ? [text] : [];
   }
 
@@ -1962,6 +1983,14 @@
       return;
     }
     if (typeof background !== "object") return;
+    // Whole `background` may itself be an unevaluated string-Add binop.
+    if (background.__binop) {
+      const folded = foldBinopStringAdd(background);
+      if (folded) {
+        applyBackgroundInlineStyle(style, folded);
+      }
+      return;
+    }
     const images = normalizeBackgroundLayerList(background.image).map((image) =>
       normalizeBackgroundImageValue(image),
     );

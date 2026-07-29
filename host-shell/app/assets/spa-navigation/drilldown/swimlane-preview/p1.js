@@ -107,7 +107,58 @@
     return enriched && typeof enriched === "object" ? enriched : row;
   }
 
-  function enrichCaseDetailRow(row, detail) {
+  function resolveCaseDetailObjectType(detail, config) {
+    const nav =
+      config?.sceneLocalNav && typeof config.sceneLocalNav === "object"
+        ? config.sceneLocalNav
+        : config?.scene_local_nav && typeof config.scene_local_nav === "object"
+          ? config.scene_local_nav
+          : {};
+    const locator =
+      (nav.object_locator && typeof nav.object_locator === "object" && !Array.isArray(nav.object_locator)
+        ? nav.object_locator
+        : null) ||
+      (nav.objectLocator && typeof nav.objectLocator === "object" && !Array.isArray(nav.objectLocator)
+        ? nav.objectLocator
+        : null) ||
+      (config?.object_locator && typeof config.object_locator === "object" && !Array.isArray(config.object_locator)
+        ? config.object_locator
+        : null) ||
+      (config?.objectLocator && typeof config.objectLocator === "object" && !Array.isArray(config.objectLocator)
+        ? config.objectLocator
+        : null);
+    return nonEmptyString(
+      locator?.object_type,
+      locator?.objectType,
+      nav.object_type,
+      nav.objectType,
+      config?.object_type,
+      config?.objectType,
+      detail?.object_type,
+      detail?.objectType,
+    );
+  }
+
+  function isWarningObjectType(objectType) {
+    const type = String(objectType || "").trim();
+    if (!type) return false;
+    return type === "Warning" || type.endsWith(".Warning");
+  }
+
+  /**
+   * 办理状态（是否待办/在办/已办）只服务 Warning 案例卡。
+   * row_form 通用属性表单、以及 AlertModel/Matter 等非 Warning 对象不得注入。
+   */
+  function shouldDeriveWarningHandlingStatusFlags(detail, config) {
+    const mapping = resolveListPreviewMapping(config);
+    const mode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();
+    if (mode === "row_form") return false;
+    const objectType = resolveCaseDetailObjectType(detail, config);
+    if (objectType && !isWarningObjectType(objectType)) return false;
+    return true;
+  }
+
+  function enrichCaseDetailRow(row, detail, config) {
     if (!row || typeof row !== "object") return row;
     const enriched = { ...row };
     const filters =
@@ -175,7 +226,9 @@
         return;
       }
     });
-    deriveWarningHandlingStatusFlags(enriched);
+    if (shouldDeriveWarningHandlingStatusFlags(detail, config)) {
+      deriveWarningHandlingStatusFlags(enriched);
+    }
     return applyExternalCaseDetailRowEnricher(enriched, detail);
   }
 
@@ -184,7 +237,7 @@
     return Boolean(text) && text !== "—" && text !== "-" && text !== "－";
   }
 
-  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办 */
+  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办（仅 Warning 案例卡） */
   function deriveWarningHandlingStatusFlags(row) {
     if (!row || typeof row !== "object") return row;
     const hasExplicit =

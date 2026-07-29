@@ -19901,7 +19901,58 @@
     return enriched && typeof enriched === "object" ? enriched : row;
   }
 
-  function enrichCaseDetailRow(row, detail) {
+  function resolveCaseDetailObjectType(detail, config) {
+    const nav =
+      config?.sceneLocalNav && typeof config.sceneLocalNav === "object"
+        ? config.sceneLocalNav
+        : config?.scene_local_nav && typeof config.scene_local_nav === "object"
+          ? config.scene_local_nav
+          : {};
+    const locator =
+      (nav.object_locator && typeof nav.object_locator === "object" && !Array.isArray(nav.object_locator)
+        ? nav.object_locator
+        : null) ||
+      (nav.objectLocator && typeof nav.objectLocator === "object" && !Array.isArray(nav.objectLocator)
+        ? nav.objectLocator
+        : null) ||
+      (config?.object_locator && typeof config.object_locator === "object" && !Array.isArray(config.object_locator)
+        ? config.object_locator
+        : null) ||
+      (config?.objectLocator && typeof config.objectLocator === "object" && !Array.isArray(config.objectLocator)
+        ? config.objectLocator
+        : null);
+    return nonEmptyString(
+      locator?.object_type,
+      locator?.objectType,
+      nav.object_type,
+      nav.objectType,
+      config?.object_type,
+      config?.objectType,
+      detail?.object_type,
+      detail?.objectType,
+    );
+  }
+
+  function isWarningObjectType(objectType) {
+    const type = String(objectType || "").trim();
+    if (!type) return false;
+    return type === "Warning" || type.endsWith(".Warning");
+  }
+
+  /**
+   * 办理状态（是否待办/在办/已办）只服务 Warning 案例卡。
+   * row_form 通用属性表单、以及 AlertModel/Matter 等非 Warning 对象不得注入。
+   */
+  function shouldDeriveWarningHandlingStatusFlags(detail, config) {
+    const mapping = resolveListPreviewMapping(config);
+    const mode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();
+    if (mode === "row_form") return false;
+    const objectType = resolveCaseDetailObjectType(detail, config);
+    if (objectType && !isWarningObjectType(objectType)) return false;
+    return true;
+  }
+
+  function enrichCaseDetailRow(row, detail, config) {
     if (!row || typeof row !== "object") return row;
     const enriched = { ...row };
     const filters =
@@ -19969,7 +20020,9 @@
         return;
       }
     });
-    deriveWarningHandlingStatusFlags(enriched);
+    if (shouldDeriveWarningHandlingStatusFlags(detail, config)) {
+      deriveWarningHandlingStatusFlags(enriched);
+    }
     return applyExternalCaseDetailRowEnricher(enriched, detail);
   }
 
@@ -19978,7 +20031,7 @@
     return Boolean(text) && text !== "—" && text !== "-" && text !== "－";
   }
 
-  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办 */
+  /** 与 issue-handling 指标一致：跟踪ID+承办部门+办结时间 → 已办 / 在办 / 待办（仅 Warning 案例卡） */
   function deriveWarningHandlingStatusFlags(row) {
     if (!row || typeof row !== "object") return row;
     const hasExplicit =
@@ -21068,7 +21121,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail, config);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-typical-case-panel";
     applyCaseDetailWarningTone(panel, enrichedRow);
@@ -21113,7 +21166,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail, config);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
     const previewMode = String(mapping?.preview_mode || mapping?.previewMode || "").trim();
@@ -22451,7 +22504,7 @@
       }
       renderSheetDetailCardPanel(
         previewHost,
-        row ? enrichCaseDetailRow(row, detail) : null,
+        row ? enrichCaseDetailRow(row, detail, config) : null,
         config,
         detail,
       );
@@ -41414,9 +41467,32 @@
     );
   }
 
+  /** Fold residual Mei `__binop` Add trees of string leaves (unevaluated template concat). */
+  function foldBinopStringAdd(value) {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    if (value.__binop !== "Add" && value.__binop !== "add") return "";
+    const left = foldBinopStringAdd(value.left);
+    const right = foldBinopStringAdd(value.right);
+    if (!left && !right) return "";
+    return `${left}${right}`;
+  }
+
+  function coerceBackgroundCssText(raw) {
+    if (raw == null) return "";
+    if (typeof raw === "string") return raw.trim();
+    // Unevaluated IR / maps must never become url("[object Object]").
+    if (typeof raw === "object") {
+      const folded = foldBinopStringAdd(raw);
+      if (folded) return folded.trim();
+      return "";
+    }
+    return "";
+  }
+
   function normalizeBackgroundImageValue(raw) {
-    const image = String(raw || "").trim();
-    if (!image) return "";
+    const image = coerceBackgroundCssText(raw);
+    if (!image || image === "[object Object]") return "";
     if (
       image.startsWith("linear-gradient") ||
       image.startsWith("radial-gradient") ||
@@ -41433,11 +41509,9 @@
 
   function normalizeBackgroundLayerList(raw) {
     if (Array.isArray(raw)) {
-      return raw
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
+      return raw.map((item) => coerceBackgroundCssText(item)).filter(Boolean);
     }
-    const text = String(raw || "").trim();
+    const text = coerceBackgroundCssText(raw);
     return text ? [text] : [];
   }
 
@@ -41466,6 +41540,14 @@
       return;
     }
     if (typeof background !== "object") return;
+    // Whole `background` may itself be an unevaluated string-Add binop.
+    if (background.__binop) {
+      const folded = foldBinopStringAdd(background);
+      if (folded) {
+        applyBackgroundInlineStyle(style, folded);
+      }
+      return;
+    }
     const images = normalizeBackgroundLayerList(background.image).map((image) =>
       normalizeBackgroundImageValue(image),
     );

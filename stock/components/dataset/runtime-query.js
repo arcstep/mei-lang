@@ -10,6 +10,7 @@ import {
   hydrateQueryStateStore,
   installQueryStatePersistence,
 } from "./query-state-store.js";
+import { isAuthoritativeBootstrapDatasetPage } from "./metric-dataframe-authority.js";
 
 const STORE_KEY = "__meiQueryStateStore";
 const EVENT_NAME = "mei:query-state-change";
@@ -2480,7 +2481,8 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
         continue;
       }
       const rowsData = buildBootstrapDatasetRowsData(contract, pageCtx, entry);
-      if (!rowsData) {
+      // Empty dataframe pages are not authoritative — skip Pack-First seed so live query can recover.
+      if (!rowsData || !isAuthoritativeBootstrapDatasetPage(rowsData)) {
         continue;
       }
       for (const pageSize of bootstrapDatasetPageSizesForMetric(contract)) {
@@ -4975,7 +4977,10 @@ export async function fetchDatasetRows(
   const dataGen = runtimeDataGeneration(props);
   pruneDatasetQueryCaches(now);
   const evalStoreDataset = readEvalStoreDatasetData(api, payload, queryFingerprint);
-  if (evalStoreDataset) {
+  // Metric dataframe empty pages are not authoritative (F5 blank ranking via poisoned cache).
+  const metricPageAuthoritative = (data) =>
+    !metricId || isAuthoritativeBootstrapDatasetPage(data);
+  if (evalStoreDataset && metricPageAuthoritative(evalStoreDataset)) {
     notifyClientRuntimeQueryCacheHit("dataset_eval_store");
     return waitForSharedPromise(
       Promise.resolve(withClientResultCachePerf(evalStoreDataset, "dataset_eval_store")),
@@ -4983,15 +4988,18 @@ export async function fetchDatasetRows(
     );
   }
   const cached = cacheStore().datasetResults.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
+  if (cached && cached.expiresAt > now && metricPageAuthoritative(cached.data)) {
     notifyClientRuntimeQueryCacheHit("dataset");
     return waitForSharedPromise(
       Promise.resolve(withClientResultCachePerf(cached.data, "dataset")),
       signal,
     );
   }
+  if (cached && cached.expiresAt > now && metricId && !metricPageAuthoritative(cached.data)) {
+    cacheStore().datasetResults.delete(cacheKey);
+  }
   const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
-  if (sessionCached?.data) {
+  if (sessionCached?.data && metricPageAuthoritative(sessionCached.data)) {
     cacheStore().datasetResults.set(cacheKey, {
       data: sessionCached.data,
       expiresAt: sessionCached.expiresAt,
@@ -5014,7 +5022,11 @@ export async function fetchDatasetRows(
     await awaitBootstrapSeedIfNeeded(props);
     const nowAfterSeed = Date.now();
     const cachedAfterSeed = cacheStore().datasetResults.get(cacheKey);
-    if (cachedAfterSeed && cachedAfterSeed.expiresAt > nowAfterSeed) {
+    if (
+      cachedAfterSeed &&
+      cachedAfterSeed.expiresAt > nowAfterSeed &&
+      isAuthoritativeBootstrapDatasetPage(cachedAfterSeed.data)
+    ) {
       notifyClientRuntimeQueryCacheHit("dataset_bootstrap");
       return waitForSharedPromise(
         Promise.resolve(withClientResultCachePerf(cachedAfterSeed.data, "dataset_bootstrap")),
@@ -5028,7 +5040,10 @@ export async function fetchDatasetRows(
       nowAfterSeed,
       props,
     );
-    if (bootstrapHit?.cached) {
+    if (
+      bootstrapHit?.cached &&
+      isAuthoritativeBootstrapDatasetPage(bootstrapHit.cached.data)
+    ) {
       cacheStore().datasetResults.set(cacheKey, bootstrapHit.cached);
       notifyClientRuntimeQueryCacheHit("dataset_bootstrap_variant");
       window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_seed";
@@ -5039,7 +5054,10 @@ export async function fetchDatasetRows(
       );
     }
     const sessionAfterSeed = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, nowAfterSeed);
-    if (sessionAfterSeed?.data) {
+    if (
+      sessionAfterSeed?.data &&
+      isAuthoritativeBootstrapDatasetPage(sessionAfterSeed.data)
+    ) {
       cacheStore().datasetResults.set(cacheKey, {
         data: sessionAfterSeed.data,
         expiresAt: sessionAfterSeed.expiresAt,
@@ -5065,7 +5083,11 @@ export async function fetchDatasetRows(
           await sleepMs(80);
           const retryNow = Date.now();
           const retryCached = cacheStore().datasetResults.get(cacheKey);
-          if (retryCached && retryCached.expiresAt > retryNow) {
+          if (
+            retryCached &&
+            retryCached.expiresAt > retryNow &&
+            isAuthoritativeBootstrapDatasetPage(retryCached.data)
+          ) {
             jitHit = retryCached;
             break;
           }
@@ -5076,13 +5098,16 @@ export async function fetchDatasetRows(
             retryNow,
             props,
           );
-          if (retryBootstrap?.cached) {
+          if (
+            retryBootstrap?.cached &&
+            isAuthoritativeBootstrapDatasetPage(retryBootstrap.cached.data)
+          ) {
             cacheStore().datasetResults.set(cacheKey, retryBootstrap.cached);
             jitHit = retryBootstrap.cached;
             break;
           }
         }
-        if (jitHit?.data) {
+        if (jitHit?.data && isAuthoritativeBootstrapDatasetPage(jitHit.data)) {
           window.__meiEvalPackMissReason = "jit_batch_hit";
           delete window.__meiEvalPackFallbackNetwork;
           notifyClientRuntimeQueryCacheHit("dataset_jit_batch");
@@ -5114,6 +5139,10 @@ export async function fetchDatasetRows(
       signal: managedController.signal,
     })
       .then((data) => {
+        // Do not persist empty metric dataframe pages — they poison F5 via sessionStorage.
+        if (metricId && !isAuthoritativeBootstrapDatasetPage(data)) {
+          return data;
+        }
         const expiresAt = Date.now() + cacheConfig.ttlMs;
         cacheStore().datasetResults.set(cacheKey, {
           data,

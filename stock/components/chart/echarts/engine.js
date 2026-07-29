@@ -15,6 +15,11 @@ import {
   setQueryStateFilter,
   subscribeQueryState,
 } from "../../dataset/runtime-query.js";
+import {
+  runtimePropsHaveRenderableRows,
+  shouldApplyDatasetMetricRowsResult,
+  shouldApplyMetricFallbackResult,
+} from "../../dataset/metric-dataframe-authority.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
 import {
   clampThemeFontPx,
@@ -809,6 +814,8 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         this.renderChart();
         return;
       }
+      // Ignore stale overlapping refreshes (bootstrap paint then empty metrics overwrite).
+      const refreshGen = (this._runtimeRefreshGen = (this._runtimeRefreshGen || 0) + 1);
       try {
         this._renderTrace?.mark("runtime_query_start", {
           mode: metricRef ? "metric" : "dataset",
@@ -841,7 +848,16 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
             full: false,
             meta: runtimeCallerMeta(this, tagName),
           });
-          if (Array.isArray(rowsResult?.rows)) {
+          // Empty rows:[] must not short-circuit. Stale gen with good rows must still
+          // upgrade an empty paint (overlapping refreshRuntimeData race).
+          if (
+            shouldApplyDatasetMetricRowsResult({
+              refreshGen,
+              currentGen: this._runtimeRefreshGen,
+              rowsResult,
+              runtimeProps: this._runtimeProps,
+            })
+          ) {
             const dataset = resolveDatasetSource(props);
             this._runtimeProps = {
               data: {
@@ -856,8 +872,12 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
               client_total_ms: rowsResult?.perf?.client_total_ms ?? "",
               server_total_ms:
                 rowsResult?.perf?.server_handler_total_ms ?? rowsResult?.perf?.total_ms ?? "",
+              stale_applied: refreshGen !== this._runtimeRefreshGen ? 1 : 0,
             });
             await this.renderChart();
+            return;
+          }
+          if (refreshGen !== this._runtimeRefreshGen) {
             return;
           }
           const result = await fetchPanelRuntimeMetrics(this, props, {
@@ -865,11 +885,26 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
             meta: runtimeCallerMeta(this, tagName),
           });
           const metric = pickRuntimeMetricFromResult(result, metricRef);
-          this._runtimeProps = metric
-            ? props.value?.__mei_runtime_ref
+          if (
+            shouldApplyMetricFallbackResult({
+              refreshGen,
+              currentGen: this._runtimeRefreshGen,
+              metric,
+              runtimeProps: this._runtimeProps,
+            })
+          ) {
+            this._runtimeProps = props.value?.__mei_runtime_ref
               ? { value: metric }
-              : { data: metric }
-            : null;
+              : { data: metric };
+          } else if (
+            refreshGen === this._runtimeRefreshGen &&
+            !runtimePropsHaveRenderableRows(this._runtimeProps)
+          ) {
+            this._runtimeProps = null;
+          }
+          if (refreshGen !== this._runtimeRefreshGen) {
+            return;
+          }
           this._renderTrace?.mark("runtime_query_done", {
             mode: "metric",
             metric_count: Array.isArray(result?.metrics) ? result.metrics.length : 0,
