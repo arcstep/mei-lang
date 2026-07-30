@@ -96,9 +96,13 @@ class MeiDatasetSummaryCards extends HTMLElement {
           appendRuntimePerfDiagnostics(datasetId, result.perf, runtimePerfMeta(this));
         }
       } else {
+        // 禁止 full:true：超 2000 行的明细在 collect_all 路径会直接 500。
+        // 汇总卡只需有限样本；有筛选时靠服务端 SQL 下推。
         const result = await fetchDatasetRows(this._props, {
           filters: this._sharedFilters,
-          full: true,
+          page: 1,
+          pageSize: 200,
+          full: false,
           signal,
           meta: callerMeta,
         });

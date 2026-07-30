@@ -546,6 +546,14 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         (chartKind === "ranking" || chartKind === "ranking-bar") &&
         (model.layout === "above" || model.layout === "bar")
       ) {
+        const rankingItems = Array.isArray(model.items) ? model.items : [];
+        const hasPaintedRankingRows = Boolean(
+          this.chartEl?.querySelector?.(".mei-rank-above-row, .mei-rank-bar-row"),
+        );
+        // 空 items 不得清掉已画好的榜（bootstrap/竞态短暂无行时会留下永久空白）。
+        if (rankingItems.length === 0 && hasPaintedRankingRows) {
+          return;
+        }
         releaseChartSurface(this.chartEl, this.chart);
         this.chart = null;
         this._rankingFullLabels = Array.isArray(model.fullLabels) ? model.fullLabels : [];
@@ -581,15 +589,16 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         );
         const canReuse =
           !hadDomRanking && isEChartsInstanceAlive(this.chart, this.chartEl);
-        if (!canReuse) {
-          releaseChartSurface(this.chartEl, this.chart);
-          this.chart = null;
-        }
         this._renderTrace?.mark("echarts_load_start");
         const echarts = await ensureECharts();
         this._renderTrace?.mark("echarts_load_done");
         if (renderSeq !== this._renderSeq) {
+          // 禁止在 await 前清空画布：否则本轮被更新的 gen 顶替后会留下空白。
           return;
+        }
+        if (!canReuse) {
+          releaseChartSurface(this.chartEl, this.chart);
+          this.chart = null;
         }
         if (!this.chart) {
           this.chart = echarts.init(this.chartEl);
@@ -655,18 +664,49 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
     setupSelectionInteractions(chartKind) {
       if (!this.chart) return;
       this.chart.off("click");
+      this.chart.off("legendselectchanged");
       const selection = this._selectionContext;
       if (!selection?.queryStateId || !selection?.dimension) return;
       if (normalizeKind(chartKind) === "ranking") return;
-      this.chart.on("click", (params) => {
-        const selectedValue = resolveChartSelectionValue(chartKind, params, selection);
-        if (!selectedValue) return;
-        setQueryStateFilter(selection.queryStateId, selection.dimension, selectedValue, {
+      const applySelection = (selectedValue) => {
+        const value = String(selectedValue || "").trim();
+        if (!value) return;
+        setQueryStateFilter(selection.queryStateId, selection.dimension, value, {
           filterIntentSource: "chart_selection",
           transitionSource: "chart_selection",
           toggle: selection.toggle,
           encode: selection.filterEncode,
         });
+      };
+      this.chart.on("click", (params) => {
+        const selectedValue = resolveChartSelectionValue(chartKind, params, selection);
+        applySelection(selectedValue);
+      });
+      // 饼/环：极小扇区难点时，点图例等同扇区筛选；并立刻全选图例，避免默认显隐把环图掏空。
+      const pieFamily =
+        normalizeKind(chartKind) === "pie" ||
+        normalizeKind(chartKind) === "donut" ||
+        normalizeKind(chartKind) === "rose";
+      if (!pieFamily) return;
+      let restoringLegend = false;
+      this.chart.on("legendselectchanged", (params) => {
+        if (restoringLegend) return;
+        const name = String(params?.name || "").trim();
+        if (!name) return;
+        const selectedMap =
+          params?.selected && typeof params.selected === "object" ? params.selected : null;
+        if (selectedMap) {
+          restoringLegend = true;
+          try {
+            for (const key of Object.keys(selectedMap)) {
+              if (selectedMap[key]) continue;
+              this.chart.dispatchAction({ type: "legendSelect", name: key });
+            }
+          } finally {
+            restoringLegend = false;
+          }
+        }
+        applySelection(name);
       });
     }
 
@@ -2969,6 +3009,15 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   return option;
 }
 
+function resolvePieMinAngle(chartProps, compact) {
+  const raw = chartProps?.min_angle ?? chartProps?.minAngle;
+  if (raw === false || raw === "false") return 0;
+  if (raw === 0 || raw === "0") return 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return compact ? 4 : 6;
+}
+
 function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   const labelField = mapping.label[0]?.field || mapping.x[0]?.field;
   const valueField = mapping.y[0]?.field;
@@ -3032,6 +3081,8 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       : compact
         ? ["52%", "78%"]
         : ["45%", "72%"];
+  // 极小占比扇区（如 0.04%）仍保留真实 value/占比文案，但撑开最小圆心角便于悬停与点选。
+  const minAngle = resolvePieMinAngle(chartProps, compact);
   const option = {
     tooltip: echartsTooltip(
       themeTypography,
@@ -3042,6 +3093,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     legend: showLegend
       ? {
           show: true,
+          selectedMode: true,
           ...(compact
             ? { bottom: 2, left: "center", orient: "horizontal", itemWidth: 10, itemHeight: 10, itemGap: 14 }
             : { top: 4, left: "center", orient: "horizontal" }),
@@ -3062,6 +3114,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
         center: compactWithLegend ? ["50%", "44%"] : compact ? ["50%", "50%"] : ["50%", "58%"],
         top: compact ? 0 : 36,
         height: compact ? undefined : "72%",
+        minAngle,
         label: showLabel
           ? (() => {
               const labelColor = canvasThemeColor(host, "text_primary");

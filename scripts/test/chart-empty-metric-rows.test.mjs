@@ -144,6 +144,16 @@ const engineSrc = await readFile(
 );
 assert.match(engineSrc, /shouldApplyDatasetMetricRowsResult/);
 assert.match(engineSrc, /shouldApplyMetricFallbackResult/);
+assert.match(
+  engineSrc,
+  /空 items 不得清掉已画好的榜/,
+  "empty ranking items must not wipe painted DOM",
+);
+assert.match(
+  engineSrc,
+  /禁止在 await 前清空画布/,
+  "echarts path must not clear canvas before ensureECharts await",
+);
 assert.doesNotMatch(
   engineSrc,
   /readBootstrapMetricContract/,
