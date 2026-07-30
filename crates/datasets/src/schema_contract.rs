@@ -110,6 +110,7 @@ mod tests {
             source: source.map(str::to_string),
             optional,
             unit: None,
+            normalize: None,
         }
     }
 

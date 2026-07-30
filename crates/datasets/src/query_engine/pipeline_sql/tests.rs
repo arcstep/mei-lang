@@ -22,6 +22,7 @@ fn col(name: &str, type_name: &str) -> ColumnSchema {
         source: None,
         optional: false,
         unit: None,
+        normalize: None,
     }
 }
 
@@ -917,6 +918,7 @@ fn park_pipeline_hits_with_geojson_attr_universe() {
                     source: None,
                     optional: false,
                     unit: None,
+                    normalize: None,
                 })
                 .collect(),
             stage_schema: Vec::new(),
@@ -956,6 +958,7 @@ fn park_pipeline_hits_with_geojson_attr_universe() {
             source: Some("id".into()),
             optional: false,
             unit: None,
+            normalize: None,
         },
         ColumnSchema {
             name: "园区名称".into(),
@@ -963,6 +966,7 @@ fn park_pipeline_hits_with_geojson_attr_universe() {
             source: Some("name".into()),
             optional: false,
             unit: None,
+            normalize: None,
         },
     ];
 

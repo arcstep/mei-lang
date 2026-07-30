@@ -5588,109 +5588,52 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   word-break: break-word;
 }
 .access-drilldown-typical-case-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 12px;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 18px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 .access-drilldown-case-detail-top > .access-drilldown-typical-case-facts {
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 10px;
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(10, 36, 68, 0.42);
   border: 1px solid var(--case-card-border-soft);
 }
 .access-drilldown-typical-case-fact {
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--case-card-surface);
-  border: 1px solid var(--case-card-border-soft);
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
   min-width: 0;
+  background: linear-gradient(180deg, var(--case-card-surface-strong), var(--case-card-surface));
+  border: 1px solid var(--case-card-accent-border);
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.06);
 }
 .access-drilldown-typical-case-fact-label {
   font-size: var(--mei-font-2);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--mei-color-text-muted, #94a3b8);
-  margin-bottom: 6px;
+  line-height: 1.2;
+  white-space: nowrap;
+  margin-bottom: 0;
 }
 .access-drilldown-typical-case-fact-value {
-  font-size: var(--mei-font-3);
-  color: var(--mei-color-text-value, #f0f9ff);
-  line-height: 1.45;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
-}
-.access-drilldown-typical-case-fact-value.is-truncated {
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  color: var(--mei-color-text-accent, #fbbf24);
-}
-.access-drilldown-typical-case-fact-value.is-truncated:hover {
-  color: var(--mei-color-text-primary, #e0f2fe);
-}
-.access-drilldown-case-fact-more {
-  margin-top: 6px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
   font-size: var(--mei-font-2);
   font-weight: 600;
-  color: var(--mei-color-text-unit, #7dd3fc);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.access-drilldown-case-fact-more:hover {
-  color: var(--mei-color-text-primary, #e0f2fe);
-}
-.access-drilldown-case-fact-popover {
-  z-index: 2350;
-  max-height: min(420px, 70vh);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.28));
-  background:
-    linear-gradient(
-      180deg,
-      var(--mei-color-drilldown-panel-top, rgba(18, 62, 112, 0.96)),
-      var(--mei-color-drilldown-panel-bottom, rgba(10, 40, 78, 0.98))
-    );
-  box-shadow: 0 16px 40px rgba(2, 8, 23, 0.45);
-  color: var(--mei-color-text-body, #cbd5e1);
-}
-.access-drilldown-case-fact-popover-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.access-drilldown-case-fact-popover-title {
-  font-size: var(--mei-font-2);
-  font-weight: 700;
-  color: var(--mei-color-text-primary, #e0f2fe);
-}
-.access-drilldown-case-fact-popover-close {
-  border: 0;
-  background: transparent;
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-}
-.access-drilldown-case-fact-popover-body {
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: var(--mei-font-3);
-  line-height: 1.7;
   color: var(--mei-color-text-value, #f0f9ff);
+  line-height: 1.35;
+  white-space: nowrap;
 }
 /* 健全机制独立详情：PDF 撑满二级板 */
 .access-drilldown-overlay[data-drilldown-preview-only="true"] .access-drilldown-document-preview-panel,
@@ -5750,17 +5693,27 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   letter-spacing: 0.02em;
 }
 .access-drilldown-typical-case-metrics {
-  display: grid;
-  grid-template-columns: repeat(var(--case-metric-count, 3), minmax(96px, 1fr));
-  gap: 12px;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 18px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 .access-drilldown-typical-case-metric {
   display: grid;
-  gap: 8px;
-  padding: 14px 12px;
-  border-radius: 10px;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
   text-align: center;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
   background: linear-gradient(180deg, var(--case-card-surface-strong), var(--case-card-surface));
   border: 1px solid var(--case-card-accent-border);
   box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.06);
@@ -5769,41 +5722,29 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   font-size: var(--mei-font-2);
   color: var(--mei-color-text-muted, #94a3b8);
   font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .access-drilldown-typical-case-metric-value {
-  font-size: var(--mei-font-4, 24px);
+  font-size: var(--mei-font-3, 18px);
   font-weight: 800;
   color: var(--mei-color-text-value, #f0f9ff);
-  line-height: 1.25;
-  word-break: break-word;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .access-drilldown-typical-case-metric--text {
   text-align: left;
-  align-content: start;
+  align-content: center;
+  flex: 0 0 auto;
 }
 .access-drilldown-typical-case-metric--text .access-drilldown-typical-case-metric-value {
-  font-size: var(--mei-font-3);
+  font-size: var(--mei-font-2);
   font-weight: 600;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-}
-.access-drilldown-typical-case-metric--text .access-drilldown-typical-case-metric-value.is-truncated {
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  color: var(--mei-color-text-accent, #fbbf24);
-}
-.access-drilldown-typical-case-metric--text .access-drilldown-typical-case-metric-value.is-truncated:hover {
-  color: var(--mei-color-text-primary, #e0f2fe);
+  line-height: 1.35;
+  display: block;
+  white-space: nowrap;
 }
 @media (max-width: 900px) {
-  .access-drilldown-typical-case-facts,
-  .access-drilldown-typical-case-metrics {
-    grid-template-columns: 1fr;
-  }
   .access-drilldown-typical-case-panel {
     padding: 16px 14px 22px;
   }

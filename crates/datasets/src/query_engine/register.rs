@@ -10,8 +10,9 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use mei_lang_kernel::{
-    data_snapshot_store_root, parse_geojson_rows, parquet_snapshot_path,
-    resolve_data_snapshot_import_entry, write_xlsx_parquet_snapshot, ColumnSchema, DatasetView,
+    cell_normalize_rules_from_schema, data_snapshot_store_root, parse_geojson_rows,
+    parquet_snapshot_path, resolve_data_snapshot_import_entry,
+    write_xlsx_parquet_snapshot_with_cell_normalizes, ColumnSchema, DatasetView,
     DEFAULT_DATABASE_TTL_MS,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -67,11 +68,12 @@ pub fn resolve_parquet_for_dataset_view(
     {
         return Ok(None);
     }
-    match write_xlsx_parquet_snapshot(
+    match write_xlsx_parquet_snapshot_with_cell_normalizes(
         app_root,
         path,
         view.source.sheet.as_deref(),
         header,
+        Some(&cell_normalize_rules_from_schema(&view.schema)),
     ) {
         Ok(written) => Ok(Some(written)),
         Err(err) => {

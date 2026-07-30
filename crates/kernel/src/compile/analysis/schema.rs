@@ -25,6 +25,7 @@ pub(crate) fn infer_schema_from_rows(rows: &[Value]) -> Vec<ColumnSchema> {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         })
         .collect()
 }

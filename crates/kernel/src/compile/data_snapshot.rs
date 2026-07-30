@@ -1,6 +1,7 @@
 //! xlsx 表快照的 Parquet 旁路：发布时物化、运行时 mmap 优先加载。
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -16,10 +17,12 @@ use parquet::file::properties::WriterProperties;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::analysis::object_keys::normalize_object_keys_cell;
 use super::loaders::{
     load_csv_table_snapshot, load_json_table_snapshot, load_xlsx_table_snapshot, XlsxTableSnapshot,
 };
 use super::scene_payload_cache::file_mtime_ms;
+use crate::model::ColumnSchema;
 use crate::{resolve_versioned_source_identifier, resolve_versioned_source_path};
 
 pub const DATA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -336,6 +339,65 @@ fn cell_to_string(value: &Value) -> String {
     }
 }
 
+/// Build physical-column → normalize-kind map from dataset schema.
+pub fn cell_normalize_rules_from_schema(schema: &[ColumnSchema]) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for column in schema {
+        let Some(kind) = column
+            .normalize
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let physical = column.physical_name().trim();
+        if physical.is_empty() {
+            continue;
+        }
+        out.insert(physical.to_string(), kind.to_string());
+        // Also key by logical name so coerce / demand-load paths stay consistent.
+        if column.name != physical {
+            out.insert(column.name.clone(), kind.to_string());
+        }
+    }
+    out
+}
+
+/// Merge normalize rules (later schemas win on conflict).
+pub fn merge_cell_normalize_rules(
+    into: &mut BTreeMap<String, String>,
+    from: &BTreeMap<String, String>,
+) {
+    for (key, value) in from {
+        into.insert(key.clone(), value.clone());
+    }
+}
+
+fn apply_cell_normalizes_to_snapshot(
+    snapshot: &mut XlsxTableSnapshot,
+    rules: &BTreeMap<String, String>,
+) {
+    if rules.is_empty() {
+        return;
+    }
+    for row in &mut snapshot.rows {
+        let Some(obj) = row.as_object_mut() else {
+            continue;
+        };
+        for (column, kind) in rules {
+            if kind != "object_keys" {
+                continue;
+            }
+            let Some(value) = obj.get(column) else {
+                continue;
+            };
+            let normalized = normalize_object_keys_cell(&cell_to_string(value));
+            obj.insert(column.clone(), Value::String(normalized));
+        }
+    }
+}
+
 fn snapshot_to_record_batch(snapshot: &XlsxTableSnapshot) -> Result<RecordBatch> {
     let fields = snapshot
         .columns
@@ -361,6 +423,22 @@ pub fn write_xlsx_parquet_snapshot(
     sheet: Option<&str>,
     header_row: usize,
 ) -> Result<PathBuf> {
+    write_xlsx_parquet_snapshot_with_cell_normalizes(
+        app_root,
+        source_path,
+        sheet,
+        header_row,
+        None,
+    )
+}
+
+pub fn write_xlsx_parquet_snapshot_with_cell_normalizes(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+    cell_normalizes: Option<&BTreeMap<String, String>>,
+) -> Result<PathBuf> {
     let source_path = source_path.trim();
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
     let absolute = resolve_versioned_source_path(app_root, source_path);
@@ -374,7 +452,7 @@ pub fn write_xlsx_parquet_snapshot(
             .extension()
             .and_then(|value| value.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
-    let snapshot = if is_csv {
+    let mut snapshot = if is_csv {
         load_csv_table_snapshot(absolute.as_path(), header_row.max(1), None)?
     } else if is_json {
         load_json_table_snapshot(absolute.as_path(), None)?
@@ -387,6 +465,9 @@ pub fn write_xlsx_parquet_snapshot(
             None,
         )?
     };
+    if let Some(rules) = cell_normalizes {
+        apply_cell_normalizes_to_snapshot(&mut snapshot, rules);
+    }
     let out_path = parquet_snapshot_path(app_root, source_path, sheet, header_row)
         .context("resolve parquet snapshot path")?;
     if let Some(parent) = out_path.parent() {
@@ -568,9 +649,31 @@ pub fn publish_xlsx_data_snapshots_for_paths(
     app_root: &Path,
     sources: &[(&str, Option<&str>, usize)],
 ) -> Result<Vec<PathBuf>> {
+    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(app_root, sources, &BTreeMap::new())
+}
+
+/// `cell_normalizes_by_source` key = `{path}|sheet={sheet}|header_row={n}`.
+pub fn publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(
+    app_root: &Path,
+    sources: &[(&str, Option<&str>, usize)],
+    cell_normalizes_by_source: &BTreeMap<String, BTreeMap<String, String>>,
+) -> Result<Vec<PathBuf>> {
     let mut written = Vec::new();
     for (path, sheet, header_row) in sources {
-        let out = write_xlsx_parquet_snapshot(app_root, path, *sheet, *header_row)?;
+        let key = format!(
+            "{}|sheet={}|header_row={}",
+            path,
+            sheet.unwrap_or(""),
+            header_row
+        );
+        let rules = cell_normalizes_by_source.get(&key);
+        let out = write_xlsx_parquet_snapshot_with_cell_normalizes(
+            app_root,
+            path,
+            *sheet,
+            *header_row,
+            rules,
+        )?;
         written.push(out);
     }
     Ok(written)

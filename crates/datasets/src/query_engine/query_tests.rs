@@ -49,6 +49,7 @@ fn query_parquet_page_pushdown_limits_rows() {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         },
         ColumnSchema {
             name: "name".into(),
@@ -56,6 +57,7 @@ fn query_parquet_page_pushdown_limits_rows() {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         },
     ];
     let options = DatasetQueryOptions {
@@ -93,6 +95,7 @@ fn query_parquet_page_filter_eq() {
         source: None,
         optional: false,
         unit: None,
+        normalize: None,
     }];
     let mut filters = BTreeMap::new();
     filters.insert("name".into(), "b".into());
@@ -171,6 +174,7 @@ fn query_parquet_page_between_on_date32_column() {
             source: None,
             optional: true,
             unit: None,
+            normalize: None,
         },
         ColumnSchema {
             name: "id".into(),
@@ -178,6 +182,7 @@ fn query_parquet_page_between_on_date32_column() {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         },
     ];
     let mut filters = BTreeMap::new();
@@ -219,6 +224,7 @@ fn query_parquet_page_drange_matches_filter_bar_encoding() {
             source: None,
             optional: true,
             unit: None,
+            normalize: None,
         },
         ColumnSchema {
             name: "id".into(),
@@ -226,6 +232,7 @@ fn query_parquet_page_drange_matches_filter_bar_encoding() {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         },
     ];
     let mut filters = BTreeMap::new();
@@ -266,6 +273,7 @@ fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         },
         ColumnSchema {
             name: "missing_col".into(),
@@ -273,6 +281,7 @@ fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
             source: Some("视频路径".into()),
             optional: true,
             unit: None,
+            normalize: None,
         },
     ];
     let (view, cols) =
@@ -295,6 +304,7 @@ fn ensure_parquet_view_missing_required_schema_source_fails() {
         source: Some("旧表头名".into()),
         optional: false,
         unit: None,
+        normalize: None,
     }];
     let err = ensure_parquet_view(app_root, parquet.as_path(), &schema, None)
         .expect_err("required missing source must fail");

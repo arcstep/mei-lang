@@ -237,7 +237,13 @@ fn lower_bundle_schema(value: Option<&Value>) -> Vec<ColumnSchema> {
                 .get("optional")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            unit: None,
+            unit: args.get("unit").and_then(Value::as_str).map(str::to_string),
+            normalize: args
+                .get("normalize")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
         });
     }
     schema

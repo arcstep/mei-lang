@@ -163,7 +163,7 @@ const COLOR_GROUPS = [
       ["color", "chart_5", "单色阶梯 5"],
       ["color", "chart_6", "单色阶梯 6"],
       ["color", "chart_cat_1", "分类色板 1"],
-      ["color", "chart_cat_2", "分类色板 2（湖蓝）"],
+      ["color", "chart_cat_2", "分类色板 2（品红）"],
       ["color", "chart_cat_3", "分类色板 3"],
       ["color", "chart_cat_4", "分类色板 4"],
       ["color", "chart_cat_5", "分类色板 5"],

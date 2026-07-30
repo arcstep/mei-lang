@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use crate::model::ColumnSchema;
 
+use super::object_keys::normalize_object_keys_cell;
 use super::schema::{row_number, row_value};
 
 /// 从行字段解析日历日期；支持常见字符串与 Excel 序列日。
@@ -149,6 +150,7 @@ pub fn coerce_calendar_columns_in_rows(
                 source: None,
                 optional: true,
                 unit: None,
+                normalize: None,
             });
         }
     }
@@ -190,7 +192,18 @@ pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
         }
         if type_name == "string" {
             if let Some(value) = out.get(&column.name) {
-                out.insert(column.name.clone(), coerce_value_to_string_cell(value));
+                let mut coerced = coerce_value_to_string_cell(value);
+                if column
+                    .normalize
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|kind| kind == "object_keys")
+                {
+                    if let Some(text) = coerced.as_str() {
+                        coerced = Value::String(normalize_object_keys_cell(text));
+                    }
+                }
+                out.insert(column.name.clone(), coerced);
             }
             continue;
         }
@@ -545,12 +558,48 @@ mod tests {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         }];
         let out = coerce_rows_to_schema(rows, &schema);
         let parsed = parse_date_value(&json!(46023)).expect("46023 serial");
         assert_eq!(
             out[0].get("预警时间").and_then(|v| v.as_str()),
             Some(format_iso_date(parsed).as_str())
+        );
+    }
+
+    #[test]
+    fn coerce_rows_to_schema_normalizes_object_keys_cells() {
+        use super::coerce_rows_to_schema;
+        use crate::model::ColumnSchema;
+
+        let rows = vec![json!({
+            "处理结果ID": "——",
+            "关联预警ID": "XH2025010-XH2025011"
+        })];
+        let schema = vec![
+            ColumnSchema {
+                name: "处理结果ID".to_string(),
+                type_name: "string".to_string(),
+                source: None,
+                optional: true,
+                unit: None,
+                normalize: Some("object_keys".to_string()),
+            },
+            ColumnSchema {
+                name: "关联预警ID".to_string(),
+                type_name: "string".to_string(),
+                source: Some("预警ID".to_string()),
+                optional: true,
+                unit: None,
+                normalize: Some("object_keys".to_string()),
+            },
+        ];
+        let out = coerce_rows_to_schema(rows, &schema);
+        assert_eq!(out[0].get("处理结果ID").and_then(|v| v.as_str()), Some(""));
+        assert_eq!(
+            out[0].get("关联预警ID").and_then(|v| v.as_str()),
+            Some("XH2025010、XH2025011")
         );
     }
 }

@@ -976,13 +976,120 @@ function resolveMappingTargetsForCell(spec, row, cellValue) {
 }
 
 /**
+ * Blank / sentinel object IDs from Excel placeholders.
+ * Aligns with kernel `blank_field` + `placeholder_only_text` (—, -, /, 无, …).
+ * Such values must never become clickable object links.
+ */
+export function isBlankObjectIdentity(raw) {
+  const text = normalizeObjectIdentityText(raw);
+  if (!text) return true;
+  const lower = text.toLowerCase();
+  const sentinels = [
+    "—",
+    "-",
+    "/",
+    "无",
+    "暂无",
+    "待定",
+    "未知",
+    "n/a",
+    "na",
+    "null",
+    "none",
+    "无承办部门",
+    "无部门",
+    "－",
+    "―",
+  ];
+  if (sentinels.some((s) => s.toLowerCase() === lower)) return true;
+  // Dash/equals-only placeholders such as `--` / `——` / `==` (styled underline may look like equals).
+  return [...text].every((ch) => "-\u2014\uFF0D\u2015= \t\n\r".includes(ch));
+}
+
+/**
+ * When Host injected ObjectIndex already knows this objectType, only keep keys
+ * that resolve in the index. If the type is absent (index incomplete / not loaded),
+ * keep the key so legitimate links still work.
+ */
+export function isObjectIdentityReachable(objectType, objectKey) {
+  const type = String(objectType || "").trim();
+  const key = normalizeObjectIdentityText(objectKey);
+  if (!type || !key || isBlankObjectIdentity(key)) return false;
+  const resolver =
+    (typeof window !== "undefined" && window.MeiObjectResolver) ||
+    (typeof globalThis !== "undefined" && globalThis.MeiObjectResolver) ||
+    null;
+  if (!resolver || typeof resolver.resolve !== "function") return true;
+  let index = null;
+  try {
+    index = resolver.index;
+  } catch (_) {
+    return true;
+  }
+  const entries = Array.isArray(index?.entries) ? index.entries : [];
+  const typeKnown = entries.some((entry) => {
+    const loc = entry?.locator;
+    const entryType = String(
+      loc?.objectType || loc?.object_type || loc?.object_type_id || "",
+    ).trim();
+    return entryType === type;
+  });
+  if (!typeKnown) return true;
+  try {
+    return Boolean(resolver.resolve({ objectType: type, objectKey: key }));
+  } catch (_) {
+    return true;
+  }
+}
+
+/**
+ * Expand hyphen-joined ID ranges used in Excel (e.g. XH2025010-XH2025011,
+ * XH2025003-XH2025009). Lone placeholders like `-` / `——` are not ranges.
+ * Returns null when the token is not a same-prefix numeric range.
+ */
+export function expandObjectIdRangeToken(raw) {
+  const text = normalizeObjectIdentityText(raw);
+  if (!text || isBlankObjectIdentity(text)) return null;
+  const match = text.match(
+    /^([A-Za-z\u4e00-\u9fff]*)(\d+)\s*[-–—－]\s*([A-Za-z\u4e00-\u9fff]*)(\d+)$/u,
+  );
+  if (!match) return null;
+  const prefixLeft = match[1] || "";
+  const digitsLeft = match[2];
+  const prefixRight = match[3] || "";
+  const digitsRight = match[4];
+  if (prefixRight && prefixLeft !== prefixRight) return null;
+  const prefix = prefixLeft;
+  let start;
+  let end;
+  try {
+    start = BigInt(digitsLeft);
+    end = BigInt(digitsRight);
+  } catch (_) {
+    return null;
+  }
+  if (end < start) return null;
+  // Guard against accidental huge expansions.
+  if (end - start > 200n) return null;
+  const width = digitsLeft.length;
+  const out = [];
+  for (let n = start; n <= end; n += 1n) {
+    out.push(`${prefix}${n.toString().padStart(width, "0")}`);
+  }
+  return out.length ? out : null;
+}
+
+/**
  * Split multi-value association IDs from Excel cells.
- * Supports newline/whitespace separators and ignorable "1." / "2." prefixes.
+ * Supports newline/whitespace/顿号 separators, ignorable "1." / "2." prefixes,
+ * and hyphen-joined ID ranges (XH2025010-XH2025011).
+ * Blank sentinels (`-` / `—` / `无` / …) are dropped so many-to-many cells
+ * with placeholder parts do not fabricate dead links.
  */
 export function splitMultiObjectKeys(raw) {
   const text = normalizeObjectIdentityText(raw);
-  if (!text) return [];
-  return text
+  if (!text || isBlankObjectIdentity(text)) return [];
+  const parts = text
     // 健全机制等多值常用顿号/逗号；ID 类也兼容空白换行
     .split(/[\n\r\s、，,;；]+/)
     .map((part) =>
@@ -992,7 +1099,19 @@ export function splitMultiObjectKeys(raw) {
           .replace(/^[《]+|[》]+$/g, ""),
       ),
     )
-    .filter(Boolean);
+    .filter((part) => part && !isBlankObjectIdentity(part));
+  const out = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const expanded = expandObjectIdRangeToken(part);
+    const keys = expanded && expanded.length ? expanded : [part];
+    for (const key of keys) {
+      if (!key || isBlankObjectIdentity(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
 }
 
 /** Excel/Parquet 整型 ID 常为 number 或 "2025001.0"；统一成无小数文本。 */
@@ -1008,6 +1127,17 @@ export function normalizeObjectIdentityText(raw) {
   // 健全机制展示常带书名号；身份匹配/过滤时剥离
   text = text.replace(/^[《]+|[》]+$/g, "").trim();
   return text;
+}
+
+function pushObjectFieldTarget(out, base, objectKey) {
+  const key = normalizeObjectIdentityText(objectKey);
+  if (!key || isBlankObjectIdentity(key)) return;
+  if (!isObjectIdentityReachable(base.objectType, key)) return;
+  out.push({
+    ...base,
+    objectKey: key,
+    label: key,
+  });
 }
 
 /** Resolve clickable object targets for one cell from object_field_links IR. */
@@ -1040,65 +1170,41 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
     const relation = nonEmptyString(spec.relation);
     const role = nonEmptyString(spec.role, "relation");
 
+    const targetBase = {
+      role,
+      relation,
+      objectType,
+      keyMode: resolve === "mapping" ? "identity" : keyMode,
+      filterKey,
+      hasDetail,
+      openPopup,
+      detailPage,
+    };
+
     if (resolve === "mapping") {
       const mapped = resolveMappingTargetsForCell(spec, row, cellValue);
       for (const objectKey of mapped) {
-        out.push({
-          role,
-          relation,
-          objectType,
-          objectKey,
-          keyMode: "identity",
-          filterKey,
-          hasDetail,
-          openPopup,
-          detailPage,
-          label: objectKey,
-        });
+        pushObjectFieldTarget(out, targetBase, objectKey);
       }
       continue;
     }
 
     if (resolve === "row_sibling" || resolve === "row-sibling" || resolve === "identity_field") {
       // 入口列本身需有展示值（如序号），objectKey 取同行身份字段。
-      if (!cellValue) continue;
+      if (!cellValue || isBlankObjectIdentity(cellValue)) continue;
       const keyField = nonEmptyString(spec.keyField, spec.key_field);
       if (!keyField) continue;
       const siblingText = String(row[keyField] ?? "").trim();
-      if (!siblingText) continue;
-      const objectKeys = splitMultiObjectKeys(siblingText);
-      for (const objectKey of objectKeys) {
-        out.push({
-          role,
-          relation,
-          objectType,
-          objectKey,
-          keyMode,
-          filterKey,
-          hasDetail,
-          openPopup,
-          detailPage,
-          label: objectKey,
-        });
+      if (!siblingText || isBlankObjectIdentity(siblingText)) continue;
+      for (const objectKey of splitMultiObjectKeys(siblingText)) {
+        pushObjectFieldTarget(out, targetBase, objectKey);
       }
       continue;
     }
 
-    if (!cellValue) continue;
-    const objectKeys = splitMultiObjectKeys(cellValue);
-    for (const objectKey of objectKeys) {
-      out.push({
-        role,
-        relation,
-        objectType,
-        objectKey,
-        keyMode,
-        filterKey,
-        hasDetail,
-        openPopup,
-        detailPage,
-        label: objectKey,
-      });
+    if (!cellValue || isBlankObjectIdentity(cellValue)) continue;
+    for (const objectKey of splitMultiObjectKeys(cellValue)) {
+      pushObjectFieldTarget(out, targetBase, objectKey);
     }
   }
   return out;
@@ -1129,7 +1235,8 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   if (!host || !target) return;
   const objectType = nonEmptyString(target.objectType, target.object_type);
   const objectKey = normalizeObjectIdentityText(target.objectKey ?? target.object_key);
-  if (!objectType || !objectKey) return;
+  if (!objectType || !objectKey || isBlankObjectIdentity(objectKey)) return;
+  if (!isObjectIdentityReachable(objectType, objectKey)) return;
 
   const openPopup =
     (target.openPopup && typeof target.openPopup === "object" ? target.openPopup : null) ||
@@ -1272,7 +1379,10 @@ if (typeof window !== "undefined") {
     resolveObjectFieldTargets,
     emitObjectFieldOpen,
     splitMultiObjectKeys,
+    expandObjectIdRangeToken,
     normalizeObjectIdentityText,
+    isBlankObjectIdentity,
+    isObjectIdentityReachable,
     buildMappingLookupKeys,
     preferUniqueObjectTargets,
   };

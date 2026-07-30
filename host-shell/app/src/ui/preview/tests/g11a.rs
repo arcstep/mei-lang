@@ -56,6 +56,7 @@ fn resolve_value_supports_data_and_metric_refs() {
                         source: None,
                         optional: false,
                         unit: None,
+                        normalize: None,
                     },
                     ColumnSchema {
                         name: "value".to_string(),
@@ -63,6 +64,7 @@ fn resolve_value_supports_data_and_metric_refs() {
                         source: None,
                         optional: false,
                         unit: Some("元".to_string()),
+                        normalize: None,
                     },
                 ],
                 stage_schema: Vec::new(),
@@ -97,6 +99,7 @@ fn resolve_value_supports_data_and_metric_refs() {
                             source: None,
                             optional: false,
                             unit: Some("元".to_string()),
+                            normalize: None,
                         }],
                         dataset: None,
                         transforms: Vec::new(),

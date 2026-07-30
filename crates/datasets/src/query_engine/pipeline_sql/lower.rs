@@ -1497,15 +1497,47 @@ fn lower_lookup_value(
     if !columns.iter().any(|c| c == as_field) {
         columns.push(as_field.to_string());
     }
+    // Multi-value / hyphen-range object IDs need a first-token OR branch.
+    // Do **not** apply to ordinary name/label joins (e.g. 企业名称): stripping
+    // after `-` / `、` corrupts map/POI lookups and can break pipeline SQL.
+    let on_sql = if field_looks_like_object_key(left_field)
+        || field_looks_like_object_key(right_key)
+        || field_looks_like_object_key(as_field)
+    {
+        let first_token = format!(
+            "regexp_replace(\
+               regexp_replace(CAST(a.{l} AS VARCHAR), '[、，,;；\\n\\r\\t ]+.*$', ''), \
+               '-.*$', \
+               ''\
+             )"
+        );
+        format!(
+            "CAST(a.{l} AS VARCHAR) = CAST(b.{rk} AS VARCHAR) \
+               OR ({first_token} <> '' AND {first_token} = CAST(b.{rk} AS VARCHAR))"
+        )
+    } else {
+        format!("CAST(a.{l} AS VARCHAR) = CAST(b.{rk} AS VARCHAR)")
+    };
     Ok(Some(Rel {
         sql: format!(
             "SELECT a.*, b.{rv} AS {alias} \
              FROM ({}) AS a \
-             LEFT JOIN ({}) AS b ON CAST(a.{l} AS VARCHAR) = CAST(b.{rk} AS VARCHAR)",
+             LEFT JOIN ({}) AS b ON {on_sql}",
             inner.sql, lookup.sql
         ),
         columns,
     }))
+}
+
+fn field_looks_like_object_key(field: &str) -> bool {
+    let text = field.trim();
+    if text.is_empty() {
+        return false;
+    }
+    text.ends_with("ID")
+        || text.ends_with("Id")
+        || text.contains("预警ID")
+        || text.contains("处理结果")
 }
 
 fn materialize_rel_as_cte(rel: Rel, setup: &mut Vec<String>) -> Result<Rel> {

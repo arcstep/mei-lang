@@ -789,11 +789,12 @@
           return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
         }
         return String(value ?? "")
-          .split(/[\n\r\s]+/)
+          .split(/[\n\r\s、，,;；]+/)
           .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
-          .filter(Boolean);
+          .filter((part) => part && part !== "-" && part !== "—" && part !== "－" && part !== "——");
       })();
-      const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+      // Never fall back to raw cell text: blank sentinels like `——` must stay non-links.
+      const keys = rawKeys;
       if (!keys.length) {
         const empty = document.createElement("span");
         empty.className = "access-drilldown-case-detail-id-chip";
@@ -958,140 +959,26 @@
     if (tagRow.childElementCount) panel.appendChild(tagRow);
   }
 
-  function closeCaseCardFactPopover() {
-    const existing = document.querySelector(".access-drilldown-case-fact-popover");
-    if (existing) existing.remove();
-    if (typeof window.__meiCaseFactPopoverCleanup === "function") {
-      window.__meiCaseFactPopoverCleanup();
-      window.__meiCaseFactPopoverCleanup = null;
-    }
-  }
-
-  function openCaseCardFactPopover(anchor, fullText, title) {
-    closeCaseCardFactPopover();
-    const pop = document.createElement("div");
-    pop.className = "access-drilldown-case-fact-popover";
-    pop.setAttribute("role", "dialog");
-    pop.setAttribute("aria-label", title || "详细内容");
-    const head = document.createElement("div");
-    head.className = "access-drilldown-case-fact-popover-head";
-    const titleEl = document.createElement("div");
-    titleEl.className = "access-drilldown-case-fact-popover-title";
-    titleEl.textContent = title || "详细内容";
-    const closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = "access-drilldown-case-fact-popover-close";
-    closeBtn.setAttribute("aria-label", "关闭");
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      closeCaseCardFactPopover();
-    });
-    head.appendChild(titleEl);
-    head.appendChild(closeBtn);
-    const body = document.createElement("div");
-    body.className = "access-drilldown-case-fact-popover-body";
-    body.textContent = fullText;
-    pop.appendChild(head);
-    pop.appendChild(body);
-    document.body.appendChild(pop);
-    const rect = anchor.getBoundingClientRect();
-    const width = Math.min(420, Math.max(280, window.innerWidth - 24));
-    pop.style.position = "fixed";
-    pop.style.width = `${width}px`;
-    pop.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
-    pop.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 12)}px`;
-    const onDoc = (event) => {
-      if (pop.contains(event.target) || anchor.contains?.(event.target)) return;
-      closeCaseCardFactPopover();
-    };
-    const onKey = (event) => {
-      if (event.key === "Escape") closeCaseCardFactPopover();
-    };
-    setTimeout(() => {
-      document.addEventListener("mousedown", onDoc, true);
-      document.addEventListener("keydown", onKey, true);
-    }, 0);
-    window.__meiCaseFactPopoverCleanup = () => {
-      document.removeEventListener("mousedown", onDoc, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }
-
   function appendTypicalCaseFacts(panel, row, mapping) {
     const facts = cloneArray(mapping?.facts);
     if (!facts.length) return;
     const factsRoot = document.createElement("div");
     factsRoot.className = "access-drilldown-typical-case-facts";
-    const maxChars = Math.max(
-      8,
-      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 16) || 16,
-    );
     facts.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
       const full = resolveCaseDetailFieldValue(row, spec) || "—";
       const item = document.createElement("div");
       item.className = "access-drilldown-typical-case-fact";
+      item.style.flex = "0 0 auto";
       const labelEl = document.createElement("div");
       labelEl.className = "access-drilldown-typical-case-fact-label";
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-fact-value";
-      const chars = [...full];
-      const needsTruncate = full !== "—" && chars.length > maxChars;
-      const bindFullText = (anchor) => {
-        const open = (event) => {
-          event?.preventDefault?.();
-          event?.stopPropagation?.();
-          openCaseCardFactPopover(anchor, full, label);
-        };
-        anchor.addEventListener("click", open);
-        anchor.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") open(event);
-        });
-      };
-      if (needsTruncate) {
-        valueEl.classList.add("is-truncated");
-        valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
-        valueEl.title = "点击查看全文";
-        valueEl.setAttribute("role", "button");
-        valueEl.tabIndex = 0;
-        bindFullText(valueEl);
-        const more = document.createElement("button");
-        more.type = "button";
-        more.className = "access-drilldown-case-fact-more";
-        more.textContent = "查看全文";
-        more.title = "查看全文";
-        bindFullText(more);
-        item.appendChild(labelEl);
-        item.appendChild(valueEl);
-        item.appendChild(more);
-      } else {
-        valueEl.textContent = full;
-        item.appendChild(labelEl);
-        item.appendChild(valueEl);
-        // 窄列 CSS 省略时补「查看全文」
-        requestAnimationFrame(() => {
-          if (!(valueEl.scrollWidth > valueEl.clientWidth + 1 || valueEl.scrollHeight > valueEl.clientHeight + 1)) {
-            return;
-          }
-          if (item.querySelector(".access-drilldown-case-fact-more")) return;
-          valueEl.classList.add("is-truncated");
-          valueEl.title = "点击查看全文";
-          valueEl.setAttribute("role", "button");
-          valueEl.tabIndex = 0;
-          bindFullText(valueEl);
-          const more = document.createElement("button");
-          more.type = "button";
-          more.className = "access-drilldown-case-fact-more";
-          more.textContent = "查看全文";
-          more.title = "查看全文";
-          bindFullText(more);
-          item.appendChild(more);
-        });
-      }
+      valueEl.textContent = full;
+      item.appendChild(labelEl);
+      item.appendChild(valueEl);
       factsRoot.appendChild(item);
     });
     if (factsRoot.childElementCount) panel.appendChild(factsRoot);
@@ -1144,11 +1031,12 @@
             return window.MeiDrilldownMeta.splitMultiObjectKeys(value);
           }
           return String(value ?? "")
-            .split(/[\n\r\s]+/)
+            .split(/[\n\r\s、，,;；]+/)
             .map((part) => String(part || "").trim().replace(/^\d+\.\s*/, ""))
-            .filter(Boolean);
+            .filter((part) => part && part !== "-" && part !== "—" && part !== "－" && part !== "——");
         })();
-        const keys = rawKeys.length ? rawKeys : value ? [String(value).trim()] : [];
+        // Never fall back to raw cell text: blank sentinels like `——` must stay non-links.
+        const keys = rawKeys;
         if (!keys.length) return;
         const wantsLink = spec?.object_link === true || spec?.objectLink === true;
         keys.forEach((key) => {

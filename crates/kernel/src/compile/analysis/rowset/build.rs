@@ -7,6 +7,7 @@ use crate::local_dataset_id_from_namespaced_token;
 use crate::model::DatasetView;
 
 use super::super::eval_context::{EvalContext, EvalNodeKind};
+use super::super::object_keys::split_multi_object_keys;
 use super::super::schema::{row_string, row_value};
 use super::infer::eval_analysis_rowset;
 
@@ -307,10 +308,16 @@ pub(super) fn eval_lookup_value_rowset(
     for row in eval_rowset_with_ctx(rowset_expr, datasets, ctx)? {
         let mut object = row.as_object().cloned().unwrap_or_default();
         let key = row_string(&row, field);
-        object.insert(
-            as_field.clone(),
-            lookup.get(&key).cloned().unwrap_or(Value::Null),
-        );
+        let value = lookup
+            .get(&key)
+            .cloned()
+            .or_else(|| {
+                split_multi_object_keys(&key)
+                    .into_iter()
+                    .find_map(|token| lookup.get(&token).cloned())
+            })
+            .unwrap_or(Value::Null);
+        object.insert(as_field.clone(), value);
         out.push(Value::Object(object));
     }
     Ok(out)

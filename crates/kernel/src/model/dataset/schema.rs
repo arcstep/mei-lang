@@ -14,6 +14,21 @@ pub struct ColumnSchema {
     pub optional: bool,
     #[serde(default)]
     pub unit: Option<String>,
+    /// Cell normalize kind applied at parquet ingest / coerce (e.g. `object_keys`).
+    /// Keeps Arrow type as string; multi-value IDs become `、`-joined canonical keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalize: Option<String>,
+}
+
+impl ColumnSchema {
+    /// Physical Excel / parquet column name (`source` when set, else logical `name`).
+    pub fn physical_name(&self) -> &str {
+        self.source
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(self.name.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

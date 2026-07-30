@@ -1,11 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::Result;
 use mei_host_core::path_for_log;
 use mei_lang_kernel::{
-    data_snapshot_import_manifest_path, load_mei_config_for_app, ops_source_entry_to_decl,
-    parquet_snapshot_path, publish_xlsx_data_snapshots_for_paths, resolve_app_root,
+    cell_normalize_rules_from_schema, data_snapshot_import_manifest_path, load_mei_config_for_app,
+    merge_cell_normalize_rules, ops_source_entry_to_decl, parquet_snapshot_path,
+    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes, resolve_app_root,
     resolve_data_snapshot_import_entry,
 };
 use serde::Serialize;
@@ -77,6 +78,7 @@ pub fn publish_app_data_snapshots(
 ) -> Result<PublishDataSnapshotsReport> {
     let app_root = resolve_app_root(source_root, app_id);
     let required = collect_app_xlsx_sources(source_root, app_id)?;
+    let cell_normalizes_by_source = collect_app_cell_normalize_rules(source_root, app_id)?;
     let discovered_sources = required
         .iter()
         .map(|(path, sheet, header_row)| {
@@ -94,7 +96,11 @@ pub fn publish_app_data_snapshots(
     let mut total_written_bytes = 0u64;
     for (path, sheet, header_row) in required {
         let refs = [(path.as_str(), sheet.as_deref(), header_row)];
-        match publish_xlsx_data_snapshots_for_paths(app_root.as_path(), &refs) {
+        match publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(
+            app_root.as_path(),
+            &refs,
+            &cell_normalizes_by_source,
+        ) {
             Ok(paths) => {
                 for snapshot_path in paths {
                     if snapshot_path.is_file() {
@@ -122,6 +128,46 @@ pub fn publish_app_data_snapshots(
         ),
         total_written_bytes,
     })
+}
+
+fn collect_app_cell_normalize_rules(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<BTreeMap<String, BTreeMap<String, String>>> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    let resources =
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
+    let mut out: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for resource in resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        let rules = cell_normalize_rules_from_schema(&dataset.schema);
+        if rules.is_empty() {
+            continue;
+        }
+        let kind = dataset.source.kind.trim().to_ascii_lowercase();
+        if !matches!(kind.as_str(), "xlsx" | "xls" | "csv" | "json") {
+            continue;
+        }
+        let path = dataset.source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let sheet = dataset
+            .source
+            .sheet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        let header_row = dataset.source.header_row.unwrap_or(1).max(1) as usize;
+        let key = format!("{path}|sheet={sheet}|header_row={header_row}");
+        let entry = out.entry(key).or_default();
+        merge_cell_normalize_rules(entry, &rules);
+    }
+    Ok(out)
 }
 
 /// After parquet sidecars exist: require authored `schema.source` to match snapshot columns.

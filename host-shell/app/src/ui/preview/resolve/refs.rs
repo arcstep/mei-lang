@@ -124,6 +124,12 @@ fn metric_contract_from_runtime_def(def: &Value, metric_id: &str) -> MetricContr
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             unit: obj.get("unit").and_then(Value::as_str).map(str::to_string),
+                            normalize: obj
+                                .get("normalize")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(str::to_string),
                         })
                     })
                     .collect()

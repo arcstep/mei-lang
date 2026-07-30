@@ -385,6 +385,7 @@ mod tests {
                 source: None,
                 optional: false,
                 unit: None,
+                normalize: None,
             },
             ColumnSchema {
                 name: "分办时间".to_string(),
@@ -392,6 +393,7 @@ mod tests {
                 source: None,
                 optional: false,
                 unit: None,
+                normalize: None,
             },
         ];
         let datasets = BTreeMap::from([
@@ -409,6 +411,7 @@ mod tests {
                         source: None,
                         optional: false,
                         unit: None,
+                        normalize: None,
                     }],
                 ),
             ),
@@ -432,6 +435,7 @@ mod tests {
             source: None,
             optional: false,
             unit: None,
+            normalize: None,
         }];
         let datasets = BTreeMap::from([(
             "warning_list".to_string(),

@@ -74,6 +74,7 @@ pub(crate) fn build_schema_preview(
                     "type": col.type_name,
                     "source": col.source,
                     "optional": col.optional,
+                    "normalize": col.normalize,
                 })
             } else {
                 json!({

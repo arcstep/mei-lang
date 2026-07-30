@@ -9,11 +9,13 @@ RUNTIME="${MEI_RUNTIME:-local}"
 resolve_mei_lang_root() {
   local workspace_root="$1"
   local root="${MEI_LANG_ROOT:-${workspace_root}/../../mei-lang}"
-  if [[ ! -f "${root}/Cargo.toml" ]]; then
-    echo "error: mei-lang not found at ${root} (set MEI_LANG_ROOT)" >&2
-    return 1
+  # Source checkout (dev / remote-cargo) or clean package (share/mei → mei-package).
+  if [[ -f "${root}/Cargo.toml" || -d "${root}/app/assets" || -d "${root}/stock" ]]; then
+    printf '%s' "${root}"
+    return 0
   fi
-  printf '%s' "${root}"
+  echo "error: mei-lang not found at ${root} (set MEI_LANG_ROOT)" >&2
+  return 1
 }
 
 resolve_mei_release_root() {

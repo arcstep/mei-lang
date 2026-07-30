@@ -15,10 +15,6 @@
     if (!metrics.length) return;
     const metricsRoot = document.createElement("div");
     metricsRoot.className = "access-drilldown-typical-case-metrics";
-    const maxChars = Math.max(
-      12,
-      Number(mapping?.fact_truncate_chars || mapping?.factTruncateChars || 28) || 28,
-    );
     metrics.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
       if (!label) return;
@@ -33,28 +29,11 @@
       labelEl.textContent = label;
       const valueEl = document.createElement("div");
       valueEl.className = "access-drilldown-typical-case-metric-value";
+      // Content-sized cards pack left; leftover row space stays empty (no flex-grow).
+      // Overlong rows scroll horizontally instead of wrapping into swimlane space.
+      card.style.flex = "0 0 auto";
       if (isText) {
-        const full = resolveCaseDetailFieldValue(row, spec) || "—";
-        const chars = [...full];
-        const needsTruncate = full !== "—" && chars.length > maxChars;
-        if (needsTruncate) {
-          valueEl.classList.add("is-truncated");
-          valueEl.textContent = `${chars.slice(0, maxChars).join("")}…`;
-          valueEl.title = "点击查看全文";
-          valueEl.setAttribute("role", "button");
-          valueEl.tabIndex = 0;
-          const open = (event) => {
-            event?.preventDefault?.();
-            event?.stopPropagation?.();
-            openCaseCardFactPopover(valueEl, full, label);
-          };
-          valueEl.addEventListener("click", open);
-          valueEl.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" || event.key === " ") open(event);
-          });
-        } else {
-          valueEl.textContent = full;
-        }
+        valueEl.textContent = resolveCaseDetailFieldValue(row, spec) || "—";
       } else {
         valueEl.textContent = formatTypicalCaseMetricValue(row, spec);
       }
@@ -170,6 +149,72 @@
     host.appendChild(panel);
   }
 
+  function estimateCaseDetailColumnWeight(column, row, mapping) {
+    let chars = String(column?.title || column?.label || "").trim().length;
+    cloneArray(column?.sections).forEach((section) => {
+      const kind = String(section?.kind || "").trim();
+      let value = resolveCaseDetailFieldValue(row, section);
+      if (kind === "situation") {
+        value = resolveCaseDetailSituationText(row, mapping);
+      }
+      chars += String(section?.label || "").trim().length;
+      chars += String(value ?? "")
+        .replace(/\s+/g, " ")
+        .trim().length;
+    });
+    return Math.max(24, chars);
+  }
+
+  /** 按字数（开方阻尼）分配泳道 fr；单道夹在约 14%–42%，避免长短文极端占满/过窄。 */
+  function buildCaseDetailLaneTemplate(weights) {
+    const list = Array.isArray(weights) && weights.length ? weights : [1];
+    const MIN = 0.14;
+    const MAX = 0.42;
+    const dampened = list.map((w) => Math.sqrt(Math.max(Number(w) || 1, 1)));
+    const sum0 = dampened.reduce((a, b) => a + b, 0) || dampened.length;
+    let shares = dampened.map((w) => w / sum0);
+    const locked = new Array(shares.length).fill(false);
+    for (let pass = 0; pass < 8; pass += 1) {
+      let changed = false;
+      let lockedSum = 0;
+      let freeWeight = 0;
+      shares.forEach((s, i) => {
+        if (locked[i]) {
+          lockedSum += shares[i];
+          return;
+        }
+        if (s < MIN) {
+          shares[i] = MIN;
+          locked[i] = true;
+          lockedSum += MIN;
+          changed = true;
+          return;
+        }
+        if (s > MAX) {
+          shares[i] = MAX;
+          locked[i] = true;
+          lockedSum += MAX;
+          changed = true;
+          return;
+        }
+        freeWeight += s;
+      });
+      const freeIdx = shares.map((_, i) => i).filter((i) => !locked[i]);
+      if (!freeIdx.length) break;
+      const freeBudget = Math.max(0, 1 - lockedSum);
+      const scale = freeWeight > 0 ? freeBudget / freeWeight : 0;
+      freeIdx.forEach((i) => {
+        shares[i] = freeWeight > 0 ? shares[i] * scale : freeBudget / freeIdx.length;
+      });
+      const stillOut = freeIdx.some((i) => shares[i] < MIN - 1e-9 || shares[i] > MAX + 1e-9);
+      if (!changed && !stillOut) break;
+    }
+    const tot = shares.reduce((a, b) => a + b, 0) || 1;
+    return shares
+      .map((s) => `minmax(0, ${Math.max(s / tot, 0.01).toFixed(4)}fr)`)
+      .join(" ");
+  }
+
   function renderCaseDetailCardPanel(host, row, config, detail) {
     if (!(host instanceof HTMLElement)) return;
     host.replaceChildren();
@@ -250,6 +295,7 @@
     const laneCount = columns.length > 0 ? columns.length : 3;
     columnsRoot.style.setProperty("--case-detail-lane-count", String(laneCount));
     columnsRoot.dataset.laneCount = String(laneCount);
+    const laneWeights = [];
     columns.forEach((column) => {
       const columnEl = document.createElement("div");
       columnEl.className = "access-drilldown-case-detail-column";
@@ -268,10 +314,14 @@
         appendCaseDetailSection(columnEl, section, enrichedRow, mapping, config);
       });
       if (columnEl.childElementCount) {
+        const weight = estimateCaseDetailColumnWeight(column, enrichedRow, mapping);
+        laneWeights.push(weight);
+        columnEl.dataset.contentWeight = String(weight);
         columnsRoot.appendChild(columnEl);
       }
     });
     if (columnsRoot.childElementCount) {
+      columnsRoot.style.gridTemplateColumns = buildCaseDetailLaneTemplate(laneWeights);
       panel.appendChild(columnsRoot);
     } else {
       // 无泳道时顶区占满，避免空行留白。

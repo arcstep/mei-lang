@@ -50,12 +50,17 @@ pub use analysis::dates::{
     coerce_calendar_columns_in_rows, coerce_row_to_schema, coerce_rows_to_schema,
     format_calendar_date_value,
 };
+pub use analysis::object_keys::{
+    is_blank_object_identity, normalize_object_keys_cell, split_multi_object_keys,
+};
 pub use data_snapshot::{
-    access_parquet_import_required, data_snapshot_import_manifest_path, data_snapshot_store_root,
+    access_parquet_import_required, cell_normalize_rules_from_schema,
+    data_snapshot_import_manifest_path, data_snapshot_store_root, merge_cell_normalize_rules,
     parquet_sidecar_write_allowed, parquet_snapshot_path, publish_xlsx_data_snapshots_for_paths,
-    read_data_snapshot_import_manifest, resolve_data_snapshot_import_entry,
-    snapshot_sealed_data_enabled, source_file_content_signature, try_load_xlsx_parquet_snapshot,
-    write_data_snapshot_import_manifest, write_xlsx_parquet_snapshot, DataSnapshotImportEntry,
+    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes, read_data_snapshot_import_manifest,
+    resolve_data_snapshot_import_entry, snapshot_sealed_data_enabled, source_file_content_signature,
+    try_load_xlsx_parquet_snapshot, write_data_snapshot_import_manifest, write_xlsx_parquet_snapshot,
+    write_xlsx_parquet_snapshot_with_cell_normalizes, DataSnapshotImportEntry,
     DataSnapshotImportManifest, DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION,
     DATA_SNAPSHOT_SCHEMA_VERSION, PORTABLE_SNAPSHOT_MARKER,
 };

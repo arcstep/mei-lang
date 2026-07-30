@@ -20,7 +20,7 @@ export const THEME_FALLBACK_COLORS = {
   chart_5: "#10b981",
   chart_6: "#059669",
   chart_cat_1: "#10b981",
-  chart_cat_2: "#0891b2",
+  chart_cat_2: "#d946ef",
   chart_cat_3: "#14b8a6",
   chart_cat_4: "#8b5cf6",
   chart_cat_5: "#0ea5e9",
