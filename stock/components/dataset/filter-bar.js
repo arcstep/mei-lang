@@ -3711,11 +3711,12 @@ function renderField(field, filters, index, fieldOptions, openDropdownKey, multi
   `;
 }
 
-// v2：避免浏览器 CE 注册表钉住曾把风险等级锁成红/黄/蓝的旧模块
+// v2：避免浏览器 CE 注册表钉住曾把风险等级锁成红/黄/蓝的旧模块。
+// 同一 constructor 只能 define 一次；兼容旧标签须用子类。
 if (!customElements.get("mei-dataset-filter-bar-v2")) {
   customElements.define("mei-dataset-filter-bar-v2", MeiDatasetFilterBar);
 }
-// 兼容旧挂载点（仅当尚未被旧模块占用时）
 if (!customElements.get("mei-dataset-filter-bar")) {
-  customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBar);
+  class MeiDatasetFilterBarLegacy extends MeiDatasetFilterBar {}
+  customElements.define("mei-dataset-filter-bar", MeiDatasetFilterBarLegacy);
 }

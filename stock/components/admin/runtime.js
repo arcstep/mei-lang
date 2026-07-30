@@ -167,6 +167,39 @@ async function applyAssetCurrent(reference, filename) {
   );
 }
 
+/** Clear Access client query caches after ops-source rewarm (no full prebuild). */
+function notifyOpsSourceRewarmed(detail = {}) {
+  try {
+    window.clearEvalRuntimeCaches?.();
+  } catch (_) {
+    /* ignore */
+  }
+  const appId = String(detail.appId || detail.app_id || "").trim();
+  if (appId && window.sessionStorage) {
+    const prefix = `mei:runtime-query:v1:${appId}:`;
+    try {
+      const keys = [];
+      for (let index = 0; index < window.sessionStorage.length; index += 1) {
+        const key = window.sessionStorage.key(index);
+        if (key && key.startsWith(prefix)) keys.push(key);
+      }
+      keys.forEach((key) => window.sessionStorage.removeItem(key));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  try {
+    window.dispatchEvent?.(
+      new CustomEvent("mei:ops-source-rewarmed", {
+        bubbles: true,
+        detail,
+      }),
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 async function deleteAssetFile(reference, filename) {
   const resolved = await resolveProvider(reference);
   return requestJson(
@@ -2490,8 +2523,20 @@ class AssetSlot extends AdminBrick {
               applyBtn.disabled = true;
               status.textContent = `正在应用 ${name}…`;
               const response = await applyAssetCurrent(writeRef, name);
-              status.textContent = `已设为当前：${response.slot?.activePath || name}`;
+              const rewarm = response?.rewarm || {};
+              const activePath = response?.slot?.activePath || name;
+              const gen = rewarm.dataGeneration || rewarm.data_generation || "";
+              status.textContent = gen
+                ? `已设为当前并重建数据：${activePath}（${gen}）`
+                : `已设为当前并重建数据：${activePath}`;
               status.dataset.tone = "ok";
+              notifyOpsSourceRewarmed({
+                appId: response?.context?.appId || response?.context?.app_id || "",
+                slotId: rewarm.slotId || rewarm.slot_id || props.slot_id,
+                sourcePath: rewarm.sourcePath || rewarm.source_path || activePath,
+                dataGeneration: gen,
+                applyPolicy: response?.applyPolicy || response?.apply_policy || "reload-data",
+              });
               await this.hydrate(props);
             } catch (error) {
               status.textContent = error.message || String(error);

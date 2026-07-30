@@ -28,6 +28,16 @@ fn parse_date_text(raw: &str) -> Option<(i32, u32, u32)> {
     if text.is_empty() {
         return None;
     }
+    // Compact Excel/export form: `YYYYMMDD`.
+    if text.len() == 8 && text.bytes().all(|b| b.is_ascii_digit()) {
+        let year = text[0..4].parse::<i32>().ok()?;
+        let month = text[4..6].parse::<u32>().ok()?;
+        let day = text[6..8].parse::<u32>().ok()?;
+        if (1..=12).contains(&month) && (1..=31).contains(&day) {
+            return Some((year, month, day));
+        }
+        return None;
+    }
     // `YYYY-MM-DD HH:MM:SS` / ISO datetime：只取日历日部分。
     let date_token = text.split(['T', 't', ' ']).next().unwrap_or(text).trim();
     let normalized = date_token
@@ -510,6 +520,16 @@ mod tests {
         assert_eq!(
             out[0].get("分办时间").and_then(|v| v.as_str()),
             Some(format_iso_date(parsed).as_str())
+        );
+    }
+
+    #[test]
+    fn parse_date_value_accepts_compact_yyyymmdd() {
+        use super::format_iso_date;
+        assert_eq!(parse_date_value(&json!("20260608")), Some((2026, 6, 8)));
+        assert_eq!(
+            format_iso_date(parse_date_value(&json!("20260608")).expect("ymd")),
+            "2026-06-08"
         );
     }
 

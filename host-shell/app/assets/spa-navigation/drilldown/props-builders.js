@@ -63,6 +63,17 @@
     const resolvedPaletteMode = explicitPaletteMode
       || (warningLevelDim ? "warning_level" : "")
       || (isPieFamily ? "category" : "");
+    const explicitShowLegendRaw =
+      overrides?.showLegend ??
+      overrides?.show_legend ??
+      config?.showLegend ??
+      config?.show_legend;
+    const explicitShowLegend =
+      explicitShowLegendRaw === true || explicitShowLegendRaw === "true"
+        ? true
+        : explicitShowLegendRaw === false || explicitShowLegendRaw === "false"
+          ? false
+          : null;
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -72,14 +83,19 @@
       gridLeft: 10,
       gridTop: 10,
       gridRight: 8,
-      gridBottom: 36,
+      gridBottom: explicitShowLegend === true || (explicitShowLegend == null && multiSeries) ? 48 : 36,
       label_max_chars: 6,
       category_label_rotate: 30,
-      showLegend: multiSeries,
+      // compact 环图默认无图例；作者显式 show_legend / 多系列时打开
+      showLegend: explicitShowLegend != null ? explicitShowLegend : multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
       ...(resolvedPaletteMode ? { palette_mode: resolvedPaletteMode } : {}),
       ...overrides,
     };
+    if (explicitShowLegend != null) {
+      props.showLegend = explicitShowLegend;
+      props.show_legend = explicitShowLegend;
+    }
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
     if (props.fillHeight === true || props.fill_height === true) {
       if (overrides?.chartHeight === undefined && overrides?.chart_height === undefined) {

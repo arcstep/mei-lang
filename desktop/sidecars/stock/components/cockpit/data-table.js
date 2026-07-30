@@ -1065,7 +1065,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     }
   }
 
-  function openObjectFieldChooser(anchor, targets, row) {
+  openObjectFieldChooser(anchor, targets, row) {
     this.closeObjectFieldChooser();
     if (!this.shadowRoot || !anchor) return;
     const fieldName = String(
@@ -1361,6 +1361,18 @@ export class MeiCockpitDataTable extends HTMLElement {
     const lastColAccent = p.layoutPreset === "cases";
 
     this._cellTextMap = new Map();
+    const scrollEl = this.shadowRoot?.querySelector?.(".table-scroll");
+    // 选中行会整表重绘；右侧预览挂载还可能触发布局，冲掉 scrollTop。先记住再还原。
+    const savedScrollTop =
+      scrollEl instanceof HTMLElement
+        ? scrollEl.scrollTop
+        : Number(this._savedTableScrollTop) || 0;
+    const savedScrollLeft =
+      scrollEl instanceof HTMLElement
+        ? scrollEl.scrollLeft
+        : Number(this._savedTableScrollLeft) || 0;
+    this._savedTableScrollTop = savedScrollTop;
+    this._savedTableScrollLeft = savedScrollLeft;
     const headCells = layoutDescriptors
       .map(
         (descriptor) =>
@@ -1501,6 +1513,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           overflow-x: auto;
           overflow-y: auto;
           overscroll-behavior: contain;
+          overflow-anchor: none;
         }
         .tbody {
           min-height: 0;
@@ -1925,6 +1938,22 @@ export class MeiCockpitDataTable extends HTMLElement {
         ${footerHtml}
       </div>
     `;
+    const restoreScroll = () => {
+      const nextScroll = this.shadowRoot?.querySelector?.(".table-scroll");
+      if (!(nextScroll instanceof HTMLElement)) return;
+      if (nextScroll.scrollTop !== savedScrollTop) nextScroll.scrollTop = savedScrollTop;
+      if (nextScroll.scrollLeft !== savedScrollLeft) nextScroll.scrollLeft = savedScrollLeft;
+      this._savedTableScrollTop = savedScrollTop;
+      this._savedTableScrollLeft = savedScrollLeft;
+    };
+    restoreScroll();
+    // 右侧预览/视频挂载后布局会再抖一轮，下一帧再钉一次位置。
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        restoreScroll();
+        requestAnimationFrame(restoreScroll);
+      });
+    }
     this.bindCellPreviewEvents();
     this.bindCarouselHover();
   }

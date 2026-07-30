@@ -79,6 +79,13 @@ export function normalizeColumnFormats(raw) {
       kind: String(value.kind || "").trim() || null,
       emptyText: value.emptyText != null ? String(value.emptyText) : "",
       align: ["left", "center", "right"].includes(align) ? align : null,
+      toneHit: String(value.tone_hit || value.toneHit || "").trim().toLowerCase() || null,
+      toneMiss: String(value.tone_miss || value.toneMiss || "").trim().toLowerCase() || null,
+      availableStems: Array.isArray(value.available_stems || value.availableStems || value.match_set || value.matchSet)
+        ? (value.available_stems || value.availableStems || value.match_set || value.matchSet)
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        : null,
     };
   }
   return out;
@@ -134,6 +141,52 @@ export function isWarningLevelBlocksColumn(descriptor) {
 export function isSerialNumberColumnKey(key) {
   const name = String(key || "").trim();
   return Boolean(name) && (name === "序号" || name.endsWith("序号"));
+}
+
+/**
+ * 版本式序号排序键：按段零填充数字，使 `1` < `1-2` < `1-10` < `2` < `10`。
+ * 对齐服务端 `serial_number_sort_key`。
+ */
+export function serialNumberSortKey(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return "";
+  const PAD = 10;
+  let out = "";
+  let i = 0;
+  while (i < trimmed.length) {
+    const ch = trimmed[i];
+    if (ch >= "0" && ch <= "9") {
+      let j = i + 1;
+      while (j < trimmed.length && trimmed[j] >= "0" && trimmed[j] <= "9") j += 1;
+      const digits = trimmed.slice(i, j);
+      const body = digits.replace(/^0+(?=\d)/, "") || "0";
+      out += body.length >= PAD ? body : body.padStart(PAD, "0");
+      i = j;
+    } else {
+      out += ch;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/** 空值最后；无数字文本（如「待完善」）排在数字序号之后。 */
+export function compareSerialNumberValues(left, right) {
+  const leftText = left == null ? "" : String(left).trim();
+  const rightText = right == null ? "" : String(right).trim();
+  if (!leftText && !rightText) return 0;
+  if (!leftText) return 1;
+  if (!rightText) return -1;
+  const leftHasDigit = /\d/.test(leftText);
+  const rightHasDigit = /\d/.test(rightText);
+  if (leftHasDigit !== rightHasDigit) return leftHasDigit ? -1 : 1;
+  const leftKey = serialNumberSortKey(leftText);
+  const rightKey = serialNumberSortKey(rightText);
+  if (leftKey < rightKey) return -1;
+  if (leftKey > rightKey) return 1;
+  if (leftText < rightText) return -1;
+  if (leftText > rightText) return 1;
+  return 0;
 }
 
 /** 业务主键/编号列（预警ID、问题跟踪ID 等）；排除「是否*」布尔列与序号列。 */
@@ -510,6 +563,16 @@ function matchesRule(raw, rule) {
 }
 
 export function resolveToneToken(raw, descriptor) {
+  const format = descriptor?.format || {};
+  const kind = String(format.kind || "").trim().toLowerCase();
+  if (kind === "video_stem_tone" || kind === "listed_tone") {
+    const stems = Array.isArray(format.availableStems) ? format.availableStems : [];
+    const text = toPlainText(raw).trim();
+    if (text && stems.includes(text)) {
+      return format.toneHit || "yellow";
+    }
+    return format.toneMiss || null;
+  }
   const rules = Array.isArray(descriptor?.rules) ? descriptor.rules : [];
   const matched = rules.find((rule) => matchesRule(raw, rule));
   if (matched?.tone) return matched.tone;

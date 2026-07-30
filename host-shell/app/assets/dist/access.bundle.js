@@ -17595,6 +17595,18 @@
             ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
             : null,
         paletteMode: nonEmptyString(entry.palette_mode, entry.paletteMode),
+        showLegend:
+          entry.show_legend === true ||
+          entry.show_legend === "true" ||
+          entry.showLegend === true ||
+          entry.showLegend === "true"
+            ? true
+            : entry.show_legend === false ||
+                entry.show_legend === "false" ||
+                entry.showLegend === false ||
+                entry.showLegend === "false"
+              ? false
+              : null,
         yAxisInteger:
           entry.y_axis_integer === true ||
           entry.y_axis_integer === "true" ||
@@ -17977,6 +17989,12 @@
                 ? slot.categoryOrder
                 : undefined,
             palette_mode: nonEmptyString(slot.paletteMode, slot.palette_mode) || undefined,
+            show_legend:
+              slot.showLegend === true || slot.show_legend === true
+                ? true
+                : slot.showLegend === false || slot.show_legend === false
+                  ? false
+                  : undefined,
             y_axis_integer: slot.yAxisInteger === true || slot.y_axis_integer === true || undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
@@ -19763,6 +19781,17 @@
     const resolvedPaletteMode = explicitPaletteMode
       || (warningLevelDim ? "warning_level" : "")
       || (isPieFamily ? "category" : "");
+    const explicitShowLegendRaw =
+      overrides?.showLegend ??
+      overrides?.show_legend ??
+      config?.showLegend ??
+      config?.show_legend;
+    const explicitShowLegend =
+      explicitShowLegendRaw === true || explicitShowLegendRaw === "true"
+        ? true
+        : explicitShowLegendRaw === false || explicitShowLegendRaw === "false"
+          ? false
+          : null;
     const props = {
       compact: true,
       // 固定 chartHeight 会在图表区底部留空；改为吃满 slot 高度
@@ -19772,14 +19801,19 @@
       gridLeft: 10,
       gridTop: 10,
       gridRight: 8,
-      gridBottom: 36,
+      gridBottom: explicitShowLegend === true || (explicitShowLegend == null && multiSeries) ? 48 : 36,
       label_max_chars: 6,
       category_label_rotate: 30,
-      showLegend: multiSeries,
+      // compact 环图默认无图例；作者显式 show_legend / 多系列时打开
+      showLegend: explicitShowLegend != null ? explicitShowLegend : multiSeries,
       // Color: bars use theme chart_1..chart_6 mono ramp; pie/donut/rose use chart_cat_* categorical.
       ...(resolvedPaletteMode ? { palette_mode: resolvedPaletteMode } : {}),
       ...overrides,
     };
+    if (explicitShowLegend != null) {
+      props.showLegend = explicitShowLegend;
+      props.show_legend = explicitShowLegend;
+    }
     // fillHeight 与固定高度互斥：未显式指定时去掉 chartHeight
     if (props.fillHeight === true || props.fill_height === true) {
       if (overrides?.chartHeight === undefined && overrides?.chart_height === undefined) {
@@ -20529,7 +20563,7 @@
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
   const DRILLDOWN_FILTER_BAR_SCRIPT =
-    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260727a";
+    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260730a";
   const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
@@ -20713,7 +20747,11 @@
             : Array.isArray(config?.categoryOrder) && config.categoryOrder.length > 0
               ? config.categoryOrder
               : undefined,
-        ...buildAnalyticsChartPresentationProps(config, { mapping }),
+        ...buildAnalyticsChartPresentationProps(config, {
+          mapping,
+          show_legend: config?.show_legend ?? config?.showLegend,
+          palette_mode: config?.palette_mode ?? config?.paletteMode,
+        }),
       },
     };
   }
@@ -23879,7 +23917,40 @@
         if (event?.detail?.query_state_id && event.detail.query_state_id !== config?.queryStateId) {
           return;
         }
+        // 右侧预览重挂可能带动左侧壳滚动复位；先记下再钉回。
+        const scrollSnapshots = [];
+        let node = listHost;
+        while (node instanceof HTMLElement) {
+          if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) {
+            scrollSnapshots.push({ el: node, top: node.scrollTop, left: node.scrollLeft });
+          }
+          node = node.parentElement;
+          if (node === root) break;
+        }
+        const table = listHost.querySelector("mei-cockpit-data-table");
+        const tableScroll = table?.shadowRoot?.querySelector?.(".table-scroll");
+        if (tableScroll instanceof HTMLElement) {
+          scrollSnapshots.push({
+            el: tableScroll,
+            top: tableScroll.scrollTop,
+            left: tableScroll.scrollLeft,
+          });
+        }
         renderListPreviewItemPanel(previewHost, event?.detail?.row || null, config);
+        const restore = () => {
+          for (const entry of scrollSnapshots) {
+            if (!(entry.el instanceof HTMLElement)) continue;
+            if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top;
+            if (entry.el.scrollLeft !== entry.left) entry.el.scrollLeft = entry.left;
+          }
+        };
+        restore();
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(() => {
+            restore();
+            requestAnimationFrame(restore);
+          });
+        }
       };
       listHost.addEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
       root.__meiListPreviewRowSelectCleanup = () => {
@@ -24261,7 +24332,39 @@
       if (event?.detail?.query_state_id && event.detail.query_state_id !== config?.queryStateId) {
         return;
       }
+      const scrollSnapshots = [];
+      let node = sourceHost;
+      while (node instanceof HTMLElement) {
+        if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) {
+          scrollSnapshots.push({ el: node, top: node.scrollTop, left: node.scrollLeft });
+        }
+        node = node.parentElement;
+        if (node === root) break;
+      }
+      const table = sourceHost.querySelector("mei-cockpit-data-table");
+      const tableScroll = table?.shadowRoot?.querySelector?.(".table-scroll");
+      if (tableScroll instanceof HTMLElement) {
+        scrollSnapshots.push({
+          el: tableScroll,
+          top: tableScroll.scrollTop,
+          left: tableScroll.scrollLeft,
+        });
+      }
       renderListPreviewItemPanel(previewHost, event?.detail?.row || null, config);
+      const restore = () => {
+        for (const entry of scrollSnapshots) {
+          if (!(entry.el instanceof HTMLElement)) continue;
+          if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top;
+          if (entry.el.scrollLeft !== entry.left) entry.el.scrollLeft = entry.left;
+        }
+      };
+      restore();
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => {
+          restore();
+          requestAnimationFrame(restore);
+        });
+      }
     };
     sourceHost.addEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
     root.__meiStructuredRowSelectionCleanup = () => {

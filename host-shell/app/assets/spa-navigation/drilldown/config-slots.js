@@ -127,6 +127,18 @@
             ? entry.categoryOrder.map((item) => String(item || "").trim()).filter(Boolean)
             : null,
         paletteMode: nonEmptyString(entry.palette_mode, entry.paletteMode),
+        showLegend:
+          entry.show_legend === true ||
+          entry.show_legend === "true" ||
+          entry.showLegend === true ||
+          entry.showLegend === "true"
+            ? true
+            : entry.show_legend === false ||
+                entry.show_legend === "false" ||
+                entry.showLegend === false ||
+                entry.showLegend === "false"
+              ? false
+              : null,
         yAxisInteger:
           entry.y_axis_integer === true ||
           entry.y_axis_integer === "true" ||
@@ -509,6 +521,12 @@
                 ? slot.categoryOrder
                 : undefined,
             palette_mode: nonEmptyString(slot.paletteMode, slot.palette_mode) || undefined,
+            show_legend:
+              slot.showLegend === true || slot.show_legend === true
+                ? true
+                : slot.showLegend === false || slot.show_legend === false
+                  ? false
+                  : undefined,
             y_axis_integer: slot.yAxisInteger === true || slot.y_axis_integer === true || undefined,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,

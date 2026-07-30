@@ -475,6 +475,43 @@ pub fn derive_object_field_links(
                     open_popup: None,
                     qualifier_fields: Vec::new(),
                 });
+            // ID 型外键额外挂到源对象 label：仅当 ID 词干与 label 语义对齐
+            // （如 模型ID↔预警模型），避免 处理结果ID 误挂到「预警模型」列。
+            if identity_wants_serial_entry(field) {
+                if let Some(label_field) = slots.get("label").and_then(|slot| {
+                    if slot.kind == "field_ref" {
+                        let id = slot.id.trim();
+                        if !id.is_empty() && id != field && id_field_aligns_with_label(field, id)
+                        {
+                            Some(id.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }) {
+                    links
+                        .entry(label_field.clone())
+                        .or_default()
+                        .push(ObjectFieldLinkTarget {
+                            role: "relation".to_string(),
+                            object_type: target_type.to_string(),
+                            resolve: ObjectFieldLinkResolve::RowSibling,
+                            relation: Some(relation_name.clone()),
+                            source_field: Some(label_field),
+                            key_field: Some(field.to_string()),
+                            mapping_ref: None,
+                            targets_by_value: BTreeMap::new(),
+                            key_mode: ObjectFieldLinkKeyMode::Identity,
+                            filter_key: heuristic_filter_key(field),
+                            has_detail: None,
+                            detail_page: None,
+                            open_popup: None,
+                            qualifier_fields: Vec::new(),
+                        });
+                }
+            }
             continue;
         }
 
@@ -523,6 +560,28 @@ fn identity_wants_serial_entry(identity_field: &str) -> bool {
         || lower.ends_with("_id")
         || field.ends_with("编号")
         || field.ends_with("代码")
+}
+
+/// ID 外键是否与源对象 label 语义对齐，才允许 label 列 row_sibling 打开关联对象。
+/// 例：`模型ID` ↔ `预警模型`；`处理结果ID` ↔ `预警模型` 不对齐。
+fn id_field_aligns_with_label(id_field: &str, label_field: &str) -> bool {
+    let id = id_field.trim();
+    let label = label_field.trim();
+    if id.is_empty() || label.is_empty() {
+        return false;
+    }
+    let stem = id
+        .trim_end_matches("ID")
+        .trim_end_matches("Id")
+        .trim_end_matches("_id")
+        .trim_end_matches("_ID")
+        .trim_end_matches("编号")
+        .trim_end_matches("代码")
+        .trim();
+    if stem.is_empty() || stem.len() < 2 {
+        return false;
+    }
+    label.contains(stem) || stem.contains(label)
 }
 
 fn heuristic_filter_key(field: &str) -> Option<String> {
@@ -1785,6 +1844,96 @@ mod tests {
         assert_eq!(warning_links[0].role, "relation");
         assert_eq!(warning_links[0].object_type, "zhifa.Warning");
         assert_eq!(warning_links[0].key_mode, ObjectFieldLinkKeyMode::Identity);
+    }
+
+    #[test]
+    fn derive_object_field_links_id_fk_also_opens_label_sibling() {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "label".to_string(),
+            ObjectProjectionRef {
+                role: "slot:label".to_string(),
+                kind: "field_ref".to_string(),
+                id: "预警模型".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        let mut relations = BTreeMap::new();
+        relations.insert(
+            "alertModel.strong.byModelId".to_string(),
+            vec![
+                ObjectProjectionRef {
+                    role: "relation:alertModel".to_string(),
+                    kind: "object_ref".to_string(),
+                    id: "zhifa.AlertModel".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+                ObjectProjectionRef {
+                    role: "relation:alertModel".to_string(),
+                    kind: "field_ref".to_string(),
+                    id: "模型ID".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+            ],
+        );
+        let links = derive_object_field_links(
+            "zhifa.Warning",
+            &["预警ID".to_string()],
+            &slots,
+            &relations,
+        );
+        let id_links = links.get("模型ID").expect("ID column still linked");
+        assert_eq!(id_links[0].resolve, ObjectFieldLinkResolve::RowValue);
+        let label_links = links.get("预警模型").expect("label opens via sibling");
+        assert_eq!(label_links.len(), 1);
+        assert_eq!(label_links[0].role, "relation");
+        assert_eq!(label_links[0].object_type, "zhifa.AlertModel");
+        assert_eq!(label_links[0].resolve, ObjectFieldLinkResolve::RowSibling);
+        assert_eq!(label_links[0].key_field.as_deref(), Some("模型ID"));
+        assert_eq!(label_links[0].filter_key.as_deref(), Some("modelId"));
+    }
+
+    #[test]
+    fn derive_object_field_links_unrelated_id_fk_skips_label_sibling() {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "label".to_string(),
+            ObjectProjectionRef {
+                role: "slot:label".to_string(),
+                kind: "field_ref".to_string(),
+                id: "预警模型".to_string(),
+                source_anchor: "t.mei".to_string(),
+            },
+        );
+        let mut relations = BTreeMap::new();
+        relations.insert(
+            "issueResults.strong.byResultId".to_string(),
+            vec![
+                ObjectProjectionRef {
+                    role: "relation:issueResults".to_string(),
+                    kind: "object_ref".to_string(),
+                    id: "zhifa.IssueResult".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+                ObjectProjectionRef {
+                    role: "relation:issueResults".to_string(),
+                    kind: "field_ref".to_string(),
+                    id: "处理结果ID".to_string(),
+                    source_anchor: "t.mei".to_string(),
+                },
+            ],
+        );
+        let links = derive_object_field_links(
+            "zhifa.Warning",
+            &["预警ID".to_string()],
+            &slots,
+            &relations,
+        );
+        assert!(links.get("处理结果ID").is_some());
+        assert!(
+            links.get("预警模型").is_none(),
+            "处理结果ID must not open from 预警模型 label"
+        );
     }
 
     #[test]

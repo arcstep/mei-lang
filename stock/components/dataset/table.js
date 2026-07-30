@@ -47,6 +47,8 @@ import { applyTableQueryResult } from "./table-runtime/query.js";
 import {
   inlineStyleForColPixelWidth,
   inlineStyleForColumn,
+  isSerialNumberColumnKey,
+  compareSerialNumberValues,
   isWarningLevelBlocksColumn,
   resolveColumnDescriptors,
   resolveDatasetTableColumnMinWidth,
@@ -830,7 +832,8 @@ function applyClientView(rows, { filters, search, sort, descriptors }) {
       const result = compareCellValues(
         cellValue(left, item.field),
         cellValue(right, item.field),
-        descriptor?.type
+        descriptor?.type,
+        item.field
       );
       if (result !== 0) {
         return item.direction === "desc" ? -result : result;
@@ -854,10 +857,13 @@ function rowMatchesLocal(row, filters, search) {
   );
 }
 
-function compareCellValues(left, right, type) {
+function compareCellValues(left, right, type, key) {
   if (left == null && right == null) return 0;
   if (left == null) return 1;
   if (right == null) return -1;
+  if (isSerialNumberColumnKey(key)) {
+    return compareSerialNumberValues(left, right);
+  }
   if (type === "number") {
     const lhs = Number(left);
     const rhs = Number(right);

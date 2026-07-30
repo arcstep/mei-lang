@@ -2,10 +2,11 @@ use std::path::{Path, PathBuf};
 
 use mei_host_core::ImportReport;
 use mei_lang_kernel::{
-    discover_apps, finalize_and_promote_build, prepare_dev_build_generation_with_hint,
-    read_links_state, resolve_active_build_identity, resolve_app_build_generation_from_current,
-    resolve_app_root, resolve_build_footer_label, resolve_toolchain_version_with_hint,
-    resolve_workspace_version, PrebuildGeneration,
+    bump_cache_generation, discover_apps, finalize_and_promote_build,
+    load_mei_config_for_app, prepare_dev_build_generation_with_hint,
+    publish_xlsx_data_snapshots_for_paths, read_links_state, resolve_active_build_identity,
+    resolve_app_build_generation_from_current, resolve_app_root, resolve_build_footer_label,
+    resolve_toolchain_version_with_hint, resolve_workspace_version, PrebuildGeneration,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -130,6 +131,137 @@ pub fn import_with_options(
         app,
     );
     Ok(report)
+}
+
+/// Admin「应用为当前」换源后的运行时数据面重建摘要（非 AOT / 非 prebuild）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsSourceRewarmReport {
+    pub ok: bool,
+    pub slot_id: String,
+    pub source_path: String,
+    pub written: Vec<String>,
+    pub data_generation: String,
+    pub removed_artifact_files: usize,
+    pub cleared_bootstrap_scopes: usize,
+    pub warmup_ran: bool,
+}
+
+/// Admin asset-slot 换源：单源 publish parquet → bump data_generation → 清 assemble/eval → 可选 warmup。
+/// 不 compile、不 finalize、不新建 env generation。
+pub fn rewarm_after_ops_source_change(
+    workspace: &Path,
+    app_id: &str,
+    slot_id: &str,
+    policy: &str,
+) -> anyhow::Result<OpsSourceRewarmReport> {
+    let workspace = canonical_workspace(workspace);
+    let app_id = app_id.trim();
+    let slot_id = slot_id.trim();
+    if app_id.is_empty() || slot_id.is_empty() {
+        anyhow::bail!("app_id and slot_id are required for ops-source rewarm");
+    }
+    let app_root = resolve_app_root(workspace.as_path(), app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), Some(workspace.as_path()));
+    let source = config.ops.sources.get(slot_id).ok_or_else(|| {
+        anyhow::anyhow!("ops.sources.{slot_id} missing after apply-current for app `{app_id}`")
+    })?;
+    let source_path = source.path.trim();
+    if source_path.is_empty() {
+        anyhow::bail!("ops.sources.{slot_id}.path is empty for app `{app_id}`");
+    }
+    let sheet = source
+        .sheet
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let header_row = source
+        .header_row
+        .and_then(|value| (value > 0).then_some(value as usize))
+        .unwrap_or(1);
+
+    let written_paths = publish_xlsx_data_snapshots_for_paths(
+        app_root.as_path(),
+        &[(source_path, sheet, header_row)],
+    )
+    .map_err(|error| {
+        anyhow::anyhow!(
+            "publish parquet for ops.sources.{slot_id} ({source_path}) failed: {error}"
+        )
+    })?;
+    if written_paths.is_empty() {
+        anyhow::bail!("publish parquet for ops.sources.{slot_id} wrote zero artifacts");
+    }
+    tracing::info!(
+        app_id = %app_id,
+        slot_id = %slot_id,
+        source_path = %source_path,
+        written = written_paths.len(),
+        "ops-source change published parquet snapshot"
+    );
+
+    let generation = bump_cache_generation(app_root.as_path(), app_id, Some(&[slot_id.to_string()]))
+        .map_err(|error| anyhow::anyhow!("bump_cache_generation failed: {error}"))?;
+
+    if let Some(snapshot_report) =
+        mei_host_graph::ensure_app_data_snapshots(workspace.as_path(), app_id)?
+    {
+        if !snapshot_report.skipped.is_empty() {
+            anyhow::bail!(
+                "ops-source rewarm could not restore required data snapshots for app `{app_id}`: {}",
+                snapshot_report.skipped.join("; ")
+            );
+        }
+    }
+
+    mei_host_graph::clear_assemble_cache_for_app(app_id);
+    // 换源后强制清 eval-cache：MRG 未必已标 Stale，不能依赖增量保留。
+    let invalidation =
+        mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app_id, true)?;
+    tracing::info!(
+        app_id = %app_id,
+        slot_id = %slot_id,
+        data_generation = %generation.data_generation,
+        removed_artifact_files = invalidation.removed_artifact_files,
+        cleared_bootstrap_scopes = invalidation.cleared_bootstrap_scopes,
+        "ops-source change invalidated eval-cache"
+    );
+
+    let mut warmup_ran = false;
+    let dev_eval = crate::dev_eval_scope::current_for_app(app_id);
+    if !dev_eval.allows_rewarm() {
+        tracing::info!(
+            app_id = %app_id,
+            profile = dev_eval.profile.slug(),
+            "skipping warmup after ops-source change under non-full dev eval profile"
+        );
+    } else if let Err(error) =
+        crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app_id, policy, "client")
+    {
+        // 数据面已 publish + invalidate；warmup 失败不应回滚换源成功。
+        tracing::warn!(
+            app_id = %app_id,
+            slot_id = %slot_id,
+            error = %error,
+            "warmup after ops-source change failed; Access may cold-eval until next warmup"
+        );
+    } else {
+        warmup_ran = true;
+    }
+
+    Ok(OpsSourceRewarmReport {
+        ok: true,
+        slot_id: slot_id.to_string(),
+        source_path: source_path.to_string(),
+        written: written_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        data_generation: generation.data_generation,
+        removed_artifact_files: invalidation.removed_artifact_files,
+        cleared_bootstrap_scopes: invalidation.cleared_bootstrap_scopes,
+        warmup_ran,
+    })
 }
 
 /// Import 之后的热重载后半段：补齐缺失 data snapshot、清 assemble 缓存、
@@ -635,5 +767,124 @@ pub fn finish_ops_job_failure(shell: &mut ShellState, error: String) {
     if let Some(job) = shell.ops_job.clone() {
         shell.last_ops_job = Some(job);
         shell.ops_job = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::{load_cache_generation, read_data_snapshot_import_manifest};
+    use std::fs;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn rewarm_after_ops_source_change_publishes_and_bumps_generation() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        crate::dev_eval_scope::install(crate::dev_eval_scope::DevEvalConfig::from_env_and_args(
+            Some("static"),
+            None,
+            None,
+        ));
+
+        let root = tempfile::tempdir().expect("tempdir");
+        let workspace = root.path();
+        let app_id = "demo";
+        let app_root = workspace.join("apps").join(app_id);
+        let gen = "WS-20260730.0";
+        let env_gen = app_root.join("env").join(gen);
+        fs::create_dir_all(env_gen.join("var")).expect("env var");
+        fs::create_dir_all(env_gen.join("build")).expect("env build");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(gen, app_root.join("env/current")).expect("symlink current");
+        }
+        #[cfg(not(unix))]
+        {
+            fs::create_dir_all(app_root.join("env/current")).expect("current dir");
+            fs::write(
+                app_root.join("env/current/.mei-build-target"),
+                env_gen.display().to_string(),
+            )
+            .expect("marker");
+        }
+
+        let slot = "demo_csv";
+        let dir = app_root.join("upload/admin").join(slot);
+        fs::create_dir_all(&dir).expect("slot dir");
+        fs::write(dir.join("old.csv"), "id,name\n1,a\n").expect("old csv");
+        fs::write(dir.join("new.csv"), "id,name\n1,a\n2,b\n").expect("new csv");
+        fs::write(
+            app_root.join("app.toml"),
+            r#"
+schema_version = "mei-app-v1"
+title = "demo"
+app_id = "demo"
+default_stage = "home"
+
+[ops.sources.demo_csv]
+kind = "csv"
+path = "upload/admin/demo_csv/old.csv"
+header_row = 1
+"#,
+        )
+        .expect("app.toml");
+
+        // Point ops.sources at new file (simulate apply-current).
+        fs::write(
+            app_root.join("app.toml"),
+            r#"
+schema_version = "mei-app-v1"
+title = "demo"
+app_id = "demo"
+default_stage = "home"
+
+[ops.sources.demo_csv]
+kind = "csv"
+path = "upload/admin/demo_csv/new.csv"
+header_row = 1
+"#,
+        )
+        .expect("app.toml new");
+
+        let before = load_cache_generation(app_root.as_path(), app_id);
+        let report = rewarm_after_ops_source_change(workspace, app_id, slot, "home")
+            .expect("rewarm should succeed");
+        assert!(report.ok);
+        assert_eq!(report.slot_id, slot);
+        assert_eq!(report.source_path, "upload/admin/demo_csv/new.csv");
+        assert!(!report.written.is_empty());
+        assert_ne!(report.data_generation, before.data_generation);
+
+        let after = load_cache_generation(app_root.as_path(), app_id);
+        assert_eq!(after.data_generation, report.data_generation);
+        assert!(after.sources.contains_key(slot));
+
+        let manifest = read_data_snapshot_import_manifest(app_root.as_path())
+            .expect("read manifest")
+            .expect("manifest present");
+        let hit = manifest.entries.iter().find(|entry| {
+            entry
+                .resolved_source_path
+                .ends_with("upload/admin/demo_csv/new.csv")
+                || entry.source_path.ends_with("upload/admin/demo_csv/new.csv")
+        });
+        assert!(
+            hit.is_some(),
+            "manifest should include new.csv entry, got {:?}",
+            manifest
+                .entries
+                .iter()
+                .map(|e| e.resolved_source_path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(!hit.unwrap().content_signature.trim().is_empty());
+
+        crate::dev_eval_scope::install(crate::dev_eval_scope::DevEvalConfig::from_env_and_args(
+            Some("full"),
+            None,
+            None,
+        ));
     }
 }

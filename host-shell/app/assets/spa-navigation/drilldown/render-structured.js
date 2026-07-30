@@ -339,7 +339,39 @@
       if (event?.detail?.query_state_id && event.detail.query_state_id !== config?.queryStateId) {
         return;
       }
+      const scrollSnapshots = [];
+      let node = sourceHost;
+      while (node instanceof HTMLElement) {
+        if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) {
+          scrollSnapshots.push({ el: node, top: node.scrollTop, left: node.scrollLeft });
+        }
+        node = node.parentElement;
+        if (node === root) break;
+      }
+      const table = sourceHost.querySelector("mei-cockpit-data-table");
+      const tableScroll = table?.shadowRoot?.querySelector?.(".table-scroll");
+      if (tableScroll instanceof HTMLElement) {
+        scrollSnapshots.push({
+          el: tableScroll,
+          top: tableScroll.scrollTop,
+          left: tableScroll.scrollLeft,
+        });
+      }
       renderListPreviewItemPanel(previewHost, event?.detail?.row || null, config);
+      const restore = () => {
+        for (const entry of scrollSnapshots) {
+          if (!(entry.el instanceof HTMLElement)) continue;
+          if (entry.el.scrollTop !== entry.top) entry.el.scrollTop = entry.top;
+          if (entry.el.scrollLeft !== entry.left) entry.el.scrollLeft = entry.left;
+        }
+      };
+      restore();
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => {
+          restore();
+          requestAnimationFrame(restore);
+        });
+      }
     };
     sourceHost.addEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
     root.__meiStructuredRowSelectionCleanup = () => {

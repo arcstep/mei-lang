@@ -157,11 +157,11 @@ export const COCKPIT_CHART_PALETTE_FALLBACK = [
   "#059669",
 ];
 
-/** 饼/环/玫瑰分类色板 fallback（避开红/黄/蓝预警业务色） */
+/** 饼/环/玫瑰分类色板 fallback（2 号默认湖蓝；避开纯红/黄/蓝预警色） */
 export const COCKPIT_CHART_CATEGORICAL_PALETTE_FALLBACK = [
+  "#10b981",
+  "#0891b2",
   "#14b8a6",
-  "#22c55e",
-  "#f97316",
   "#8b5cf6",
   "#0ea5e9",
   "#ec4899",

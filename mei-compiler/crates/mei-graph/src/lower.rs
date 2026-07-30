@@ -762,6 +762,35 @@ fn derive_object_field_links_json(
                 "keyMode": "identity",
                 "filterKey": heuristic_filter_key_json(field),
             }));
+            // ID 型外键额外挂源对象 label：仅当 ID 词干与 label 语义对齐。
+            if identity_wants_serial_entry_json(field) {
+                if let Some(label_field) = slots.get("label").and_then(|slot| {
+                    if slot.get("kind").and_then(JsonValue::as_str) == Some("field_ref") {
+                        slot.get("id")
+                            .and_then(JsonValue::as_str)
+                            .map(str::trim)
+                            .filter(|id| {
+                                !id.is_empty()
+                                    && *id != field
+                                    && id_field_aligns_with_label_json(field, id)
+                            })
+                            .map(str::to_string)
+                    } else {
+                        None
+                    }
+                }) {
+                    links.entry(label_field.clone()).or_default().push(json!({
+                        "role": "relation",
+                        "objectType": target_type,
+                        "resolve": "row_sibling",
+                        "relation": relation_name,
+                        "sourceField": label_field,
+                        "keyField": field,
+                        "keyMode": "identity",
+                        "filterKey": heuristic_filter_key_json(field),
+                    }));
+                }
+            }
             continue;
         }
 
@@ -799,6 +828,26 @@ fn identity_wants_serial_entry_json(identity_field: &str) -> bool {
         || lower.ends_with("_id")
         || field.ends_with("编号")
         || field.ends_with("代码")
+}
+
+fn id_field_aligns_with_label_json(id_field: &str, label_field: &str) -> bool {
+    let id = id_field.trim();
+    let label = label_field.trim();
+    if id.is_empty() || label.is_empty() {
+        return false;
+    }
+    let stem = id
+        .trim_end_matches("ID")
+        .trim_end_matches("Id")
+        .trim_end_matches("_id")
+        .trim_end_matches("_ID")
+        .trim_end_matches("编号")
+        .trim_end_matches("代码")
+        .trim();
+    if stem.is_empty() || stem.len() < 2 {
+        return false;
+    }
+    label.contains(stem) || stem.contains(label)
 }
 
 fn heuristic_filter_key_json(field: &str) -> JsonValue {

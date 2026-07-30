@@ -184,6 +184,12 @@ pub(super) fn slot_from_board_view(
     {
         slot.insert("palette_mode".to_string(), palette_mode.clone());
     }
+    if let Some(show_legend) = map
+        .get("show_legend")
+        .or_else(|| map.get("showLegend"))
+    {
+        slot.insert("show_legend".to_string(), show_legend.clone());
+    }
     if let Some(y_axis_integer) = map
         .get("y_axis_integer")
         .or_else(|| map.get("yAxisInteger"))

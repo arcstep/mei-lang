@@ -72,7 +72,7 @@
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   // v2 标签 + 新 URL：旧 CE 无法复用「锁成红/黄/蓝」的模块
   const DRILLDOWN_FILTER_BAR_SCRIPT =
-    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260727a";
+    "/workspace-components/dataset/filter-bar.js?v=date-range-stack-20260730a";
   const DRILLDOWN_FILTER_BAR_TAG = "mei-dataset-filter-bar-v2";
   const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
@@ -256,7 +256,11 @@
             : Array.isArray(config?.categoryOrder) && config.categoryOrder.length > 0
               ? config.categoryOrder
               : undefined,
-        ...buildAnalyticsChartPresentationProps(config, { mapping }),
+        ...buildAnalyticsChartPresentationProps(config, {
+          mapping,
+          show_legend: config?.show_legend ?? config?.showLegend,
+          palette_mode: config?.palette_mode ?? config?.paletteMode,
+        }),
       },
     };
   }

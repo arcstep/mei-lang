@@ -11,8 +11,8 @@ use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
     apply_asset_slot_current, delete_asset_slot_file, get_asset_slot, get_command_job,
     get_config_record, put_config_record, replace_asset_slot, resolve_app_root,
-    resolve_asset_slot_download_path, run_import_job, AdminEntryProjection, AdminRecordError,
-    ProviderBinding,
+    resolve_asset_slot_download_path, run_import_job, slot_id_from_binding, AdminEntryProjection,
+    AdminRecordError, ProviderBinding,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -553,17 +553,51 @@ pub async fn api_asset_slot_apply_current(
                 resource.registry_entry.module_id.as_str(),
                 correlation_id.as_str(),
             ) {
-                Ok(slot) => (
-                    StatusCode::OK,
-                    Json(json!({
-                        "ok": true,
-                        "context": body.context,
-                        "slot": slot,
-                        "applyPolicy": "restart-runtime",
-                        "danger": binding.danger,
-                    })),
-                )
-                    .into_response(),
+                Ok(slot) => {
+                    let slot_id = match slot_id_from_binding(&binding) {
+                        Ok(id) => id,
+                        Err(error) => return map_record_error(error).into_response(),
+                    };
+                    let policy = crate::shell_chrome::default_access_scene(
+                        snap.workspace_root.as_path(),
+                        body.context.app_id.as_str(),
+                    );
+                    match crate::build_ops::rewarm_after_ops_source_change(
+                        snap.workspace_root.as_path(),
+                        body.context.app_id.as_str(),
+                        slot_id.as_str(),
+                        policy.as_str(),
+                    ) {
+                        Ok(rewarm) => (
+                            StatusCode::OK,
+                            Json(json!({
+                                "ok": true,
+                                "context": body.context,
+                                "slot": slot,
+                                "applyPolicy": "reload-data",
+                                "danger": binding.danger,
+                                "rewarm": rewarm,
+                            })),
+                        )
+                            .into_response(),
+                        Err(error) => {
+                            tracing::error!(
+                                app_id = %body.context.app_id,
+                                slot_id = %slot_id,
+                                error = %error,
+                                "ops-source rewarm failed after apply-current"
+                            );
+                            admin_err(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "ops-source-rewarm-failed",
+                                format!(
+                                    "current source updated in app.toml, but runtime data rebuild failed: {error}"
+                                ),
+                            )
+                            .into_response()
+                        }
+                    }
+                }
                 Err(error) => map_record_error(error).into_response(),
             }
         }
