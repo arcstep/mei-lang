@@ -166,8 +166,31 @@ pub fn query_metric_dataframe(
     );
     let sql_ids = vec![workset_metric_id.clone()];
 
+    // query_state 可能带回逻辑筛选键（如 warningType）；handler 侧 map 后又被 merge 冲回。
+    // 在 SQL 下推前按行数据集（含 filter_dimensions / schema）再映射成列名。
+    let mut binding_datasets: Vec<&mei_lang_kernel::DatasetView> =
+        Vec::with_capacity(2 + sql_datasets.len());
+    binding_datasets.push(primary_dataset);
+    if owner_dataset.id != primary_dataset.id {
+        binding_datasets.push(owner_dataset);
+    }
+    for view in sql_datasets.values() {
+        if binding_datasets.iter().any(|seen| seen.id == view.id) {
+            continue;
+        }
+        binding_datasets.push(view);
+    }
+    let sql_filters = remap_filters_to_dataset_fields(&options.filters, &binding_datasets);
+    let has_row_scope = !sql_filters.is_empty()
+        || options
+            .search
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+
     // Drilldown tables: push filters/page to SQL (0528). Avoids materializing ≤2000 then fail.
-    if !options.collect_all {
+    // collect_all + 有筛选时也走分页 SQL：否则会落到无过滤全表物化并撞 MAX_PIPELINE_SQL_ROWS。
+    if !options.collect_all || has_row_scope {
         let default_page_size = meta
             .lazy
             .default_page_size
@@ -178,8 +201,14 @@ pub fn query_metric_dataframe(
             .max_page_size
             .unwrap_or(MAX_PAGE_SIZE)
             .max(default_page_size);
-        let page = options.page.max(1);
-        let page_size = if options.page_size == 0 {
+        let page = if options.collect_all {
+            1
+        } else {
+            options.page.max(1)
+        };
+        let page_size = if options.collect_all {
+            max_page_size
+        } else if options.page_size == 0 {
             default_page_size
         } else {
             options.page_size.clamp(1, max_page_size)
@@ -189,7 +218,7 @@ pub fn query_metric_dataframe(
             &sql_datasets,
             metric_defs_for_sql,
             workset_metric_id.as_str(),
-            &options.filters,
+            &sql_filters,
             options.search.as_deref(),
             page,
             page_size,
@@ -269,6 +298,14 @@ pub fn query_metric_dataframe(
                     )?;
                 }
                 return Ok(result);
+            }
+            Ok(None) if has_row_scope => {
+                // 有筛选时禁止落到无过滤全表物化（>2000 行会直接 500）。
+                return Err(anyhow!(
+                    "pipeline_sql_fallback: metric_id={} dataset={} reason=sql_page_with_filters",
+                    resolved_metric_id,
+                    owner_resource.id
+                ));
             }
             Ok(None) => {}
             Err(err) => {

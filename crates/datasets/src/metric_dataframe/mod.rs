@@ -30,6 +30,7 @@ use super::{
     build_compiled_datasets_map, metric_dataframe_artifact_lookup_cache_keys, metric_scope_cache_key,
     query_state_from_request, serialize_cache_value,
 };
+use super::metric_hydrate::remap_filters_to_dataset_fields;
 
 pub const DEFAULT_PAGE_SIZE: usize = 20;
 pub const MAX_PAGE_SIZE: usize = 1000;

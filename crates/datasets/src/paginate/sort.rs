@@ -51,6 +51,15 @@ pub(crate) fn serial_number_sort_key(text: &str) -> String {
     out
 }
 
+/// Sort row objects in place using the same rules as in-memory pagination
+/// (including inventory-style serial fields such as `序号`).
+pub(crate) fn sort_rows_in_place(rows: &mut [Value], sort: &[TableSortSpec]) {
+    if sort.is_empty() || rows.len() < 2 {
+        return;
+    }
+    rows.sort_by(|left, right| compare_rows(left, right, sort));
+}
+
 fn compare_rows(left: &Value, right: &Value, sort: &[TableSortSpec]) -> Ordering {
     let left_map = left.as_object();
     let right_map = right.as_object();
@@ -93,7 +102,18 @@ fn compare_serial_number_values(left: &Value, right: &Value) -> Ordering {
     if right_text.is_empty() {
         return Ordering::Less;
     }
-    serial_number_sort_key(&left_text).cmp(&serial_number_sort_key(&right_text))
+    let left_has_digit = left_text.chars().any(|ch| ch.is_ascii_digit());
+    let right_has_digit = right_text.chars().any(|ch| ch.is_ascii_digit());
+    match (left_has_digit, right_has_digit) {
+        (true, false) => return Ordering::Less,
+        (false, true) => return Ordering::Greater,
+        _ => {}
+    }
+    let key_ord = serial_number_sort_key(&left_text).cmp(&serial_number_sort_key(&right_text));
+    if key_ord != Ordering::Equal {
+        return key_ord;
+    }
+    left_text.cmp(&right_text)
 }
 
 fn compare_sort_values(left: &Value, right: &Value) -> Ordering {
@@ -183,7 +203,7 @@ mod serial_number_sort_tests {
 
     #[test]
     fn hyphenated_serials_sort_numerically() {
-        let mut values = ["1-10", "1-2", "2", "10-1", "1"]
+        let mut values = ["1-10", "1-2", "2", "10-1", "1", "待完善", ""]
             .map(|v| json!(v))
             .to_vec();
         values.sort_by(|a, b| compare_serial_number_values(a, b));
@@ -191,7 +211,10 @@ mod serial_number_sort_tests {
             .iter()
             .map(|v| v.as_str().unwrap_or(""))
             .collect::<Vec<_>>();
-        assert_eq!(ordered, vec!["1", "1-2", "1-10", "2", "10-1"]);
+        assert_eq!(
+            ordered,
+            vec!["1", "1-2", "1-10", "2", "10-1", "待完善", ""]
+        );
     }
 
     #[test]

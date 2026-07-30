@@ -175,3 +175,41 @@ fn resolve_filter_binding<'a>(
         .iter()
         .find(|binding| binding.dimension == normalized)
 }
+
+/// Map logical filter keys (e.g. `warningType`) onto dataset column fields using
+/// schema / `filter_dimensions`. Unresolvable keys are kept as-is.
+pub(crate) fn remap_filters_to_dataset_fields(
+    filters: &BTreeMap<String, String>,
+    datasets: &[&DatasetView],
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for (key, value) in filters {
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            continue;
+        }
+        let probe = QueryState {
+            filters: BTreeMap::from([(key.to_string(), value.to_string())]),
+            search: None,
+            group: Vec::new(),
+            time_range: None,
+        };
+        let mut mapped_field = None;
+        for dataset in datasets {
+            let resolution = resolve_dataset_query_bindings_from_state(&probe, dataset);
+            if !resolution.unresolved_filter_dimensions.is_empty() {
+                continue;
+            }
+            if let Some(field) = resolution.mapped_filters.keys().next() {
+                mapped_field = Some(field.clone());
+                break;
+            }
+        }
+        out.insert(
+            mapped_field.unwrap_or_else(|| key.to_string()),
+            value.to_string(),
+        );
+    }
+    out
+}

@@ -619,13 +619,15 @@ fn lower_sort_by(
     } else {
         "ASC"
     };
-    Ok(Some(Rel {
+    let order_by = if crate::paginate::is_serial_number_field(field) {
+        super::serial_number_order_by_parts(&col, dir).join(", ")
+    } else {
         // Prefer VARCHAR order only: try_cast(... AS DOUBLE) can trip DataFusion
         // Utf8View range-query bugs on string/date columns.
-        sql: format!(
-            "SELECT * FROM ({}) AS _s ORDER BY CAST({col} AS VARCHAR) {dir}",
-            inner.sql
-        ),
+        format!("CAST({col} AS VARCHAR) {dir}")
+    };
+    Ok(Some(Rel {
+        sql: format!("SELECT * FROM ({}) AS _s ORDER BY {order_by}", inner.sql),
         columns: inner.columns,
     }))
 }
@@ -1331,9 +1333,34 @@ fn lower_group_by(
     let Some(inner_expr) = object.get("rowset") else {
         return Ok(None);
     };
-    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+    let Some(mut inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
         return Ok(None);
     };
+    // Chart cross-filter: apply pushed filters on the pre-agg rowset (e.g. 预警类型
+    // while grouping by 数源单位). Outer page WHERE cannot see those columns.
+    let row_filters = parse_row_filter_map(object.get("__mei_row_filters"));
+    let row_search = object
+        .get("__mei_row_search")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if !row_filters.is_empty() || row_search.is_some() {
+        let cols = if inner.columns.is_empty() {
+            row_filters.keys().cloned().collect::<Vec<_>>()
+        } else {
+            inner.columns.clone()
+        };
+        let inner_where = build_where_clause(&row_filters, row_search, &cols)?;
+        if !inner_where.is_empty() {
+            inner = Rel {
+                sql: format!(
+                    "SELECT * FROM ({}) AS _mei_gb_src{inner_where}",
+                    inner.sql
+                ),
+                columns: inner.columns,
+            };
+        }
+    }
     let Some(group_fields) = parse_group_by_fields(object) else {
         return Ok(None);
     };

@@ -129,8 +129,9 @@ pub fn try_page_dataframe_metric_via_sql(
         record_pipeline_sql_fallback();
         return Ok(None);
     };
-    // 024008: push mapped filters into trend_year_compare inner rowset (not outer month/year/value).
-    let trend_pushdown = inject_trend_year_compare_row_filters(&mut inlined, filters, search);
+    // 024008 / chart cross-filter: push filters into trend/group_by inner rowset
+    // (not outer result columns — composition output may lack the filter field).
+    let row_filter_pushdown = inject_analysis_expr_row_filters(&mut inlined, filters, search);
     let started = Instant::now();
     let Some(plan) = lower::try_lower_expr(app_root, datasets, &inlined)? else {
         record_pipeline_sql_fallback();
@@ -154,11 +155,17 @@ pub fn try_page_dataframe_metric_via_sql(
     } else {
         plan.result_columns.clone()
     };
-    let where_sql = if trend_pushdown {
-        // Filters already applied inside parsed CTE; do not re-apply on month/year/value.
+    let where_sql = if row_filter_pushdown {
+        // Filters already applied inside trend/group_by inner rowset.
         String::new()
     } else {
-        super::sql::build_where_clause(filters, search, &columns)?
+        // Only predicate on columns present in the page result (avoid SQL on missing fields).
+        let outer_filters = filters
+            .iter()
+            .filter(|(key, _)| columns.iter().any(|col| col == key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        super::sql::build_where_clause(&outer_filters, search, &columns)?
     };
     let order_by_sql = build_order_by_sql(sort)?;
     let page = page.max(1);
@@ -173,14 +180,24 @@ pub fn try_page_dataframe_metric_via_sql(
     ) {
         Ok(page) => page,
         Err(err) if !order_by_sql.is_empty() => {
-            // 复杂序号 ORDER BY（regexp）与 WHERE 组合可能触发 DataFusion SanityCheck；
-            // 降级为无 ORDER BY 重试，保留 filters，避免落到无过滤物化。
+            // 复杂序号 ORDER BY（regexp）与 WHERE 组合可能触发 DataFusion SanityCheck。
+            let has_serial_sort = sort
+                .iter()
+                .any(|item| crate::paginate::is_serial_number_field(&item.field));
+            // 有筛选时必须保留 WHERE：禁止 Ok(None) 落到无过滤全表物化 / sql_page_with_filters。
+            // 序号排序降级为「无 ORDER BY 分页 + 本页内存版本序」，保证交叉筛选可用。
             tracing::debug!(
                 error = %err,
+                serial = has_serial_sort,
                 "pipeline_sql DataFusion page retry without ORDER BY"
             );
             match exec::execute_sql_plan_page(app_root, &plan, &where_sql, "", page, page_size) {
-                Ok(page) => page,
+                Ok(mut page_result) => {
+                    if has_serial_sort {
+                        crate::paginate::sort_rows_in_place(&mut page_result.rows, sort);
+                    }
+                    page_result
+                }
                 Err(err2) => {
                     tracing::debug!(error = %err2, "pipeline_sql DataFusion page fallback");
                     record_pipeline_sql_fallback();
@@ -233,6 +250,30 @@ pub fn try_page_dataframe_metric_via_sql(
     }))
 }
 
+/// Version-style serial ORDER BY (`1`, `1-2`, `10-3`): empty last, non-numeric after
+/// digit serials, then major/minor/patch as integers (not lexical VARCHAR).
+pub(crate) fn serial_number_order_by_parts(col: &str, dir: &str) -> Vec<String> {
+    vec![
+        format!(
+            "CASE WHEN trim(CAST({col} AS VARCHAR)) = '' OR {col} IS NULL THEN 1 ELSE 0 END {dir}"
+        ),
+        format!(
+            "CASE WHEN regexp_match(CAST({col} AS VARCHAR), '\\d') IS NULL THEN 1 ELSE 0 END {dir}"
+        ),
+        // Missing minor/patch → -1 so bare major (`2`) sorts before `2-1`.
+        format!(
+            "coalesce(try_cast((regexp_match(CAST({col} AS VARCHAR), '^(\\d+)'))[1] AS BIGINT), 0) {dir}"
+        ),
+        format!(
+            "coalesce(try_cast((regexp_match(CAST({col} AS VARCHAR), '^\\d+-(\\d+)'))[1] AS BIGINT), -1) {dir}"
+        ),
+        format!(
+            "coalesce(try_cast((regexp_match(CAST({col} AS VARCHAR), '^\\d+-\\d+-(\\d+)'))[1] AS BIGINT), -1) {dir}"
+        ),
+        format!("CAST({col} AS VARCHAR) {dir}"),
+    ]
+}
+
 fn build_order_by_sql(sort: &[crate::table_contract::TableSortSpec]) -> Result<String> {
     if sort.is_empty() {
         return Ok(String::new());
@@ -250,21 +291,7 @@ fn build_order_by_sql(sort: &[crate::table_contract::TableSortSpec]) -> Result<S
             "ASC"
         };
         if crate::paginate::is_serial_number_field(field) {
-            // 对齐内存段排序：空值最后；无数字文本（如「待完善」）排在数字序号之后。
-            parts.push(format!(
-                "CASE WHEN trim(CAST({col} AS VARCHAR)) = '' OR {col} IS NULL THEN 1 ELSE 0 END {dir}"
-            ));
-            parts.push(format!(
-                "CASE WHEN regexp_match(CAST({col} AS VARCHAR), '\\d') IS NULL THEN 1 ELSE 0 END {dir}"
-            ));
-            parts.push(format!(
-                "concat(\
-lpad(coalesce((regexp_match(CAST({col} AS VARCHAR), '^(\\d+)'))[1], '0'), 10, '0'), \
-coalesce(concat('-', lpad((regexp_match(CAST({col} AS VARCHAR), '^\\d+-(\\d+)'))[1], 10, '0')), ''), \
-coalesce(concat('-', lpad((regexp_match(CAST({col} AS VARCHAR), '^\\d+-\\d+-(\\d+)'))[1], 10, '0')), '')\
-) {dir}"
-            ));
-            parts.push(format!("CAST({col} AS VARCHAR) {dir}"));
+            parts.extend(serial_number_order_by_parts(&col, dir));
         } else {
             parts.push(format!("{col} {dir}"));
         }
@@ -683,9 +710,10 @@ pub fn try_eval_metrics_via_sql_partial(
     Ok(out)
 }
 
-/// Inject query filters into a top-level `trend_year_compare` so SQL lower can
-/// push them into the inner rowset (024008). Returns true when injection applied.
-fn inject_trend_year_compare_row_filters(
+/// Inject query filters into top-level `trend_year_compare` / `group_by` so SQL
+/// lower can push them into the inner rowset before agg (024008 + chart cross-filter).
+/// Returns true when injection applied (caller must not re-apply outer WHERE).
+fn inject_analysis_expr_row_filters(
     expr: &mut Value,
     filters: &BTreeMap<String, String>,
     search: Option<&str>,
@@ -699,7 +727,8 @@ fn inject_trend_year_compare_row_filters(
     if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
         return false;
     }
-    if object.get("type").and_then(Value::as_str) != Some("trend_year_compare") {
+    let typ = object.get("type").and_then(Value::as_str).unwrap_or("");
+    if !matches!(typ, "trend_year_compare" | "group_by") {
         return false;
     }
     let mut filter_obj = serde_json::Map::new();

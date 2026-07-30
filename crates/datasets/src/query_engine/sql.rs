@@ -40,6 +40,33 @@ pub fn sql_try_cast_expr(source_ident: &str, type_name: &str) -> String {
         "BIGINT" => format!(
             "try_cast(round(try_cast({source_ident} AS DOUBLE)) AS BIGINT)"
         ),
+        // Excel/export often stores calendar days as compact `YYYYMMDD` text;
+        // direct try_cast to DATE/TIMESTAMP yields NULL.
+        "DATE" => format!(
+            "COALESCE(\
+try_cast({source_ident} AS DATE), \
+try_cast(\
+CASE WHEN regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$') IS NOT NULL \
+THEN concat(\
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[1], '-', \
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[2], '-', \
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[3]\
+) ELSE NULL END AS DATE)\
+)"
+        ),
+        "TIMESTAMP" => format!(
+            "COALESCE(\
+try_cast({source_ident} AS TIMESTAMP), \
+try_cast(\
+CASE WHEN regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$') IS NOT NULL \
+THEN concat(\
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[1], '-', \
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[2], '-', \
+(regexp_match(CAST({source_ident} AS VARCHAR), '^(\\d{{4}})(\\d{{2}})(\\d{{2}})$'))[3], \
+' 00:00:00'\
+) ELSE NULL END AS TIMESTAMP)\
+)"
+        ),
         _ => format!("try_cast({source_ident} AS {cast_ty})"),
     }
 }

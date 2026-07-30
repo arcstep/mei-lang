@@ -22,7 +22,10 @@ use super::eval_artifact::{
     eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
 use super::eval_execute::execute_runtime_eval_plan_artifacts;
-use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
+use super::metric_hydrate::{
+    remap_filters_to_dataset_fields, resolve_dataset_query_bindings_from_state,
+    unique_dataset_views,
+};
 use super::metric_locate::{plan_access_metric_eval_for_ids, AccessMetricEvalPlan};
 use super::result_artifact::default_result_artifact_scope;
 use super::types::DatasetQueryOptions;
@@ -337,6 +340,13 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                 );
                 let mut query_perf = BTreeMap::new();
                 query_perf.insert("agg_cache_hit".to_string(), 1);
+                let binding_datasets = build_compiled_datasets_map(
+                    compiled,
+                    &eval_plan.primary.id,
+                    primary_dataset.clone(),
+                    &referenced_dataset_ids,
+                );
+                let binding_views: Vec<&DatasetView> = binding_datasets.values().collect();
                 return Ok(RuntimeMetricEvalOutcome {
                     primary_resource_id: eval_plan.primary.id.clone(),
                     owner_resource_id: eval_plan.owner.id.clone(),
@@ -371,7 +381,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                         Some(query_state),
                         filter_intents,
                         &dependency_revision_key,
-                        &[],
+                        &binding_views,
                     )?,
                     eval_report: None,
                 });
@@ -389,6 +399,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             primary_dataset.clone(),
             &referenced_dataset_ids,
         );
+        let sql_binding_views: Vec<&DatasetView> = sql_datasets.values().collect();
         let primary_filters =
             resolve_dataset_query_bindings_from_state(query_state, primary_dataset).mapped_filters;
         // Only lower the request KPIs — workset may also list compositions/rowsets
@@ -400,17 +411,18 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             .cloned()
             .collect();
         if !sql_ids.is_empty() {
-            // World-metrics owners are not file-backed; do not broadcast their
-            // filters/search onto every counted dataset.
-            let empty_filters = BTreeMap::new();
+            // World-metrics owners are not file-backed; still push remapped filters onto
+            // child row datasets so chart_selection / filter-bar scopes apply in SQL.
+            let remapped_world_filters =
+                remap_filters_to_dataset_fields(&query_state.filters, &sql_binding_views);
             let file_backed_primary = !primary_dataset.source.path.trim().is_empty()
                 && primary_dataset.source.kind != "derived";
             let sql_filters = if file_backed_primary {
                 &primary_filters
             } else {
-                &empty_filters
+                &remapped_world_filters
             };
-            let sql_search = if file_backed_primary {
+            let sql_search = if file_backed_primary || !remapped_world_filters.is_empty() {
                 query_state.search.as_deref()
             } else {
                 None
@@ -485,7 +497,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                     Some(query_state),
                     filter_intents,
                     &dependency_revision_key,
-                    &[],
+                    &sql_binding_views,
                 )?;
                 // SQL path may register DF tables; drop session after KPI return.
                 let _ = super::release_eval_working_set(app_root);
