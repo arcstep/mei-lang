@@ -4,8 +4,8 @@
 # Fetch cache (fetch-martin-sidecar.sh) remains an optional accelerator.
 #
 # Usage:
-#   ./scripts/desktop/build-martin-from-source.sh --dest DIR
-#   MEI_MARTIN_VERSION=1.10.1 ./scripts/desktop/build-martin-from-source.sh --dest DIR
+#   ./scripts/build-martin-from-source.sh --dest DIR
+#   MEI_MARTIN_VERSION=1.10.1 ./scripts/build-martin-from-source.sh --dest DIR
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

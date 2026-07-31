@@ -3,9 +3,9 @@
 # Used by collect-desktop-sidecars.sh / package-release-bundles.sh.
 #
 # Usage:
-#   ./scripts/desktop/fetch-martin-sidecar.sh --dest DIR
-#   ./scripts/desktop/fetch-martin-sidecar.sh --dest DIR --target macos-arm64
-#   MEI_MARTIN_VERSION=1.10.1 ./scripts/desktop/fetch-martin-sidecar.sh --dest DIR
+#   ./scripts/fetch-martin-sidecar.sh --dest DIR
+#   ./scripts/fetch-martin-sidecar.sh --dest DIR --target macos-arm64
+#   MEI_MARTIN_VERSION=1.10.1 ./scripts/fetch-martin-sidecar.sh --dest DIR
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

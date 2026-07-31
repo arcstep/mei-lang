@@ -25,9 +25,7 @@ members = [
 ]
 resolver = "2"
 
-# Tauri Viewer keeps its own Cargo.toml / lockfile under desktop/src-tauri.
-exclude = ["desktop/src-tauri"]
-
+# Tauri Viewer lives in tools/mei-viewer (sibling repo); not a Cargo workspace member.
 [workspace.package]
 edition = "2021"
 version = "2.8.2"

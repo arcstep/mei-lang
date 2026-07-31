@@ -12,11 +12,12 @@
 | [`test/`](test/) | 静态/单元级 Node 测试 | `npm run test:spa-static` |
 | [`audit/`](audit/) | Eval / SPA / surface 手工或套件审计 | `npm run test:eval-suite` |
 | [`perf/`](perf/) | 性能采样与场景配置 | `npm run perf:sample` |
-| [`desktop/`](desktop/) | Desktop Viewer sidecar / Martin / 打包入口 | `./scripts/desktop/build-desktop-viewer.sh` |
-| [`release/`](release/) | 版本同步、manifest、release bundle | `npm run release:test` |
+| [`release/`](release/) | 版本同步、manifest、release bundle、Martin sidecar | `npm run release:test` |
 | [`mcp/`](mcp/) | Author / Access MCP stdio adapter | `npm run mcp:author-adapter` |
 | [`ops/`](ops/) | cargo target 清理、快照对比、presentation 编译等运维 | 手工 |
 | [`lib/`](lib/) | 被上述脚本复用的库代码 | — |
+
+Desktop Viewer 已迁至 monorepo `tools/mei-viewer/`（独立仓）。
 
 ## 常用命令
 
@@ -30,9 +31,6 @@ npm run test:artifact-static
 
 # Eval 回归套件（需本地 host）
 npm run test:eval-suite
-
-# Desktop sidecar 收集
-./scripts/desktop/collect-desktop-sidecars.sh --release
 
 # Release bundle
 ./scripts/release/package-release-bundles.sh
