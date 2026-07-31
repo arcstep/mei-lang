@@ -56,15 +56,11 @@ function writeAsset(product, target, extension) {
 }
 
 try {
-  for (const target of targets.slice(0, 3)) {
-    writeAsset("viewer", target, "zip");
-  }
   for (const product of ["runtime", "toolchain"]) {
     for (const target of targets) {
       writeAsset(product, target, target.includes("windows") ? "zip" : "tar.gz");
     }
   }
-  writeFileSync(resolve(fixture, `mei-lang-${version}.vsix`), "vsix\n");
   writeFileSync(resolve(fixture, `mei-lang-${version}.spdx.json`), "{}\n");
 
   const generate = spawnSync(

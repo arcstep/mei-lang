@@ -64,61 +64,6 @@ jobs:
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "channel=${CHANNEL}" >> "${GITHUB_OUTPUT}"
 
-  viewer:
-    needs: meta
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            id: macos-arm64
-          - runner: macos-15-intel
-            id: macos-x64
-          - runner: windows-latest
-            id: windows-x64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Collect release sidecars
-        shell: bash
-        env:
-          # Prefer Martin source build in CI so TARGET matrix is not opaque-bin only.
-          # mbtiles-only: skip webui (needs npm). Required on macos-x64 (no official prebuilt).
-          MEI_MARTIN_FROM_SOURCE: "1"
-          MEI_MARTIN_FEATURES: mbtiles
-        run: ./scripts/desktop/collect-desktop-sidecars.sh --release
-      - name: Smoke desktop sidecars
-        shell: bash
-        run: ./scripts/desktop/smoke-desktop-sidecars.sh
-      - name: Install locked desktop dependencies
-        working-directory: desktop
-        run: npm ci
-      - name: Build and package Viewer
-        working-directory: desktop
-        run: npm run build
-      - name: Check Viewer release metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$(find desktop/dist -maxdepth 1 -type f -name 'mei-viewer-*' ! -name '*.manifest.json' -print -quit)"
-          test -n "$(find desktop/dist -maxdepth 1 -type f -name 'mei-viewer-*.manifest.json' -print -quit)"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-viewer-${{ matrix.id }}
-          path: |
-            desktop/dist/mei-viewer-*.zip
-            desktop/dist/mei-viewer-*-setup.exe
-            desktop/dist/mei-viewer-*.manifest.json
-          if-no-files-found: error
-
   bundles:
     needs: meta
     strategy:
@@ -168,28 +113,6 @@ jobs:
             dist/bundles/mei-toolchain-*
           if-no-files-found: error
 
-  vscode:
-    needs: meta
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: extensions/mei-lang-vscode/package-lock.json
-      - name: Install locked extension dependencies
-        working-directory: extensions/mei-lang-vscode
-        run: npm ci
-      - name: Package VSIX
-        working-directory: extensions/mei-lang-vscode
-        run: npm run package
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-vscode
-          path: extensions/mei-lang-vscode/mei-lang-*.vsix
-          if-no-files-found: error
-
   sbom:
     needs: meta
     runs-on: ubuntu-latest
@@ -213,9 +136,7 @@ jobs:
   assemble:
     needs:
       - meta
-      - viewer
       - bundles
-      - vscode
       - sbom
     runs-on: ubuntu-latest
     permissions:
@@ -258,7 +179,6 @@ jobs:
             dist/release/*.zip
             dist/release/*.tar.gz
             dist/release/*.exe
-            dist/release/*.vsix
             dist/release/*.spdx.json
       - name: Refuse to overwrite a published release
         if: github.ref_type == 'tag'
@@ -282,13 +202,11 @@ jobs:
           fail_on_unmatched_files: true
           files: dist/release/*
           body: |
-            Automated MeiLang release.
+            Automated MeiLang release (Runtime / Toolchain / SBOM).
 
-            Assets:
-            - Viewer installers for Windows x64 and macOS arm64/x64
-            - Runtime and Toolchain bundles for Windows, macOS and Linux x64
-            - VS Code extension
-            - Release manifest, SHA-256 checksums and SPDX SBOM
+            Desktop Viewer and VS Code extension ship from sibling tools repos:
+            - tools/mei-viewer
+            - tools/mei-lang-vscode
 
             Platform code signing is not configured yet. Verify SHA256SUMS.txt
             and the GitHub artifact attestations before installation.

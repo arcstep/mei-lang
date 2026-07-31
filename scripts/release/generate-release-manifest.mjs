@@ -119,7 +119,8 @@ for (const manifestName of sideManifestNames) {
   }
 }
 
-const requiredProducts = ["viewer", "toolchain", "runtime", "vscode-extension", "sbom"];
+// Viewer / VSIX ship from tools/mei-viewer and tools/mei-lang-vscode (optional if present).
+const requiredProducts = ["toolchain", "runtime", "sbom"];
 for (const product of requiredProducts) {
   if (!assets.some((asset) => asset.product === product)) {
     throw new Error(`release is missing required product: ${product}`);

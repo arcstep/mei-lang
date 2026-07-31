@@ -26,11 +26,6 @@ if (!manifest.version || !manifest.gitSha) {
 }
 
 const expectedTargets = {
-  viewer: new Set([
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "x86_64-pc-windows-msvc",
-  ]),
   toolchain: new Set([
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -60,7 +55,7 @@ for (const [product, expected] of Object.entries(expectedTargets)) {
   }
 }
 
-for (const product of ["vscode-extension", "sbom"]) {
+for (const product of ["sbom"]) {
   if (manifest.assets.filter((asset) => asset.product === product).length !== 1) {
     throw new Error(`release requires exactly one ${product} asset`);
   }
