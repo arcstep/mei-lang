@@ -6,7 +6,7 @@ This package is the standalone authoring runtime for external MeiLang developmen
 
 - `mei-toolchain` for `check`, `inspect`, `query`, `workspace`, `knowledge`, and `editor-runtime`
 - `mei-lsp` for in-editor diagnostics and language services
-- **`mei-lang-vscode`** (in the `mei-lang` source tree: `extensions/mei-lang-vscode`) for language id `mei` + TextMate highlighting + LSP client
+- **`mei-lang-vscode`** (in the `mei-lang` source tree: `tools/mei-lang-vscode`) for language id `mei` + TextMate highlighting + LSP client
 - editor MCP adapters for agent-style tools
 - packaged authoring knowledge, examples, and platform assets
 - canonical profiles for `author` and `access`

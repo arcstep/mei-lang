@@ -28,7 +28,7 @@ Cursor **Agents Window** often does **not** load custom TextMate grammars, langu
 Source path in the `mei-lang` repository:
 
 ```text
-extensions/mei-lang-vscode/
+tools/mei-lang-vscode/
 ```
 
 ### Preferred (when published)
@@ -48,7 +48,7 @@ npm run package
 # or: Cmd+Shift+P → Extensions: Install from VSIX…
 ```
 
-Development Host: open `extensions/mei-lang-vscode`, press **F5**, then open any workspace containing `.mei`.
+Development Host: open `tools/mei-lang-vscode`, press **F5**, then open any workspace containing `.mei`.
 
 After install, open a `.mei` file and confirm the status-bar language mode is **MeiLang**.
 
@@ -126,5 +126,5 @@ Other editors should adapt the same assets; do not invent a second language iden
 
 - `.mei/knowledge/author/authoring-overview.md`
 - `.mei/knowledge/author/build-debug-ops.md`
-- Extension how-to: `extensions/mei-lang-vscode/README.md` (in the `mei-lang` source tree)
+- Extension how-to: `tools/mei-lang-vscode/README.md` (in the `mei-lang` source tree)
 - Design SSOT: `docs/mei-lang-v2/08-agent-skills/0807-language-ecosystem-grammar-and-editor-recognition.md`

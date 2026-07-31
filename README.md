@@ -2,9 +2,9 @@ AI-native scene orchestration language for building apps from world models, UI c
 
 ## 下载安装包
 
-预构建安装包发布在 GitHub Releases：桌面用 **mei-viewer**，服务器用 **mei-runtime**，
-开发/LSP 用 **mei-toolchain**，编辑器用仓库内 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode) 的 VSIX。
-说明见 [`desktop/README.md`](desktop/README.md#github-release)。正式发版推送与 Cargo 版本一致的 `v*` tag；日常 `git push` 不自动打安装包。
+预构建安装包发布在 GitHub Releases：服务器用 **mei-runtime**，开发/LSP 用 **mei-toolchain**。
+桌面 **mei-viewer** 与编辑器 **mei-lang-vscode**（VSIX）在独立仓库构建分发（本地 monorepo：`tools/mei-viewer`、`tools/mei-lang-vscode`）。
+正式发版推送与 Cargo 版本一致的 `v*` tag；日常 `git push` 不自动打安装包。
 
 ## 本地启动
 
@@ -58,7 +58,7 @@ cargo run -p mei-host-shell -- auth bootstrap-users --workspace <workspace-root>
 ## 当前边界
 
 - **编辑侧**：默认交给 `Cursor / Codex / Claude Code / OpenCode` 等外部开发工具；`mei-lang` 提供 DSL、编译/lowering、宿主/runtime，以及后续可供这些工具消费的 `CLI / LSP / MCP` 接口。
-- **编辑器识别**：Cursor / VS Code 安装本仓库扩展 [`extensions/mei-lang-vscode`](extensions/mei-lang-vscode)（language id `mei` + TextMate + `mei-lsp`；推荐配套 Even Better TOML 以校验 `app.toml`）。作者态说明见 [`agent/knowledge/editor-runtime/language-and-editor-recognition.md`](agent/knowledge/editor-runtime/language-and-editor-recognition.md)。
+- **编辑器识别**：Cursor / VS Code 安装 **mei-lang-vscode**（language id `mei` + TextMate + `mei-lsp`；推荐配套 Even Better TOML 以校验 `app.toml`）。本地 monorepo 见 `tools/mei-lang-vscode`；作者态说明见 [`agent/knowledge/editor-runtime/language-and-editor-recognition.md`](agent/knowledge/editor-runtime/language-and-editor-recognition.md)。
 - **访问侧**：`mei-lang` 宿主内置访问侧 AI，围绕当前 `scene/world/runtime` 做问答、查询、解释与临时视图。
 - **仓库内 skill / agent 相关实现**：当前仍有部分历史 authoring Agent 代码与配置表面，正在逐步从编辑侧主线退出。
 
@@ -107,7 +107,7 @@ cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another
 - 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`；若端口仍被占用，可执行 `lsof -ti tcp:9527 | xargs kill`
 - 日志里的 `synced MeiLang skill` 仅表示 skill 文件同步，**不是**自动拉起外部 Agent 进程；默认启动不会做这一步
 - 瓦片：Host 默认可自动托管 Martin（见上文 GIS）；外部服务可用 `./scripts/martin/start_martin.sh` 或 Docker，并设 `MEI_GIS_PROXY_UPSTREAM`
-- 分发含 `bin/martin`：`mei-lang/scripts/desktop/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
+- 分发含 `bin/martin`：`tools/mei-viewer/scripts/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
 
 ## 最少配置
 

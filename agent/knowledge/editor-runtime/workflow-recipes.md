@@ -32,7 +32,7 @@ Use `workspace runtime update` for day-2 refreshes when the source workspace alr
 Install the MeiLang language extension from the `mei-lang` source tree:
 
 ```bash
-cd /path/to/mei-lang/extensions/mei-lang-vscode
+cd /path/to/tools/mei-lang-vscode
 npm install
 npm run package
 cursor --install-extension ./mei-lang-*.vsix

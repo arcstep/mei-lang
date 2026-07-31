@@ -15,7 +15,7 @@
 
 ## 编辑器识别（先装再写）
 
-1. 安装 `mei-lang` 仓库中的 [`extensions/mei-lang-vscode`](../extensions/mei-lang-vscode/README.md)（VSIX / Install from Location / F5）。
+1. 安装 `mei-lang` 仓库中的 [`tools/mei-lang-vscode`](../tools/mei-lang-vscode/README.md)（VSIX / Install from Location / F5）。
 2. 打开 `.mei` 后，状态栏语言模式应为 **MeiLang**。
 3. **不要**长期依赖 `"files.associations": { "*.mei": "python" }` 或 `starlark`；那只是过渡，且可能盖过正式扩展。
 4. 确保 `mei-lsp` 可达：工作区 `.mei/runtime/bin/mei-lsp`，或设置 `mei.lsp.path`。

@@ -16,7 +16,7 @@ MeiLang 当前作者态的主线是：
 4. **只在需要 runtime/world 事实时才用 inspect/query/runtime**
 5. **正式文件写入始终由外部开发工具完成**
 
-编辑器识别说明：`.mei/knowledge/author/language-and-editor-recognition.md`（源码仓：`agent/knowledge/editor-runtime/language-and-editor-recognition.md` / `extensions/mei-lang-vscode/README.md`）。
+编辑器识别说明：`.mei/knowledge/author/language-and-editor-recognition.md`（源码仓：`agent/knowledge/editor-runtime/language-and-editor-recognition.md` / `tools/mei-lang-vscode/README.md`）。
 
 ## Workspace-local 入口
 
