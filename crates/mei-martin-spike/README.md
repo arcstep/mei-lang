@@ -13,4 +13,4 @@ cargo run --manifest-path crates/mei-martin-spike/Cargo.toml -- both
 | `library` | `martin-core`（feature `mbtiles`） | 打开 `huale-z10-16.mbtiles`，`get_tile` 返回非空 PBF |
 | `subprocess` | 本机 `martin` 二进制 + 随机端口 | 挂 `stock/gis/tiles/`，`/catalog` 列出全部 source，HTTP 取瓦片成功 |
 
-目标产品形态见 `docs/gis/05-martin-runtime.md` §「Host 托管 Martin」。
+目标产品形态见 `docs/tools/gis/05-martin-runtime.md` §「Host 托管 Martin」。
