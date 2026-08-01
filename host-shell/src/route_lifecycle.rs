@@ -378,17 +378,15 @@ async fn ensure_instance_ready(
             "previous instance `{instance_id}` is not ready and has no persisted InstanceSpec"
         ))
     })?;
-    let restart_result = {
-        let has_runtime = {
-            let guard = http.app_runtime.lock().await;
-            guard.runtime_for(instance_id).is_some()
-        };
-        if has_runtime {
-            crate::app_runtime_supervisor::restart_from(&http.app_runtime, instance_id, 3).await
-        } else {
-            let token = crate::app_runtime_supervisor::generate_instance_token(instance_id);
-            crate::app_runtime_supervisor::spawn_into(&http.app_runtime, spec, token).await
-        }
+    let has_runtime = {
+        let guard = http.app_runtime.lock().await;
+        guard.runtime_for(instance_id).is_some()
+    };
+    let restart_result = if has_runtime {
+        crate::app_runtime_supervisor::restart_from(&http.app_runtime, instance_id, 3).await
+    } else {
+        let token = crate::app_runtime_supervisor::generate_instance_token(instance_id);
+        crate::app_runtime_supervisor::spawn_into(&http.app_runtime, spec, token).await
     };
     let (endpoints, started_at) = {
         let guard = http.app_runtime.lock().await;
@@ -399,9 +397,18 @@ async fn ensure_instance_ready(
         guard.sync_app_runtime_endpoints_with_started(endpoints, started_at);
     }
     http.sync_route_table_from_supervisor().await;
-    restart_result
-        .map(|_| ())
-        .map_err(|error| RouteLifecycleError::NotReady(error.to_string()))
+    match restart_result {
+        Ok(_) => {
+            if !has_runtime {
+                crate::instance_api::arm_runtime_exit_watchdog(
+                    http.clone(),
+                    instance_id.to_string(),
+                );
+            }
+            Ok(())
+        }
+        Err(error) => Err(RouteLifecycleError::NotReady(error.to_string())),
+    }
 }
 
 /// Launch candidates, wait ready, then cut over each app. On failure stop candidates and
@@ -501,6 +508,10 @@ async fn launch_specs(
                     "instance-ready",
                     &observed,
                     None,
+                );
+                crate::instance_api::arm_runtime_exit_watchdog(
+                    http.clone(),
+                    spec.instance_id.clone(),
                 );
                 launched.push(spec.instance_id.clone());
             }

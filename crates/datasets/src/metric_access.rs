@@ -866,6 +866,7 @@ mod tests {
                 query: None,
                 connection: None,
                 content: None,
+                            primary_key: None,
             },
             sources: Vec::new(),
             metrics: BTreeMap::new(),

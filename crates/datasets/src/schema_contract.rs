@@ -111,6 +111,8 @@ mod tests {
             optional,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         }
     }
 

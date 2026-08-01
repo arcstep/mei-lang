@@ -5,6 +5,9 @@ mod date_sql;
 mod exec;
 mod lower;
 
+#[cfg(test)]
+mod controlled_sql_tdd_tests;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};

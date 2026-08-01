@@ -388,7 +388,9 @@ mod tests {
                 optional: false,
                 unit: None,
                 normalize: None,
-            },
+                        primary: false,
+            hidden: false,
+        },
             ColumnSchema {
                 name: "分办时间".to_string(),
                 type_name: "date".to_string(),
@@ -396,7 +398,9 @@ mod tests {
                 optional: false,
                 unit: None,
                 normalize: None,
-            },
+                        primary: false,
+            hidden: false,
+        },
         ];
         let datasets = BTreeMap::from([
             (
@@ -414,7 +418,9 @@ mod tests {
                         optional: false,
                         unit: None,
                         normalize: None,
-                    }],
+                                primary: false,
+            hidden: false,
+        }],
                 ),
             ),
         ]);
@@ -438,6 +444,8 @@ mod tests {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         }];
         let datasets = BTreeMap::from([(
             "warning_list".to_string(),

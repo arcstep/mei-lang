@@ -342,6 +342,70 @@ async fn restart_instance(
     Ok(result)
 }
 
+/// When a managed app-runtime child exits (e.g. stack overflow abort), restart it
+/// and republish routes so Access does not stay wedged on a dead endpoint.
+///
+/// Survives brief map gaps during intentional `restart_from` (stop then spawn).
+/// Call once after a successful spawn; do not re-arm from `restart_instance`.
+pub fn arm_runtime_exit_watchdog(http: HostHttpState, instance_id: String) {
+    if instance_id.trim().is_empty() {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut consecutive_missing = 0u32;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let exited = {
+                let mut guard = http.app_runtime.lock().await;
+                let Some(managed) = guard.runtimes.get_mut(instance_id.as_str()) else {
+                    consecutive_missing = consecutive_missing.saturating_add(1);
+                    // Intentional stop removes the entry; mid-restart leaves a short gap.
+                    if consecutive_missing > 60 {
+                        tracing::info!(
+                            instance_id = %instance_id,
+                            "app-runtime exit watchdog stopping (instance absent)"
+                        );
+                        return;
+                    }
+                    continue;
+                };
+                consecutive_missing = 0;
+                match managed.child.try_wait() {
+                    Ok(Some(status)) => Some(status.to_string()),
+                    Ok(None) => None,
+                    Err(error) => Some(format!("try_wait error: {error}")),
+                }
+            };
+            let Some(status) = exited else {
+                continue;
+            };
+            tracing::error!(
+                instance_id = %instance_id,
+                status = %status,
+                "app-runtime exited unexpectedly; attempting automatic restart"
+            );
+            match restart_instance(&http, instance_id.as_str()).await {
+                Ok(observed) => {
+                    tracing::warn!(
+                        instance_id = %instance_id,
+                        endpoint = ?observed.endpoint,
+                        "app-runtime auto-restart succeeded"
+                    );
+                    // Keep watching the replacement child (same instance_id).
+                }
+                Err(error) => {
+                    tracing::error!(
+                        instance_id = %instance_id,
+                        error = ?error,
+                        "app-runtime auto-restart failed"
+                    );
+                    return;
+                }
+            }
+        }
+    });
+}
+
 fn active_route_for(manifest: &LaunchManifest, instance_id: &str) -> Option<String> {
     manifest.routes.iter().find_map(|(app_id, route)| {
         (route.active.as_deref() == Some(instance_id)).then(|| app_id.clone())

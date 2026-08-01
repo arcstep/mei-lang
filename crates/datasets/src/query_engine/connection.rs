@@ -22,6 +22,9 @@ fn runtime() -> &'static tokio::runtime::Runtime {
             .worker_threads(2)
             .enable_all()
             .thread_name("mei-query-engine")
+            // DataFusion planning of factored WITH/UNION graphs needs more than the
+            // default ~2MiB worker stack (effectiveness category-expand).
+            .thread_stack_size(8 * 1024 * 1024)
             .build()
             .expect("query engine tokio runtime")
     })

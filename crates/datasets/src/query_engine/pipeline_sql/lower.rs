@@ -95,11 +95,26 @@ pub fn try_lower_expr(
             .join(", ");
         format!("WITH {with} {}", rel.sql)
     };
-    Ok(Some(SqlPlan {
+    let plan = SqlPlan {
         setup_ddls,
         final_sql,
         result_columns: rel.columns,
-    }))
+    };
+    if let Err(msg) = is_controlled_sql_plan(&plan) {
+        tracing::error!(
+            error = %msg,
+            sql_chars = plan.final_sql.len(),
+            "pipeline_sql rejected uncontrolled plan before execute"
+        );
+        bail!("{msg}");
+    }
+    tracing::info!(
+        sql_chars = plan.final_sql.len(),
+        union_all = plan.final_sql.matches("UNION ALL").count(),
+        has_arm = plan.final_sql.contains(" AS _arm "),
+        "pipeline_sql controlled plan ready"
+    );
+    Ok(Some(plan))
 }
 
 fn lower_rel(
@@ -2120,12 +2135,21 @@ fn lower_concat_rowsets(
     if items.is_empty() {
         return Ok(None);
     }
+    // Prefer shared-base factoring for mutate(where(SAME, pred), updates) arms —
+    // the effectiveness / category-expand pattern. Avoids width-copy SQL explosion.
+    if let Some(rel) =
+        try_lower_concat_shared_mutate_where(app_root, datasets, items, setup, depth)?
+    {
+        return Ok(Some(rel));
+    }
     let mut rels = Vec::new();
     for item in items {
         let Some(rel) = lower_rel(app_root, datasets, item, setup, depth + 1)? else {
             return Ok(None);
         };
-        rels.push(rel);
+        // Materialize each branch so UNION arms reference CTEs instead of inlining
+        // giant subtrees repeatedly when factoring does not apply.
+        rels.push(materialize_rel_as_cte(rel, setup)?);
     }
     let columns = rels
         .iter()
@@ -2160,6 +2184,257 @@ fn lower_concat_rowsets(
     Ok(Some(Rel {
         sql: parts.join(" UNION ALL "),
         columns: Vec::new(),
+    }))
+}
+
+fn analysis_expr_type(value: &Value) -> Option<&str> {
+    let object = value.as_object()?;
+    if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return None;
+    }
+    object.get("type").and_then(Value::as_str)
+}
+
+/// Heap-iterative equality for deep analysis trees.
+/// `serde_json::Value`'s recursive `PartialEq` can overflow the native stack on
+/// production-width `concat_rowsets` graphs (effectiveness category expand).
+fn values_eq_iterative(left: &Value, right: &Value) -> bool {
+    let mut stack = vec![(left, right)];
+    while let Some((l, r)) = stack.pop() {
+        match (l, r) {
+            (Value::Null, Value::Null) => {}
+            (Value::Bool(a), Value::Bool(b)) if a == b => {}
+            (Value::Number(a), Value::Number(b)) if a == b => {}
+            (Value::String(a), Value::String(b)) if a == b => {}
+            (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
+                for pair in a.iter().zip(b.iter()) {
+                    stack.push(pair);
+                }
+            }
+            (Value::Object(a), Value::Object(b)) if a.len() == b.len() => {
+                for (key, va) in a {
+                    let Some(vb) = b.get(key) else {
+                        return false;
+                    };
+                    stack.push((va, vb));
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Prefer shared-base factoring for:
+/// - `mutate(where(SAME, pred), lit_updates)` (category expand)
+/// - `mutate(first_by(where(SAME, pred), field), lit_updates)` (party_gov / handled_person)
+/// - `mutate(SAME, lit_updates)` (nest wraps / label-only forks)
+fn try_lower_concat_shared_mutate_where(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    items: &[Value],
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    if items.len() < 2 {
+        return Ok(None);
+    }
+    #[derive(Clone, Copy)]
+    enum ArmKind<'a> {
+        Where {
+            pred: &'a Value,
+            updates: &'a serde_json::Map<String, Value>,
+            first_by_field: Option<&'a str>,
+        },
+        Bare {
+            updates: &'a serde_json::Map<String, Value>,
+            first_by_field: Option<&'a str>,
+        },
+    }
+    /// Peel `where(base, pred)` or `first_by(where(base, pred), field)` / `first_by(base, field)`.
+    fn peel_mutate_rowset<'a>(
+        rowset: &'a Value,
+        updates: &'a serde_json::Map<String, Value>,
+    ) -> Option<(&'a Value, ArmKind<'a>)> {
+        if analysis_expr_type(rowset) == Some("first_by") {
+            let first_obj = rowset.as_object()?;
+            let field = first_obj
+                .get("field")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())?;
+            let inner = first_obj.get("rowset")?;
+            if analysis_expr_type(inner) == Some("where") {
+                let where_obj = inner.as_object()?;
+                let base = where_obj.get("rowset")?;
+                let pred = where_obj.get("predicate")?;
+                return Some((
+                    base,
+                    ArmKind::Where {
+                        pred,
+                        updates,
+                        first_by_field: Some(field),
+                    },
+                ));
+            }
+            return Some((
+                inner,
+                ArmKind::Bare {
+                    updates,
+                    first_by_field: Some(field),
+                },
+            ));
+        }
+        if analysis_expr_type(rowset) == Some("where") {
+            let where_obj = rowset.as_object()?;
+            let base = where_obj.get("rowset")?;
+            let pred = where_obj.get("predicate")?;
+            return Some((
+                base,
+                ArmKind::Where {
+                    pred,
+                    updates,
+                    first_by_field: None,
+                },
+            ));
+        }
+        Some((
+            rowset,
+            ArmKind::Bare {
+                updates,
+                first_by_field: None,
+            },
+        ))
+    }
+    let mut shared_inner: Option<&Value> = None;
+    let mut arms: Vec<ArmKind<'_>> = Vec::with_capacity(items.len());
+    for item in items {
+        if analysis_expr_type(item) != Some("mutate") {
+            return Ok(None);
+        }
+        let Some(object) = item.as_object() else {
+            return Ok(None);
+        };
+        let Some(updates) = object.get("updates").and_then(Value::as_object) else {
+            return Ok(None);
+        };
+        if updates.is_empty() {
+            return Ok(None);
+        }
+        for (_key, expr) in updates {
+            if analysis_expr_type(expr) != Some("lit") {
+                return Ok(None);
+            }
+        }
+        let Some(rowset) = object.get("rowset") else {
+            return Ok(None);
+        };
+        let Some((inner, arm)) = peel_mutate_rowset(rowset, updates) else {
+            return Ok(None);
+        };
+        match shared_inner {
+            None => shared_inner = Some(inner),
+            Some(prev) if values_eq_iterative(prev, inner) => {}
+            Some(_) => return Ok(None),
+        }
+        arms.push(arm);
+    }
+    let Some(inner) = shared_inner else {
+        return Ok(None);
+    };
+    let Some(base_rel) = lower_rel(app_root, datasets, inner, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let base = materialize_rel_as_cte(base_rel, setup)?;
+    let mut columns = base.columns.clone();
+    let mut parts = Vec::with_capacity(arms.len());
+    for arm in arms {
+        let (pred_sql, updates, first_by_field) = match arm {
+            ArmKind::Where {
+                pred,
+                updates,
+                first_by_field,
+            } => {
+                let Some(pred_sql) = predicate_to_sql(pred)? else {
+                    return Ok(None);
+                };
+                (Some(pred_sql), updates, first_by_field)
+            }
+            ArmKind::Bare {
+                updates,
+                first_by_field,
+            } => (None, updates, first_by_field),
+        };
+        let mut from_sql = base.sql.clone();
+        if let Some(pred_sql) = pred_sql.as_ref() {
+            from_sql = format!("SELECT * FROM ({from_sql}) AS _arm_src WHERE {pred_sql}");
+        }
+        if let Some(field) = first_by_field {
+            let col = quote_ident(field)?;
+            if base.columns.is_empty() {
+                from_sql = format!(
+                    "SELECT * FROM (\
+                       SELECT *, ROW_NUMBER() OVER (\
+                         PARTITION BY CAST({col} AS VARCHAR) ORDER BY CAST({col} AS VARCHAR)\
+                       ) AS _mei_rn \
+                       FROM ({from_sql}) AS _fb_src\
+                     ) AS _fb WHERE _mei_rn = 1"
+                );
+            } else {
+                let select_list = base
+                    .columns
+                    .iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ");
+                from_sql = format!(
+                    "SELECT {select_list} FROM (\
+                       SELECT *, ROW_NUMBER() OVER (\
+                         PARTITION BY CAST({col} AS VARCHAR) ORDER BY CAST({col} AS VARCHAR)\
+                       ) AS _mei_rn \
+                       FROM ({from_sql}) AS _fb_src\
+                     ) AS _fb WHERE _mei_rn = 1"
+                );
+            }
+        }
+        let mut select_parts = Vec::new();
+        let mut out_columns = base.columns.clone();
+        if base.columns.is_empty() {
+            select_parts.push("*".to_string());
+        } else {
+            for col in &base.columns {
+                select_parts.push(quote_ident(col)?);
+            }
+        }
+        for (key, expr) in updates {
+            let Some(map) = expr.as_object() else {
+                return Ok(None);
+            };
+            let lit = literal_sql(map.get("value"))?;
+            let alias = quote_ident(key)?;
+            if let Some(pos) = out_columns.iter().position(|c| c == key) {
+                if pos < base.columns.len() {
+                    select_parts[pos] = format!("{lit} AS {alias}");
+                } else {
+                    // Should not happen for lit-only forks; keep append semantics.
+                    select_parts.push(format!("{lit} AS {alias}"));
+                }
+            } else {
+                select_parts.push(format!("{lit} AS {alias}"));
+                out_columns.push(key.clone());
+            }
+        }
+        let sql = format!(
+            "SELECT {} FROM ({}) AS _arm",
+            select_parts.join(", "),
+            from_sql
+        );
+        parts.push(sql);
+        columns = out_columns;
+    }
+    Ok(Some(Rel {
+        sql: parts.join(" UNION ALL "),
+        columns,
     }))
 }
 
@@ -2243,4 +2518,148 @@ fn lookup_dataset<'a>(
                 .find(|view| view.id == dataset_id || view.id.ends_with(dataset_id))
         })
     })
+}
+
+// ---------------------------------------------------------------------------
+// Controlled SQL shape gate (0549): refuse width-copy / unbounded plans before DF.
+// ---------------------------------------------------------------------------
+
+/// Soft budget for a single compiled plan body (chars).
+pub const CONTROLLED_SQL_MAX_CHARS: usize = 48_000;
+
+/// Soft budget for `UNION ALL` occurrences in the final SQL text.
+pub const CONTROLLED_SQL_MAX_UNION_ALL: usize = 24;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SqlPlanShapeAudit {
+    pub chars: usize,
+    pub union_all_count: usize,
+    /// Count of legacy inlined-branch aliases (`AS _mut` / `AS _c`).
+    /// Narrow shared-CTE arms use `AS _arm` and must not trip this heavily.
+    pub width_copy_alias_count: usize,
+    /// How many times `ROW_NUMBER()` appears (first_by). Shared path keeps few in CTEs.
+    pub row_number_count: usize,
+}
+
+impl SqlPlanShapeAudit {
+    pub fn is_controlled(&self) -> bool {
+        self.chars <= CONTROLLED_SQL_MAX_CHARS
+            && self.union_all_count <= CONTROLLED_SQL_MAX_UNION_ALL
+            && self.width_copy_alias_count <= 8
+            && self.row_number_count <= 8
+    }
+}
+
+pub fn audit_sql_plan_shape(plan: &SqlPlan) -> SqlPlanShapeAudit {
+    let sql = &plan.final_sql;
+    SqlPlanShapeAudit {
+        chars: sql.len(),
+        union_all_count: sql.matches("UNION ALL").count(),
+        width_copy_alias_count: sql.matches(" AS _mut").count() + sql.matches(" AS _c").count(),
+        row_number_count: sql.matches("ROW_NUMBER()").count(),
+    }
+}
+
+pub fn is_controlled_sql_plan(plan: &SqlPlan) -> Result<(), String> {
+    let audit = audit_sql_plan_shape(plan);
+    if audit.is_controlled() {
+        return Ok(());
+    }
+    Err(format!(
+        "uncontrolled_sql_plan: chars={} (max {}) union_all={} (max {}) width_copy_alias_count={} row_number_count={} — refuse width-copy lowering before execute",
+        audit.chars,
+        CONTROLLED_SQL_MAX_CHARS,
+        audit.union_all_count,
+        CONTROLLED_SQL_MAX_UNION_ALL,
+        audit.width_copy_alias_count,
+        audit.row_number_count
+    ))
+}
+
+/// One arm of a category-expand: shared base filtered by `predicate`, labeled.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct CategoryExpandArm {
+    pub predicate: Value,
+    pub label: String,
+}
+
+/// Test helper: lower category-expand as shared base CTE + narrow UNION ALL.
+#[cfg(test)]
+pub fn try_lower_category_expand_shared_cte(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    base_expr: &Value,
+    label_field: &str,
+    arms: &[CategoryExpandArm],
+) -> Result<Option<SqlPlan>> {
+    if arms.is_empty() || label_field.trim().is_empty() {
+        return Ok(None);
+    }
+    let mut setup = Vec::new();
+    let Some(base_rel) = lower_rel(app_root, datasets, base_expr, &mut setup, 0)? else {
+        return Ok(None);
+    };
+    let base = materialize_rel_as_cte(base_rel, &mut setup)?;
+    let label_q = quote_ident(label_field)?;
+    let mut columns = base.columns.clone();
+    if !columns.iter().any(|c| c == label_field) {
+        columns.push(label_field.to_string());
+    }
+    let mut parts = Vec::with_capacity(arms.len());
+    for arm in arms {
+        let Some(pred_sql) = predicate_to_sql(&arm.predicate)? else {
+            return Ok(None);
+        };
+        let lit = quote_string(&arm.label);
+        let select_list = if base.columns.is_empty() {
+            format!("*, {lit} AS {label_q}")
+        } else {
+            let cols = base
+                .columns
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Result<Vec<_>>>()?
+                .join(", ");
+            format!("{cols}, {lit} AS {label_q}")
+        };
+        parts.push(format!(
+            "SELECT {select_list} FROM ({}) AS _arm WHERE {pred_sql}",
+            base.sql
+        ));
+    }
+    let rel = Rel {
+        sql: parts.join(" UNION ALL "),
+        columns,
+    };
+    let mut setup_ddls = Vec::new();
+    let mut ctes = Vec::new();
+    for item in setup {
+        if let Some(rest) = item.strip_prefix("CTE:") {
+            if let Some((name, sql)) = rest.split_once("|||") {
+                if !ctes.iter().any(|(n, _)| n == name) {
+                    ctes.push((name.to_string(), sql.to_string()));
+                }
+                continue;
+            }
+        }
+        setup_ddls.push(item);
+    }
+    let final_sql = if ctes.is_empty() {
+        rel.sql
+    } else {
+        let with = ctes
+            .iter()
+            .map(|(name, sql)| format!("{name} AS ({sql})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("WITH {with} {}", rel.sql)
+    };
+    let plan = SqlPlan {
+        setup_ddls,
+        final_sql,
+        result_columns: rel.columns,
+    };
+    is_controlled_sql_plan(&plan).map_err(anyhow::Error::msg)?;
+    Ok(Some(plan))
 }

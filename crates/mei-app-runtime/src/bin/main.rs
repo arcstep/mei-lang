@@ -2,8 +2,7 @@ use clap::{CommandFactory, Parser};
 
 use mei_app_runtime::{run_serve, Cli, Command};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -14,6 +13,18 @@ async fn main() -> anyhow::Result<()> {
         .compact()
         .init();
 
+    // DataFusion planning for factored pipeline SQL (WITH + UNION ALL + ROW_NUMBER)
+    // overflows the default ~2MiB tokio worker stack; keep workers at 8MiB.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("mei-app-runtime")
+        .thread_stack_size(8 * 1024 * 1024)
+        .build()?;
+
+    runtime.block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     if cli.print_version {
         return print_version(false);

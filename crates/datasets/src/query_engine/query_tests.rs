@@ -50,6 +50,8 @@ fn query_parquet_page_pushdown_limits_rows() {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
         ColumnSchema {
             name: "name".into(),
@@ -58,6 +60,8 @@ fn query_parquet_page_pushdown_limits_rows() {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
     ];
     let options = DatasetQueryOptions {
@@ -96,7 +100,9 @@ fn query_parquet_page_filter_eq() {
         optional: false,
         unit: None,
         normalize: None,
-    }];
+                primary: false,
+            hidden: false,
+        }];
     let mut filters = BTreeMap::new();
     filters.insert("name".into(), "b".into());
     let options = DatasetQueryOptions {
@@ -175,6 +181,8 @@ fn query_parquet_page_between_on_date32_column() {
             optional: true,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
         ColumnSchema {
             name: "id".into(),
@@ -183,6 +191,8 @@ fn query_parquet_page_between_on_date32_column() {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
     ];
     let mut filters = BTreeMap::new();
@@ -225,6 +235,8 @@ fn query_parquet_page_drange_matches_filter_bar_encoding() {
             optional: true,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
         ColumnSchema {
             name: "id".into(),
@@ -233,6 +245,8 @@ fn query_parquet_page_drange_matches_filter_bar_encoding() {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
     ];
     let mut filters = BTreeMap::new();
@@ -274,6 +288,8 @@ fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
             optional: false,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
         ColumnSchema {
             name: "missing_col".into(),
@@ -282,6 +298,8 @@ fn ensure_parquet_view_missing_optional_schema_source_becomes_null() {
             optional: true,
             unit: None,
             normalize: None,
+                    primary: false,
+            hidden: false,
         },
     ];
     let (view, cols) =
@@ -305,7 +323,9 @@ fn ensure_parquet_view_missing_required_schema_source_fails() {
         optional: false,
         unit: None,
         normalize: None,
-    }];
+                primary: false,
+            hidden: false,
+        }];
     let err = ensure_parquet_view(app_root, parquet.as_path(), &schema, None)
         .expect_err("required missing source must fail");
     let message = format!("{err:#}");

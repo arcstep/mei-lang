@@ -510,7 +510,8 @@ mod tests {
             query: Some("WITH x AS (SELECT 1 AS n) SELECT * FROM x".into()),
             connection: Some("postgresql://x".into()),
             content: None,
-        };
+                        primary_key: None,
+            };
         let meta = SourceMeta::default();
         let sql = base_sql(&meta, &source).unwrap();
         assert!(sql.starts_with("WITH"));
@@ -537,7 +538,8 @@ mod tests {
             query: Some("SELECT 1::int AS n".into()),
             connection: Some(dsn),
             content: None,
-        };
+                        primary_key: None,
+            };
         let meta = SourceMeta::default();
         let result = query_postgres_rows(
             Path::new("/tmp/mei-pg-test-app"),

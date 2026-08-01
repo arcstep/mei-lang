@@ -470,6 +470,11 @@ pub async fn start_app_with_launch(
         drain_and_retire_previous(http, workspace.as_path(), app_id, previous).await;
     }
 
+    crate::instance_api::arm_runtime_exit_watchdog(
+        http.clone(),
+        spec_for_state.instance_id.clone(),
+    );
+
     Ok(json!({
         "accepted": true,
         "kind": "app-started",
