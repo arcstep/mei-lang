@@ -139,6 +139,7 @@ fn lower_rel(
         }
         "unpivot_columns" => lower_unpivot_columns(app_root, datasets, object, setup, depth),
         "lookup_value" => lower_lookup_value(app_root, datasets, object, setup, depth),
+        "lookup_collect" => lower_lookup_collect(app_root, datasets, object, setup, depth),
         "group_by" => lower_group_by(app_root, datasets, object, setup, depth),
         "bucket_date" => lower_bucket_date(app_root, datasets, object, setup, depth),
         "first_by" => lower_first_by(app_root, datasets, object, setup, depth),
@@ -1523,6 +1524,114 @@ fn lower_lookup_value(
              FROM ({}) AS a \
              LEFT JOIN ({}) AS b ON {on_sql}",
             inner.sql, lookup.sql
+        ),
+        columns,
+    }))
+}
+
+fn lower_lookup_collect(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    object: &serde_json::Map<String, Value>,
+    setup: &mut Vec<String>,
+    depth: usize,
+) -> Result<Option<Rel>> {
+    let Some(inner_expr) = object.get("rowset") else {
+        return Ok(None);
+    };
+    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let left_field = object.get("field").and_then(Value::as_str).unwrap_or("");
+    let right_key = object
+        .get("lookup_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let right_value = object
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let as_field = object
+        .get("as_field")
+        .and_then(Value::as_str)
+        .unwrap_or(right_value);
+    let delimiter = object
+        .get("delimiter")
+        .and_then(Value::as_str)
+        .unwrap_or("、");
+    let Some(lookup_rowset) = object.get("lookup_rowset") else {
+        return Ok(None);
+    };
+    if left_field.is_empty()
+        || right_key.is_empty()
+        || right_value.is_empty()
+        || as_field.is_empty()
+    {
+        return Ok(None);
+    }
+    let Some(lookup) = lower_rel(app_root, datasets, lookup_rowset, setup, depth + 1)? else {
+        return Ok(None);
+    };
+    let l = quote_ident(left_field)?;
+    let rk = quote_ident(right_key)?;
+    let rv = quote_ident(right_value)?;
+    let alias = quote_ident(as_field)?;
+    let delim = quote_string(delimiter);
+    let mut columns = inner.columns.clone();
+    if !columns.iter().any(|c| c == as_field) {
+        columns.push(as_field.to_string());
+    }
+    let order_key = if inner.columns.is_empty() {
+        "1".to_string()
+    } else {
+        quote_ident(&inner.columns[0])?
+    };
+    let inner_proj = if inner.columns.is_empty() {
+        "*".to_string()
+    } else {
+        let mut parts = Vec::new();
+        for c in &inner.columns {
+            parts.push(format!("i.{}", quote_ident(c)?));
+        }
+        parts.join(", ")
+    };
+    Ok(Some(Rel {
+        sql: format!(
+            "WITH inner AS (\
+               SELECT *, ROW_NUMBER() OVER (ORDER BY {order_key}) AS __mei_rid \
+               FROM ({}) AS _lc_src\
+             ), \
+             tokens AS (\
+               SELECT __mei_rid, trim(token) AS token \
+               FROM inner \
+               CROSS JOIN UNNEST(\
+                 string_split(\
+                   regexp_replace(CAST({l} AS VARCHAR), '[、，,;；\\n\\r\\t]+', ','), \
+                   ','\
+                 )\
+               ) AS t(token) \
+               WHERE trim(token) <> ''\
+             ), \
+             matches AS (\
+               SELECT t.__mei_rid, CAST(b.{rv} AS VARCHAR) AS composite \
+               FROM tokens t \
+               INNER JOIN ({lookup}) AS b \
+                 ON CAST(b.{rk} AS VARCHAR) = t.token \
+                OR (\
+                  regexp_replace(CAST(t.token AS VARCHAR), '-.*$', '') <> '' \
+                  AND regexp_replace(CAST(t.token AS VARCHAR), '-.*$', '') = CAST(b.{rk} AS VARCHAR)\
+                )\
+             ), \
+             agg AS (\
+               SELECT __mei_rid, array_to_string(array_agg(DISTINCT composite), {delim}) AS composite \
+               FROM matches \
+               GROUP BY __mei_rid\
+             ) \
+             SELECT {inner_proj}, a.composite AS {alias} \
+             FROM inner i \
+             LEFT JOIN agg a ON i.__mei_rid = a.__mei_rid",
+            inner.sql,
+            lookup = lookup.sql,
         ),
         columns,
     }))

@@ -1027,14 +1027,29 @@ export function isObjectIdentityReachable(objectType, objectKey) {
     return true;
   }
   const entries = Array.isArray(index?.entries) ? index.entries : [];
-  const typeKnown = entries.some((entry) => {
-    const loc = entry?.locator;
-    const entryType = String(
-      loc?.objectType || loc?.object_type || loc?.object_type_id || "",
-    ).trim();
-    return entryType === type;
-  });
-  if (!typeKnown) return true;
+  // Cache which object types appear in the index to avoid O(n) scans per cell.
+  let knownTypes = index?.__meiKnownObjectTypes;
+  if (!(knownTypes instanceof Set)) {
+    knownTypes = new Set();
+    for (const entry of entries) {
+      const loc = entry?.locator;
+      const entryType = String(
+        loc?.objectType || loc?.object_type || loc?.object_type_id || "",
+      ).trim();
+      if (entryType) knownTypes.add(entryType);
+    }
+    try {
+      Object.defineProperty(index, "__meiKnownObjectTypes", {
+        value: knownTypes,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+      });
+    } catch (_) {
+      // index may be frozen; fall through without cache.
+    }
+  }
+  if (!knownTypes.has(type)) return true;
   try {
     return Boolean(resolver.resolve({ objectType: type, objectKey: key }));
   } catch (_) {
@@ -1114,6 +1129,80 @@ export function splitMultiObjectKeys(raw) {
   return out;
 }
 
+function readPresentationObjectIndex() {
+  if (typeof window === "undefined") return { entries: [] };
+  const injected = window.__mei?.presentation_map?.objectIndex;
+  if (injected && typeof injected === "object") return injected;
+  const node = document.getElementById?.("mei-presentation-map");
+  if (
+    typeof HTMLScriptElement !== "undefined" &&
+    node instanceof HTMLScriptElement &&
+    node.textContent
+  ) {
+    try {
+      return JSON.parse(node.textContent)?.objectIndex || { entries: [] };
+    } catch (_) {
+      return { entries: [] };
+    }
+  }
+  return { entries: [] };
+}
+
+function readObjectIndexEntries() {
+  const buckets = [];
+  if (typeof window !== "undefined") {
+    const fromResolver =
+      window.MeiObjectResolver?.index ||
+      globalThis?.MeiObjectResolver?.index ||
+      null;
+    if (Array.isArray(fromResolver?.entries)) buckets.push(fromResolver.entries);
+  }
+  const fromPresentation = readPresentationObjectIndex();
+  if (Array.isArray(fromPresentation?.entries)) buckets.push(fromPresentation.entries);
+  if (buckets.length <= 1) return buckets[0] || [];
+  // MeiObjectResolver 与 presentation_map 可能不同步；合并去重。
+  const out = [];
+  const seen = new Set();
+  for (const entries of buckets) {
+    for (const entry of entries) {
+      const loc = entry?.locator;
+      const type = String(loc?.objectType || loc?.object_type || "").trim();
+      const key = normalizeObjectIdentityText(loc?.objectKey || loc?.object_key);
+      const id = `${type}\0${key}`;
+      if (!type || !key || seen.has(id)) continue;
+      seen.add(id);
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+/** 典型案例等多值处理结果ID：从 ObjectIndex 解析全部联合主键。 */
+export function listIssueResultCompositeKeysFromIndex(resultIdTokens) {
+  const tokens = (Array.isArray(resultIdTokens) ? resultIdTokens : [])
+    .map((token) => normalizeObjectIdentityText(token))
+    .filter((token) => token && !isBlankObjectIdentity(token));
+  if (!tokens.length) return [];
+  const entries = readObjectIndexEntries();
+  const out = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const loc = entry?.locator;
+    const type = String(loc?.objectType || loc?.object_type || "").trim();
+    if (type !== "zhifa.IssueResult" && !type.endsWith(".IssueResult")) continue;
+    const key = normalizeObjectIdentityText(loc?.objectKey || loc?.object_key);
+    if (!key || seen.has(key)) continue;
+    for (const token of tokens) {
+      if (key === token || key.startsWith(`${token}-`)) {
+        seen.add(key);
+        out.push(key);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Excel/Parquet 整型 ID 常为 number 或 "2025001.0"；统一成无小数文本。 */
 export function normalizeObjectIdentityText(raw) {
   if (raw == null) return "";
@@ -1129,10 +1218,15 @@ export function normalizeObjectIdentityText(raw) {
   return text;
 }
 
-function pushObjectFieldTarget(out, base, objectKey) {
+function pushObjectFieldTarget(out, base, objectKey, options = {}) {
   const key = normalizeObjectIdentityText(objectKey);
   if (!key || isBlankObjectIdentity(key)) return;
-  if (!isObjectIdentityReachable(base.objectType, key)) return;
+  // 有详情页 openPopup 时允许 ObjectIndex 未收录的 key（详情卡自行按 filter 查行）。
+  const soft =
+    options.soft === true ||
+    base?.hasDetail === true ||
+    (base?.openPopup && typeof base.openPopup === "object");
+  if (!soft && !isObjectIdentityReachable(base.objectType, key)) return;
   out.push({
     ...base,
     objectKey: key,
@@ -1161,10 +1255,13 @@ function expandObjectKeysWithQualifiers(row, baseKeys, qualifierFields) {
   return out;
 }
 
-function pushResolvableObjectKeys(out, base, row, objectKeys) {
+function pushResolvableObjectKeys(out, base, row, objectKeys, options = {}) {
+  const soft = options.soft === true;
+  const pushAll = options.pushAll === true;
   for (const objectKey of objectKeys) {
-    pushObjectFieldTarget(out, base, objectKey);
-    if (out.length) break;
+    const before = out.length;
+    pushObjectFieldTarget(out, base, objectKey, { soft });
+    if (!pushAll && out.length > before) break;
   }
 }
 
@@ -1223,16 +1320,24 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
       const keyField = nonEmptyString(spec.keyField, spec.key_field);
       if (!keyField) continue;
       const siblingText = String(row[keyField] ?? "").trim();
-      if (!siblingText || isBlankObjectIdentity(siblingText)) continue;
+      let siblingKeys = [];
+      if (siblingText && !isBlankObjectIdentity(siblingText)) {
+        siblingKeys = splitMultiObjectKeys(siblingText);
+      } else if (keyField === "处理结果ID-问题跟踪ID") {
+        siblingKeys = listIssueResultCompositeKeysFromIndex(splitMultiObjectKeys(cellValue));
+      }
+      if (!siblingKeys.length) continue;
       const cellTokens = splitMultiObjectKeys(cellValue);
-      for (const objectKey of splitMultiObjectKeys(siblingText)) {
+      for (const objectKey of siblingKeys) {
         if (cellTokens.length > 0 && keyField.includes("-")) {
           const matched = cellTokens.some(
             (token) => objectKey === token || objectKey.startsWith(`${token}-`),
           );
           if (!matched) continue;
         }
-        pushObjectFieldTarget(out, targetBase, objectKey);
+        pushObjectFieldTarget(out, targetBase, objectKey, {
+          soft: Boolean(targetBase.hasDetail || targetBase.openPopup),
+        });
       }
       continue;
     }
@@ -1246,10 +1351,22 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
         ? spec.qualifier_fields
         : []);
     const baseKeys = splitMultiObjectKeys(cellValue);
-    const objectKeys = qualifierFields.length
+    const isIssueResult =
+      objectType === "zhifa.IssueResult" || objectType.endsWith(".IssueResult");
+    let objectKeys = qualifierFields.length
       ? expandObjectKeysWithQualifiers(row, baseKeys, qualifierFields)
       : baseKeys;
-    pushResolvableObjectKeys(out, targetBase, row, objectKeys);
+    if (isIssueResult) {
+      // 优先 ObjectIndex 联合主键（详情卡行常只有裸 处理结果ID）。
+      const fromIndex = listIssueResultCompositeKeysFromIndex(baseKeys);
+      if (fromIndex.length) objectKeys = fromIndex;
+    }
+    pushResolvableObjectKeys(out, targetBase, row, objectKeys, {
+      // 详情卡/二级看板靠 filter 查行，勿因 ObjectIndex 缺项吞掉链接。
+      soft: Boolean(targetBase.hasDetail || targetBase.openPopup),
+      // 多值处理结果ID：保留全部联合主键供芯片点选。
+      pushAll: isIssueResult,
+    });
   }
   return out;
 }
@@ -1280,7 +1397,6 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   const objectType = nonEmptyString(target.objectType, target.object_type);
   const objectKey = normalizeObjectIdentityText(target.objectKey ?? target.object_key);
   if (!objectType || !objectKey || isBlankObjectIdentity(objectKey)) return;
-  if (!isObjectIdentityReachable(objectType, objectKey)) return;
 
   const openPopup =
     (target.openPopup && typeof target.openPopup === "object" ? target.openPopup : null) ||
@@ -1290,6 +1406,14 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   const hasObjectDetailPopup = Boolean(
     openPopup && nonEmptyString(openPopup.scene_id, openPopup.sceneId),
   );
+  // 有详情弹层时由页面按 filter 查行；勿因 ObjectIndex 未收录联合主键而静默吞掉点击。
+  if (
+    !hasObjectDetailPopup &&
+    target.hasDetail !== true &&
+    !isObjectIdentityReachable(objectType, objectKey)
+  ) {
+    return;
+  }
   const intents =
     target.hasDetail === false || hasObjectDetailPopup
       ? ["select"]
@@ -1313,10 +1437,21 @@ export function emitObjectFieldOpen(host, target, row = {}, props = {}) {
   const keyMode = String(target.keyMode || target.key_mode || "identity")
     .trim()
     .toLowerCase();
+  const isIssueResult =
+    objectType === "zhifa.IssueResult" || objectType.endsWith(".IssueResult");
   if (filterKey && (keyMode === "foreign_key" || keyMode === "foreign-key")) {
     filters[filterKey] = objectKey;
   } else if (filterKey && keyMode === "identity") {
-    filters[filterKey] = objectKey;
+    // resultId 已绑到合成列：裸 ID / 联合主键都用 contains，避免等值永远 miss。
+    if (
+      isIssueResult &&
+      (filterKey === "resultId" || filterKey === "处理结果ID") &&
+      !String(objectKey).startsWith("contains:")
+    ) {
+      filters[filterKey] = `contains:${objectKey}`;
+    } else {
+      filters[filterKey] = objectKey;
+    }
   }
 
   const rowMeta = tableDrilldownMeta(props);
@@ -1428,6 +1563,7 @@ if (typeof window !== "undefined") {
     isBlankObjectIdentity,
     isObjectIdentityReachable,
     buildMappingLookupKeys,
+    listIssueResultCompositeKeysFromIndex,
     preferUniqueObjectTargets,
   };
 }

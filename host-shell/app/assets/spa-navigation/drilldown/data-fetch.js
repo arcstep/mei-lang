@@ -297,8 +297,19 @@
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
-    if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
+    if (merged.resultId && !merged["处理结果ID"] && !merged["处理结果ID-问题跟踪ID"]) {
+      const resultText = normalizeIdentityText(merged.resultId).replace(/^contains:/, "");
+      // 联合主键勿回写到「处理结果ID」列，否则 contains 筛选永远对不上。
+      if (resultText.includes("-")) {
+        merged["处理结果ID-问题跟踪ID"] = resultText;
+      } else {
+        merged["处理结果ID"] = resultText;
+      }
+    }
     if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
+    if (merged["处理结果ID-问题跟踪ID"] && !merged.resultId) {
+      merged.resultId = merged["处理结果ID-问题跟踪ID"];
+    }
     if (merged.matterId && !merged["序号"]) merged["序号"] = merged.matterId;
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
     if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
@@ -337,7 +348,10 @@
           ? detail.default_filters
           : {};
     const warningId = normalizeIdentityText(filters.warningId ?? filters["预警ID"]);
-    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]);
+    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]).replace(
+      /^contains:/,
+      "",
+    );
     const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
     const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
@@ -351,9 +365,19 @@
       if (hit) return hit;
     }
     if (resultId) {
-      const hit = list.find((row) =>
-        identityTextEquals(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId, resultId),
-      );
+      const hit = list.find((row) => {
+        const composite = normalizeIdentityText(row?.["处理结果ID-问题跟踪ID"]);
+        if (
+          composite &&
+          (composite === resultId || composite.startsWith(`${resultId}-`))
+        ) {
+          return true;
+        }
+        return identityTextEquals(
+          row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId,
+          resultId,
+        );
+      });
       if (hit) return hit;
     }
     if (modelId) {

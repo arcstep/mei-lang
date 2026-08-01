@@ -33,15 +33,16 @@ pub fn enrich_object_catalogs_field_links(
                 .map(|intent| intent.identity.fields.clone())
                 .unwrap_or_default();
 
-            if assembly.object_field_links.is_empty() {
-                if let Some(intent) = intent {
-                    assembly.object_field_links = mei_lang_kernel::derive_object_field_links(
-                        intent.object_type_id.as_str(),
-                        &intent.identity.fields,
-                        &intent.slots,
-                        &intent.relations,
-                    );
-                }
+            if let Some(intent) = intent {
+                // 每次 import 从 intent 重算字段链接，避免 CAS 缓存旧版 row_value 自链（如合成主键列）。
+                assembly.object_field_links = mei_lang_kernel::derive_object_field_links(
+                    intent.object_type_id.as_str(),
+                    &intent.identity.fields,
+                    &intent.slots,
+                    &intent.relations,
+                );
+            } else if assembly.object_field_links.is_empty() {
+                continue;
             }
 
             let mut rewritten: BTreeMap<String, Vec<ObjectFieldLinkTarget>> = BTreeMap::new();

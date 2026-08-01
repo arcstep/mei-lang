@@ -17354,8 +17354,19 @@
     // Also emit column-name aliases so dataset bindings that only expose 预警ID / 处理结果ID / 序号 / 模型ID resolve.
     if (merged.warningId && !merged["预警ID"]) merged["预警ID"] = merged.warningId;
     if (merged["预警ID"] && !merged.warningId) merged.warningId = merged["预警ID"];
-    if (merged.resultId && !merged["处理结果ID"]) merged["处理结果ID"] = merged.resultId;
+    if (merged.resultId && !merged["处理结果ID"] && !merged["处理结果ID-问题跟踪ID"]) {
+      const resultText = normalizeIdentityText(merged.resultId).replace(/^contains:/, "");
+      // 联合主键勿回写到「处理结果ID」列，否则 contains 筛选永远对不上。
+      if (resultText.includes("-")) {
+        merged["处理结果ID-问题跟踪ID"] = resultText;
+      } else {
+        merged["处理结果ID"] = resultText;
+      }
+    }
     if (merged["处理结果ID"] && !merged.resultId) merged.resultId = merged["处理结果ID"];
+    if (merged["处理结果ID-问题跟踪ID"] && !merged.resultId) {
+      merged.resultId = merged["处理结果ID-问题跟踪ID"];
+    }
     if (merged.matterId && !merged["序号"]) merged["序号"] = merged.matterId;
     if (merged["序号"] && !merged.matterId) merged.matterId = merged["序号"];
     if (merged.modelId && !merged["模型ID"]) merged["模型ID"] = merged.modelId;
@@ -17394,7 +17405,10 @@
           ? detail.default_filters
           : {};
     const warningId = normalizeIdentityText(filters.warningId ?? filters["预警ID"]);
-    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]);
+    const resultId = normalizeIdentityText(filters.resultId ?? filters["处理结果ID"]).replace(
+      /^contains:/,
+      "",
+    );
     const matterId = normalizeIdentityText(filters.matterId ?? filters["序号"]);
     const modelId = normalizeIdentityText(filters.modelId ?? filters["模型ID"]);
     const matterName = String(filters.matter ?? filters["风险事项"] ?? filters["监督事项"] ?? "").trim();
@@ -17408,9 +17422,19 @@
       if (hit) return hit;
     }
     if (resultId) {
-      const hit = list.find((row) =>
-        identityTextEquals(row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId, resultId),
-      );
+      const hit = list.find((row) => {
+        const composite = normalizeIdentityText(row?.["处理结果ID-问题跟踪ID"]);
+        if (
+          composite &&
+          (composite === resultId || composite.startsWith(`${resultId}-`))
+        ) {
+          return true;
+        }
+        return identityTextEquals(
+          row?.["处理结果ID"] ?? row?.result_id ?? row?.resultId,
+          resultId,
+        );
+      });
       if (hit) return hit;
     }
     if (modelId) {
@@ -20012,9 +20036,17 @@
         enriched.warningId = text;
         enriched["预警ID"] = text;
       }
-      if (key === "resultId" || key === "处理结果ID") {
-        enriched.resultId = text;
-        enriched["处理结果ID"] = text;
+      if (key === "resultId" || key === "处理结果ID" || key === "处理结果ID-问题跟踪ID") {
+        const normalized = text.replace(/^contains:/, "");
+        enriched.resultId = normalized;
+        if (key === "处理结果ID-问题跟踪ID" || normalized.includes("-")) {
+          enriched["处理结果ID-问题跟踪ID"] = normalized;
+          if (!String(enriched["处理结果ID"] ?? "").trim()) {
+            enriched["处理结果ID"] = normalized.split("-")[0] || normalized;
+          }
+        } else {
+          enriched["处理结果ID"] = normalized;
+        }
       }
       if (key === "matterId" || key === "序号") {
         enriched.matterId = text;
@@ -20148,9 +20180,6 @@
   }
 
   async function loadCaseCardDrilldownMeta() {
-    if (typeof window !== "undefined" && window.MeiDrilldownMeta) {
-      return window.MeiDrilldownMeta;
-    }
     try {
       const mod = await import("/workspace-components/cockpit/drilldown-meta.js");
       const api = {
@@ -20158,13 +20187,16 @@
         emitObjectFieldOpen: mod.emitObjectFieldOpen,
         resolveObjectFieldLinks: mod.resolveObjectFieldLinks,
         splitMultiObjectKeys: mod.splitMultiObjectKeys,
+        listIssueResultCompositeKeysFromIndex: mod.listIssueResultCompositeKeysFromIndex,
+        preferUniqueObjectTargets: mod.preferUniqueObjectTargets,
       };
       if (typeof window !== "undefined") {
-        window.MeiDrilldownMeta = api;
+        window.MeiDrilldownMeta = { ...(window.MeiDrilldownMeta || {}), ...api };
+        return window.MeiDrilldownMeta;
       }
       return api;
     } catch (_error) {
-      return null;
+      return typeof window !== "undefined" ? window.MeiDrilldownMeta || null : null;
     }
   }
 
@@ -20210,12 +20242,25 @@
         .map((entry) => String(entry || "").trim())
         .filter(Boolean);
       const uniqueFields = [...new Set(fieldCandidates)];
+      // 展示走 fallback_fields，解析也必须能读到同一展示值（典型案例常只有监督模型/预警ID）。
+      const displayValue = resolveCaseDetailFieldValue(row, {
+        field,
+        fallback_fields: spec?.fallback_fields || spec?.fallbackFields,
+      });
+      const rowForResolve = row && typeof row === "object" ? { ...row } : {};
+      if (displayValue) {
+        for (const candidate of uniqueFields) {
+          if (!String(rowForResolve[candidate] ?? "").trim()) {
+            rowForResolve[candidate] = displayValue;
+          }
+        }
+      }
       let props = caseCardObjectProps(config);
       let targets = [];
       const tryResolve = (nextProps) => {
         for (const candidate of uniqueFields) {
           const resolved = filterCaseCardObjectTargets(
-            meta.resolveObjectFieldTargets(nextProps, row, candidate),
+            meta.resolveObjectFieldTargets(nextProps, rowForResolve, candidate),
             spec,
           );
           if (resolved.length) return resolved;
@@ -20223,10 +20268,36 @@
         return [];
       };
       targets = tryResolve(props);
-      // 典型案例等页缺 object_locator 时会回落到 Warning，关联预警ID/健全机制会空；按字段再试 IssueResult。
+      // 典型案例等页缺/错 object_locator 时，按字段偏好类型再试。
       if (!targets.length) {
-        const retryTypes = ["zhifa.IssueResult", "zhifa.Warning", "zhifa.MechanismDocument"];
+        const preferred = cloneArray(spec?.object_types || spec?.objectTypes)
+          .map((type) => String(type || "").trim())
+          .filter(Boolean);
+        const wantsAlertModel = preferred.some(
+          (type) => type === "zhifa.AlertModel" || type.endsWith(".AlertModel"),
+        );
+        // AlertModel：优先 Warning（row_sibling←模型ID），再 IssueResult（名称 mapping）。
+        const retryTypes = wantsAlertModel
+          ? [
+              ...preferred,
+              "zhifa.Warning",
+              "zhifa.IssueResult",
+              "zhifa.AlertModel",
+              "zhifa.MechanismDocument",
+              "zhifa.SupervisionMatter",
+            ]
+          : [
+              ...preferred,
+              "zhifa.IssueResult",
+              "zhifa.Warning",
+              "zhifa.AlertModel",
+              "zhifa.MechanismDocument",
+              "zhifa.SupervisionMatter",
+            ];
+        const seenTypes = new Set();
         for (const type of retryTypes) {
+          if (!type || seenTypes.has(type)) continue;
+          seenTypes.add(type);
           const locator = {
             object_type: type,
             objectType: type,
@@ -20235,9 +20306,13 @@
                   identity_field: "处理结果ID-问题跟踪ID",
                   identityField: "处理结果ID-问题跟踪ID",
                 }
-              : type === "zhifa.MechanismDocument"
-                ? { identity_field: "机制名称", identityField: "机制名称" }
-                : { identity_field: "预警ID", identityField: "预警ID" }),
+              : type === "zhifa.AlertModel"
+                ? { identity_field: "模型ID", identityField: "模型ID" }
+                : type === "zhifa.MechanismDocument"
+                  ? { identity_field: "机制名称", identityField: "机制名称" }
+                  : type === "zhifa.SupervisionMatter"
+                    ? { identity_field: "序号", identityField: "序号" }
+                    : { identity_field: "预警ID", identityField: "预警ID" }),
           };
           const retryProps = { object_locator: locator, objectLocator: locator };
           targets = tryResolve(retryProps);
@@ -20246,6 +20321,57 @@
             break;
           }
         }
+      }
+      // IssueResult 场景下「预警模型」走名称 mapping，易出多候选；同行模型ID 可唯一消歧。
+      const preferredType = String(
+        cloneArray(spec?.object_types || spec?.objectTypes)[0] || "",
+      ).trim();
+      const wantsAlertModel =
+        preferredType === "zhifa.AlertModel" || preferredType.endsWith(".AlertModel");
+      const modelId = String(rowForResolve?.["模型ID"] ?? "").trim();
+      if (wantsAlertModel && modelId && targets.length) {
+        const matched = targets.filter(
+          (target) => String(target?.objectKey || target?.object_key || "").trim() === modelId,
+        );
+        if (matched.length) {
+          targets = matched;
+        }
+      } else if (wantsAlertModel && modelId && !targets.length) {
+        const warningLocator = {
+          object_type: "zhifa.Warning",
+          objectType: "zhifa.Warning",
+          identity_field: "预警ID",
+          identityField: "预警ID",
+        };
+        const warningProps = { object_locator: warningLocator, objectLocator: warningLocator };
+        const links = meta.resolveObjectFieldLinks?.(warningProps) || {};
+        const specs = Array.isArray(links["预警模型"])
+          ? links["预警模型"]
+          : Array.isArray(links["模型ID"])
+            ? links["模型ID"]
+            : [];
+        const template = specs[0];
+        if (template) {
+          targets = [
+            {
+              ...template,
+              objectType: "zhifa.AlertModel",
+              objectKey: modelId,
+              object_key: modelId,
+              label: displayValue || modelId,
+              filterKey: nonEmptyString(template.filterKey, template.filter_key, "modelId"),
+              filter_key: nonEmptyString(template.filterKey, template.filter_key, "modelId"),
+              hasDetail: template.hasDetail !== false,
+            },
+          ];
+          props = warningProps;
+        }
+      }
+      if (wantsAlertModel && targets.length > 1 && displayValue) {
+        targets = targets.map((target) => ({
+          ...target,
+          label: displayValue,
+        }));
       }
       // 多值 ID 芯片：仅打开当前 chip 对应 identity
       const chipKey = String(el.dataset?.objectKey || "").trim();
@@ -20267,16 +20393,30 @@
         if (filtered.length) {
           targets = filtered;
         } else if (chipNorm) {
-          const compositeField = String(row?.["处理结果ID-问题跟踪ID"] ?? "").trim();
+          const preferredChipType = String(
+            cloneArray(spec?.object_types || spec?.objectTypes)[0] || "",
+          ).trim();
+          const wantsIssueResult =
+            !preferredChipType ||
+            preferredChipType === "zhifa.IssueResult" ||
+            preferredChipType.endsWith(".IssueResult");
+          const compositeField = String(rowForResolve?.["处理结果ID-问题跟踪ID"] ?? "").trim();
           const compositeKeys = meta.splitMultiObjectKeys
             ? meta.splitMultiObjectKeys(compositeField)
             : compositeField
                 .split(/[\n\r\s、，,;；]+/)
                 .map((part) => String(part || "").trim())
                 .filter(Boolean);
-          const matchedComposites = compositeKeys.filter(
+          let matchedComposites = compositeKeys.filter(
             (key) => key === chipNorm || key.startsWith(`${chipNorm}-`),
           );
+          if (
+            wantsIssueResult &&
+            !matchedComposites.length &&
+            meta.listIssueResultCompositeKeysFromIndex
+          ) {
+            matchedComposites = meta.listIssueResultCompositeKeysFromIndex([chipNorm]);
+          }
           if (matchedComposites.length) {
             const template =
               targets[0] ||
@@ -20378,19 +20518,96 @@
               label: chipNorm,
             },
           ];
-        } else {
-          targets = [];
+        }
+      }
+      // 仍无目标：按 object_types 偏好 + 芯片/展示值合成（ID/机制名）；AlertModel 必须走 mapping/模型ID，勿用名称冒充模型ID。
+      if (!targets.length) {
+        const objectKey = String(el.dataset?.objectKey || displayValue || "")
+          .trim()
+          .replace(/^[《]+|[》]+$/g, "")
+          .trim();
+        const canSynthesize =
+          preferredType &&
+          objectKey &&
+          !preferredType.endsWith(".AlertModel");
+        if (canSynthesize) {
+          const locator = {
+            object_type: preferredType,
+            objectType: preferredType,
+          };
+          const linkProps = { object_locator: locator, objectLocator: locator };
+          const links = meta.resolveObjectFieldLinks?.(linkProps) || {};
+          let template = null;
+          for (const candidate of uniqueFields) {
+            if (Array.isArray(links[candidate]) && links[candidate][0]) {
+              template = links[candidate][0];
+              break;
+            }
+          }
+          if (!template) {
+            for (const specs of Object.values(links)) {
+              if (!Array.isArray(specs)) continue;
+              const hit = specs.find(
+                (item) =>
+                  String(item?.objectType || item?.object_type || "").trim() === preferredType,
+              );
+              if (hit) {
+                template = hit;
+                break;
+              }
+            }
+          }
+          if (template) {
+            const filterKey = nonEmptyString(
+              template.filterKey,
+              template.filter_key,
+              preferredType.endsWith(".IssueResult")
+                ? "resultId"
+                : preferredType.endsWith(".Warning")
+                  ? "warningId"
+                  : preferredType.endsWith(".MechanismDocument")
+                    ? "mechanismName"
+                    : preferredType.endsWith(".SupervisionMatter")
+                      ? "matterId"
+                      : "",
+            );
+            targets = [
+              {
+                ...template,
+                role: template.role || "relation",
+                objectType: preferredType,
+                objectKey,
+                object_key: objectKey,
+                label: objectKey,
+                keyMode: template.keyMode || template.key_mode || "identity",
+                filterKey,
+                filter_key: filterKey,
+                hasDetail: template.hasDetail !== false,
+              },
+            ];
+            props = linkProps;
+          }
         }
       }
       if (!targets.length) return;
       const emitHost = host instanceof HTMLElement ? host : el;
+      const pointer = {
+        clientX: Number(event?.clientX),
+        clientY: Number(event?.clientY),
+      };
       if (targets.length === 1) {
-        meta.emitObjectFieldOpen(emitHost, targets[0], row, props);
+        meta.emitObjectFieldOpen(emitHost, targets[0], rowForResolve, props);
         return;
       }
-      openCaseCardObjectChooser(el, targets, (target) => {
-        meta.emitObjectFieldOpen(emitHost, target, row, props);
-      }, field);
+      openCaseCardObjectChooser(
+        el,
+        targets,
+        (target) => {
+          meta.emitObjectFieldOpen(emitHost, target, rowForResolve, props);
+        },
+        field,
+        pointer,
+      );
     };
     el.addEventListener("click", open);
     el.addEventListener("keydown", (event) => {
@@ -20398,7 +20615,7 @@
     });
   }
 
-  function openCaseCardObjectChooser(anchor, targets, onPick, fieldLabel = "") {
+  function openCaseCardObjectChooser(anchor, targets, onPick, fieldLabel = "", pointer = null) {
     const existing = document.querySelector(".access-drilldown-object-chooser");
     if (existing) existing.remove();
     const menu = document.createElement("div");
@@ -20414,9 +20631,10 @@
       button.type = "button";
       button.className = "access-drilldown-object-chooser-item";
       button.setAttribute("role", "menuitem");
-      button.textContent = String(
-        target?.label || target?.objectKey || target?.object_key || "",
-      ).trim();
+      const key = String(target?.objectKey || target?.object_key || "").trim();
+      const label = String(target?.label || "").trim();
+      button.textContent =
+        label && label !== key ? `${label}（${key}）` : label || key;
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -20427,9 +20645,23 @@
     });
     document.body.appendChild(menu);
     const rect = anchor.getBoundingClientRect();
+    const pointerX = Number(pointer?.clientX);
+    const pointerY = Number(pointer?.clientY);
+    const hasPointer = Number.isFinite(pointerX) && Number.isFinite(pointerY);
+    const anchorVisible = rect.width > 0 && rect.height > 0;
+    const left = hasPointer
+      ? pointerX
+      : anchorVisible
+        ? rect.left
+        : Math.max(8, window.innerWidth / 2 - 110);
+    const top = hasPointer
+      ? pointerY + 8
+      : anchorVisible
+        ? rect.bottom + 4
+        : Math.max(8, window.innerHeight / 2 - 40);
     menu.style.position = "fixed";
-    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 260))}px`;
-    menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 8)}px`;
+    menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - 260))}px`;
+    menu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - 8))}px`;
     const close = (event) => {
       if (menu.contains(event.target) || anchor.contains?.(event.target)) return;
       menu.remove();

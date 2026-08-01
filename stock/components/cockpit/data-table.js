@@ -1383,13 +1383,17 @@ export class MeiCockpitDataTable extends HTMLElement {
       .join("");
     const layoutKey = String(p.layoutPreset ?? "");
     const fieldLinks = resolveObjectFieldLinks(p);
-    const hasObjectFieldLinks = Object.keys(fieldLinks).some(
-      (key) => Array.isArray(fieldLinks[key]) && fieldLinks[key].length > 0,
+    // 仅当「本表可见列」确实挂了字段级对象链接时，才关闭整行下钻。
+    // object_locator / presentation_map 会注入整型 object_field_links（含隐藏列），
+    // 若按「链接表非空」判断，会误杀首页实时预警/典型案例的整行点击。
+    const hasApplicableObjectFieldLinks = layoutDescriptors.some(
+      (descriptor) =>
+        Array.isArray(fieldLinks[descriptor.key]) && fieldLinks[descriptor.key].length > 0,
     );
     // Field-level object links own navigation; never treat the whole row as a link.
     // object_locator 仅用于行级 identity → drilldown_filters，不应关闭整行下钻
     //（首页实时预警表靠整行打开 预警ID 详情卡）。
-    const drilldownEnabled = Boolean(tableDrilldownMeta(p)) && !hasObjectFieldLinks;
+    const drilldownEnabled = Boolean(tableDrilldownMeta(p)) && !hasApplicableObjectFieldLinks;
     const selectionMode = tableRowSelectionMode(p);
     const selectableRows = selectionMode === "single";
     const body = rows

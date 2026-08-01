@@ -322,6 +322,29 @@ pub struct DefaultObjectAssembly {
 
 /// Derive table column → object link targets from an intent's identity and relations.
 /// Mapping payloads are not loaded here; host enrichment inlines `targets_by_value`.
+fn composite_identity_label_sibling(
+    identity_field: &str,
+    slots: &BTreeMap<String, ObjectProjectionRef>,
+) -> Option<(String, String)> {
+    let (label_part, _) = identity_field.split_once('-')?;
+    if label_part.is_empty() || label_part == identity_field {
+        return None;
+    }
+    let label_field = slots.get("label").and_then(|slot| {
+        if slot.kind == "field_ref" {
+            let id = slot.id.trim();
+            if !id.is_empty() && id == label_part {
+                Some(id.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })?;
+    Some((label_field, label_part.to_string()))
+}
+
 pub fn derive_object_field_links(
     object_type_id: &str,
     identity_fields: &[String],
@@ -345,6 +368,10 @@ pub fn derive_object_field_links(
         }
         if primary_identity.is_none() {
             primary_identity = Some(field.to_string());
+        }
+        // ingest 合成主键列仅供 row_sibling 解析；勿对隐藏列注册 RowValue 自链。
+        if composite_identity_label_sibling(field, slots).is_some() {
+            continue;
         }
         links
             .entry(field.to_string())
@@ -395,41 +422,28 @@ pub fn derive_object_field_links(
                 });
         }
         // ingest 合成主键（`处理结果ID-问题跟踪ID`）：label 槽列 row_sibling 取同行合成字段作 objectKey。
-        if let Some((label_part, _)) = identity_field.split_once('-') {
-            if !label_part.is_empty() && label_part != identity_field {
-                if let Some(label_field) = slots.get("label").and_then(|slot| {
-                    if slot.kind == "field_ref" {
-                        let id = slot.id.trim();
-                        if !id.is_empty() && id == label_part {
-                            Some(id.to_string())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }) {
-                    links
-                        .entry(label_field.clone())
-                        .or_default()
-                        .push(ObjectFieldLinkTarget {
-                            role: "self".to_string(),
-                            object_type: object_type_id.to_string(),
-                            resolve: ObjectFieldLinkResolve::RowSibling,
-                            relation: None,
-                            source_field: Some(label_field),
-                            key_field: Some(identity_field.to_string()),
-                            mapping_ref: None,
-                            targets_by_value: BTreeMap::new(),
-                            key_mode: ObjectFieldLinkKeyMode::Identity,
-                            filter_key: heuristic_filter_key(identity_field),
-                            has_detail: Some(self_has_detail),
-                            detail_page: self_detail.clone(),
-                            open_popup: None,
-                            qualifier_fields: Vec::new(),
-                        });
-                }
-            }
+        if let Some((label_field, label_part)) =
+            composite_identity_label_sibling(identity_field, slots)
+        {
+            links
+                .entry(label_field.clone())
+                .or_default()
+                .push(ObjectFieldLinkTarget {
+                    role: "self".to_string(),
+                    object_type: object_type_id.to_string(),
+                    resolve: ObjectFieldLinkResolve::RowSibling,
+                    relation: None,
+                    source_field: Some(label_field),
+                    key_field: Some(identity_field.to_string()),
+                    mapping_ref: None,
+                    targets_by_value: BTreeMap::new(),
+                    key_mode: ObjectFieldLinkKeyMode::Identity,
+                    filter_key: heuristic_filter_key(&label_part),
+                    has_detail: Some(self_has_detail),
+                    detail_page: self_detail.clone(),
+                    open_popup: None,
+                    qualifier_fields: Vec::new(),
+                });
         }
         if identity_field == "序号" {
             if let Some(label_field) = slots.get("label").and_then(|slot| {
@@ -595,6 +609,10 @@ pub fn derive_object_field_links(
 fn identity_wants_serial_entry(identity_field: &str) -> bool {
     let field = identity_field.trim();
     if field.is_empty() || field == "序号" {
+        return false;
+    }
+    // ingest 合成主键（处理结果ID-问题跟踪ID）入口走 label 槽，勿再挂「序号」。
+    if field.contains('-') {
         return false;
     }
     let lower = field.to_ascii_lowercase();
@@ -1874,10 +1892,11 @@ mod tests {
             &slots,
             &BTreeMap::new(),
         );
-        let composite = links
-            .get("处理结果ID-问题跟踪ID")
-            .expect("identity column");
-        assert_eq!(composite[0].resolve, ObjectFieldLinkResolve::RowValue);
+        let composite = links.get("处理结果ID-问题跟踪ID");
+        assert!(
+            composite.is_none() || composite.unwrap().is_empty(),
+            "hidden composite identity must not self-link"
+        );
         let result_id = links.get("处理结果ID").expect("label sibling");
         assert_eq!(result_id.len(), 1);
         assert_eq!(result_id[0].resolve, ObjectFieldLinkResolve::RowSibling);
@@ -1885,6 +1904,7 @@ mod tests {
             result_id[0].key_field.as_deref(),
             Some("处理结果ID-问题跟踪ID")
         );
+        assert_eq!(result_id[0].filter_key.as_deref(), Some("resultId"));
     }
 
     #[test]
