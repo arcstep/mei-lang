@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Workspace deploy runtime: PROFILE (debug|release) + SOURCE (installed|lang).
+# Workspace deploy runtime: PROFILE (debug|release); binaries only from deploy/bin (mei-env install).
 set -euo pipefail
 
 PROFILE="${MEI_PROFILE:-debug}"
@@ -9,7 +9,7 @@ RUNTIME="${MEI_RUNTIME:-local}"
 resolve_mei_lang_root() {
   local workspace_root="$1"
   local root="${MEI_LANG_ROOT:-${workspace_root}/../../mei-lang}"
-  # Source checkout (dev / remote-cargo) or clean package (share/mei → mei-package).
+  # Source checkout (dev / fill) or clean package (share/mei → mei-package).
   if [[ -f "${root}/Cargo.toml" || -d "${root}/app/assets" || -d "${root}/stock" ]]; then
     printf '%s' "${root}"
     return 0
@@ -18,14 +18,56 @@ resolve_mei_lang_root() {
   return 1
 }
 
-resolve_mei_release_root() {
+# 0608: MEI_ENV_ROOT → workspace.json meiEnv.root → monorepo mei-env → ~/.mei-env
+resolve_mei_env_root() {
   local workspace_root="$1"
-  local root="${MEI_RELEASE_ROOT:-${workspace_root}/../../mei-release}"
+  local root="" configured=""
+
+  if [[ -n "${MEI_RELEASE_ROOT:-}" && -z "${MEI_ENV_ROOT:-}" ]]; then
+    MEI_ENV_ROOT="${MEI_RELEASE_ROOT}"
+  fi
+  if [[ -n "${MEI_ENV_ROOT:-}" ]]; then
+    root="${MEI_ENV_ROOT}"
+  else
+    configured="$(read_workspace_mei_env_root "${workspace_root}" || true)"
+    if [[ -n "${configured}" ]]; then
+      root="${configured}"
+    else
+      local mono
+      mono="$(cd "${workspace_root}/../.." 2>/dev/null && pwd || true)"
+      if [[ -n "${mono}" && -d "${mono}/mei-lang" && -d "${mono}/mei-env" ]]; then
+        root="${mono}/mei-env"
+      else
+        root="${HOME}/.mei-env"
+        mkdir -p "${root}/targets"
+      fi
+    fi
+  fi
   if [[ ! -d "${root}" ]]; then
-    echo "error: mei-release not found at ${root} (set MEI_RELEASE_ROOT)" >&2
+    echo "error: mei-env not found at ${root} (set MEI_ENV_ROOT or create ~/.mei-env)" >&2
     return 1
   fi
   printf '%s' "${root}"
+}
+
+# Deprecated name
+resolve_mei_release_root() {
+  resolve_mei_env_root "$@"
+}
+
+read_workspace_mei_env_root() {
+  local workspace_root="$1"
+  local ws_json="${workspace_root}/workspace.json"
+  [[ -f "${ws_json}" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    local v
+    v="$(jq -r '.meiEnv.root // empty' "${ws_json}" 2>/dev/null || true)"
+    if [[ -n "${v}" && "${v}" != "null" ]]; then
+      printf '%s' "${v}"
+      return 0
+    fi
+  fi
+  return 1
 }
 
 resolve_stock_deploy_dir() {
@@ -234,10 +276,7 @@ cargo_target_dir() {
 resolve_bin_path() {
   local workspace_root="$1"
   local bin_name="$2"
-  if [[ "${SOURCE}" == "lang" ]]; then
-    printf '%s/%s/%s' "$(cargo_target_dir "${workspace_root}")" "$(profile_target_subdir)" "${bin_name}"
-    return 0
-  fi
+  # 0608: only deploy/bin (mei-env install). --cargo / SOURCE=lang no longer run from target/.
   printf '%s' "${workspace_root}/deploy/bin/${bin_name}"
 }
 
@@ -327,64 +366,22 @@ run_cargo_runtime_build() {
 
 ensure_runtime_binaries() {
   local workspace_root="$1"
-  if [[ "${SOURCE}" != "lang" ]]; then
-    ensure_local_bins "${workspace_root}"
-    return 0
-  fi
-  if [[ "${MEI_CARGO_RUNTIME_READY:-0}" == "1" ]]; then
-    return 0
-  fi
-
-  local mei_lang_root target_dir gc_script build_plan
-  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-  target_dir="$(cargo_target_dir "${workspace_root}")"
-  export CARGO_TARGET_DIR="${target_dir}"
-  gc_script="${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
-  if [[ -f "${gc_script}" ]]; then
-    # shellcheck source=/dev/null
-    source "${gc_script}"
-  else
-    echo "error: missing ${gc_script} (mei-lang scripts layout: scripts/ops/cargo-target-gc.sh)" >&2
-    return 1
-  fi
-
-  unset MEI_CARGO_TARGET_HYGIENE_SUMMARY
-  export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-  if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" ]]; then
-    maybe_cargo_target_hygiene "${mei_lang_root}"
-    export MEI_CARGO_TARGET_HYGIENE_RAN=1
-  fi
-
-  build_plan="compile"
-  if [[ "${MEI_CARGO_FORCE_BUILD:-0}" == "1" ]]; then
-    build_plan="force-clean"
-  elif [[ "${MEI_CARGO_SKIP_BUILD_IF_FRESH:-0}" == "1" ]]; then
-    if cargo_runtime_bins_ready "${workspace_root}"; then
-      build_plan="skip"
+  if [[ "${SOURCE}" == "lang" || "${RUNTIME}" == "cargo" ]]; then
+    echo "warn: --cargo / SOURCE=lang deprecated (0608); using fill+install → deploy/bin" >&2
+    SOURCE="installed"
+    RUNTIME="local"
+    apply_runtime_env_from_flags
+    if [[ -x "${workspace_root}/deploy/fill.sh" ]]; then
+      "${workspace_root}/deploy/fill.sh" --profile "${PROFILE}" || true
     fi
-  fi
-
-  if declare -F cargo_target_emit_startup_panel >/dev/null 2>&1; then
-    cargo_target_emit_startup_panel "${target_dir}" "${PROFILE}" "${build_plan}" "" "${workspace_root}"
-    export MEI_CARGO_RUNTIME_PANEL_EMITTED=1
-  fi
-
-  if [[ "${build_plan}" == "skip" ]]; then
-    export MEI_CARGO_RUNTIME_READY=1
+    "${workspace_root}/deploy/install.sh" --from env --profile "${PROFILE}"
     return 0
   fi
-
-  if [[ "${build_plan}" == "force-clean" ]]; then
-    echo "==> force rebuild: cargo clean (profile=${PROFILE}, target=${target_dir})" >&2
-    CARGO_TARGET_DIR="${target_dir}" cargo clean --manifest-path "${mei_lang_root}/Cargo.toml" >&2
-  fi
-
-  echo "==> building runtime binaries (profile=${PROFILE}, source=lang, mei-lang=${mei_lang_root})" >&2
-  run_cargo_runtime_build "${workspace_root}"
-  export MEI_CARGO_RUNTIME_READY=1
+  ensure_local_bins "${workspace_root}"
 }
 
 ensure_cargo_runtime_binaries() {
+  # Compat: former --cargo path → fill+install
   SOURCE="lang"
   apply_runtime_env_from_flags
   ensure_runtime_binaries "$1"

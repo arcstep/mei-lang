@@ -102,11 +102,35 @@ cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。
 
+## 工作区四步（推荐：经 mei-env）
+
+有源码时（本仓或 monorepo）先灌入工具链环境，再装进工作区：
+
+```bash
+# 场景 B：仅克隆了本仓 —— 制品默认进 ~/.mei-env
+export MEI_ENV_ROOT="${HOME}/.mei-env"
+mkdir -p "${MEI_ENV_ROOT}"
+# 若在 mei-projects 内，可改用 sibling mei-env（场景 A，无需 export）
+
+# 在空目录 init 工作区（会写入 workspace.json#meiEnv）
+./stock/workspace/deploy/init.sh --dir /tmp/mei-demo --id demo --scenario lang-source --app sample
+
+cd /tmp/mei-demo
+./deploy/fill.sh          # cargo → ~/.mei-env/targets/…
+./deploy/install.sh       # 挂到 deploy/bin
+./deploy/prebuild.sh --app sample
+./deploy/start.sh --app sample
+```
+
+无源码（场景 C）：用 `mei-env/release/collect/fill-from-bundle.sh` 或 GitHub Releases 解压进 `~/.mei-env`，再 `install.sh`。
+
+契约：仓库外 `docs/mei-lang/06-deploy-and-ops/0608-mei-env-and-scenario-bootstrap.md`（monorepo）或发行说明。
+
 ## 停止服务
 
 - 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`；若端口仍被占用，可执行 `lsof -ti tcp:9527 | xargs kill`
 - 日志里的 `synced MeiLang skill` 仅表示 skill 文件同步，**不是**自动拉起外部 Agent 进程；默认启动不会做这一步
-- 瓦片：Host 默认可自动托管 Martin（见上文 GIS）；外部服务可用 `./mei-release/host-glue/martin/start_martin.sh` 或 Docker，并设 `MEI_GIS_PROXY_UPSTREAM`
+- 瓦片：Host 默认可自动托管 Martin（见上文 GIS）；外部服务可用 monorepo 内 `mei-env/toolkits/martin/start_martin.sh` 或 Docker，并设 `MEI_GIS_PROXY_UPSTREAM`
 - 分发含 `bin/martin`：`tools/mei-viewer/scripts/collect-desktop-sidecars.sh`（经 `fetch-martin-sidecar.sh`）
 
 ## 最少配置
