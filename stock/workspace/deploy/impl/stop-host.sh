@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
+# 停止本工作区 Host / plug-ds，并清扫遗留 app-runtime / Martin。
 set -euo pipefail
 
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
-# shellcheck source=lib.sh
-source "${DEPLOY_DIR}/lib.sh"
+# Workspace identity must come from thin deploy/*.sh entry.
+if [[ -z "${MEI_WORKSPACE_ROOT:-}" || -z "${MEI_WORKSPACE_DEPLOY_DIR:-}" ]]; then
+  echo "error: run via workspace ./deploy/<entry>.sh (thin shell), not stock/impl directly" >&2
+  exit 1
+fi
+DEPLOY_DIR="${MEI_WORKSPACE_DEPLOY_DIR}"
+WORKSPACE_ROOT="${MEI_WORKSPACE_ROOT}"
+STOCK_DEPLOY="${MEI_STOCK_DEPLOY:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# shellcheck source=../lib.sh
+source "${STOCK_DEPLOY}/lib.sh"
+export MEI_DEPLOY_LIB_PATH="${STOCK_DEPLOY}/lib.sh"
 
-PORT="${MEI_PORT:-9527}"
+# CLI --port > MEI_PORT > workspace.json#workspace.port > 9527
+PORT="$(default_workspace_serve_port "${WORKSPACE_ROOT}")"
 HOST_PID_FILE="${WORKSPACE_ROOT}/deploy/state/host.pid"
 PLUG_PID_FILE="${WORKSPACE_ROOT}/deploy/state/plug-ds.pid"
+
+print_runtime_banner "${WORKSPACE_ROOT}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,7 +38,6 @@ stop_pid_file() {
   local pid
   pid="$(cat "${pid_file}")"
   if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-    # Prefer SIGTERM so host can run graceful child teardown.
     kill -TERM "${pid}" 2>/dev/null || true
     local i
     for i in 1 2 3 4 5 6 7 8; do
@@ -75,7 +85,6 @@ if stop_port "host-shell" "${PORT}"; then
   stopped=1
 fi
 
-# Always sweep workspace-scoped children (covers host kill -9 / IDE Stop orphans).
 sweep_stale_app_runtimes "${WORKSPACE_ROOT}"
 sweep_stale_managed_martin "${WORKSPACE_ROOT}"
 

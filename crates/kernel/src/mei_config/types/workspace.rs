@@ -47,6 +47,13 @@ pub struct WorkspaceProfile {
     pub brand: WorkspaceBrandConfig,
     #[serde(default, rename = "deployHost")]
     pub deploy_host: Option<String>,
+    /// 本机 Host 监听端口（`start-host` / `serve`；可被 `--port` / `MEI_PORT` 覆盖）。
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// 本机 Host 绑定地址（默认 `127.0.0.1`；可被 `--host` / `MEI_SERVE_HOST` 覆盖）。
+    /// 与 `deployHost`（发布目标 id）无关。
+    #[serde(default, rename = "listenHost")]
+    pub listen_host: Option<String>,
     /// 登录后 `/` 与无 `next` 时的默认应用（须为 discover 到的 app id 或 `discover.appAliases` 别名）。
     #[serde(default, rename = "defaultApp")]
     pub default_app: Option<String>,
@@ -345,6 +352,9 @@ pub struct WorkspaceBuildGenerationConfig {
 pub struct WorkspaceBuildConfig {
     #[serde(default, rename = "retainBuildGenerations")]
     pub retain_build_generations: Option<u32>,
+    /// Build generation ids that must not be auto-deleted by `build clean`.
+    #[serde(default, rename = "protectBuildGenerations")]
+    pub protect_build_generations: Vec<String>,
     #[serde(default)]
     pub generation: WorkspaceBuildGenerationConfig,
 }

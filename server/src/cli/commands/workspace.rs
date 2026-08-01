@@ -480,6 +480,8 @@ fn initialize_standalone_workspace(
                 label: label.map(str::to_string),
                 brand: Default::default(),
                 deploy_host: None,
+                port: None,
+                listen_host: None,
                 default_app: None,
                 version: None,
             },

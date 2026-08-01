@@ -1,33 +1,38 @@
 #!/usr/bin/env bash
+# 工作区 app 预构建（compile / import / prebuild-data / warmup）。
+# 二进制来自 mei-env（见 lib.sh resolve_bin_path），不经 deploy/bin。
 set -euo pipefail
 
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
-# shellcheck source=lib.sh
-source "${DEPLOY_DIR}/lib.sh"
+# Workspace identity must come from thin deploy/*.sh entry.
+if [[ -z "${MEI_WORKSPACE_ROOT:-}" || -z "${MEI_WORKSPACE_DEPLOY_DIR:-}" ]]; then
+  echo "error: run via workspace ./deploy/<entry>.sh (thin shell), not stock/impl directly" >&2
+  exit 1
+fi
+DEPLOY_DIR="${MEI_WORKSPACE_DEPLOY_DIR}"
+WORKSPACE_ROOT="${MEI_WORKSPACE_ROOT}"
+STOCK_DEPLOY="${MEI_STOCK_DEPLOY:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# shellcheck source=../lib.sh
+source "${STOCK_DEPLOY}/lib.sh"
+export MEI_DEPLOY_LIB_PATH="${STOCK_DEPLOY}/lib.sh"
 
-# When caller pinned an app (`start.sh --app` → MEI_APP), only prebuild that app.
+# When caller pinned an app (`start-host.sh --app` → MEI_APP), only prebuild that app.
 # Capture before apply_workspace_deploy_env, which may default MEI_APP for other tools.
 PINNED_APP="${MEI_APP:-}"
 POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
 
-# 0535: ensure dev_eval env vars are exported from workspace config (no-op if
-# already set by parent process via start.sh). Must run after parse_common_args
-# so DEPLOY_CONFIG_ARG is resolved.
 if declare -F apply_workspace_deploy_env >/dev/null 2>&1; then
   apply_workspace_deploy_env "${WORKSPACE_ROOT}"
 fi
-if [[ "${SOURCE}" == "lang" ]]; then
-  ensure_runtime_binaries "${WORKSPACE_ROOT}"
-fi
+
+print_runtime_banner "${WORKSPACE_ROOT}"
 
 if [[ -n "${PINNED_APP}" ]]; then
   APP_IDS=("${PINNED_APP}")
 else
   mapfile -t APP_IDS < <(discovered_app_ids "${WORKSPACE_ROOT}" || true)
   if [[ ${#APP_IDS[@]} -eq 0 ]]; then
-    echo "error: no apps discovered and MEI_APP unset; pass MEI_APP=<id> or start with --app" >&2
+    echo "error: no apps discovered and MEI_APP unset; pass MEI_APP=<id> or start-host --app" >&2
     exit 1
   fi
 fi
@@ -51,7 +56,6 @@ echo "envVersion=${BUILD_ID}"
 for app_id in "${APP_IDS[@]}"; do
   echo "==> prebuild app=${app_id}"
   echo "==> compile (${app_id})"
-  # mei-compiler compile uses strict_layout_policy by default (layout_policy_* → Error)
   run_mei_compiler "${WORKSPACE_ROOT}" \
     compile --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
 

@@ -154,7 +154,7 @@ pub fn resolve_app_build_generation_from_current(app_root: &Path) -> Result<Stri
     let env_dir = require_app_env_dir_following_current(app_root)?;
     env_generation_from_env_dir(env_dir.as_path()).ok_or_else(|| {
         anyhow::anyhow!(
-            "invalid env/current target for app {} (expected WS-yyyymmdd.fixver)",
+            "invalid env/current target for app {} (expected WS-yyyymmdd.fixver or WS-yyyymmdd-<git>)",
             app_root.display()
         )
     })

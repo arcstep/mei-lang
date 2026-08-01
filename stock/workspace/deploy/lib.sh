@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Workspace deploy runtime: PROFILE (debug|release); binaries only from deploy/bin (mei-env install).
+# Workspace deploy runtime: PROFILE (debug|release); binaries from mei-env/targets (no deploy/bin).
+# Daily surface: build-app.sh / start-host.sh / stop-host.sh (SSOT 0608).
+# Platform fill: mei-lang/scripts/env/mei.sh env build|init
+# meiEnv.version must be pinned (no silent latest fallback).
 set -euo pipefail
 
 PROFILE="${MEI_PROFILE:-debug}"
-SOURCE="${MEI_SOURCE:-installed}"
-RUNTIME="${MEI_RUNTIME:-local}"
+SOURCE="${MEI_SOURCE:-mei-env}"
+RUNTIME="${MEI_RUNTIME:-mei-env}"
 
 resolve_mei_lang_root() {
   local workspace_root="$1"
@@ -55,19 +58,231 @@ resolve_mei_release_root() {
   resolve_mei_env_root "$@"
 }
 
-read_workspace_mei_env_root() {
+read_workspace_mei_env_field() {
   local workspace_root="$1"
+  local field="$2"
   local ws_json="${workspace_root}/workspace.json"
   [[ -f "${ws_json}" ]] || return 1
   if command -v jq >/dev/null 2>&1; then
     local v
-    v="$(jq -r '.meiEnv.root // empty' "${ws_json}" 2>/dev/null || true)"
+    v="$(jq -r --arg f "${field}" '.meiEnv[$f] // empty' "${ws_json}" 2>/dev/null || true)"
     if [[ -n "${v}" && "${v}" != "null" ]]; then
       printf '%s' "${v}"
       return 0
     fi
   fi
   return 1
+}
+
+# workspace.json#workspace.<field> (port | listenHost)
+read_workspace_profile_field() {
+  local workspace_root="$1"
+  local field="$2"
+  local ws_json="${workspace_root}/workspace.json"
+  [[ -f "${ws_json}" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    local v
+    v="$(jq -r --arg f "${field}" '.workspace[$f] // empty' "${ws_json}" 2>/dev/null || true)"
+    if [[ -n "${v}" && "${v}" != "null" ]]; then
+      printf '%s' "${v}"
+      return 0
+    fi
+  elif command -v python3 >/dev/null 2>&1; then
+    local v
+    v="$(python3 - "${ws_json}" "${field}" <<'PY'
+import json, sys
+path, field = sys.argv[1:3]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+ws = data.get("workspace") or {}
+val = ws.get(field)
+if val is None or val == "":
+    raise SystemExit(1)
+print(val)
+PY
+)" || return 1
+    if [[ -n "${v}" ]]; then
+      printf '%s' "${v}"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Priority: MEI_PORT → workspace.port → 9527（CLI --port 在调用方覆盖）
+default_workspace_serve_port() {
+  local workspace_root="$1"
+  local port=""
+  if [[ -n "${MEI_PORT:-}" ]]; then
+    printf '%s' "${MEI_PORT}"
+    return 0
+  fi
+  port="$(read_workspace_profile_field "${workspace_root}" "port" 2>/dev/null || true)"
+  printf '%s' "${port:-9527}"
+}
+
+# Priority: MEI_SERVE_HOST → workspace.listenHost → 127.0.0.1（CLI --host 在调用方覆盖）
+default_workspace_serve_host() {
+  local workspace_root="$1"
+  local host=""
+  if [[ -n "${MEI_SERVE_HOST:-}" ]]; then
+    printf '%s' "${MEI_SERVE_HOST}"
+    return 0
+  fi
+  host="$(read_workspace_profile_field "${workspace_root}" "listenHost" 2>/dev/null || true)"
+  printf '%s' "${host:-127.0.0.1}"
+}
+
+read_workspace_mei_env_root() {
+  read_workspace_mei_env_field "$1" "root"
+}
+
+read_workspace_mei_env_target_tag() {
+  read_workspace_mei_env_field "$1" "targetTag"
+}
+
+read_workspace_mei_env_version() {
+  read_workspace_mei_env_field "$1" "version"
+}
+
+read_workspace_mei_env_scenario() {
+  read_workspace_mei_env_field "$1" "scenario"
+}
+
+write_workspace_mei_env_fields() {
+  local workspace_root="$1"
+  local tag="${2:-}"
+  local version="${3:-}"
+  local ws_json="${workspace_root}/workspace.json"
+  [[ -f "${ws_json}" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    local tmp
+    tmp="$(mktemp)"
+    jq --arg tag "${tag}" --arg ver "${version}" '
+      .meiEnv = ((.meiEnv // {})
+        | (if $tag != "" then .targetTag = $tag else . end)
+        | (if $ver != "" then .version = $ver else . end))
+    ' "${ws_json}" >"${tmp}" && mv "${tmp}" "${ws_json}"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${ws_json}" "${tag}" "${version}" <<'PY'
+import json, sys
+path, tag, ver = sys.argv[1:4]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+mei = dict(data.get("meiEnv") or {})
+if tag:
+    mei["targetTag"] = tag
+if ver:
+    mei["version"] = ver
+data["meiEnv"] = mei
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
+    return 0
+  fi
+  return 1
+}
+
+default_local_target_tag() {
+  local sys mach
+  sys="$(/usr/bin/uname -s 2>/dev/null || uname -s)"
+  mach="$(/usr/bin/uname -m 2>/dev/null || uname -m)"
+  case "${sys}-${mach}" in
+    Darwin-arm64) printf '%s' "darwin-arm64-local" ;;
+    Darwin-x86_64) printf '%s' "darwin-x86_64-local" ;;
+    Linux-x86_64) printf '%s' "linux-x86_64-local" ;;
+    Linux-aarch64) printf '%s' "linux-aarch64-local" ;;
+    MINGW*|MSYS*|CYGWIN*) printf '%s' "windows-x86_64-local" ;;
+    *) printf '%s' "local" ;;
+  esac
+}
+
+resolve_mei_env_target_tag() {
+  local workspace_root="$1"
+  local tag="${MEI_RELEASE_TAG:-}"
+  if [[ -z "${tag}" ]]; then
+    tag="$(read_workspace_mei_env_target_tag "${workspace_root}" || true)"
+  fi
+  if [[ -z "${tag}" ]]; then
+    tag="$(default_local_target_tag)"
+  fi
+  printf '%s' "${tag}"
+}
+
+# Newest version dir under targets/<tag>/ that has host-shell (by mtime).
+latest_version_under_tag() {
+  local mei_env_root="$1"
+  local tag="$2"
+  local tag_root="${mei_env_root}/targets/${tag}"
+  [[ -d "${tag_root}" ]] || return 1
+  local newest="" newest_mtime=0 d mtime
+  for d in "${tag_root}"/mei-lang-* "${tag_root}"/*; do
+    [[ -d "${d}" ]] || continue
+    if [[ -x "${d}/v2/bin/mei-host-shell" || -x "${d}/bin/mei-host-shell" ]]; then
+      mtime="$(stat -f '%m' "${d}" 2>/dev/null || stat -c '%Y' "${d}" 2>/dev/null || echo 0)"
+      if [[ "${mtime}" -ge "${newest_mtime}" ]]; then
+        newest_mtime="${mtime}"
+        newest="$(basename "${d}")"
+      fi
+    fi
+  done
+  [[ -n "${newest}" ]] || return 1
+  printf '%s' "${newest}"
+}
+
+find_release_binary() {
+  local bundle_root="$1"
+  local name="$2"
+  local candidate
+  for candidate in \
+    "${bundle_root}/v2/bin/${name}" \
+    "${bundle_root}/bin/${name}" \
+    "${bundle_root}/v2/${name}" \
+    "${bundle_root}/${name}"; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_mei_env_bundle_root() {
+  local workspace_root="$1"
+  local mei_env_root tag version bundle_root
+  mei_env_root="$(resolve_mei_env_root "${workspace_root}")"
+  tag="$(resolve_mei_env_target_tag "${workspace_root}")"
+  version="${MEI_RELEASE_VERSION:-}"
+  if [[ -z "${version}" ]]; then
+    version="$(read_workspace_mei_env_version "${workspace_root}" || true)"
+  fi
+  if [[ -z "${version}" ]]; then
+    echo "error: workspace.json#meiEnv.version is not set (refusing latest fallback)" >&2
+    echo "hint: mei.sh env list --env ${mei_env_root} --tag ${tag}" >&2
+    echo "hint: mei.sh env pin --workspace ${workspace_root} --env ${mei_env_root} --tag ${tag} --version <id>" >&2
+    return 1
+  fi
+  if [[ "${version}" == "latest" ]]; then
+    version="$(latest_version_under_tag "${mei_env_root}" "${tag}" || true)"
+    if [[ -z "${version}" ]]; then
+      echo "error: no usable bundle under ${mei_env_root}/targets/${tag}" >&2
+      return 1
+    fi
+  fi
+  bundle_root="${mei_env_root}/targets/${tag}/${version}"
+  if [[ ! -d "${bundle_root}" && -d "${mei_env_root}/targets/${tag}/mei-lang-${version}" ]]; then
+    bundle_root="${mei_env_root}/targets/${tag}/mei-lang-${version}"
+    version="mei-lang-${version}"
+  fi
+  if [[ ! -d "${bundle_root}" ]]; then
+    echo "error: mei-env bundle not found: ${bundle_root}" >&2
+    echo "hint: mei.sh env list --env ${mei_env_root} --tag ${tag}" >&2
+    return 1
+  fi
+  printf '%s' "${bundle_root}"
 }
 
 resolve_stock_deploy_dir() {
@@ -96,33 +311,21 @@ profile_target_subdir() {
 }
 
 sync_runtime_from_source() {
-  case "${SOURCE}" in
-    lang)
-      RUNTIME="cargo"
-      ;;
-    installed|release)
-      RUNTIME="local"
-      ;;
-    *)
-      echo "error: unknown SOURCE=${SOURCE}" >&2
-      return 1
-      ;;
-  esac
-  export RUNTIME
+  # Legacy SOURCE/RUNTIME collapsed: always mei-env bins.
+  SOURCE="mei-env"
+  RUNTIME="mei-env"
+  export SOURCE RUNTIME
 }
 
 apply_runtime_env_from_flags() {
-  if [[ "${RUNTIME}" == "cargo" ]]; then
-    SOURCE="lang"
-  fi
   sync_runtime_from_source
   export PROFILE SOURCE RUNTIME
 }
 
 parse_common_args() {
   PROFILE="${MEI_PROFILE:-debug}"
-  SOURCE="${MEI_SOURCE:-installed}"
-  RUNTIME="${MEI_RUNTIME:-local}"
+  SOURCE="mei-env"
+  RUNTIME="mei-env"
   DEPLOY_CONFIG_ARG="${MEI_WORKSPACE_CONFIG:-}"
   DEPLOY_LAUNCH_MODE="${MEI_LAUNCH:-}"
   DEPLOY_APP_CONFIGS=()
@@ -140,12 +343,17 @@ parse_common_args() {
         DEPLOY_APP_CONFIGS+=("${1#*=}")
         shift
         ;;
-      --runtime) RUNTIME="$2"; shift 2 ;;
-      --runtime=*) RUNTIME="${1#*=}"; shift ;;
-      --cargo) SOURCE="lang"; shift ;;
+      --runtime) shift 2 ;; # ignored; mei-env only
+      --runtime=*) shift ;;
+      --cargo)
+        echo "error: --cargo removed (0608); use mei.sh env build then build-app/start-host" >&2
+        return 1
+        ;;
       --force-build) export MEI_CARGO_FORCE_BUILD=1; shift ;;
       --release) PROFILE="release"; shift ;;
       --debug) PROFILE="debug"; shift ;;
+      --profile) PROFILE="$2"; shift 2 ;;
+      --profile=*) PROFILE="${1#*=}"; shift ;;
       *) break ;;
     esac
   done
@@ -276,26 +484,21 @@ cargo_target_dir() {
 resolve_bin_path() {
   local workspace_root="$1"
   local bin_name="$2"
-  # 0608: only deploy/bin (mei-env install). --cargo / SOURCE=lang no longer run from target/.
-  printf '%s' "${workspace_root}/deploy/bin/${bin_name}"
-}
-
-ensure_local_bins() {
-  local workspace_root="$1"
-  local bin_dir="${workspace_root}/deploy/bin"
-  if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-app-runtime" ]]; then
-    return 0
+  local bundle_root src
+  bundle_root="$(resolve_mei_env_bundle_root "${workspace_root}")" || return 1
+  if ! src="$(find_release_binary "${bundle_root}" "${bin_name}")"; then
+    echo "error: ${bin_name} not found under ${bundle_root}" >&2
+    echo "hint: run mei.sh env build (expects …/v2/bin/${bin_name})" >&2
+    return 1
   fi
-  # Status must go to stderr: callers often capture host-shell stdout as WS-* ids.
-  echo "==> local binaries missing; running install.sh" >&2
-  "${workspace_root}/deploy/install.sh"
+  printf '%s' "${src}"
 }
 
-# Last WS-YYYYMMDD.N line only — rejects install/cargo log pollution in $(...).
+# Last WS-* generation line — legacy WS-YYYYMMDD.N or WS-YYYYMMDD-<git>[.N].
 extract_ws_generation_id() {
   local raw="$1"
   local gen
-  gen="$(printf '%s\n' "${raw}" | grep -E '^WS-[0-9]{8}\.[0-9]+$' | tail -n 1 || true)"
+  gen="$(printf '%s\n' "${raw}" | grep -E '^WS-[0-9]{8}(\.[0-9]+|-[0-9a-fA-F]{4,40}(\.[0-9]+)?)$' | tail -n 1 || true)"
   if [[ -z "${gen}" ]]; then
     return 1
   fi
@@ -307,8 +510,9 @@ capture_build_prepare_generation() {
   local workspace_root="$1"
   shift
   ensure_runtime_binaries "${workspace_root}"
-  local raw gen
-  raw="$("$(resolve_bin_path "${workspace_root}" "mei-host-shell")" "$@")"
+  local raw gen host_shell
+  host_shell="$(resolve_bin_path "${workspace_root}" "mei-host-shell")"
+  raw="$("${host_shell}" "$@")"
   if ! gen="$(extract_ws_generation_id "${raw}")"; then
     echo "error: build prepare did not emit a WS-* generation id" >&2
     echo "captured output:" >&2
@@ -318,73 +522,20 @@ capture_build_prepare_generation() {
   printf '%s' "${gen}"
 }
 
-cargo_runtime_bins_ready() {
+ensure_runtime_binaries() {
   local workspace_root="$1"
-  local bin_name
+  local bin_name path
   for bin_name in mei-host-shell mei-compiler mei-app-runtime; do
-    if [[ ! -x "$(resolve_bin_path "${workspace_root}" "${bin_name}")" ]]; then
+    if ! path="$(resolve_bin_path "${workspace_root}" "${bin_name}")"; then
+      return 1
+    fi
+    if [[ ! -x "${path}" ]]; then
+      echo "error: not executable: ${path}" >&2
+      echo "hint: run mei.sh env build then check workspace.json#meiEnv" >&2
       return 1
     fi
   done
   return 0
-}
-
-run_cargo_runtime_build() {
-  local workspace_root="$1"
-  local mei_lang_root target_dir build_script
-  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-  target_dir="$(cargo_target_dir "${workspace_root}")"
-  build_script="${mei_lang_root}/scripts/build/build.sh"
-  export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
-
-  if [[ -f "${build_script}" ]]; then
-    if [[ "${PROFILE}" == "release" ]]; then
-      MEI_CARGO_TARGET_HYGIENE_RAN="${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" \
-        MEI_CARGO_RUNTIME_PANEL_EMITTED="${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" \
-        CARGO_TARGET_DIR="${target_dir}" "${build_script}" --release
-    else
-      MEI_CARGO_TARGET_HYGIENE_RAN="${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" \
-        MEI_CARGO_RUNTIME_PANEL_EMITTED="${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" \
-        CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
-    fi
-    return 0
-  fi
-
-  if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
-    # shellcheck source=/dev/null
-    source "${mei_lang_root}/scripts/ops/cargo-target-gc.sh"
-    maybe_cargo_target_hygiene "${mei_lang_root}"
-  fi
-  local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
-    -p mei-compiler -p mei-host-shell -p mei-app-runtime)
-  if [[ "${PROFILE}" == "release" ]]; then
-    cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -p mei-host-shell -p mei-app-runtime)
-  fi
-  CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
-}
-
-ensure_runtime_binaries() {
-  local workspace_root="$1"
-  if [[ "${SOURCE}" == "lang" || "${RUNTIME}" == "cargo" ]]; then
-    echo "warn: --cargo / SOURCE=lang deprecated (0608); using fill+install → deploy/bin" >&2
-    SOURCE="installed"
-    RUNTIME="local"
-    apply_runtime_env_from_flags
-    if [[ -x "${workspace_root}/deploy/fill.sh" ]]; then
-      "${workspace_root}/deploy/fill.sh" --profile "${PROFILE}" || true
-    fi
-    "${workspace_root}/deploy/install.sh" --from env --profile "${PROFILE}"
-    return 0
-  fi
-  ensure_local_bins "${workspace_root}"
-}
-
-ensure_cargo_runtime_binaries() {
-  # Compat: former --cargo path → fill+install
-  SOURCE="lang"
-  apply_runtime_env_from_flags
-  ensure_runtime_binaries "$1"
 }
 
 run_mei_plug_ds() {
@@ -479,12 +630,21 @@ clean_retired_build_generations() {
 
 print_runtime_banner() {
   local workspace_root="$1"
-  local host_shell
-  host_shell="$(resolve_bin_path "${workspace_root}" "mei-host-shell")"
-  echo "Profile:   ${PROFILE}"
-  echo "Source:    ${SOURCE}"
-  echo "Runtime:   ${RUNTIME} (impl)"
-  echo "Binary:    ${host_shell}"
+  local host_shell="" mei_root tag ver ws_id
+  mei_root="$(resolve_mei_env_root "${workspace_root}" 2>/dev/null || true)"
+  tag="$(resolve_mei_env_target_tag "${workspace_root}" 2>/dev/null || true)"
+  ver="$(read_workspace_mei_env_version "${workspace_root}" || true)"
+  ws_id=""
+  if command -v jq >/dev/null 2>&1 && [[ -f "${workspace_root}/workspace.json" ]]; then
+    ws_id="$(jq -r '.workspace.id // .id // empty' "${workspace_root}/workspace.json" 2>/dev/null || true)"
+  fi
+  host_shell="$(resolve_bin_path "${workspace_root}" "mei-host-shell" 2>/dev/null || true)"
+  echo "── runtime ──────────────────────────────────────"
+  echo "Profile:     ${PROFILE:-debug}"
+  echo "mei-env:     root=${mei_root:-?} tag=${tag:-?} version=${ver:-"(unset)"}"
+  echo "workspace:   ${workspace_root}${ws_id:+ (id=${ws_id})}"
+  echo "Binary:      ${host_shell:-"(unresolved)"}"
+  echo "────────────────────────────────────────────────"
 }
 
 # Kill mei-app-runtime serve processes bound to this workspace only.
@@ -638,8 +798,9 @@ run_workspace_serve() {
   sweep_stale_app_runtimes "${workspace_root}"
   sweep_stale_managed_martin "${workspace_root}"
   local host port skip_prebuild prebuild_before_serve background warmup_policy auth_flag app
-  host="${MEI_SERVE_HOST:-127.0.0.1}"
-  port="${MEI_PORT:-9527}"
+  # CLI --host/--port override these; see default_workspace_serve_* for MEI_* / workspace.json
+  host="$(default_workspace_serve_host "${workspace_root}")"
+  port="$(default_workspace_serve_port "${workspace_root}")"
   skip_prebuild="${MEI_SKIP_PREBUILD:-0}"
   prebuild_before_serve="${MEI_PREBUILD_BEFORE_SERVE:-0}"
   background="${MEI_SERVE_BACKGROUND:-0}"
@@ -709,12 +870,17 @@ run_workspace_serve() {
       --host=*) host="${1#*=}"; shift ;;
       --policy) warmup_policy="$2"; shift 2 ;;
       --policy=*) warmup_policy="${1#*=}"; shift ;;
-      --runtime) RUNTIME="$2"; shift 2 ;;
-      --runtime=*) RUNTIME="${1#*=}"; shift ;;
-      --cargo) SOURCE="lang"; shift ;;
+      --runtime) shift 2 ;;
+      --runtime=*) shift ;;
+      --cargo)
+        echo "error: --cargo removed (0608); run mei.sh env build then start-host" >&2
+        return 1
+        ;;
       --force-build) export MEI_CARGO_FORCE_BUILD=1; shift ;;
       --release) PROFILE="release"; shift ;;
       --debug) PROFILE="debug"; shift ;;
+      --profile) PROFILE="$2"; shift 2 ;;
+      --profile=*) PROFILE="${1#*=}"; shift ;;
       *) break ;;
     esac
   done
@@ -724,9 +890,19 @@ run_workspace_serve() {
   # Always export package root so /app-assets and /app-bundles resolve
   # (release bins / odd bake paths must not fall back to a missing CARGO_MANIFEST_DIR tree).
   local mei_lang_root
-  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-  export MEI_LANG_ROOT="${MEI_LANG_ROOT:-${mei_lang_root}}"
-  export MEI_PACKAGE_ROOT="${MEI_PACKAGE_ROOT:-${MEI_LANG_ROOT}}"
+  if mei_lang_root="$(resolve_mei_lang_root "${workspace_root}" 2>/dev/null)"; then
+    export MEI_LANG_ROOT="${MEI_LANG_ROOT:-${mei_lang_root}}"
+    export MEI_PACKAGE_ROOT="${MEI_PACKAGE_ROOT:-${MEI_LANG_ROOT}}"
+  else
+    # installed / no sibling mei-lang: use mei-env bundle as package root when possible
+    local bundle_root
+    if bundle_root="$(resolve_mei_env_bundle_root "${workspace_root}" 2>/dev/null)"; then
+      export MEI_PACKAGE_ROOT="${MEI_PACKAGE_ROOT:-${bundle_root}}"
+      if [[ -d "${bundle_root}/v2/share/mei" ]]; then
+        export MEI_LANG_ROOT="${MEI_LANG_ROOT:-${bundle_root}/v2/share/mei}"
+      fi
+    fi
+  fi
   # GIS 默认：由 mei-host-shell 托管 Martin（stock/gis/tiles + 随机端口）。
   # Docker / 外部 Martin：MEI_GIS_USE_DOCKER_MARTIN=1 或自行设置 MEI_GIS_PROXY_UPSTREAM。
   if [[ "${MEI_GIS_USE_DOCKER_MARTIN:-0}" == "1" ]]; then
@@ -772,36 +948,36 @@ run_workspace_serve() {
     export MEI_SERVE_EARLY_BIND=0
     unset MEI_DEFER_WARMUP_TO_PREBUILD
     echo "==> prebuild (policy=${warmup_policy}, app=${app}) — blocking before serve"
-    local prebuild_args=(--runtime "${RUNTIME}")
+    local prebuild_args=()
     if [[ "${PROFILE}" == "release" ]]; then
       prebuild_args+=(--release)
     fi
     MEI_WARMUP_POLICY="${warmup_policy}" MEI_RUNTIME="${RUNTIME}" MEI_PROFILE="${PROFILE}" \
-      MEI_SOURCE="${SOURCE}" MEI_APP="${app}" \
+      MEI_APP="${app}" \
       MEI_WORKSPACE_CONFIG="${MEI_WORKSPACE_CONFIG:-}" \
-      "${deploy_dir}/prebuild.sh" "${prebuild_args[@]}"
+      "${deploy_dir}/build-app.sh" "${prebuild_args[@]}"
     echo ""
   elif [[ -n "${app}" ]]; then
     echo "==> prebuild deferred — host binds first; warmup logs stream below"
     echo "    (also saved: deploy/state/prebuild.log)"
     export MEI_SERVE_EARLY_BIND=1
     export MEI_DEFER_WARMUP_TO_PREBUILD=1
-    local prebuild_args=(--runtime "${RUNTIME}")
+    local prebuild_args=()
     if [[ "${PROFILE}" == "release" ]]; then
       prebuild_args+=(--release)
     fi
     (
       MEI_WARMUP_POLICY="${warmup_policy}" MEI_RUNTIME="${RUNTIME}" MEI_PROFILE="${PROFILE}" \
-        MEI_SOURCE="${SOURCE}" MEI_APP="${app}" \
+        MEI_APP="${app}" \
         MEI_WORKSPACE_CONFIG="${MEI_WORKSPACE_CONFIG:-}" \
-        "${deploy_dir}/prebuild.sh" "${prebuild_args[@]}" 2>&1 | tee -a "${state_dir}/prebuild.log"
+        "${deploy_dir}/build-app.sh" "${prebuild_args[@]}" 2>&1 | tee -a "${state_dir}/prebuild.log"
     ) &
     echo $! >"${state_dir}/prebuild.pid"
   fi
 
   local url="http://${host}:${port}/runtime"
   if [[ -n "${app}" ]]; then
-    url="http://${host}:${port}/apps/app/${app}/scene/home"
+    url="http://${host}:${port}/apps/${app}/home"
   fi
   echo "Workspace: ${workspace_root}"
   if [[ -n "${DEPLOY_CONFIG_ARG:-}" ]]; then
@@ -858,8 +1034,22 @@ run_workspace_serve() {
   fi
 
   if [[ "${background}" -eq 1 ]]; then
+    # Avoid `printf '%q ' "${empty[@]}"` — on macOS/bash it emits a literal '' arg and clap fails.
+    local q_app="" q_ws_cfg="" q_launch="" q_dev=""
+    if ((${#app_args[@]})); then
+      q_app="$(printf '%q ' "${app_args[@]}")"
+    fi
+    if ((${#workspace_config_args[@]})); then
+      q_ws_cfg="$(printf '%q ' "${workspace_config_args[@]}")"
+    fi
+    if ((${#launch_args[@]})); then
+      q_launch="$(printf '%q ' "${launch_args[@]}")"
+    fi
+    if ((${#dev_eval_args[@]})); then
+      q_dev="$(printf '%q ' "${dev_eval_args[@]}")"
+    fi
     nohup bash -c "
-      source '${deploy_dir}/lib.sh'
+      source '${MEI_DEPLOY_LIB_PATH:?}'
       PROFILE='${PROFILE}'
       SOURCE='${SOURCE}'
       apply_runtime_env_from_flags
@@ -871,9 +1061,8 @@ run_workspace_serve() {
       export MEI_WARMUP_SCOPE='${MEI_WARMUP_SCOPE:-}'
       run_mei_host_shell '${workspace_root}' \
         serve --workspace '${workspace_root}' \
-        $(printf '%q ' "${app_args[@]}") $(printf '%q ' "${workspace_config_args[@]}") \
-        $(printf '%q ' "${launch_args[@]}") \
-        --host '${host}' --port '${port}' ${auth_flag} $(printf '%q ' "${dev_eval_args[@]}") $*
+        ${q_app} ${q_ws_cfg} ${q_launch} \
+        --host '${host}' --port '${port}' ${auth_flag} ${q_dev}
     " >"${state_dir}/host.log" 2>&1 &
     echo $! >"${host_pid_file}"
     echo "host-shell pid=$(cat "${host_pid_file}") log=deploy/state/host.log"

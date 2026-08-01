@@ -64,6 +64,8 @@ pub fn init_workspace_profile(
                 label: label.map(str::to_string),
                 brand: Default::default(),
                 deploy_host: None,
+                port: None,
+                listen_host: None,
                 default_app: None,
                 version: None,
             },

@@ -14,6 +14,43 @@ use crate::cli::{
 };
 use crate::state::{HostHttpState, SharedState, ShellState};
 
+/// Resolve serve bind: CLI → `MEI_*` → `workspace.json#workspace` → defaults.
+fn resolve_serve_bind(
+    workspace: &Path,
+    host: Option<String>,
+    port: Option<u16>,
+) -> (String, u16) {
+    let cfg = mei_lang_kernel::WorkspaceConfig::load_or_default(
+        &mei_lang_kernel::workspace_config_path(workspace),
+    );
+    let host = host
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("MEI_SERVE_HOST")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            cfg.workspace
+                .listen_host
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = port
+        .or_else(|| {
+            std::env::var("MEI_PORT")
+                .ok()
+                .and_then(|value| value.trim().parse::<u16>().ok())
+        })
+        .or(cfg.workspace.port)
+        .unwrap_or(9527);
+    (host, port)
+}
+
 pub async fn dispatch(command: Command) -> anyhow::Result<()> {
     match command {
         Command::Version(args) => run_version(args),
@@ -444,17 +481,28 @@ fn run_version(args: VersionArgs) -> anyhow::Result<()> {
 fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
-    let retain_generations = mei_lang_kernel::load_workspace_config(workspace.as_path())
-        .build
-        .retain_build_generations
-        .map(|value| value as usize);
+    let cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let retain_generations = Some(
+        cfg.build
+            .retain_build_generations
+            .map(|value| value as usize)
+            .unwrap_or(5),
+    );
+    let mut protected_generations = std::collections::BTreeMap::new();
+    for generation in &cfg.build.protect_build_generations {
+        let trimmed = generation.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        protected_generations.insert(trimmed.to_string(), vec!["workspace.json".to_string()]);
+    }
     let report = mei_lang_kernel::clean_env_generations(
         workspace.as_path(),
         &app_ids,
         &mei_lang_kernel::CleanEnvPolicy {
             dry_run: args.dry_run,
             retain_generations,
-            ..Default::default()
+            protected_generations,
         },
     )?;
     if report.dry_run {
@@ -581,6 +629,8 @@ fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
                 label: args.label.clone(),
                 brand: Default::default(),
                 deploy_host: None,
+                port: None,
+                listen_host: None,
                 default_app: args.app.clone(),
                 version: None,
             },
@@ -785,6 +835,12 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .workspace
         .canonicalize()
         .unwrap_or_else(|_| args.workspace.clone());
+    let (bind_host, bind_port) =
+        resolve_serve_bind(workspace.as_path(), args.host.clone(), args.port);
+    let mut args = args;
+    args.workspace = workspace.clone();
+    args.host = Some(bind_host);
+    args.port = Some(bind_port);
     let selected = crate::workspace_profile_api::resolve_runtime_profile(
         workspace.as_path(),
         args.workspace_config.as_deref(),
@@ -808,8 +864,6 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
             "workspace mega-config / last_successful profile is legacy for serve autostart; prefer --app [--mode] or --launch"
         );
     }
-    let mut args = args;
-    args.workspace = workspace.clone();
     let app_id = args
         .app
         .take()
@@ -955,7 +1009,11 @@ async fn run_serve_control_plane(
         let guard = state.shell.read().expect("state lock");
         crate::startup::prime_view_layer_artifacts(&guard, app_ids.as_slice(), "home");
     }
-    let addr = format!("{}:{}", args.host, args.port);
+    let addr = format!(
+        "{}:{}",
+        args.host.as_deref().unwrap_or("127.0.0.1"),
+        args.port.unwrap_or(9527)
+    );
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let listen_url = format!("http://{addr}");
     let version_line = crate::build_info::host_version_banner_line(workspace.as_path());
@@ -1226,7 +1284,11 @@ async fn run_serve_blocking_init(
         workspace.as_path(),
         app_ids.as_slice(),
     );
-    let addr = format!("{}:{}", args.host, args.port);
+    let addr = format!(
+        "{}:{}",
+        args.host.as_deref().unwrap_or("127.0.0.1"),
+        args.port.unwrap_or(9527)
+    );
     let listen_url = format!("http://{addr}");
     let guard = shell.read().expect("state lock");
     let mut warmup_lines = crate::startup::build_access_ready_banner_lines(
@@ -1412,7 +1474,11 @@ async fn run_serve_early_bind(
     crate::app_enable::spawn_idle_ticker(state.clone());
     let runtime_actor_for_shutdown = state.runtime_actor.clone();
     let managed_martin_for_shutdown = state.managed_martin.clone();
-    let addr = format!("{}:{}", args.host, args.port);
+    let addr = format!(
+        "{}:{}",
+        args.host.as_deref().unwrap_or("127.0.0.1"),
+        args.port.unwrap_or(9527)
+    );
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let listen_url = format!("http://{addr}");
     if args.auth {

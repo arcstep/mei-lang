@@ -260,10 +260,12 @@ pub struct ServeArgs {
     /// Legacy: explicit launch JSON path(s). Prefer `--app` / `--launch`.
     #[arg(long = "app-config", value_name = "PATH")]
     pub app_config: Vec<PathBuf>,
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-    #[arg(long, default_value = "9527")]
-    pub port: u16,
+    /// 绑定地址；缺省时：`MEI_SERVE_HOST` → `workspace.listenHost` → `127.0.0.1`
+    #[arg(long)]
+    pub host: Option<String>,
+    /// 监听端口；缺省时：`MEI_PORT` → `workspace.port` → `9527`
+    #[arg(long)]
+    pub port: Option<u16>,
     /// 启用宿主登录鉴权（须已配置用户，否则启动失败）
     #[arg(long)]
     pub auth: bool,

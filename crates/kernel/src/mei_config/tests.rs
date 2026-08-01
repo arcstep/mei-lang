@@ -320,3 +320,20 @@ fn workspace_auth_path_uses_deploy_host_when_present() {
     assert!(workspace_auth_config_path(&dir).ends_with("runtime/hosts/zw-spbjw.state.json"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn workspace_profile_parses_port_and_listen_host() {
+    let raw = r#"{
+      "workspace": {
+        "id": "ws-tmp",
+        "port": 19527,
+        "listenHost": "0.0.0.0"
+      }
+    }"#;
+    let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse port/listenHost");
+    assert_eq!(cfg.workspace.port, Some(19527));
+    assert_eq!(
+        cfg.workspace.listen_host.as_deref(),
+        Some("0.0.0.0")
+    );
+}

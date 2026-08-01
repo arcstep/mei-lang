@@ -102,29 +102,30 @@ cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。
 
-## 工作区四步（推荐：经 mei-env）
+## 冷启动与工作区（经 mei-env）
 
-有源码时（本仓或 monorepo）先灌入工具链环境，再装进工作区：
+**推荐入口**：`./scripts/env/mei.sh`（`init` / `env build`）。定位用 `--source` / `--env` / `--bundle`（不必记三场景）。
 
 ```bash
-# 场景 B：仅克隆了本仓 —— 制品默认进 ~/.mei-env
-export MEI_ENV_ROOT="${HOME}/.mei-env"
-mkdir -p "${MEI_ENV_ROOT}"
-# 若在 mei-projects 内，可改用 sibling mei-env（场景 A，无需 export）
-
-# 在空目录 init 工作区（会写入 workspace.json#meiEnv）
-./stock/workspace/deploy/init.sh --dir /tmp/mei-demo --id demo --scenario lang-source --app sample
+# 仅克隆了本仓 → 默认 ~/.mei-env
+./scripts/env/mei.sh init --source . --env ~/.mei-env \
+  --workspace /tmp/mei-demo --app sample
 
 cd /tmp/mei-demo
-./deploy/fill.sh          # cargo → ~/.mei-env/targets/…
-./deploy/install.sh       # 挂到 deploy/bin
-./deploy/prebuild.sh --app sample
-./deploy/start.sh --app sample
+./deploy/build-app.sh
+./deploy/start-host.sh --app sample
 ```
 
-无源码（场景 C）：用 `mei-env/release/collect/fill-from-bundle.sh` 或 GitHub Releases 解压进 `~/.mei-env`，再 `install.sh`。
+```bash
+# mei-projects monorepo：
+# ./mei-lang/scripts/env/mei.sh init --source ./mei-lang --env ./mei-env \
+#   --workspace workspaces/ws-demos --app mini-data
 
-契约：仓库外 `docs/mei-lang/06-deploy-and-ops/0608-mei-env-and-scenario-bootstrap.md`（monorepo）或发行说明。
+# 二进制包：
+# ./scripts/env/mei.sh init --bundle ./bundle --env ~/.mei-env --workspace ~/mei-ws/app1
+```
+
+日常（已有工作区）：改平台时 `mei.sh env build`；然后 `build-app.sh` → `start-host.sh` / `stop-host.sh`（直跑 mei-env，无 `install`）。
 
 ## 停止服务
 

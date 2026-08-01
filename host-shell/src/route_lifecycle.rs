@@ -769,10 +769,25 @@ pub fn cleanup_policy_from_manifest(
     running_generation: Option<&str>,
     dry_run: bool,
 ) -> CleanEnvPolicy {
+    let cfg = mei_lang_kernel::load_workspace_config(workspace);
+    let retain = retain_build_generations
+        .or(cfg.build.retain_build_generations)
+        .unwrap_or(5) as usize;
+    let mut protected_generations = collect_bundle_protections(workspace, manifest, running_generation);
+    for generation in &cfg.build.protect_build_generations {
+        let trimmed = generation.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        protected_generations
+            .entry(trimmed.to_string())
+            .or_default()
+            .push("workspace.json".to_string());
+    }
     CleanEnvPolicy {
         dry_run,
-        retain_generations: retain_build_generations.map(|value| value as usize),
-        protected_generations: collect_bundle_protections(workspace, manifest, running_generation),
+        retain_generations: Some(retain),
+        protected_generations,
     }
 }
 

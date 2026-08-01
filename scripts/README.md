@@ -7,6 +7,7 @@
 | 目录 | 用途 | 典型入口 |
 |------|------|----------|
 | [`build/`](build/) | 前端 assets / scene bundle / 体积扫描 | `npm run assets:build` |
+| [`env/`](env/) | **冷启动**：ensure / fill / bootstrap（三场景；见 SSOT 0608） | `./scripts/env/bootstrap.sh` |
 | [`theme/`](theme/) | Shell 主题 lint、token、fragment | `npm run test:theme-tokens` |
 | [`check/`](check/) | 回归门禁 shell | `npm run test:auth-regressions` 等 |
 | [`test/`](test/) | 静态/单元级 Node 测试 | `npm run test:spa-static` |
