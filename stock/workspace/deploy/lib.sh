@@ -247,8 +247,36 @@ ensure_local_bins() {
   if [[ -x "${bin_dir}/mei-host-shell" && -x "${bin_dir}/mei-compiler" && -x "${bin_dir}/mei-app-runtime" ]]; then
     return 0
   fi
-  echo "==> local binaries missing; running install.sh"
+  # Status must go to stderr: callers often capture host-shell stdout as WS-* ids.
+  echo "==> local binaries missing; running install.sh" >&2
   "${workspace_root}/deploy/install.sh"
+}
+
+# Last WS-YYYYMMDD.N line only — rejects install/cargo log pollution in $(...).
+extract_ws_generation_id() {
+  local raw="$1"
+  local gen
+  gen="$(printf '%s\n' "${raw}" | grep -E '^WS-[0-9]{8}\.[0-9]+$' | tail -n 1 || true)"
+  if [[ -z "${gen}" ]]; then
+    return 1
+  fi
+  printf '%s' "${gen}"
+}
+
+# Ensure bins first (logs stay on the terminal), then capture only host-shell stdout.
+capture_build_prepare_generation() {
+  local workspace_root="$1"
+  shift
+  ensure_runtime_binaries "${workspace_root}"
+  local raw gen
+  raw="$("$(resolve_bin_path "${workspace_root}" "mei-host-shell")" "$@")"
+  if ! gen="$(extract_ws_generation_id "${raw}")"; then
+    echo "error: build prepare did not emit a WS-* generation id" >&2
+    echo "captured output:" >&2
+    printf '%s\n' "${raw}" >&2
+    return 1
+  fi
+  printf '%s' "${gen}"
 }
 
 cargo_runtime_bins_ready() {
@@ -434,7 +462,7 @@ ensure_build_generation_aligned() {
   for app_id in "${apps[@]}"; do
     prepare_args+=(--app "${app_id}")
   done
-  MEI_ENV_GENERATION="$(run_mei_host_shell "${workspace_root}" "${prepare_args[@]}")"
+  MEI_ENV_GENERATION="$(capture_build_prepare_generation "${workspace_root}" "${prepare_args[@]}")"
   export MEI_ENV_GENERATION
   echo "envGeneration=${MEI_ENV_GENERATION}"
 }

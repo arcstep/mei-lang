@@ -100,6 +100,7 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
                 table: None,
                 query: None,
                 connection: None,
+                primary_key: None,
                 content: None,
             },
             sources: Vec::new(),

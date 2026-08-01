@@ -122,6 +122,8 @@ mod tests {
                 optional: true,
                 unit: None,
                 normalize: None,
+            primary: false,
+            hidden: false,
             },
             ColumnSchema {
                 name: "做出处罚日期".to_string(),
@@ -130,6 +132,8 @@ mod tests {
                 optional: true,
                 unit: None,
                 normalize: None,
+            primary: false,
+            hidden: false,
             },
             ColumnSchema {
                 name: "执行日期".to_string(),
@@ -138,6 +142,8 @@ mod tests {
                 optional: true,
                 unit: None,
                 normalize: None,
+            primary: false,
+            hidden: false,
             },
         ];
         let coerced = coerce_rows_to_schema(rows, &schema);
@@ -178,6 +184,8 @@ mod tests {
             optional: false,
             unit: None,
             normalize: None,
+            primary: false,
+            hidden: false,
         }];
         let coerced = coerce_rows_to_schema(rows, &schema);
         let with_date = coerced

@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::model::DatasetView;
 
 use super::super::build::{
-    eval_lookup_value_rowset, eval_rowset_with_ctx, eval_split_text_rowset, lookup_dataset_view,
+    eval_lookup_value_rowset, eval_lookup_collect_rowset, eval_rowset_with_ctx, eval_split_text_rowset, lookup_dataset_view,
     unknown_dataset_error,
 };
 use crate::compile::analysis::{
@@ -308,4 +308,12 @@ pub(super) fn eval_rowset_lookup_value(
     ctx: &mut EvalContext,
 ) -> Result<Vec<Value>> {
     eval_lookup_value_rowset(map, datasets, ctx)
+}
+
+pub(super) fn eval_rowset_lookup_collect(
+    map: &serde_json::Map<String, Value>,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Vec<Value>> {
+    eval_lookup_collect_rowset(map, datasets, ctx)
 }

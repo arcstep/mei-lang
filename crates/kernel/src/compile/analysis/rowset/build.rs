@@ -323,6 +323,79 @@ pub(super) fn eval_lookup_value_rowset(
     Ok(out)
 }
 
+/// Like `lookup_value`, but collects **all** matching lookup rows per multi-value key
+/// (典型案例：一个单元格多个处理结果ID，每个 ID 可对应多条联合主键)。
+pub(super) fn eval_lookup_collect_rowset(
+    map: &serde_json::Map<String, Value>,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Vec<Value>> {
+    let rowset_expr = map
+        .get("rowset")
+        .ok_or_else(|| anyhow!("lookup_collect expression missing rowset"))?;
+    let lookup_rowset_expr = map
+        .get("lookup_rowset")
+        .ok_or_else(|| anyhow!("lookup_collect expression missing lookup_rowset"))?;
+    let field = map
+        .get("field")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("lookup_collect expression missing field"))?;
+    let lookup_field = map
+        .get("lookup_field")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("lookup_collect expression missing lookup_field"))?;
+    let value_field = map
+        .get("value_field")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("lookup_collect expression missing value_field"))?;
+    let as_field = map
+        .get("as_field")
+        .and_then(Value::as_str)
+        .unwrap_or(value_field)
+        .to_string();
+    let delimiter = map
+        .get("delimiter")
+        .and_then(Value::as_str)
+        .unwrap_or("、");
+    let mut lookup_rows = Vec::new();
+    for row in eval_rowset_with_ctx(lookup_rowset_expr, datasets, ctx)? {
+        lookup_rows.push(row);
+    }
+    let mut out = Vec::new();
+    for row in eval_rowset_with_ctx(rowset_expr, datasets, ctx)? {
+        let mut object = row.as_object().cloned().unwrap_or_default();
+        let mut collected = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for key in split_multi_object_keys(&row_string(&row, field)) {
+            if key.is_empty() {
+                continue;
+            }
+            for lookup_row in &lookup_rows {
+                let lookup_key = row_string(lookup_row, lookup_field);
+                if lookup_key != key {
+                    continue;
+                }
+                let value = row_string(lookup_row, value_field);
+                if value.is_empty() || !seen.insert(value.clone()) {
+                    continue;
+                }
+                collected.push(value);
+            }
+        }
+        let joined = collected.join(delimiter);
+        object.insert(
+            as_field.clone(),
+            if joined.is_empty() {
+                Value::Null
+            } else {
+                Value::String(joined)
+            },
+        );
+        out.push(Value::Object(object));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,6 +460,7 @@ mod tests {
                     table: None,
                     query: None,
                     connection: None,
+                    primary_key: None,
                     content: None,
                 },
                 sources: Vec::new(),
@@ -455,6 +529,7 @@ mod tests {
                     table: None,
                     query: None,
                     connection: None,
+                    primary_key: None,
                     content: None,
                 },
                 sources: Vec::new(),

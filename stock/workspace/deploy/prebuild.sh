@@ -40,7 +40,11 @@ if [[ -z "${BUILD_ID}" ]]; then
   for app_id in "${APP_IDS[@]}"; do
     PREPARE_ARGS+=(--app "${app_id}")
   done
-  BUILD_ID="$(run_mei_host_shell "${WORKSPACE_ROOT}" "${PREPARE_ARGS[@]}")"
+  BUILD_ID="$(capture_build_prepare_generation "${WORKSPACE_ROOT}" "${PREPARE_ARGS[@]}")"
+elif ! BUILD_ID="$(extract_ws_generation_id "${BUILD_ID}")"; then
+  echo "error: MEI_ENV_GENERATION is not a valid WS-* id" >&2
+  printf '%s\n' "${MEI_ENV_GENERATION}" >&2
+  exit 1
 fi
 echo "envVersion=${BUILD_ID}"
 

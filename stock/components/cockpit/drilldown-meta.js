@@ -1140,6 +1140,34 @@ function pushObjectFieldTarget(out, base, objectKey) {
   });
 }
 
+/** Expand base keys with qualifier sibling fields (`处理结果ID` + `问题跟踪ID` → composite). */
+function expandObjectKeysWithQualifiers(row, baseKeys, qualifierFields) {
+  const quals = (Array.isArray(qualifierFields) ? qualifierFields : [])
+    .map((field) => String(field || "").trim())
+    .filter(Boolean)
+    .map((field) => String(row?.[field] ?? "").trim())
+    .filter((value) => value && !isBlankObjectIdentity(value));
+  if (!quals.length) return baseKeys;
+  const out = [];
+  const seen = new Set();
+  for (const base of baseKeys) {
+    const candidates = [`${base}-${quals.join("-")}`, base];
+    for (const cand of candidates) {
+      if (!cand || seen.has(cand)) continue;
+      seen.add(cand);
+      out.push(cand);
+    }
+  }
+  return out;
+}
+
+function pushResolvableObjectKeys(out, base, row, objectKeys) {
+  for (const objectKey of objectKeys) {
+    pushObjectFieldTarget(out, base, objectKey);
+    if (out.length) break;
+  }
+}
+
 /** Resolve clickable object targets for one cell from object_field_links IR. */
 export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") {
   const field = String(columnKey || "").trim();
@@ -1196,16 +1224,32 @@ export function resolveObjectFieldTargets(props = {}, row = {}, columnKey = "") 
       if (!keyField) continue;
       const siblingText = String(row[keyField] ?? "").trim();
       if (!siblingText || isBlankObjectIdentity(siblingText)) continue;
+      const cellTokens = splitMultiObjectKeys(cellValue);
       for (const objectKey of splitMultiObjectKeys(siblingText)) {
+        if (cellTokens.length > 0 && keyField.includes("-")) {
+          const matched = cellTokens.some(
+            (token) => objectKey === token || objectKey.startsWith(`${token}-`),
+          );
+          if (!matched) continue;
+        }
         pushObjectFieldTarget(out, targetBase, objectKey);
       }
       continue;
     }
 
     if (!cellValue || isBlankObjectIdentity(cellValue)) continue;
-    for (const objectKey of splitMultiObjectKeys(cellValue)) {
-      pushObjectFieldTarget(out, targetBase, objectKey);
-    }
+    const qualifierFields =
+      (Array.isArray(spec.qualifierFields) && spec.qualifierFields.length
+        ? spec.qualifierFields
+        : null) ||
+      (Array.isArray(spec.qualifier_fields) && spec.qualifier_fields.length
+        ? spec.qualifier_fields
+        : []);
+    const baseKeys = splitMultiObjectKeys(cellValue);
+    const objectKeys = qualifierFields.length
+      ? expandObjectKeysWithQualifiers(row, baseKeys, qualifierFields)
+      : baseKeys;
+    pushResolvableObjectKeys(out, targetBase, row, objectKeys);
   }
   return out;
 }

@@ -126,6 +126,7 @@ fn build_owner_dataset_view(
             table: None,
             query: None,
             connection: None,
+            primary_key: None,
             content: None,
         },
         sources: Vec::new(),
@@ -244,6 +245,14 @@ fn lower_bundle_schema(value: Option<&Value>) -> Vec<ColumnSchema> {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            primary: args
+                .get("primary")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            hidden: args
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         });
     }
     schema
@@ -283,6 +292,7 @@ fn empty_source_decl() -> SourceDecl {
         table: None,
         query: None,
         connection: None,
+        primary_key: None,
         content: None,
     }
 }

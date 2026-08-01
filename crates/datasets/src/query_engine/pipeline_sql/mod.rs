@@ -59,7 +59,11 @@ pub fn try_eval_analysis_expr_via_sql(
     let rows = match exec::execute_sql_plan(app_root, &plan) {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::debug!(error = %err, "pipeline_sql DataFusion exec fallback");
+            tracing::warn!(
+                error = %err,
+                root = %format!("{err:#}"),
+                "pipeline_sql DataFusion exec fallback"
+            );
             record_pipeline_sql_fallback();
             return Ok(None);
         }
@@ -728,7 +732,15 @@ fn inject_analysis_expr_row_filters(
         return false;
     }
     let typ = object.get("type").and_then(Value::as_str).unwrap_or("");
-    if !matches!(typ, "trend_year_compare" | "group_by") {
+    if matches!(typ, "trend_year_compare" | "group_by") {
+        if let Some(rowset) = object.get_mut("rowset") {
+            if inject_row_filters_into_first_by(rowset, filters, search) {
+                return true;
+            }
+        }
+    } else if inject_row_filters_into_first_by(expr, filters, search) {
+        return true;
+    } else {
         return false;
     }
     let mut filter_obj = serde_json::Map::new();
@@ -743,6 +755,47 @@ fn inject_analysis_expr_row_filters(
         );
     }
     true
+}
+
+/// Push row filters into the nearest `first_by` descendant so category filters apply
+/// before PARTITION BY dedup (监督成效类别展开宇宙).
+fn inject_row_filters_into_first_by(
+    expr: &mut Value,
+    filters: &BTreeMap<String, String>,
+    search: Option<&str>,
+) -> bool {
+    if filters.is_empty() && search.map(str::trim).filter(|s| !s.is_empty()).is_none() {
+        return false;
+    }
+    let Some(object) = expr.as_object_mut() else {
+        return false;
+    };
+    if object.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return false;
+    }
+    let typ = object.get("type").and_then(Value::as_str).unwrap_or("");
+    if typ == "first_by" {
+        let mut filter_obj = serde_json::Map::new();
+        for (key, value) in filters {
+            filter_obj.insert(key.clone(), Value::String(value.clone()));
+        }
+        object.insert("__mei_row_filters".to_string(), Value::Object(filter_obj));
+        if let Some(keyword) = search.map(str::trim).filter(|s| !s.is_empty()) {
+            object.insert(
+                "__mei_row_search".to_string(),
+                Value::String(keyword.to_string()),
+            );
+        }
+        return true;
+    }
+    for key in ["rowset", "value", "list", "series"] {
+        if let Some(child) = object.get_mut(key) {
+            if inject_row_filters_into_first_by(child, filters, search) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

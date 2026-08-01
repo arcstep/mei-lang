@@ -122,6 +122,7 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         table: source.table.clone(),
         query: source.query.clone(),
         connection: source.connection.clone(),
+        primary_key: source.primary_key.clone(),
         content: serde_json::to_string(&source_meta).ok(),
     };
     Ok(DatasetView {

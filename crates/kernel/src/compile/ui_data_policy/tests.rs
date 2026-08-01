@@ -333,6 +333,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
                 table: None,
                 query: None,
                 connection: None,
+                primary_key: None,
                 content: None,
             },
             sources: vec![],

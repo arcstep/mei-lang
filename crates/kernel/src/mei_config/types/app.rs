@@ -461,6 +461,9 @@ pub struct OpsSourceEntry {
     pub query: Option<String>,
     #[serde(default)]
     pub connection: Option<String>,
+    /// Logical primary-key column for file-backed ingest dedup (e.g. `处理结果ID`, `预警ID`).
+    #[serde(default, rename = "primary_key")]
+    pub primary_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

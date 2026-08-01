@@ -130,6 +130,14 @@ fn metric_contract_from_runtime_def(def: &Value, metric_id: &str) -> MetricContr
                                 .map(str::trim)
                                 .filter(|value| !value.is_empty())
                                 .map(str::to_string),
+                            primary: obj
+                                .get("primary")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
+                            hidden: obj
+                                .get("hidden")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
                         })
                     })
                     .collect()

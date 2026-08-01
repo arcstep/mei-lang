@@ -299,14 +299,23 @@ pub fn resolve_parquet_file_for_source(
     path.is_file().then_some(path)
 }
 
-fn view_name_for(parquet_path: &Path) -> String {
+fn view_name_for(parquet_path: &Path, schema: &[ColumnSchema]) -> String {
     let mut hasher = DefaultHasher::new();
     parquet_path.to_string_lossy().hash(&mut hasher);
+    // Same parquet may be projected with different dataset schemas (e.g. zhifa
+    // inspection `key_enterprises` vs map `map_key_enterprises`). Fingerprint
+    // the logical projection so concurrent reuse cannot starve wider schemas.
+    if schema.is_empty() {
+        "all".hash(&mut hasher);
+    } else {
+        for col in schema {
+            col.name.hash(&mut hasher);
+            col.type_name.hash(&mut hasher);
+            col.source.as_deref().unwrap_or("").hash(&mut hasher);
+            col.optional.hash(&mut hasher);
+        }
+    }
     format!("mei_pq_{:016x}", hasher.finish())
-}
-
-fn raw_table_name(view: &str) -> String {
-    format!("{view}_raw")
 }
 
 /// Ensure a CAST view over registered parquet exists; returns view name + logical columns.
@@ -319,7 +328,7 @@ pub fn ensure_parquet_view(
     if !parquet_path.is_file() {
         bail!("parquet file missing: {}", parquet_path.display());
     }
-    let view = view_name_for(parquet_path);
+    let view = view_name_for(parquet_path, schema);
     let abs = parquet_path
         .canonicalize()
         .unwrap_or_else(|_| parquet_path.to_path_buf());
@@ -334,6 +343,20 @@ pub fn ensure_parquet_view(
         } else {
             discover_parquet_columns(&abs)?
         };
+
+        let out_columns = if schema.is_empty() {
+            columns.clone()
+        } else {
+            schema.iter().map(|c| c.name.clone()).collect()
+        };
+
+        // Shared SessionContext is reused across concurrent metric requests.
+        // Never deregister an existing view mid-flight — that races with other
+        // queries still reading it (zhifa home prefetch → pipeline_sql_fallback 500).
+        // Data refresh clears the session via clear_query_engine_session_for_app.
+        if ctx.table_exist(&view).unwrap_or(false) {
+            return Ok((view, out_columns));
+        }
 
         let select_list = if schema.is_empty() {
             columns
@@ -369,13 +392,16 @@ pub fn ensure_parquet_view(
                 .join(", ")
         };
 
-        let raw = raw_table_name(&view);
+        // Raw parquet registration is path-stable; share one physical table across
+        // schema projections of the same file.
+        let raw = {
+            let mut hasher = DefaultHasher::new();
+            abs_str.hash(&mut hasher);
+            format!("mei_pq_raw_{:016x}", hasher.finish())
+        };
         register_parquet_table(ctx, &raw, &abs_str)?;
         let view_ident = quote_ident(&view)?;
         let raw_ident = quote_ident(&raw)?;
-        if ctx.table_exist(&view).unwrap_or(false) {
-            let _ = ctx.deregister_table(&view);
-        }
         let ddl = format!("CREATE VIEW {view_ident} AS SELECT {select_list} FROM {raw_ident}");
         block_on(async {
             let _ = ctx
@@ -395,20 +421,15 @@ pub fn ensure_parquet_view(
             Ok::<(), anyhow::Error>(())
         })?;
 
-        let out_columns = if schema.is_empty() {
-            columns
-        } else {
-            schema.iter().map(|c| c.name.clone()).collect()
-        };
         Ok((view, out_columns))
     })
 }
 
 fn register_parquet_table(ctx: &SessionContext, table: &str, path: &str) -> Result<()> {
-    // Re-register is idempotent enough for MVP: drop if present then register.
-    let exists = ctx.table_exist(table).unwrap_or(false);
-    if exists {
-        let _ = ctx.deregister_table(table);
+    // Path-hashed table names are stable; reuse under concurrency. Do not
+    // deregister — other in-flight plans may still reference the table.
+    if ctx.table_exist(table).unwrap_or(false) {
+        return Ok(());
     }
     block_on(async {
         ctx.register_parquet(table, path, ParquetReadOptions::default())

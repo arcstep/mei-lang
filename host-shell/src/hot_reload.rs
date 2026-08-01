@@ -114,6 +114,32 @@ pub(crate) async fn run_cli_artifact_hot_reload_loop(shell: SharedState, app_ids
         for app_id in &app_ids {
             let need = detect_hot_reload_need(workspace.as_path(), app_id.as_str());
             if need == HotReloadNeed::None {
+                let workspace_for_reconcile = workspace.clone();
+                let app_for_reconcile = app_id.clone();
+                let reconcile = tokio::task::spawn_blocking(move || {
+                    crate::build_ops::reconcile_ops_sources_if_needed(
+                        workspace_for_reconcile.as_path(),
+                        app_for_reconcile.as_str(),
+                        DEFAULT_WARMUP_POLICY,
+                    )
+                })
+                .await;
+                if let Ok(Ok(report)) = reconcile {
+                    if !report.changed_source_ids.is_empty() {
+                        let mut guard = shell.write().expect("state lock");
+                        if begin_ops_job(&mut guard, "ops_source_reconcile").is_ok() {
+                            finish_ops_job_success(
+                                &mut guard,
+                                format!(
+                                    "ops.sources reconcile: {:?} (parquet={})",
+                                    report.changed_source_ids, report.parquet_written
+                                ),
+                            );
+                            crate::build_ops::refresh_materialization_flags(&mut guard);
+                        }
+                        break;
+                    }
+                }
                 continue;
             }
             if need == HotReloadNeed::ImportAndRewarm {

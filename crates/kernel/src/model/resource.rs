@@ -28,6 +28,8 @@ pub struct SourceDecl {
     pub query: Option<String>,
     #[serde(default)]
     pub connection: Option<String>,
+    #[serde(default, rename = "primary_key")]
+    pub primary_key: Option<String>,
     #[serde(default)]
     pub content: Option<String>,
 }

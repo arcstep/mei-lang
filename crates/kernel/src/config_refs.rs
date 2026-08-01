@@ -101,6 +101,7 @@ pub fn source_decl_from_value(value: Value) -> Result<SourceDecl, String> {
             table: None,
             query: None,
             connection: None,
+            primary_key: None,
             content: None,
         });
     }
@@ -344,6 +345,7 @@ pub fn ops_source_entry_to_decl(entry: &OpsSourceEntry) -> SourceDecl {
         table: entry.table.clone(),
         query: entry.query.clone(),
         connection: entry.connection.clone(),
+        primary_key: entry.primary_key.clone(),
         content: None,
     }
 }

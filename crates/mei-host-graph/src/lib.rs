@@ -63,7 +63,8 @@ pub use content_store::{
 };
 pub use data_snapshot::{
     collect_app_xlsx_sources, ensure_app_data_snapshots, publish_app_data_snapshots,
-    verify_app_dataset_schema_physical_sources, PublishDataSnapshotsReport,
+    publish_data_snapshots_for_sources, verify_app_dataset_schema_physical_sources,
+    PublishDataSnapshotsReport,
 };
 pub use enrich_compiled_scope::{enrich_compiled_scope, EnrichCompiledScopeOptions};
 pub use eval_slot_group::{

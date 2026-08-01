@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use datafusion::prelude::SessionContext;
 use serde_json::Value;
 
 use super::super::arrow_json::batches_to_json_rows;
@@ -21,7 +22,6 @@ pub struct SqlPlanPage {
 }
 
 pub fn execute_sql_plan(app_root: &Path, plan: &SqlPlan) -> Result<Vec<Value>> {
-    run_plan_setup(app_root, plan)?;
     let inner = plan.final_sql.trim_end_matches(';');
     // WITH ... SELECT must stay at statement head; do not wrap in SELECT * FROM (...).
     // composition top_n already emits `... LIMIT n` — do not append a second LIMIT
@@ -41,15 +41,29 @@ pub fn execute_sql_plan(app_root: &Path, plan: &SqlPlan) -> Result<Vec<Value>> {
             MAX_PIPELINE_SQL_ROWS.saturating_add(1)
         )
     };
+    // Setup + collect under one session lock so concurrent plans cannot interleave
+    // catalog mutations between DDL and query.
     with_app_session(app_root, |ctx| {
+        run_plan_setup_on_ctx(ctx, plan)?;
         block_on(async {
             let batches = ctx
                 .sql(&sql)
                 .await
-                .with_context(|| format!("prepare pipeline sql: {sql}"))?
+                .with_context(|| {
+                    format!(
+                        "prepare pipeline sql failed (sql_chars={}): {}",
+                        sql.chars().count(),
+                        sql.chars().take(240).collect::<String>()
+                    )
+                })?
                 .collect()
                 .await
-                .with_context(|| format!("collect pipeline sql: {sql}"))?;
+                .with_context(|| {
+                    format!(
+                        "collect pipeline sql failed (sql_chars={})",
+                        sql.chars().count()
+                    )
+                })?;
             let mut rows = batches_to_json_rows(&batches)?;
             if !plan.result_columns.is_empty() {
                 rows = rows
@@ -90,7 +104,6 @@ pub fn execute_sql_plan_page(
     page: usize,
     page_size: usize,
 ) -> Result<SqlPlanPage> {
-    run_plan_setup(app_root, plan)?;
     let inner = plan.final_sql.trim_end_matches(';');
     let page = page.max(1);
     let page_size = page_size.max(1);
@@ -98,8 +111,13 @@ pub fn execute_sql_plan_page(
     let count_sql = format!(
         "SELECT CAST(COUNT(*) AS BIGINT) AS c FROM ({inner}) AS mei_pipeline_count{where_sql}"
     );
-    let total = with_app_session(app_root, |ctx| {
-        block_on(async {
+    let limit = page_size.saturating_add(1);
+    let page_sql = format!(
+        "SELECT * FROM ({inner}) AS mei_pipeline_page{where_sql}{order_by_sql} LIMIT {limit} OFFSET {offset}"
+    );
+    let (total, mut rows) = with_app_session(app_root, |ctx| {
+        run_plan_setup_on_ctx(ctx, plan)?;
+        let total = block_on(async {
             let batches = ctx
                 .sql(&count_sql)
                 .await
@@ -108,16 +126,9 @@ pub fn execute_sql_plan_page(
                 .await
                 .with_context(|| format!("collect pipeline count sql: {count_sql}"))?;
             Ok::<i64, anyhow::Error>(first_i64(&batches).unwrap_or(0))
-        })
-    })?
-    .max(0) as usize;
-
-    let limit = page_size.saturating_add(1);
-    let page_sql = format!(
-        "SELECT * FROM ({inner}) AS mei_pipeline_page{where_sql}{order_by_sql} LIMIT {limit} OFFSET {offset}"
-    );
-    let mut rows = with_app_session(app_root, |ctx| {
-        block_on(async {
+        })?
+        .max(0) as usize;
+        let rows = block_on(async {
             let batches = ctx
                 .sql(&page_sql)
                 .await
@@ -126,7 +137,8 @@ pub fn execute_sql_plan_page(
                 .await
                 .with_context(|| format!("collect pipeline page sql: {page_sql}"))?;
             batches_to_json_rows(&batches)
-        })
+        })?;
+        Ok((total, rows))
     })?;
     if !plan.result_columns.is_empty() {
         rows = rows
@@ -155,7 +167,6 @@ pub fn execute_sql_plan_facets(
     where_sql: &str,
     limit: usize,
 ) -> Result<Vec<crate::types::TableColumnFacet>> {
-    run_plan_setup(app_root, plan)?;
     let inner = plan.final_sql.trim_end_matches(';');
     let col = quote_ident(column)?;
     let col_expr = format!("TRIM(CAST({col} AS VARCHAR))");
@@ -173,6 +184,7 @@ pub fn execute_sql_plan_facets(
          LIMIT {limit}"
     );
     let rows = with_app_session(app_root, |ctx| {
+        run_plan_setup_on_ctx(ctx, plan)?;
         block_on(async {
             let batches = ctx
                 .sql(&sql)
@@ -218,19 +230,17 @@ fn parse_facet_rows(rows: Vec<Value>) -> Vec<crate::types::TableColumnFacet> {
     out
 }
 
-fn run_plan_setup(app_root: &Path, plan: &SqlPlan) -> Result<()> {
+fn run_plan_setup_on_ctx(ctx: &SessionContext, plan: &SqlPlan) -> Result<()> {
     for ddl in &plan.setup_ddls {
-        with_app_session(app_root, |ctx| {
-            block_on(async {
-                let _ = ctx
-                    .sql(ddl)
-                    .await
-                    .with_context(|| format!("pipeline sql setup: {ddl}"))?
-                    .collect()
-                    .await
-                    .with_context(|| format!("collect pipeline setup: {ddl}"))?;
-                Ok::<(), anyhow::Error>(())
-            })
+        block_on(async {
+            let _ = ctx
+                .sql(ddl)
+                .await
+                .with_context(|| format!("pipeline sql setup: {ddl}"))?
+                .collect()
+                .await
+                .with_context(|| format!("collect pipeline setup: {ddl}"))?;
+            Ok::<(), anyhow::Error>(())
         })?;
     }
     Ok(())
@@ -298,10 +308,10 @@ fn execute_sql_plan_scalar_f64(
     plan: &SqlPlan,
     sql_template: &str,
 ) -> Result<f64> {
-    run_plan_setup(app_root, plan)?;
     let inner = plan.final_sql.trim_end_matches(';');
     let sql = sql_template.replace("{inner}", inner);
     with_app_session(app_root, |ctx| {
+        run_plan_setup_on_ctx(ctx, plan)?;
         block_on(async {
             let batches = ctx
                 .sql(&sql)

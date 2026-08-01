@@ -338,6 +338,7 @@ fn legacy_dataset_source_decl(
             table: source.table.clone(),
             query: source.query.clone(),
             connection: source.connection.clone(),
+            primary_key: None,
             content: serde_json::to_string(&meta).ok(),
         };
     }
@@ -380,6 +381,7 @@ fn legacy_dataset_source_decl(
         table: source.table.clone(),
         query: source.query.clone(),
         connection: source.connection.clone(),
+        primary_key: None,
         content: serde_json::to_string(&meta).ok(),
     }
 }

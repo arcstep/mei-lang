@@ -3,10 +3,14 @@ use std::path::{Path, PathBuf};
 use mei_host_core::ImportReport;
 use mei_lang_kernel::{
     bump_cache_generation, discover_apps, finalize_and_promote_build,
-    load_mei_config_for_app, prepare_dev_build_generation_with_hint,
-    publish_xlsx_data_snapshots_for_paths, read_links_state, resolve_active_build_identity,
+    compute_ops_source_fingerprints, clear_runtime_compile_caches,
+    detect_ops_source_fingerprint_drift,
+    load_mei_config_for_app, load_source_fingerprints, prepare_dev_build_generation_with_hint,
+    read_links_state, resolve_active_build_identity,
     resolve_app_build_generation_from_current, resolve_app_root, resolve_build_footer_label,
-    resolve_toolchain_version_with_hint, resolve_workspace_version, PrebuildGeneration,
+    resolve_toolchain_version_with_hint, resolve_workspace_version, save_source_fingerprints,
+    PrebuildGeneration, SourceFingerprintRecord, current_time_ms,
+    SOURCE_FINGERPRINT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -147,6 +151,98 @@ pub struct OpsSourceRewarmReport {
     pub warmup_ran: bool,
 }
 
+/// Runtime reconcile when `ops.sources` fingerprints drift (path / content_sig / primary_key).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsSourceReconcileReport {
+    pub changed_source_ids: Vec<String>,
+    pub data_generation: Option<String>,
+    pub removed_artifact_files: usize,
+    pub cleared_bootstrap_scopes: usize,
+    pub warmup_ran: bool,
+    pub parquet_written: usize,
+}
+
+/// Detect ops.sources drift, republish parquet, bump generation, force-clear eval-cache, warmup.
+/// Does not compile or finalize env generation.
+pub fn reconcile_ops_sources_if_needed(
+    workspace: &Path,
+    app_id: &str,
+    policy: &str,
+) -> anyhow::Result<OpsSourceReconcileReport> {
+    let workspace = canonical_workspace(workspace);
+    let app_id = app_id.trim();
+    let app_root = resolve_app_root(workspace.as_path(), app_id);
+    let persisted = load_source_fingerprints(app_root.as_path(), app_id);
+    let current = compute_ops_source_fingerprints(app_root.as_path(), Some(workspace.as_path()));
+    let drift = detect_ops_source_fingerprint_drift(&persisted, &current);
+    if drift.changed_source_ids.is_empty() {
+        return Ok(OpsSourceReconcileReport {
+            changed_source_ids: Vec::new(),
+            data_generation: None,
+            removed_artifact_files: 0,
+            cleared_bootstrap_scopes: 0,
+            warmup_ran: false,
+            parquet_written: 0,
+        });
+    }
+
+    let snapshot_report = mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app_id)?;
+    clear_runtime_compile_caches();
+    let _ = mei_lang_datasets::clear_query_engine_session_for_app(app_root.as_path());
+    let generation = bump_cache_generation(
+        app_root.as_path(),
+        app_id,
+        Some(drift.changed_source_ids.as_slice()),
+    )?;
+
+    mei_host_graph::clear_assemble_cache_for_app(app_id);
+    let invalidation = mei_host_graph::invalidate_app_eval_cache(workspace.as_path(), app_id, true)?;
+
+    let mut warmup_ran = false;
+    let dev_eval = crate::dev_eval_scope::current_for_app(app_id);
+    if dev_eval.allows_rewarm() {
+        if let Err(error) =
+            crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app_id, policy, "client")
+        {
+            tracing::warn!(
+                app_id = %app_id,
+                changed = ?drift.changed_source_ids,
+                error = %error,
+                "warmup after ops-source reconcile failed"
+            );
+        } else {
+            warmup_ran = true;
+        }
+    }
+
+    let record = SourceFingerprintRecord {
+        schema_version: SOURCE_FINGERPRINT_SCHEMA_VERSION.to_string(),
+        app_id: app_id.to_string(),
+        sources: current,
+        updated_at_ms: current_time_ms(),
+    };
+    save_source_fingerprints(app_root.as_path(), &record)?;
+
+    tracing::info!(
+        app_id = %app_id,
+        changed = ?drift.changed_source_ids,
+        data_generation = %generation.data_generation,
+        parquet_written = snapshot_report.written.len(),
+        removed_artifact_files = invalidation.removed_artifact_files,
+        "ops-source fingerprint reconcile complete"
+    );
+
+    Ok(OpsSourceReconcileReport {
+        changed_source_ids: drift.changed_source_ids,
+        data_generation: Some(generation.data_generation),
+        removed_artifact_files: invalidation.removed_artifact_files,
+        cleared_bootstrap_scopes: invalidation.cleared_bootstrap_scopes,
+        warmup_ran,
+        parquet_written: snapshot_report.written.len(),
+    })
+}
+
 /// Admin asset-slot 换源：单源 publish parquet → bump data_generation → 清 assemble/eval → 可选 warmup。
 /// 不 compile、不 finalize、不新建 env generation。
 pub fn rewarm_after_ops_source_change(
@@ -180,8 +276,9 @@ pub fn rewarm_after_ops_source_change(
         .and_then(|value| (value > 0).then_some(value as usize))
         .unwrap_or(1);
 
-    let written_paths = publish_xlsx_data_snapshots_for_paths(
-        app_root.as_path(),
+    let written_paths = mei_host_graph::publish_data_snapshots_for_sources(
+        workspace.as_path(),
+        app_id,
         &[(source_path, sheet, header_row)],
     )
     .map_err(|error| {
@@ -249,14 +346,20 @@ pub fn rewarm_after_ops_source_change(
         warmup_ran = true;
     }
 
+    let current = compute_ops_source_fingerprints(app_root.as_path(), Some(workspace.as_path()));
+    let record = SourceFingerprintRecord {
+        schema_version: SOURCE_FINGERPRINT_SCHEMA_VERSION.to_string(),
+        app_id: app_id.to_string(),
+        sources: current,
+        updated_at_ms: current_time_ms(),
+    };
+    save_source_fingerprints(app_root.as_path(), &record)?;
+
     Ok(OpsSourceRewarmReport {
         ok: true,
         slot_id: slot_id.to_string(),
         source_path: source_path.to_string(),
-        written: written_paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect(),
+        written: written_paths.iter().cloned().collect(),
         data_generation: generation.data_generation,
         removed_artifact_files: invalidation.removed_artifact_files,
         cleared_bootstrap_scopes: invalidation.cleared_bootstrap_scopes,

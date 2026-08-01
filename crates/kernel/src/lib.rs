@@ -14,6 +14,7 @@ mod ops_journal;
 mod runtime;
 mod runtime_dev_eval;
 mod runtime_resource_index;
+mod source_fingerprint;
 mod source_version;
 mod theme_tokens;
 mod typed_refs;
@@ -23,10 +24,16 @@ mod workspace;
 mod workspace_profile;
 
 pub use cache_generation::{
-    bump_cache_generation, cache_generation_path, is_file_source_dataset, load_cache_generation,
-    resolve_app_data_generation, save_cache_generation, CacheGenerationRecord,
-    SourceGenerationRecord, CACHE_GENERATION_REL, CACHE_GENERATION_SCHEMA_VERSION,
-    DEFAULT_DATABASE_TTL_MS,
+    bump_cache_generation, cache_generation_path, current_time_ms, is_file_source_dataset,
+    load_cache_generation, resolve_app_data_generation, save_cache_generation,
+    CacheGenerationRecord, SourceGenerationRecord, CACHE_GENERATION_REL,
+    CACHE_GENERATION_SCHEMA_VERSION, DEFAULT_DATABASE_TTL_MS,
+};
+pub use source_fingerprint::{
+    compute_ops_source_fingerprints, detect_ops_source_fingerprint_drift,
+    ingest_sidecar_key_for_ops_source, load_source_fingerprints, save_source_fingerprints,
+    source_fingerprint_path, SourceFingerprintDrift, SourceFingerprintEntry,
+    SourceFingerprintRecord, SOURCE_FINGERPRINT_REL, SOURCE_FINGERPRINT_SCHEMA_VERSION,
 };
 pub use catalog_app::{
     catalog_app_needs_sync, catalog_scene_route_for_build_node, catalog_scene_routes_from_app_root,
@@ -65,23 +72,26 @@ pub use compile::{
     imported_capsule_path_from_world_metrics_resource_id, is_blank_object_identity,
     is_stock_catalog_facet_root, load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token,
     materialize_fill_section_derived_heights, materialize_layout_budget_px,
-    materialize_xlsx_column_headers, merge_cell_normalize_rules, merge_ui_structure_root,
+    materialize_xlsx_column_headers,     merge_cell_normalize_rules, merge_ui_structure_root,
     normalize_object_keys_cell, normalize_panel_slots, normalize_panel_slots_with_options,
-    panel_resolved_has_head, parquet_sidecar_write_allowed, parquet_snapshot_path,
+    panel_resolved_has_head, parquet_sidecar_write_allowed, parquet_snapshot_cache_token,
+    parquet_snapshot_path, parse_primary_key_spec, composite_primary_key_field_name,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
-    publish_xlsx_data_snapshots_for_paths,
-    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes, read_data_snapshot_import_manifest,
+    primary_key_columns_from_schema, publish_xlsx_data_snapshots_for_paths,
+    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes,
+    publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars, read_data_snapshot_import_manifest,
     resolve_build_node_context, resolve_build_preview_scope, resolve_build_preview_scope_for_ssr,
     resolve_data_snapshot_import_entry, resolve_default_scene_from_root, resolve_layout_budgets,
     resolve_layout_budgets_with_options, resolve_metric_contract_key,
     resolve_runtime_metric_def_key, resolve_scene_ids_from_root,
     runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
     scene_contract_contains_use_key, scene_payload_cache_epoch, snapshot_sealed_data_enabled,
-    source_file_content_signature, split_multi_object_keys, try_get_cached_xlsx_table_snapshot,
+    source_file_content_signature, source_ingest_sidecar_key, split_multi_object_keys, try_get_cached_xlsx_table_snapshot,
     try_load_xlsx_parquet_snapshot, ui_scope_annotation_for_preview_panel,
     ui_scope_annotation_for_preview_path, ui_scope_for_block, validate_layout_budget_policy,
     validate_layout_budget_policy_with_options, write_data_snapshot_import_manifest,
     write_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot_with_cell_normalizes,
+    write_xlsx_parquet_snapshot_with_ingest_sidecar,
     BuildCompileCoordinate, BuildNodeContext, BuildPreviewKind, CompileAppArtifacts,
     CompileOptions, CompileRevisionPlan, CompileWatchedFile, DataSnapshotImportEntry,
     DataSnapshotImportManifest, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,

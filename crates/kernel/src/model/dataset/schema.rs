@@ -18,6 +18,12 @@ pub struct ColumnSchema {
     /// Keeps Arrow type as string; multi-value IDs become `、`-joined canonical keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalize: Option<String>,
+    /// When true, this column participates in parquet ingest row deduplication (keep first).
+    #[serde(default)]
+    pub primary: bool,
+    /// When true, UI tables / default exports hide this column (ingest / object-link synthetic fields).
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 impl ColumnSchema {

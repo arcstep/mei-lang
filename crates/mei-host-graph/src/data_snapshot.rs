@@ -4,10 +4,12 @@ use std::path::Path;
 use anyhow::Result;
 use mei_host_core::path_for_log;
 use mei_lang_kernel::{
-    cell_normalize_rules_from_schema, data_snapshot_import_manifest_path, load_mei_config_for_app,
-    merge_cell_normalize_rules, ops_source_entry_to_decl, parquet_snapshot_path,
-    publish_xlsx_data_snapshots_for_paths_with_cell_normalizes, resolve_app_root,
-    resolve_data_snapshot_import_entry,
+    cell_normalize_rules_from_schema, clear_runtime_compile_caches,
+    data_snapshot_import_manifest_path, load_mei_config_for_app, merge_cell_normalize_rules,
+    ops_source_entry_to_decl, parse_primary_key_spec, parquet_snapshot_path,
+    primary_key_columns_from_schema,
+    publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars, resolve_app_root,
+    resolve_data_snapshot_import_entry, source_ingest_sidecar_key,
 };
 use serde::Serialize;
 
@@ -71,6 +73,27 @@ fn push_xlsx_source(
     ));
 }
 
+/// Publish parquet sidecars for explicit source refs (with normalize + primary-key ingest rules).
+pub fn publish_data_snapshots_for_sources(
+    source_root: &Path,
+    app_id: &str,
+    sources: &[(&str, Option<&str>, usize)],
+) -> Result<Vec<String>> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let cell_normalizes_by_source = collect_app_cell_normalize_rules(source_root, app_id)?;
+    let primary_key_columns_by_source = collect_app_primary_key_rules(source_root, app_id)?;
+    let written = mei_lang_kernel::publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars(
+        app_root.as_path(),
+        sources,
+        &cell_normalizes_by_source,
+        &primary_key_columns_by_source,
+    )?;
+    Ok(written
+        .into_iter()
+        .map(|path| path_for_log(source_root, path.as_path()))
+        .collect())
+}
+
 /// Generate `.mei/data-snapshots` parquet sidecars for configured xlsx sources.
 pub fn publish_app_data_snapshots(
     source_root: &Path,
@@ -79,6 +102,7 @@ pub fn publish_app_data_snapshots(
     let app_root = resolve_app_root(source_root, app_id);
     let required = collect_app_xlsx_sources(source_root, app_id)?;
     let cell_normalizes_by_source = collect_app_cell_normalize_rules(source_root, app_id)?;
+    let primary_key_columns_by_source = collect_app_primary_key_rules(source_root, app_id)?;
     let discovered_sources = required
         .iter()
         .map(|(path, sheet, header_row)| {
@@ -96,10 +120,11 @@ pub fn publish_app_data_snapshots(
     let mut total_written_bytes = 0u64;
     for (path, sheet, header_row) in required {
         let refs = [(path.as_str(), sheet.as_deref(), header_row)];
-        match publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(
+        match publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars(
             app_root.as_path(),
             &refs,
             &cell_normalizes_by_source,
+            &primary_key_columns_by_source,
         ) {
             Ok(paths) => {
                 for snapshot_path in paths {
@@ -115,6 +140,11 @@ pub fn publish_app_data_snapshots(
                 skipped.push(format!("{path}: {error:#}"));
             }
         }
+    }
+
+    if !written.is_empty() {
+        clear_runtime_compile_caches();
+        let _ = mei_lang_datasets::clear_query_engine_session_for_app(app_root.as_path());
     }
 
     Ok(PublishDataSnapshotsReport {
@@ -163,9 +193,82 @@ fn collect_app_cell_normalize_rules(
             .filter(|value| !value.is_empty())
             .unwrap_or("");
         let header_row = dataset.source.header_row.unwrap_or(1).max(1) as usize;
-        let key = format!("{path}|sheet={sheet}|header_row={header_row}");
+        let key = source_ingest_sidecar_key(path, Some(sheet), header_row);
         let entry = out.entry(key).or_default();
         merge_cell_normalize_rules(entry, &rules);
+    }
+    Ok(out)
+}
+
+pub fn collect_app_primary_key_rules(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
+    let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    let resources =
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for resource in resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        let keys = primary_key_columns_from_schema(&dataset.schema);
+        if keys.is_empty() {
+            continue;
+        }
+        let kind = dataset.source.kind.trim().to_ascii_lowercase();
+        if !matches!(kind.as_str(), "xlsx" | "xls" | "csv" | "json") {
+            continue;
+        }
+        let path = dataset.source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let sheet = dataset
+            .source
+            .sheet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        let header_row = dataset.source.header_row.unwrap_or(1).max(1) as usize;
+        let key = source_ingest_sidecar_key(path, Some(sheet), header_row);
+        let entry = out.entry(key).or_default();
+        for column in keys {
+            if !entry.iter().any(|existing| existing == &column) {
+                entry.push(column);
+            }
+        }
+    }
+    for (source_id, source) in &config.ops.sources {
+        let keys = parse_primary_key_spec(source.primary_key.as_deref());
+        if keys.is_empty() {
+            continue;
+        };
+        let path = source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let sheet = source
+            .sheet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        let header_row = source
+            .header_row
+            .and_then(|value| (value > 0).then_some(value as usize))
+            .unwrap_or(1);
+        let key = source_ingest_sidecar_key(path, Some(sheet), header_row);
+        let entry = out.entry(key).or_default();
+        for column in keys {
+            if !entry.iter().any(|existing| existing == &column) {
+                entry.push(column);
+            }
+        }
+        let _ = source_id;
     }
     Ok(out)
 }

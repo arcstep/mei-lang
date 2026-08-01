@@ -151,6 +151,8 @@ pub fn coerce_calendar_columns_in_rows(
                 optional: true,
                 unit: None,
                 normalize: None,
+                primary: false,
+                hidden: false,
             });
         }
     }
@@ -559,6 +561,8 @@ mod tests {
             optional: false,
             unit: None,
             normalize: None,
+            primary: false,
+            hidden: false,
         }];
         let out = coerce_rows_to_schema(rows, &schema);
         let parsed = parse_date_value(&json!(46023)).expect("46023 serial");
@@ -585,6 +589,8 @@ mod tests {
                 optional: true,
                 unit: None,
                 normalize: Some("object_keys".to_string()),
+            primary: false,
+            hidden: false,
             },
             ColumnSchema {
                 name: "关联预警ID".to_string(),
@@ -593,6 +599,8 @@ mod tests {
                 optional: true,
                 unit: None,
                 normalize: Some("object_keys".to_string()),
+            primary: false,
+            hidden: false,
             },
         ];
         let out = coerce_rows_to_schema(rows, &schema);

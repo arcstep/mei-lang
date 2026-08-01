@@ -24,6 +24,7 @@ fn dataset(id: &str, kind: &str, path: &str) -> DatasetView {
             table: None,
             query: None,
             connection: None,
+            primary_key: None,
             content: None,
         },
         sources: Vec::new(),

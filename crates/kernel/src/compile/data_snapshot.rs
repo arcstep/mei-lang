@@ -364,6 +364,89 @@ pub fn cell_normalize_rules_from_schema(schema: &[ColumnSchema]) -> BTreeMap<Str
     out
 }
 
+/// Physical columns used for ingest-time row dedup (schema `primary = true`, logical names).
+pub fn primary_key_columns_from_schema(schema: &[ColumnSchema]) -> Vec<String> {
+    let mut out = Vec::new();
+    for column in schema {
+        if !column.primary {
+            continue;
+        }
+        let name = column.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|existing| existing == name) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// Parse `app.toml` `primary_key` (`"a,b"` / `"a、b"` / single column).
+pub fn parse_primary_key_spec(value: Option<&str>) -> Vec<String> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    raw.split([',', '、'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Synthetic hidden field name for multi-column primary keys (`处理结果ID-问题跟踪ID`).
+pub fn composite_primary_key_field_name(columns: &[String]) -> String {
+    columns
+        .iter()
+        .map(String::as_str)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn row_cell_string(row: &Value, column: &str) -> String {
+    row.get(column)
+        .map(cell_to_string)
+        .unwrap_or_default()
+}
+
+fn apply_composite_primary_key_column(
+    snapshot: &mut XlsxTableSnapshot,
+    primary_key_columns: &[String],
+    field_name: &str,
+) {
+    if primary_key_columns.len() < 2 || field_name.trim().is_empty() {
+        return;
+    }
+    if !snapshot
+        .columns
+        .iter()
+        .any(|column| column == field_name)
+    {
+        snapshot.columns.push(field_name.to_string());
+    }
+    for row in &mut snapshot.rows {
+        let composite = primary_key_columns
+            .iter()
+            .map(|column| row_cell_string(row, column.as_str()))
+            .collect::<Vec<_>>()
+            .join("-");
+        let Some(obj) = row.as_object_mut() else {
+            continue;
+        };
+        obj.insert(field_name.to_string(), Value::String(composite));
+    }
+}
+
+pub fn source_ingest_sidecar_key(path: &str, sheet: Option<&str>, header_row: usize) -> String {
+    format!(
+        "{}|sheet={}|header_row={}",
+        path.trim(),
+        sheet.unwrap_or("").trim(),
+        header_row.max(1)
+    )
+}
+
 /// Merge normalize rules (later schemas win on conflict).
 pub fn merge_cell_normalize_rules(
     into: &mut BTreeMap<String, String>,
@@ -396,6 +479,31 @@ fn apply_cell_normalizes_to_snapshot(
             obj.insert(column.clone(), Value::String(normalized));
         }
     }
+}
+
+fn apply_primary_key_dedup_to_snapshot(
+    snapshot: &mut XlsxTableSnapshot,
+    primary_key_columns: &[String],
+) {
+    if primary_key_columns.is_empty() {
+        return;
+    }
+    let before = snapshot.rows.len();
+    let mut seen = std::collections::BTreeSet::new();
+    snapshot.rows.retain(|row| {
+        let key = primary_key_columns
+            .iter()
+            .map(|column| {
+                row.get(column)
+                    .map(cell_to_string)
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        seen.insert(key)
+    });
+    let after = snapshot.rows.len();
+    let _ = before.saturating_sub(after);
 }
 
 fn snapshot_to_record_batch(snapshot: &XlsxTableSnapshot) -> Result<RecordBatch> {
@@ -439,6 +547,24 @@ pub fn write_xlsx_parquet_snapshot_with_cell_normalizes(
     header_row: usize,
     cell_normalizes: Option<&BTreeMap<String, String>>,
 ) -> Result<PathBuf> {
+    write_xlsx_parquet_snapshot_with_ingest_sidecar(
+        app_root,
+        source_path,
+        sheet,
+        header_row,
+        cell_normalizes,
+        None,
+    )
+}
+
+pub fn write_xlsx_parquet_snapshot_with_ingest_sidecar(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+    cell_normalizes: Option<&BTreeMap<String, String>>,
+    primary_key_columns: Option<&[String]>,
+) -> Result<PathBuf> {
     let source_path = source_path.trim();
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
     let absolute = resolve_versioned_source_path(app_root, source_path);
@@ -467,6 +593,13 @@ pub fn write_xlsx_parquet_snapshot_with_cell_normalizes(
     };
     if let Some(rules) = cell_normalizes {
         apply_cell_normalizes_to_snapshot(&mut snapshot, rules);
+    }
+    if let Some(keys) = primary_key_columns.filter(|keys| !keys.is_empty()) {
+        if keys.len() >= 2 {
+            let synthetic = composite_primary_key_field_name(keys);
+            apply_composite_primary_key_column(&mut snapshot, keys, synthetic.as_str());
+        }
+        apply_primary_key_dedup_to_snapshot(&mut snapshot, keys);
     }
     let out_path = parquet_snapshot_path(app_root, source_path, sheet, header_row)
         .context("resolve parquet snapshot path")?;
@@ -554,6 +687,36 @@ fn record_batch_to_snapshot(batch: &RecordBatch, columns: &[String]) -> Result<X
         columns: columns.to_vec(),
         rows,
     })
+}
+
+pub fn parquet_snapshot_cache_token(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+) -> String {
+    let Some(path) = parquet_snapshot_path(app_root, source_path, sheet, header_row) else {
+        return "pq=missing".to_string();
+    };
+    if !path.is_file() {
+        return "pq=missing".to_string();
+    }
+    let mtime = file_mtime_ms(&path);
+    let row_count = read_parquet_meta_row_count(&path).unwrap_or(0);
+    format!("pq={mtime}:{row_count}")
+}
+
+fn read_parquet_meta_row_count(path: &Path) -> Option<usize> {
+    let file = File::open(path).ok()?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
+    let meta = builder
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()?;
+    meta.iter()
+        .find(|kv| kv.key == PARQUET_META_ROW_COUNT)
+        .and_then(|kv| kv.value.as_deref())
+        .and_then(|value| value.parse().ok())
 }
 
 pub fn try_load_xlsx_parquet_snapshot(
@@ -658,21 +821,33 @@ pub fn publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(
     sources: &[(&str, Option<&str>, usize)],
     cell_normalizes_by_source: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> Result<Vec<PathBuf>> {
+    publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars(
+        app_root,
+        sources,
+        cell_normalizes_by_source,
+        &BTreeMap::new(),
+    )
+}
+
+/// `ingest_sidecars_by_source` key = `{path}|sheet={sheet}|header_row={n}`.
+pub fn publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars(
+    app_root: &Path,
+    sources: &[(&str, Option<&str>, usize)],
+    cell_normalizes_by_source: &BTreeMap<String, BTreeMap<String, String>>,
+    primary_key_columns_by_source: &BTreeMap<String, Vec<String>>,
+) -> Result<Vec<PathBuf>> {
     let mut written = Vec::new();
     for (path, sheet, header_row) in sources {
-        let key = format!(
-            "{}|sheet={}|header_row={}",
-            path,
-            sheet.unwrap_or(""),
-            header_row
-        );
+        let key = source_ingest_sidecar_key(path, *sheet, *header_row);
         let rules = cell_normalizes_by_source.get(&key);
-        let out = write_xlsx_parquet_snapshot_with_cell_normalizes(
+        let primary_keys = primary_key_columns_by_source.get(&key).map(Vec::as_slice);
+        let out = write_xlsx_parquet_snapshot_with_ingest_sidecar(
             app_root,
             path,
             *sheet,
             *header_row,
             rules,
+            primary_keys,
         )?;
         written.push(out);
     }
@@ -682,6 +857,82 @@ pub fn publish_xlsx_data_snapshots_for_paths_with_cell_normalizes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::ColumnSchema;
+    use serde_json::json;
+
+    #[test]
+    fn composite_primary_key_field_and_dedup() {
+        let mut snapshot = XlsxTableSnapshot {
+            columns: vec![
+                "处理结果ID".to_string(),
+                "问题跟踪ID".to_string(),
+                "姓名/单位".to_string(),
+            ],
+            rows: vec![
+                json!({"处理结果ID": "XH1", "问题跟踪ID": "T1", "姓名/单位": "甲"}),
+                json!({"处理结果ID": "XH1", "问题跟踪ID": "T1", "姓名/单位": "甲"}),
+                json!({"处理结果ID": "XH1", "问题跟踪ID": "T2", "姓名/单位": "乙"}),
+            ],
+        };
+        let keys = vec!["处理结果ID".to_string(), "问题跟踪ID".to_string()];
+        let synthetic = composite_primary_key_field_name(&keys);
+        assert_eq!(synthetic, "处理结果ID-问题跟踪ID");
+        apply_composite_primary_key_column(&mut snapshot, &keys, synthetic.as_str());
+        apply_primary_key_dedup_to_snapshot(&mut snapshot, &keys);
+        assert_eq!(snapshot.rows.len(), 2);
+        assert_eq!(
+            snapshot.rows[0].get(synthetic.as_str()).and_then(|v| v.as_str()),
+            Some("XH1-T1")
+        );
+        assert_eq!(
+            snapshot.rows[1].get(synthetic.as_str()).and_then(|v| v.as_str()),
+            Some("XH1-T2")
+        );
+    }
+
+    #[test]
+    fn primary_key_dedup_keeps_first_row() {
+        let mut snapshot = XlsxTableSnapshot {
+            columns: vec!["处理结果ID".to_string(), "姓名/单位".to_string()],
+            rows: vec![
+                json!({"处理结果ID": "XH1", "姓名/单位": "甲"}),
+                json!({"处理结果ID": "XH1", "姓名/单位": "甲"}),
+                json!({"处理结果ID": "XH2", "姓名/单位": "乙"}),
+            ],
+        };
+        apply_primary_key_dedup_to_snapshot(&mut snapshot, &["处理结果ID".to_string()]);
+        assert_eq!(snapshot.rows.len(), 2);
+    }
+
+    #[test]
+    fn primary_key_columns_from_schema_reads_primary_flag() {
+        let schema = vec![
+            ColumnSchema {
+                name: "处理结果ID".to_string(),
+                type_name: "string".to_string(),
+                source: None,
+                optional: false,
+                unit: None,
+                normalize: None,
+                primary: true,
+                hidden: false,
+            },
+            ColumnSchema {
+                name: "姓名/单位".to_string(),
+                type_name: "string".to_string(),
+                source: None,
+                optional: false,
+                unit: None,
+                normalize: None,
+                primary: false,
+                hidden: false,
+            },
+        ];
+        assert_eq!(
+            primary_key_columns_from_schema(&schema),
+            vec!["处理结果ID".to_string()]
+        );
+    }
 
     #[test]
     fn parquet_roundtrip_matches_calamine_snapshot() {

@@ -327,6 +327,7 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
         "concat_rowsets" => lower_concat_rowsets(&args, ctx),
         "group_by" => lower_group_by(Some(input), &args, ctx),
         "lookup_value" => lower_lookup_value(Some(input), &args, ctx),
+        "lookup_collect" => lower_lookup_collect(Some(input), &args, ctx),
         "party_year_aggregate" => lower_party_year_aggregate(Some(input), &args, ctx),
         "trend_year_compare" => lower_trend_year_compare(&args, ctx, Some(input)),
         "unpivot_columns" => lower_unpivot_columns(Some(input), &args, ctx),
@@ -735,6 +736,7 @@ fn is_rowset_call_name(name: &str) -> bool {
             | "select"
             | "group_by"
             | "lookup_value"
+            | "lookup_collect"
             | "party_year_aggregate"
             | "trend_year_compare"
             | "pivot_long"
@@ -1127,7 +1129,7 @@ fn expand_person_rowset(name: &str, value: &Value, ctx: &V2MetricLowerContext) -
         "first_by",
         vec![
             ("rowset".to_string(), filtered),
-            ("field".to_string(), json!("处理结果ID")),
+            ("field".to_string(), json!("处理结果ID-问题跟踪ID")),
         ],
     ))
 }
@@ -1304,6 +1306,51 @@ fn lower_lookup_value(input: Option<&Value>, args: &Value, ctx: &V2MetricLowerCo
     )
 }
 
+fn lower_lookup_collect(input: Option<&Value>, args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let base_idx = if input.is_some() {
+        0usize
+    } else if is_rowset_expr(arg0(args)) {
+        1usize
+    } else {
+        0usize
+    };
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else if is_rowset_expr(arg0(args)) {
+        lower_rowset(arg0(args), ctx)
+    } else {
+        json!(null)
+    };
+    let field = kw_or_arg(args, "field", base_idx).unwrap_or(json!(""));
+    let lookup_rowset = kw_or_arg(args, "lookup_rowset", base_idx + 1)
+        .map(|value| lower_rowset(&value, ctx))
+        .unwrap_or(json!(null));
+    let lookup_field = kw_or_arg(args, "lookup_field", base_idx + 2).unwrap_or(json!(""));
+    let value_field = kw_or_arg(args, "value_field", base_idx + 3).unwrap_or(json!(""));
+    let as_field = args
+        .get("as_field")
+        .cloned()
+        .or_else(|| kw_or_arg(args, "as_field", base_idx + 4))
+        .unwrap_or_else(|| value_field.clone());
+    let delimiter = args
+        .get("delimiter")
+        .cloned()
+        .or_else(|| kw_or_arg(args, "delimiter", base_idx + 5))
+        .unwrap_or(json!("、"));
+    aek(
+        "lookup_collect",
+        &[
+            ("rowset", rowset),
+            ("field", field),
+            ("lookup_rowset", lookup_rowset),
+            ("lookup_field", lookup_field),
+            ("value_field", value_field),
+            ("as_field", as_field),
+            ("delimiter", delimiter),
+        ],
+    )
+}
+
 fn lower_party_year_aggregate(
     input: Option<&Value>,
     args: &Value,
@@ -1447,6 +1494,7 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
             ),
             "group_by" => lower_group_by(None, &args, ctx),
             "lookup_value" => lower_lookup_value(None, &args, ctx),
+            "lookup_collect" => lower_lookup_collect(None, &args, ctx),
             "party_year_aggregate" => lower_party_year_aggregate(None, &args, ctx),
             "trend_year_compare" => lower_trend_year_compare(&args, ctx, None),
             "pivot_long" => lower_pivot_long(&args, ctx),

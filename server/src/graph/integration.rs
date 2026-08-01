@@ -90,6 +90,7 @@ fn world_metrics_dataset_from_bundle(
             table: None,
             query: None,
             connection: None,
+            primary_key: None,
             content: None,
         },
         sources: Vec::new(),

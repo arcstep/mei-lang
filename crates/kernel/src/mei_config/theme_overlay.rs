@@ -553,6 +553,7 @@ mod tests {
                 table: None,
                 query: None,
                 connection: None,
+                primary_key: None,
             },
         )]);
         MeiConfig {

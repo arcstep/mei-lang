@@ -205,8 +205,14 @@ fn xlsx_table_snapshot_cache_key(
     } else {
         "missing".to_string()
     };
+    let parquet_token = super::data_snapshot::parquet_snapshot_cache_token(
+        app_root,
+        source_path,
+        sheet,
+        header_row,
+    );
     Some(format!(
-        "xlsx-table|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{}|{}|{}|{}|{content_sig}",
+        "xlsx-table|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{}|{}|{}|{}|{content_sig}|{parquet_token}",
         app_root.display(),
         key.resolved_identifier,
         key.data_mtime,

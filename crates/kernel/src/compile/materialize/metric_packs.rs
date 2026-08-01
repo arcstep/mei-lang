@@ -80,6 +80,7 @@ pub(crate) fn materialize_metric_packs(
                 table: None,
                 query: None,
                 connection: None,
+                primary_key: None,
                 content: None,
             },
             sources: Vec::new(),

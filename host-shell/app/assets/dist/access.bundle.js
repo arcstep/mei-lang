@@ -21892,7 +21892,10 @@
             object_type: type,
             objectType: type,
             ...(type === "zhifa.IssueResult"
-              ? { identity_field: "处理结果ID", identityField: "处理结果ID" }
+              ? {
+                  identity_field: "处理结果ID-问题跟踪ID",
+                  identityField: "处理结果ID-问题跟踪ID",
+                }
               : type === "zhifa.MechanismDocument"
                 ? { identity_field: "机制名称", identityField: "机制名称" }
                 : { identity_field: "预警ID", identityField: "预警ID" }),
@@ -21916,24 +21919,68 @@
         const chipNorm = normalizeKey(chipKey);
         const filtered = targets.filter((target) => {
           const key = String(target?.objectKey || target?.object_key || "").trim();
-          return key === chipKey || normalizeKey(key) === chipNorm;
+          return (
+            key === chipKey ||
+            normalizeKey(key) === chipNorm ||
+            (chipNorm && key.startsWith(`${chipNorm}-`))
+          );
         });
         if (filtered.length) {
           targets = filtered;
-        } else if (targets.length && chipNorm) {
-          // 多值顿号拆分后仍对不上时：用当前 chip 身份覆盖模板 target（健全机制常见）
-          const template = targets[0];
-          targets = [
-            {
+        } else if (chipNorm) {
+          const compositeField = String(row?.["处理结果ID-问题跟踪ID"] ?? "").trim();
+          const compositeKeys = meta.splitMultiObjectKeys
+            ? meta.splitMultiObjectKeys(compositeField)
+            : compositeField
+                .split(/[\n\r\s、，,;；]+/)
+                .map((part) => String(part || "").trim())
+                .filter(Boolean);
+          const matchedComposites = compositeKeys.filter(
+            (key) => key === chipNorm || key.startsWith(`${chipNorm}-`),
+          );
+          if (matchedComposites.length) {
+            const template =
+              targets[0] ||
+              ({
+                role: "self",
+                objectType: "zhifa.IssueResult",
+                keyMode: "identity",
+                filterKey: "resultId",
+                hasDetail: true,
+              });
+            targets = matchedComposites.map((objectKey) => ({
               ...template,
-              objectKey: chipNorm,
-              object_key: chipNorm,
-              label: chipNorm,
-              filterKey: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
-              filter_key: nonEmptyString(template?.filterKey, template?.filter_key, "mechanismName"),
-            },
-          ];
-        } else if (chipNorm && (field === "健全机制" || field === "机制名称")) {
+              objectType: "zhifa.IssueResult",
+              objectKey,
+              object_key: objectKey,
+              label: objectKey,
+              filterKey: "resultId",
+              filter_key: "resultId",
+            }));
+          } else if (targets.length) {
+            // 多值顿号拆分后仍对不上时：用当前 chip 身份覆盖模板 target（健全机制常见）
+            const template = targets[0];
+            targets = [
+              {
+                ...template,
+                objectKey: chipNorm,
+                object_key: chipNorm,
+                label: chipNorm,
+                filterKey: nonEmptyString(
+                  template?.filterKey,
+                  template?.filter_key,
+                  "mechanismName",
+                ),
+                filter_key: nonEmptyString(
+                  template?.filterKey,
+                  template?.filter_key,
+                  "mechanismName",
+                ),
+              },
+            ];
+          }
+        }
+        if (!targets.length && chipNorm && (field === "健全机制" || field === "机制名称")) {
           // 完全解析失败时仍尝试打开机制 PDF 详情
           const locator = {
             object_type: "zhifa.MechanismDocument",

@@ -145,6 +145,8 @@ fn static_column_schema(index: usize) -> ColumnSchema {
         optional: false,
         unit: None,
         normalize: None,
+        primary: false,
+        hidden: false,
     }
 }
 

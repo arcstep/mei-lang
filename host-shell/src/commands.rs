@@ -350,9 +350,12 @@ fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
 fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    // Reject polluted --build-id (e.g. install logs captured into MEI_ENV_GENERATION).
+    let build_id =
+        mei_lang_kernel::normalize_env_generation_id(workspace.as_path(), args.build_id.as_str())?;
     let generation = mei_lang_kernel::PrebuildGeneration {
-        env_version: args.build_id.clone(),
-        build_generation: args.build_id.clone(),
+        env_version: build_id.clone(),
+        build_generation: build_id.clone(),
         toolchain_version: mei_lang_kernel::resolve_toolchain_version_with_hint(
             workspace.as_path(),
             Some(cli_toolchain_hint()),
@@ -365,7 +368,7 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
                 let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app_id);
                 (
                     app_id.clone(),
-                    mei_lang_kernel::app_env_build_dir(app_root.as_path(), args.build_id.as_str()),
+                    mei_lang_kernel::app_env_build_dir(app_root.as_path(), build_id.as_str()),
                 )
             })
             .collect(),
@@ -381,7 +384,7 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
     if let Some(build_id) = promoted {
         println!("promoted {build_id}");
     } else {
-        println!("finalized candidate {}", args.build_id);
+        println!("finalized candidate {build_id}");
     }
     Ok(())
 }

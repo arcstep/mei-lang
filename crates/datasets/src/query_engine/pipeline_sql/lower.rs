@@ -1498,11 +1498,10 @@ fn lower_lookup_value(
         columns.push(as_field.to_string());
     }
     // Multi-value / hyphen-range object IDs need a first-token OR branch.
-    // Do **not** apply to ordinary name/label joins (e.g. 企业名称): stripping
-    // after `-` / `、` corrupts map/POI lookups and can break pipeline SQL.
+    // Only inspect join keys (left/right). Never use `as_field` (output alias):
+    // map POI looks up 所属园区→园区名称 AS 园区ID — alias ends with ID but keys are names.
     let on_sql = if field_looks_like_object_key(left_field)
         || field_looks_like_object_key(right_key)
-        || field_looks_like_object_key(as_field)
     {
         let first_token = format!(
             "regexp_replace(\
@@ -1579,9 +1578,33 @@ fn lower_first_by(
     let Some(inner_expr) = object.get("rowset") else {
         return Ok(None);
     };
-    let Some(inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
+    let Some(mut inner) = lower_rel(app_root, datasets, inner_expr, setup, depth + 1)? else {
         return Ok(None);
     };
+    // Category / cross-filter: apply pushed filters on pre-dedup rowset.
+    let row_filters = parse_row_filter_map(object.get("__mei_row_filters"));
+    let row_search = object
+        .get("__mei_row_search")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if !row_filters.is_empty() || row_search.is_some() {
+        let cols = if inner.columns.is_empty() {
+            row_filters.keys().cloned().collect::<Vec<_>>()
+        } else {
+            inner.columns.clone()
+        };
+        let inner_where = build_where_clause(&row_filters, row_search, &cols)?;
+        if !inner_where.is_empty() {
+            inner = Rel {
+                sql: format!(
+                    "SELECT * FROM ({}) AS _fb_src{inner_where}",
+                    inner.sql
+                ),
+                columns: inner.columns,
+            };
+        }
+    }
     let field = object.get("field").and_then(Value::as_str).unwrap_or("");
     if field.is_empty() {
         return Ok(None);

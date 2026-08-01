@@ -39,6 +39,7 @@ pub(super) fn eval_analysis_rowset(
         "table_rows" => eval_rowset_table_rows(map, datasets, ctx),
         "split_text" => eval_rowset_split_text(map, datasets, ctx),
         "lookup_value" => eval_rowset_lookup_value(map, datasets, ctx),
+        "lookup_collect" => eval_rowset_lookup_collect(map, datasets, ctx),
         "latest_days" | "latest_months" => eval_rowset_latest_window(map, datasets, ctx),
         "bucket_date" => eval_rowset_bucket_date(map, datasets, ctx),
         "limit" => eval_rowset_limit(map, datasets, ctx),

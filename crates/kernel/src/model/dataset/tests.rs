@@ -24,6 +24,7 @@ fn empty_dataset() -> DatasetView {
             table: None,
             query: None,
             connection: None,
+            primary_key: None,
             content: None,
         },
         sources: Vec::new(),
