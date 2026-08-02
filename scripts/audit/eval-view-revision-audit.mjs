@@ -3,7 +3,9 @@
  * 0524 E2: view-revision assemble_local on digest match + browser second visit.
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 const compose = encodeURIComponent(
   JSON.stringify({ route_mode: "app", review_projection: "live_full" }),
@@ -15,7 +17,7 @@ async function main() {
   const failures = [];
 
   const first = await page.request.get(
-    `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}`,
+    `${base}/api/host/view-revision?app_id=${encodeURIComponent(appId)}&scene=home&surface=app&compose=${compose}`,
   );
   if (!first.ok()) {
     failures.push(`view-revision baseline failed: ${first.status()}`);
@@ -25,7 +27,7 @@ async function main() {
   const surfaceDigest = encodeURIComponent(baseline.surface_revision_digest || "");
 
   const second = await page.request.get(
-    `${base}/api/host/view-revision?app_id=zhifa&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
+    `${base}/api/host/view-revision?app_id=${encodeURIComponent(appId)}&scene=home&surface=app&compose=${compose}&manifest_revision_digest=${manifestDigest}&surface_revision_digest=${surfaceDigest}`,
   );
   let apiStatus = "";
   if (!second.ok()) {
@@ -38,13 +40,13 @@ async function main() {
     }
   }
 
-  await page.goto(`${base}/apps/zhifa/app`, { waitUntil: "networkidle", timeout: 120000 });
+  await page.goto(`${base}/apps/${appId}/app`, { waitUntil: "networkidle", timeout: 120000 });
   await page.waitForTimeout(2000);
 
-  const clientOutcome = await page.evaluate(async () => {
+  const clientOutcome = await page.evaluate(async (targetAppId) => {
     const boot = window.__meiLangBoot || {};
     const ctx = boot.parseViewContext?.(window.location.href) || {
-      app_id: "zhifa",
+      app_id: targetAppId,
       scene_id: "home",
       surface: "app",
     };
@@ -52,7 +54,7 @@ async function main() {
       return { ok: false, reason: "viewRevisionClient_missing" };
     }
     const result = await boot.viewRevisionClient.fetchViewRevision({
-      app_id: ctx.app_id || ctx.appId || "zhifa",
+      app_id: ctx.app_id || ctx.appId || targetAppId,
       scene_id: ctx.scene_id || ctx.sceneId || "home",
       surface: ctx.surface || "app",
       compose: { route_mode: "app", review_projection: "live_full" },
@@ -62,7 +64,7 @@ async function main() {
       status: result?.status || boot.lastViewRevisionOutcome || "",
       assembleLocal: result?.assemble_local === true || result?.status === "assemble_local",
     };
-  });
+  }, appId);
 
   if (!clientOutcome.ok) {
     failures.push(`browser view-revision client: ${clientOutcome.reason}`);

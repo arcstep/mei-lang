@@ -4,14 +4,16 @@
  * Usage: node scripts/audit/eval-board-audit.mjs [baseUrl] [--ui]
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
 const argv = process.argv.slice(2);
 const uiMode = argv.includes("--ui");
+const appId = resolveAppId({ argv });
 const base = (argv.find((a) => !a.startsWith("--")) || "http://127.0.0.1:9527").replace(
   /\/+$/,
   "",
 );
-const appUrl = `${base}/apps/zhifa/app`;
+const appUrl = `${base}/apps/${appId}/app`;
 
 function isEvalPackHttp(url) {
   const u = new URL(url);
@@ -100,7 +102,7 @@ async function main() {
         : "ui-click:overlay_not_open";
     }
   } else {
-    activated = await page.evaluate(() => {
+    activated = await page.evaluate((targetAppId) => {
       const boot = window.__meiLangBoot || {};
       const homeScope = String(window.__mei?.bootstrap_scope || "home").trim();
       const neighbor = Array.isArray(window.__mei?.bootstrap_scopes)
@@ -113,7 +115,7 @@ async function main() {
       const sceneId = neighbor || "penalty_total_analytics_page";
       if (typeof boot.dispatchScopeActivation === "function") {
         return boot.dispatchScopeActivation({
-          appId: "zhifa",
+          appId: targetAppId,
           sceneId,
           scope: sceneId,
           source: "eval-board-audit",
@@ -124,7 +126,7 @@ async function main() {
       window.dispatchEvent(
         new CustomEvent("meilang:scope-activation", {
           detail: {
-            appId: "zhifa",
+            appId: targetAppId,
             sceneId,
             scope: sceneId,
             source: "eval-board-audit",
@@ -132,7 +134,7 @@ async function main() {
         }),
       );
       return `event:${sceneId}`;
-    });
+    }, appId);
     await page.waitForTimeout(3000);
   }
 

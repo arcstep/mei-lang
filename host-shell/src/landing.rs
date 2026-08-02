@@ -85,11 +85,16 @@ pub fn menu_label_for_app(
     topbar_menu: &mei_lang_app::TopbarMenuContext,
     app_id: &str,
 ) -> Option<String> {
+    let normalize = |label: Option<String>| -> Option<String> {
+        label
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
     let from_root = topbar_menu.root.as_ref().and_then(|menu| {
         menu.items
             .iter()
             .find(|item| item.app_id == app_id)
-            .and_then(|item| item.label.clone())
+            .and_then(|item| normalize(item.label.clone()))
     });
     if from_root.is_some() {
         return from_root;
@@ -98,7 +103,7 @@ pub fn menu_label_for_app(
         menu.items
             .iter()
             .find(|item| item.app_id == app_id)
-            .and_then(|item| item.label.clone())
+            .and_then(|item| normalize(item.label.clone()))
     })
 }
 

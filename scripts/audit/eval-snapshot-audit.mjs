@@ -3,13 +3,17 @@
  * 0524 E7: evalPack fields in runtime snapshot.
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  const response = await page.request.get(`${base}/api/runtime/snapshot?appId=zhifa`);
+  const response = await page.request.get(
+    `${base}/api/runtime/snapshot?appId=${encodeURIComponent(appId)}`,
+  );
   if (!response.ok()) {
     await browser.close();
     console.log(JSON.stringify({ ok: false, status: response.status() }, null, 2));

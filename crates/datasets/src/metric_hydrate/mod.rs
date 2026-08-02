@@ -411,4 +411,75 @@ mod tests {
             .iter()
             .any(|binding| binding.dimension == "status" && binding.field == "status"));
     }
+
+    #[test]
+    fn remap_filters_maps_result_id_alias_onto_composite_column() {
+        let dataset = DatasetView {
+            id: "issue_result_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: vec![
+                mei_lang_kernel::ColumnSchema {
+                    name: "处理结果ID".to_string(),
+                    type_name: "string".to_string(),
+                    source: None,
+                    optional: false,
+                    unit: None,
+                    normalize: None,
+                    primary: false,
+                    hidden: false,
+                },
+                mei_lang_kernel::ColumnSchema {
+                    name: "处理结果ID-问题跟踪ID".to_string(),
+                    type_name: "string".to_string(),
+                    source: None,
+                    optional: true,
+                    unit: None,
+                    normalize: None,
+                    primary: false,
+                    hidden: true,
+                },
+            ],
+            stage_schema: Vec::new(),
+            columns: vec![
+                "处理结果ID".to_string(),
+                "处理结果ID-问题跟踪ID".to_string(),
+            ],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "xlsx".to_string(),
+                path: "upload/demo.xlsx".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                primary_key: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let remapped = binding::remap_filters_to_dataset_fields(
+            &BTreeMap::from([("resultId".to_string(), "XH2025001-FB2025001".to_string())]),
+            &[&dataset],
+        );
+        assert_eq!(
+            remapped.get("处理结果ID-问题跟踪ID"),
+            Some(&"XH2025001-FB2025001".to_string())
+        );
+        assert!(!remapped.contains_key("resultId"));
+
+        let dropped = binding::remap_filters_to_dataset_fields(
+            &BTreeMap::from([("notAColumn".to_string(), "x".to_string())]),
+            &[&dataset],
+        );
+        assert!(dropped.is_empty());
+    }
 }

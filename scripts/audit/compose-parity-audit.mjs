@@ -4,7 +4,9 @@
  * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/compose-parity-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0.1:9527").replace(
   /\/+$/,
   "",
@@ -12,7 +14,7 @@ const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0
 const viewPath =
   process.argv.find(
     (a) => a.startsWith("/apps/") || a.startsWith("/manage/") || a.startsWith("/run/"),
-  ) || "/apps/zhifa/view?surface=app&scene=home";
+  ) || `/apps/${appId}/view?surface=app&scene=home`;
 const appUrl = `${base}${viewPath.startsWith("/") ? viewPath : `/${viewPath}`}`;
 
 async function main() {

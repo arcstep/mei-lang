@@ -3,9 +3,11 @@
  * 0524 §4 filter JIT acceptance + E5 bootstrap writeback observability.
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/app`;
+const appUrl = `${base}/apps/${appId}/app`;
 
 function isMetricApi(url) {
   return new URL(url).pathname.includes("/api/datasets/metrics/");
@@ -18,7 +20,7 @@ function isJitPackApi(url) {
 
 async function fetchSnapshot(request) {
   const response = await request.get(
-    `${base}/api/runtime/snapshot?appId=${encodeURIComponent("zhifa")}`,
+    `${base}/api/runtime/snapshot?appId=${encodeURIComponent(appId)}`,
   );
   if (!response.ok()) {
     return null;
@@ -53,12 +55,12 @@ async function main() {
 
   const baseline = { metric: metricCalls.length, jit: jitPackCalls.length };
 
-  const applied = await page.evaluate(async () => {
+  const applied = await page.evaluate(async (targetAppId) => {
     const boot = window.__meiLangBoot || {};
     const sceneId = "home/t2/r-drilldown/s-supervision-warning";
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "zhifa",
+        appId: targetAppId,
         sceneId,
         scope: sceneId,
         source: "eval-filter-jit-audit",
@@ -105,7 +107,7 @@ async function main() {
       }),
     );
     return "event-only";
-  });
+  }, appId);
 
   await page.waitForTimeout(4000);
 

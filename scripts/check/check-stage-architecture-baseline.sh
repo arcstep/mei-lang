@@ -8,11 +8,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WS_CANDIDATE="${ROOT}/../workspaces/ws-demo-v2"
-# Soft-skip when sibling demo workspace is absent (standalone mei-lang clone).
-# Do NOT `cd` before this check — `set -e` would otherwise die on missing path.
-if [[ ! -d "${WS_CANDIDATE}" ]]; then
-  printf 'skip Gate 0: ws-demo-v2 not found at %s\n' "${WS_CANDIDATE}"
+# Optional external workspace only via MEI_TEST_WORKSPACE (no hardcoded sibling path).
+WS_CANDIDATE="${MEI_TEST_WORKSPACE:-}"
+if [[ -z "${WS_CANDIDATE}" || ! -d "${WS_CANDIDATE}" ]]; then
+  printf 'skip Gate 0: set MEI_TEST_WORKSPACE to a local workspace root (public clone has no sibling workspaces)\n'
   exit 0
 fi
 WS_ROOT="$(cd "${WS_CANDIDATE}" && pwd)"

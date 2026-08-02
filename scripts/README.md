@@ -39,10 +39,12 @@ npm run test:eval-suite
 
 ## 约定
 
-1. **公开仓只放平台工具**；业务探针（如 `perf/zhifa-runtime-perf.mjs`）若仍保留，仅作可选本地联调，不作为 CI 硬门禁。
-2. 脚本定位 `mei-lang` 根目录时，子目录脚本使用 `../..`（相对 `scripts/<category>/`）。
-3. 新增脚本请放入对应分类，并在本 README 补一行；`package.json` / `.github/workflows` 同步改路径。
-4. 本地采样产物（`perf-wave*.jsonl` 等）已 gitignore，勿提交。
+1. **公开仓只放平台工具**。业务 smoke / probe / perf（具体业务 app、具体 profile）放在对应 workspace profile 仓的 `scripts/`（拓扑见 monorepo `docs/03-workspace-topology.md`）；**禁止**在本目录新增业务默认 `APP_ID` 或 sibling `workspaces/` 路径。
+2. 需打活 host 的平台 audit：强制 `MEI_APP_ID` / `--app`，无业务默认；业务验收用 profile 仓包装脚本设好 env 再调 `npm run test:eval-suite`。
+3. 脚本定位 `mei-lang` 根目录时，子目录脚本使用 `../..`（相对 `scripts/<category>/`）。
+4. 新增脚本请放入对应分类，并在本 README 补一行；`package.json` / `.github/workflows` 同步改路径。
+5. 本地采样产物（`perf-wave*.jsonl` 等）已 gitignore，勿提交。
+6. 边界门禁：`npm run test:no-business-coupling`（见 `check/check-no-business-coupling.sh`）。
 
 ## 路径迁移（2026-07）
 

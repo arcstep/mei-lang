@@ -23,8 +23,8 @@ async function testClientErrorTraceAndDedupe() {
     __meiLangBoot: {},
     __mei: {},
     location: {
-      href: "http://127.0.0.1:9527/apps/zhifa/home",
-      pathname: "/apps/zhifa/home",
+      href: "http://127.0.0.1:9527/apps/demo-app/home",
+      pathname: "/apps/demo-app/home",
       search: "",
     },
     document,

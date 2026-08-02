@@ -69,17 +69,17 @@ cargo run -p mei-host-shell -- auth bootstrap-users --workspace <workspace-root>
 ```bash
 cd mei-lang
 
-# 编译 / 诊断（示例应用见 workspaces/ws-dev/examples）
-cargo run -p mei-lang-server --bin mei-toolchain -- check --workspace ws-dev --app examples/core/01-single-file-doc --json
+# 编译 / 诊断（仓内 examples；--workspace 指向本地工作区根）
+cargo run -p mei-lang-server --bin mei-toolchain -- check --workspace /path/to/workspace --app examples/core/01-single-file-doc --json
 
 # world / inventory
-cargo run -p mei-lang-server --bin mei-toolchain -- inspect world --workspace ws-dev --app examples/core/01-single-file-doc --json
-cargo run -p mei-lang-server --bin mei-toolchain -- inspect inventory --workspace ws-dev --app examples/ds/01-dataset-baseline --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect world --workspace /path/to/workspace --app examples/core/01-single-file-doc --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect inventory --workspace /path/to/workspace --app examples/ds/01-dataset-baseline --json
 
 # 数据 / 指标 / runtime
-cargo run -p mei-lang-server --bin mei-toolchain -- query dataset --workspace ws-dev --app examples/ds/01-dataset-baseline --id sample_rows --json
-cargo run -p mei-lang-server --bin mei-toolchain -- query metric --workspace ws-dev --app examples/ds/01-dataset-baseline --id sample_count --json
-cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --workspace ws-dev --app examples/core/01-single-file-doc --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query dataset --workspace /path/to/workspace --app examples/ds/01-dataset-baseline --id sample_rows --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query metric --workspace /path/to/workspace --app examples/ds/01-dataset-baseline --id sample_count --json
+cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --workspace /path/to/workspace --app examples/core/01-single-file-doc --json
 
 # 机器可读 MCP surface 描述
 cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface author --json
@@ -117,9 +117,9 @@ cd /tmp/mei-demo
 ```
 
 ```bash
-# mei-projects monorepo：
-# ./mei-lang/scripts/env/mei.sh init --source ./mei-lang --env ./mei-env \
-#   --workspace workspaces/ws-demos --app mini-data
+# 已有本地工作区时（路径由调用方传入，勿假定 monorepo sibling）:
+# ./scripts/env/mei.sh init --source . --env ~/.mei-env \
+#   --workspace /path/to/workspace --app sample
 
 # 二进制包：
 # ./scripts/env/mei.sh init --bundle ./bundle --env ~/.mei-env --workspace ~/mei-ws/app1

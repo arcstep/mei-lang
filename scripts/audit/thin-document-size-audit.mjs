@@ -3,10 +3,13 @@
  * Route A acceptance: unified view surfaces should serve thin HTML documents (<= 32KB).
  * Usage: node scripts/audit/thin-document-size-audit.mjs [baseUrl]
  */
+import { resolveAppId } from "../lib/resolve-app.mjs";
+
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
 const MAX_BYTES = 32 * 1024;
 const routes = [
-  { name: "zhifa/home", url: `${base}/apps/zhifa/home` },
+  { name: `${appId}/home`, url: `${base}/apps/${appId}/home` },
 ];
 
 async function headDocument(route) {

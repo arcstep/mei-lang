@@ -236,15 +236,26 @@ pub fn try_page_dataframe_metric_via_sql(
         .get("shape")
         .and_then(Value::as_str)
         .unwrap_or("dataframe");
-    if matches!(shape_name, "scalar_map" | "scalar") {
-        record_pipeline_sql_fallback();
-        return Ok(None);
-    }
-    let expr = map
-        .get("series")
-        .or_else(|| map.get("list"))
-        .or_else(|| map.get("value"))
-        .unwrap_or(&Value::Null);
+    // Detail-card / `__scalar_rowset__` synthetic path: workset may resolve to the parent
+    // scalar_map. Page the underlying rowset instead of failing closed as sql_page_with_filters.
+    let owned_rowset;
+    let expr = if matches!(shape_name, "scalar_map" | "scalar") {
+        match extract_rowset_expr_from_scalar_metric(map) {
+            Some(rowset) => {
+                owned_rowset = rowset;
+                &owned_rowset
+            }
+            None => {
+                record_pipeline_sql_fallback();
+                return Ok(None);
+            }
+        }
+    } else {
+        map.get("series")
+            .or_else(|| map.get("list"))
+            .or_else(|| map.get("value"))
+            .unwrap_or(&Value::Null)
+    };
     let mut stack = Vec::new();
     let Some(mut inlined) = inline_metric_refs_for_sql(expr, metric_defs, 0, &mut stack) else {
         record_pipeline_sql_fallback();
@@ -843,6 +854,64 @@ fn lookup_metric_def_for_sql<'a>(
             None
         }
     })
+}
+
+/// Pull the rowset under a lowered `metric_scalar` (`values.value` count/sum/…).
+fn extract_rowset_expr_from_scalar_metric(
+    map: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let value_expr = map
+        .get("values")
+        .and_then(|values| values.get("value"))
+        .or_else(|| map.get("value"))?;
+    extract_rowset_expr_from_scalar_value(value_expr)
+}
+
+fn extract_rowset_expr_from_scalar_value(expr: &Value) -> Option<Value> {
+    let map = expr.as_object()?;
+    if map.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return None;
+    }
+    match map.get("type").and_then(Value::as_str)? {
+        "count" | "percent" | "item_count" => map
+            .get("rowset")
+            .or_else(|| map.get("value"))
+            .cloned()
+            .filter(|value| {
+                value
+                    .as_object()
+                    .is_some_and(|obj| obj.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                        || obj.get("__ref").is_some()
+                        || value.is_array())
+            }),
+        "sum" | "avg" | "min" | "max" | "median" | "unique_count" => map
+            .get("value")
+            .and_then(|inner| {
+                let obj = inner.as_object()?;
+                if obj.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                    && obj.get("type").and_then(Value::as_str) == Some("number")
+                {
+                    obj.get("source")
+                        .or_else(|| obj.get("rowset"))
+                        .cloned()
+                } else {
+                    extract_rowset_expr_from_scalar_value(inner)
+                }
+            }),
+        "sum_rowset_counts" => map
+            .get("rowsets")
+            .and_then(Value::as_array)
+            .and_then(|rowsets| rowsets.first())
+            .cloned(),
+        "ratio" => map
+            .get("numerator")
+            .and_then(extract_rowset_expr_from_scalar_value)
+            .or_else(|| {
+                map.get("denominator")
+                    .and_then(extract_rowset_expr_from_scalar_value)
+            }),
+        _ => None,
+    }
 }
 
 fn try_eval_one_dataframe_metric(

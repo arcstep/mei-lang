@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * Deterministic synthetic CSV for ws-hello/apps/_perf-lab (Tier1.5 perf fixture).
- * Usage: node scripts/perf/generate-perf-lab-csv.mjs [--out ../workspaces/ws-hello/apps/_perf-lab/data]
+ * Deterministic synthetic CSV for perf-lab fixtures.
+ * Usage: node scripts/perf/generate-perf-lab-csv.mjs --out /path/to/apps/_perf-lab/data
  */
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const defaultOut = resolve(__dirname, "../../workspaces/ws-hello/apps/_perf-lab/data");
-const outDir = process.argv.includes("--out")
-  ? resolve(process.argv[process.argv.indexOf("--out") + 1])
-  : defaultOut;
+const outFlag = process.argv.indexOf("--out");
+if (outFlag < 0 || !process.argv[outFlag + 1]) {
+  console.error("error: --out <dir> is required (no sibling workspaces default in mei-lang)");
+  process.exit(2);
+}
+const outDir = resolve(process.argv[outFlag + 1]);
 
 function mulberry32(seed) {
   return function next() {

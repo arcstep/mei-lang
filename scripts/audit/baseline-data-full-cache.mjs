@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * P2.0 baseline matrix for zhifa + data-full.
+ * P2.0 baseline matrix for configured app + data-full.
  *
  * Runs on an independent Host port / generation so it does NOT clear the
  * user's currently running data-full service cache.
@@ -22,16 +22,28 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const appId = resolveAppId();
 const MEI_LANG_ROOT = path.resolve(__dirname, "../..");
-const WORKSPACE = path.resolve(
-  MEI_LANG_ROOT,
-  "../workspaces/ws-demo-v2"
-);
+const workspaceRaw = String(
+  process.env.MEI_BASELINE_WORKSPACE || process.env.MEI_TEST_WORKSPACE || "",
+).trim();
+if (!workspaceRaw) {
+  console.error(
+    "error: set MEI_BASELINE_WORKSPACE or MEI_TEST_WORKSPACE to a workspace root (no sibling default)",
+  );
+  process.exit(2);
+}
+const WORKSPACE = path.resolve(workspaceRaw);
+if (!fs.existsSync(WORKSPACE)) {
+  console.error(`error: workspace not found: ${WORKSPACE}`);
+  process.exit(2);
+}
 const LAUNCH = path.join(
   WORKSPACE,
-  "apps/zhifa/launch/data-full.json"
+  `apps/${appId}/launch/data-full.json`
 );
 const PORT = Number(process.env.MEI_BASELINE_PORT || 19627);
 const ROUNDS = Math.max(3, Number(process.env.MEI_BASELINE_ROUNDS || 5));
@@ -104,8 +116,8 @@ function startHost() {
     path.join(WORKSPACE, "deploy/start.sh"),
     [
       "--cargo",
-      "--app-config",
-      "apps/zhifa/launch/data-full.json",
+      `--app-config`,
+      `apps/${appId}/launch/data-full.json`,
       "--port",
       String(PORT),
     ],
@@ -189,14 +201,14 @@ async function main() {
     report.warmupLastRun = snapshot?.warmupLastRun ?? null;
 
     const targets = [
-      { id: "home", path: "/apps/zhifa/" },
+      { id: "home", path: `/apps/${appId}/` },
       {
         id: "warning_t2",
-        path: "/apps/zhifa/home/t2/r-right-rail/s-warning",
+        path: `/apps/${appId}/home/t2/r-right-rail/s-warning`,
       },
       {
         id: "enforcement_matters_t2",
-        path: "/apps/zhifa/home/t2/r-left-rail/s-enforcement",
+        path: `/apps/${appId}/home/t2/r-left-rail/s-enforcement`,
       },
     ];
 

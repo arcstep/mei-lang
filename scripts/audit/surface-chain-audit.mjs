@@ -7,9 +7,10 @@ import { chromium } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appId = process.env.MEI_AUDIT_APP || "zhifa";
 const outPath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",

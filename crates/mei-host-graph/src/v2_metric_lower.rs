@@ -1204,10 +1204,16 @@ fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option
 }
 
 fn expand_person_rowset(name: &str, value: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
-    let rowset = value
-        .get("__args")
-        .and_then(|a| a.get("arg0"))
-        .map(|value| lower_rowset(value, ctx))?;
+    let args = value.get("__args").cloned().unwrap_or(json!({}));
+    let rowset = args.get("arg0").map(|value| lower_rowset(value, ctx))?;
+    // zhifa ingest 合成联合主键；qunfu 等仅有「处理结果ID」时须显式 by=。
+    let by_field = args
+        .get("by")
+        .or_else(|| args.get("arg1"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("处理结果ID-问题跟踪ID");
     let filtered = if name == "party_gov_sanction_rows" {
         ae(
             "where",
@@ -1259,7 +1265,7 @@ fn expand_person_rowset(name: &str, value: &Value, ctx: &V2MetricLowerContext) -
         "first_by",
         vec![
             ("rowset".to_string(), filtered),
-            ("field".to_string(), json!("处理结果ID-问题跟踪ID")),
+            ("field".to_string(), json!(by_field)),
         ],
     ))
 }
@@ -1700,6 +1706,10 @@ fn lower_predicate(value: &Value) -> Value {
             ),
             "blank" => aek(
                 "blank",
+                &[("field", json!(arg0_string(&args).unwrap_or_default()))],
+            ),
+            "placeholder_only" => aek(
+                "placeholder_only",
                 &[("field", json!(arg0_string(&args).unwrap_or_default()))],
             ),
             "contains" => aek(

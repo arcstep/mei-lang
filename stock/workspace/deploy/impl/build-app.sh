@@ -56,16 +56,17 @@ echo "envVersion=${BUILD_ID}"
 for app_id in "${APP_IDS[@]}"; do
   echo "==> prebuild app=${app_id}"
   echo "==> compile (${app_id})"
+  # Bash 4.2 + set -u: empty "${arr[@]}" is unbound; expand only when set.
   run_mei_compiler "${WORKSPACE_ROOT}" \
-    compile --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
+    compile --workspace "${WORKSPACE_ROOT}" --app "${app_id}" ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 
   echo "==> import (${app_id})"
   run_mei_host_shell "${WORKSPACE_ROOT}" \
-    import --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
+    import --workspace "${WORKSPACE_ROOT}" --app "${app_id}" ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 
   echo "==> prebuild-data (${app_id})"
   run_mei_host_shell "${WORKSPACE_ROOT}" \
-    prebuild-data --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
+    prebuild-data --workspace "${WORKSPACE_ROOT}" --app "${app_id}" ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 
   echo "==> invalidate eval-cache (${app_id})"
   INVALIDATE_ARGS=(eval-cache invalidate --workspace "${WORKSPACE_ROOT}" --app "${app_id}")
@@ -73,7 +74,7 @@ for app_id in "${APP_IDS[@]}"; do
     INVALIDATE_ARGS+=(--force)
   fi
   run_mei_host_shell "${WORKSPACE_ROOT}" \
-    "${INVALIDATE_ARGS[@]}" "${DEPLOY_CLI_ARGS[@]}"
+    "${INVALIDATE_ARGS[@]}" ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 
   APP_POLICY="${POLICY}"
   if command -v jq >/dev/null 2>&1; then
@@ -91,12 +92,12 @@ for app_id in "${APP_IDS[@]}"; do
   echo "==> warmup app=${app_id} policy=${APP_POLICY}"
   run_mei_app_runtime "${WORKSPACE_ROOT}" \
     warmup --workspace "${WORKSPACE_ROOT}" --app "${app_id}" \
-    --policy "${APP_POLICY}" --tier all "${DEPLOY_CLI_ARGS[@]}"
+    --policy "${APP_POLICY}" --tier all ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 
   echo "==> build finalize (${app_id})"
   run_mei_host_shell "${WORKSPACE_ROOT}" \
     build finalize --workspace "${WORKSPACE_ROOT}" --app "${app_id}" \
-    --build-id "${BUILD_ID}" "${DEPLOY_CLI_ARGS[@]}"
+    --build-id "${BUILD_ID}" ${DEPLOY_CLI_ARGS[@]+"${DEPLOY_CLI_ARGS[@]}"}
 done
 
 clean_retired_build_generations "${WORKSPACE_ROOT}" "${APP_IDS[@]}"

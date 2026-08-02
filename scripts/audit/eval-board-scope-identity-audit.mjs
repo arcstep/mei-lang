@@ -3,9 +3,11 @@
  * E11: penalty_total_analytics_page manifest 存在；seed 后 dataset cache 命中。
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/view?surface=app`;
+const appUrl = `${base}/apps/${appId}/view?surface=app`;
 const scope = "penalty_total_analytics_page";
 
 async function main() {
@@ -14,7 +16,7 @@ async function main() {
   let bootstrapScopesFromApi = [];
   try {
     const response = await fetch(
-      `${base}/api/host/scene-bootstrap?app=zhifa&scene=home`,
+      `${base}/api/host/scene-bootstrap?app=${encodeURIComponent(appId)}&scene=home`,
       { headers: { Accept: "application/json" } },
     );
     if (response.ok) {
@@ -54,11 +56,11 @@ async function main() {
   await page.waitForTimeout(2000);
 
   const activated = await page.evaluate(
-    ({ scopeId }) => {
+    ({ scopeId, targetAppId }) => {
       const boot = window.__meiLangBoot || {};
       if (typeof boot.dispatchScopeActivation === "function") {
         return boot.dispatchScopeActivation({
-          appId: "zhifa",
+          appId: targetAppId,
           sceneId: scopeId,
           scope: scopeId,
           source: "eval-board-scope-identity",
@@ -66,12 +68,12 @@ async function main() {
       }
       window.dispatchEvent(
         new CustomEvent("meilang:scope-activation", {
-          detail: { appId: "zhifa", sceneId: scopeId, scope: scopeId },
+          detail: { appId: targetAppId, sceneId: scopeId, scope: scopeId },
         }),
       );
       return true;
     },
-    { scopeId: scope },
+    { scopeId: scope, targetAppId: appId },
   );
   if (!activated) {
     failures.push("scope activation dispatch failed");

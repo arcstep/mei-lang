@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * Phase A acceptance: zhifa default query should not hit metrics/dataset APIs.
+ * Phase A acceptance: default app query should not hit metrics/dataset APIs.
  * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/eval-pack-audit.mjs [baseUrl]
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0.1:9527").replace(
   /\/+$/,
   "");
 const paths = [
-  "/apps/zhifa/app",
-  "/apps/zhifa/view?surface=app",
+  `/apps/${appId}/app`,
+  `/apps/${appId}/view?surface=app`,
 ];
 
 function isEvalRuntimeApi(url) {

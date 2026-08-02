@@ -3,13 +3,15 @@
  * 0524 E1: warmup disk_hit / eval_compute exposed via runtime snapshot after prebuild.
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/app`;
+const appUrl = `${base}/apps/${appId}/app`;
 
-async function fetchSnapshot(request, appId = "zhifa") {
+async function fetchSnapshot(request, targetAppId = appId) {
   const response = await request.get(
-    `${base}/api/runtime/snapshot?appId=${encodeURIComponent(appId)}`,
+    `${base}/api/runtime/snapshot?appId=${encodeURIComponent(targetAppId)}`,
   );
   if (!response.ok()) {
     throw new Error(`snapshot failed: ${response.status()}`);

@@ -19,7 +19,10 @@ cargo test -p mei-lang-server access_only_surface_redirects_build_route_to_acces
 echo "==> [5/6] publish-only entrypoint regression"
 cargo test -p mei-lang-server index_redirects_to_access_only_entry_when_surface_enabled -- --nocapture
 
-echo "==> [6/6] theme token consumer lint"
+echo "==> [6/7] theme token consumer lint"
 node ./scripts/theme/check-theme-tokens.mjs
+
+echo "==> [7/7] no business coupling in public package"
+bash ./scripts/check/check-no-business-coupling.sh
 
 echo "phase4 regressions passed"

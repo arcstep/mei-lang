@@ -4,9 +4,11 @@
  * Usage: node scripts/audit/cache-behavior-audit.mjs http://127.0.0.1:9527
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/view`;
+const appUrl = `${base}/apps/${appId}/view`;
 
 function classify(url) {
   const u = new URL(url);
@@ -26,13 +28,14 @@ function classify(url) {
   return "other";
 }
 
-async function snapshotClient(page, surface) {
-  return page.evaluate(async (surface) => {
+async function snapshotClient(page, surface, targetAppId) {
+  return page.evaluate(
+    async ({ surface: surfaceName, targetAppId: resolvedAppId }) => {
     const boot = window.__meiLangBoot || {};
     const ctx = boot.parseViewContext?.(window.location.href) || {};
     const vrCtx = {
       ...ctx,
-      surface,
+      surface: surfaceName,
       app_id: ctx.app_id || ctx.appId,
       scene_id: ctx.scene_id || ctx.sceneId,
     };
@@ -40,12 +43,12 @@ async function snapshotClient(page, surface) {
     const stored = boot.readViewRevision?.(vrCtx) || null;
     const holdings =
       (await boot.layerArtifactCache?.listHoldings?.(
-        ctx.app_id || ctx.appId || "zhifa",
+        ctx.app_id || ctx.appId || resolvedAppId,
         ctx.scene_id || ctx.sceneId || "home",
       )) || [];
     const refs = window.__mei?.scene_manifest_refs || {};
     return {
-      surface,
+      surface: surfaceName,
       url: location.href,
       digests,
       store_key: boot.viewRevisionStoreKey?.(vrCtx) || null,
@@ -56,7 +59,9 @@ async function snapshotClient(page, surface) {
       idb_holdings: holdings.length,
       lastOutcome: boot.lastViewRevisionOutcome || null,
     };
-  }, surface);
+  },
+    { surface, targetAppId },
+  );
 }
 
 async function clickSurface(page, surface) {
@@ -96,6 +101,7 @@ async function runPhase(page, label, action) {
   const client = await snapshotClient(
     page,
     new URL(page.url()).searchParams.get("surface") || "app",
+    appId,
   );
   return { label, ms: Date.now() - t0, requests: events, client };
 }

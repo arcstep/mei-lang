@@ -65,7 +65,34 @@ read_workspace_mei_env_field() {
   [[ -f "${ws_json}" ]] || return 1
   if command -v jq >/dev/null 2>&1; then
     local v
-    v="$(jq -r --arg f "${field}" '.meiEnv[$f] // empty' "${ws_json}" 2>/dev/null || true)"
+    # Prefer simple path: CentOS jq shim may not support --arg / [$f] rewrite forms.
+    v="$(jq -r ".meiEnv.${field} // empty" "${ws_json}" 2>/dev/null || true)"
+    if [[ -z "${v}" || "${v}" == "null" ]]; then
+      v="$(jq -r --arg f "${field}" '.meiEnv[$f] // empty' "${ws_json}" 2>/dev/null || true)"
+    fi
+    if [[ -n "${v}" && "${v}" != "null" ]]; then
+      printf '%s' "${v}"
+      return 0
+    fi
+  fi
+  local py=""
+  for c in python3 python python2; do
+    if command -v "${c}" >/dev/null 2>&1; then py="${c}"; break; fi
+  done
+  if [[ -n "${py}" ]]; then
+    local v
+    v="$("${py}" - "${ws_json}" "${field}" <<'PY'
+from __future__ import print_function
+import json, sys
+path, field = sys.argv[1:3]
+data = json.load(open(path))
+mei = data.get("meiEnv") or {}
+val = mei.get(field) if isinstance(mei, dict) else None
+if val is None or val == "":
+    raise SystemExit(1)
+print(val)
+PY
+)" || true
     if [[ -n "${v}" && "${v}" != "null" ]]; then
       printf '%s' "${v}"
       return 0
@@ -419,7 +446,8 @@ apply_workspace_deploy_env() {
       export MEI_APP="${derived}"
     fi
   elif [[ -z "${MEI_APP:-}" ]]; then
-    export MEI_APP="zhifa"
+    echo "error: MEI_APP unset and workspace config has no defaultApp; set MEI_APP or workspace.defaultApp" >&2
+    return 1
   fi
 
   # deploy.devEval → MEI_DEV_EVAL_*（CLI/环境变量已显式设置时不覆盖）
@@ -602,7 +630,8 @@ ensure_build_generation_aligned() {
   shift
   local apps=("$@")
   if [[ ${#apps[@]} -eq 0 ]]; then
-    apps=("zhifa")
+    echo "error: ensure_build_generation_aligned requires at least one app id (no business app default)" >&2
+    return 1
   fi
   echo "==> align env generation (profile=${PROFILE}, source=${SOURCE}, runtime=${RUNTIME})"
   local prepare_args=(build prepare --workspace "${workspace_root}")
@@ -1070,10 +1099,14 @@ run_workspace_serve() {
   fi
 
   run_mei_host_shell "${workspace_root}" \
-    serve --workspace "${workspace_root}" "${app_args[@]}" "${workspace_config_args[@]}" \
-    "${launch_args[@]}" \
-    --host "${host}" --port "${port}" ${auth_flag} "${dev_eval_args[@]}" "$@"
+    serve --workspace "${workspace_root}" \
+    ${app_args[@]+"${app_args[@]}"} \
+    ${workspace_config_args[@]+"${workspace_config_args[@]}"} \
+    ${launch_args[@]+"${launch_args[@]}"} \
+    --host "${host}" --port "${port}" ${auth_flag} \
+    ${dev_eval_args[@]+"${dev_eval_args[@]}"} "$@"
 }
+
 
 emit_deploy_status_banner() {
   local title="$1"

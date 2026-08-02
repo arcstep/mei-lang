@@ -4,14 +4,16 @@
  * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/audit/pack-first-strict-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0.1:9527").replace(
   /\/+$/,
   "",
 );
 const viewPath =
   process.argv.find((a) => a.startsWith("/") && !a.includes("://")) ||
-  "/apps/zhifa/view?surface=app&scene=home";
+  `/apps/${appId}/view?surface=app&scene=home`;
 const appUrl = `${base}${viewPath.startsWith("/") ? viewPath : `/${viewPath}`}`;
 
 function isLegacyHostApi(url) {

@@ -3,9 +3,11 @@
  * 0524 §5 / §7: delivery_class page gate — home page1 Pack-only, drilldown page2 allows 1 dataset query.
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/app`;
+const appUrl = `${base}/apps/${appId}/app`;
 
 function isDatasetQueryApi(url) {
   const p = new URL(url).pathname;
@@ -34,11 +36,12 @@ async function main() {
   }
 
   const drilldownScope = "home/t2/r-drilldown/s-supervision-warning";
-  await page.evaluate((scope) => {
+  await page.evaluate(
+    ({ scope, targetAppId }) => {
     const boot = window.__meiLangBoot || {};
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "zhifa",
+        appId: targetAppId,
         sceneId: scope,
         scope,
         source: "eval-page-audit",
@@ -47,14 +50,16 @@ async function main() {
     }
     window.dispatchEvent(
       new CustomEvent("meilang:scope-activation", {
-        detail: { appId: "zhifa", sceneId: scope, scope, source: "eval-page-audit" },
+        detail: { appId: targetAppId, sceneId: scope, scope, source: "eval-page-audit" },
       }),
     );
-  }, drilldownScope);
+  },
+    { scope: drilldownScope, targetAppId: appId },
+  );
 
   await page.waitForTimeout(3500);
 
-  const overlayReady = await page.evaluate(() => {
+  const overlayReady = await page.evaluate((targetAppId) => {
     const boot = window.__meiLangBoot || {};
     const overlay = document.querySelector(
       "#mei-access-drilldown-overlay, #mei-access-scene-board-overlay",
@@ -69,14 +74,14 @@ async function main() {
     }
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "zhifa",
+        appId: targetAppId,
         sceneId: "home/t2/r-drilldown/s-supervision-warning",
         scope: "home/t2/r-drilldown/s-supervision-warning",
         source: "eval-page-audit-retry",
       });
     }
     return false;
-  });
+  }, appId);
 
   if (overlayReady === "clicked") {
     await page.waitForTimeout(2500);

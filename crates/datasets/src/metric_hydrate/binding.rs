@@ -176,12 +176,77 @@ fn resolve_filter_binding<'a>(
         .find(|binding| binding.dimension == normalized)
 }
 
-/// Map logical filter keys (e.g. `warningType`) onto dataset column fields using
-/// schema / `filter_dimensions`. Unresolvable keys are kept as-is.
+fn dataset_column_names(datasets: &[&DatasetView]) -> BTreeSet<String> {
+    let mut columns = BTreeSet::new();
+    for dataset in datasets {
+        for name in &dataset.columns {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                columns.insert(trimmed.to_string());
+            }
+        }
+        for column in dataset.schema.iter().chain(dataset.stage_schema.iter()) {
+            let trimmed = column.name.trim();
+            if !trimmed.is_empty() {
+                columns.insert(trimmed.to_string());
+            }
+        }
+    }
+    columns
+}
+
+/// Cockpit object_focus / drilldown often sends logical keys (`resultId`, `value`)
+/// that never land in compiled `filter_dimensions`. Map them onto real columns so
+/// SQL page pushdown does not fail closed as `sql_page_with_filters`.
+fn resolve_fallback_filter_field(
+    key: &str,
+    value: &str,
+    columns: &BTreeSet<String>,
+) -> Option<String> {
+    let pick = |candidates: &[&str]| -> Option<String> {
+        candidates
+            .iter()
+            .find(|name| columns.contains(**name))
+            .map(|name| (*name).to_string())
+    };
+    match key {
+        "resultId" | "result_id" | "caseResultId" => {
+            if value.contains('-') {
+                pick(&["处理结果ID-问题跟踪ID", "处理结果ID"])
+            } else {
+                pick(&["处理结果ID", "处理结果ID-问题跟踪ID"])
+            }
+        }
+        "warningId" | "warning_id" => pick(&["预警ID"]),
+        "modelId" | "model_id" => pick(&["模型ID"]),
+        "matterId" | "matter_id" => pick(&["序号"]),
+        "value" => {
+            if columns.contains("处理结果ID-问题跟踪ID") || columns.contains("处理结果ID") {
+                if value.contains('-') {
+                    pick(&["处理结果ID-问题跟踪ID", "处理结果ID"])
+                } else {
+                    pick(&["处理结果ID", "处理结果ID-问题跟踪ID"])
+                }
+            } else if columns.contains("模型ID") {
+                pick(&["模型ID"])
+            } else if columns.contains("预警ID") {
+                pick(&["预警ID"])
+            } else {
+                pick(&["序号"])
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Map logical filter keys (e.g. `warningType` / `resultId`) onto dataset column fields
+/// using schema / `filter_dimensions`, then identity-alias fallbacks.
+/// Unknown non-column keys are dropped (keeping them breaks SQL page with filters).
 pub(crate) fn remap_filters_to_dataset_fields(
     filters: &BTreeMap<String, String>,
     datasets: &[&DatasetView],
 ) -> BTreeMap<String, String> {
+    let columns = dataset_column_names(datasets);
     let mut out = BTreeMap::new();
     for (key, value) in filters {
         let key = key.trim();
@@ -206,10 +271,50 @@ pub(crate) fn remap_filters_to_dataset_fields(
                 break;
             }
         }
-        out.insert(
-            mapped_field.unwrap_or_else(|| key.to_string()),
-            value.to_string(),
-        );
+        let field = mapped_field
+            .or_else(|| {
+                // Prefer primary/owner order from caller. For generic `value` (object
+                // identity alias), only the first dataset with usable columns may map —
+                // scanning BTreeMap sql_datasets would steal e.g. issue_result columns
+                // onto a model-detail query and break SQL page.
+                if key == "value" {
+                    // primary (+ owner). Do not scan referenced sql_datasets — BTreeMap
+                    // order can map value onto the wrong table (issue_result vs models).
+                    for dataset in datasets.iter().take(2) {
+                        let cols = dataset_column_names(&[*dataset]);
+                        if cols.is_empty() {
+                            continue;
+                        }
+                        return resolve_fallback_filter_field(key, value, &cols);
+                    }
+                    return None;
+                }
+                for dataset in datasets {
+                    let cols = dataset_column_names(&[dataset]);
+                    if let Some(field) = resolve_fallback_filter_field(key, value, &cols) {
+                        return Some(field);
+                    }
+                }
+                None
+            })
+            .or_else(|| {
+                if columns.contains(key) {
+                    Some(key.to_string())
+                } else {
+                    None
+                }
+            });
+        match field {
+            Some(field) => {
+                out.insert(field, value.to_string());
+            }
+            None => {
+                tracing::warn!(
+                    filter_key = %key,
+                    "dropping unresolved metric dataframe filter key (not a dataset column)"
+                );
+            }
+        }
     }
     out
 }

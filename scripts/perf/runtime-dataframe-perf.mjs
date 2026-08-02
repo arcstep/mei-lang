@@ -6,7 +6,7 @@
  * 用法（需已启动 mei-host-web；带 --auth 时从浏览器复制 cookie 或 bearer）：
  *
  *   MEI_COOKIE='mei_auth_token=...' \
- *   MEI_APP_ID=zhifa \
+ *   MEI_APP_ID=<app-id> \
  *   node scripts/perf/runtime-dataframe-perf.mjs
  *
  * 可选环境变量：
@@ -14,11 +14,13 @@
  *   MEI_PAGE_SIZE, MEI_CLEAR_MODE (clear_only|clear_and_warm), MEI_SKIP_CLEAR
  */
 
+import { resolveAppId } from "../lib/resolve-app.mjs";
+
 const baseUrl = String(process.env.MEI_SERVER_URL || "http://127.0.0.1:9527").replace(
   /\/+$/,
   ""
 );
-const appId = String(process.env.MEI_APP_ID || "zhifa").trim();
+const appId = resolveAppId();
 const sceneId = String(process.env.MEI_SCENE_ID || "inspection_total_analytics_board").trim();
 const target = String(process.env.MEI_TARGET || "scenes/02-行政检查.board.mei").trim();
 const datasetId = String(

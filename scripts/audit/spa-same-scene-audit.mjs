@@ -3,13 +3,15 @@
  * F5 可测收敛：SPA 同 scene 内切换不应重复拉 document（对照 F5 reload = 1 document）。
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/app`;
+const appUrl = `${base}/apps/${appId}/app`;
 
-function isDocument(url) {
+function isDocument(url, targetAppId) {
   const u = new URL(url);
-  if (!u.pathname.includes("/apps/zhifa/")) return false;
+  if (!u.pathname.includes(`/apps/${targetAppId}/`)) return false;
   if (u.pathname.includes("/api/")) return false;
   return u.pathname.includes("/view") || u.pathname.endsWith("/app");
 }
@@ -20,7 +22,7 @@ async function main() {
   const docs = [];
 
   page.on("request", (req) => {
-    if (isDocument(req.url())) {
+    if (isDocument(req.url(), appId)) {
       docs.push(req.url());
     }
   });
@@ -29,17 +31,17 @@ async function main() {
   await page.waitForTimeout(1500);
   const afterFirstLoad = docs.length;
 
-  await page.evaluate(() => {
+  await page.evaluate((targetAppId) => {
     const boot = window.__meiLangBoot || {};
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
-        appId: "zhifa",
+        appId: targetAppId,
         sceneId: "home/t2/r-drilldown/s-inspection-dashboard",
         scope: "home/t2/r-drilldown/s-inspection-dashboard",
         source: "spa-same-scene-audit",
       });
     }
-  });
+  }, appId);
   await page.waitForTimeout(2500);
   const afterSpaActivate = docs.length - afterFirstLoad;
 

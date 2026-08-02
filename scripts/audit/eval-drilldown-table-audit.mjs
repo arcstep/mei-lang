@@ -3,9 +3,11 @@
  * E10: 真实点击 penalty_total 弹窗 → 分页表有行；邻域已预热时 0 datasets/query。
  */
 import { chromium } from "@playwright/test";
+import { resolveAppId } from "../lib/resolve-app.mjs";
 
+const appId = resolveAppId();
 const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/zhifa/view?surface=app`;
+const appUrl = `${base}/apps/${appId}/view?surface=app`;
 const TARGET_SCOPE = "penalty_total_analytics_page";
 
 function isDatasetQuery(url) {
@@ -63,7 +65,7 @@ async function main() {
   const failures = [];
   if (!preflight.hasTargetScope) {
     failures.push(
-      `bootstrap_scopes missing ${TARGET_SCOPE} (got ${preflight.neighborScopeIds.length} scopes) — run zhifa prebuild/warmup first`,
+      `bootstrap_scopes missing ${TARGET_SCOPE} (got ${preflight.neighborScopeIds.length} scopes) — run ${appId} prebuild/warmup first`,
     );
   }
 
@@ -95,18 +97,18 @@ async function main() {
   let clicked = false;
   if (failures.length === 0) {
     await page.evaluate(
-      (scopeId) => {
+      ({ scopeId, targetAppId }) => {
         const boot = window.__meiLangBoot || {};
         if (typeof boot.dispatchScopeActivation === "function") {
           boot.dispatchScopeActivation({
-            appId: "zhifa",
+            appId: targetAppId,
             sceneId: scopeId,
             scope: scopeId,
             source: "eval-drilldown-table-audit-preflight",
           });
         }
       },
-      TARGET_SCOPE,
+      { scopeId: TARGET_SCOPE, targetAppId: appId },
     );
     await page.waitForTimeout(1500);
     const domClicked = await page.evaluate(() => {
@@ -124,7 +126,7 @@ async function main() {
     });
     clicked = domClicked;
     if (!clicked) {
-      clicked = await page.evaluate(async () => {
+      clicked = await page.evaluate(async (targetAppId) => {
         const boot = window.__meiLangBoot || {};
         if (typeof boot.openSceneProjection !== "function") {
           return false;
@@ -134,7 +136,7 @@ async function main() {
           dataset_id: "penalty_result_dashboard_ds",
           _mei: {
             active_scene_id: "home",
-            app_id: "zhifa",
+            app_id: targetAppId,
             active_target_file: "src/scene/home/assembly.mei",
           },
           popup: {
@@ -144,7 +146,7 @@ async function main() {
           },
         });
         return true;
-      });
+      }, appId);
     }
     if (!clicked && clickTarget.ok) {
       await page.mouse.click(clickTarget.x, clickTarget.y);

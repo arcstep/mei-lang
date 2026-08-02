@@ -429,23 +429,20 @@ fn attach_filter_dimensions(source: SourceDecl, filters: Option<&Value>) -> Sour
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
-    let existing = meta
+    let mut merged = meta
         .get("filter_dimensions")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    if !existing.is_empty() {
+    for (key, field) in parsed {
+        merged
+            .entry(key)
+            .or_insert_with(|| Value::String(field));
+    }
+    if merged.is_empty() {
         return source;
     }
-    meta.insert(
-        "filter_dimensions".to_string(),
-        Value::Object(
-            parsed
-                .into_iter()
-                .map(|(k, v)| (k, Value::String(v)))
-                .collect(),
-        ),
-    );
+    meta.insert("filter_dimensions".to_string(), Value::Object(merged));
     SourceDecl {
         content: serde_json::to_string(&Value::Object(meta)).ok(),
         ..source

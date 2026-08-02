@@ -66,7 +66,18 @@ let playwrightChromiumPromise = null;
 const workspaceId = String(
   scenarioPayload.workspace_id || process.env.MEI_WORKSPACE_ID || "unknown_workspace"
 ).trim();
-const appId = String(scenarioPayload.app_id || process.env.MEI_APP_ID || "your-app").trim();
+const appId = String(
+  scenarioPayload.app_id || process.env.MEI_APP_ID || process.env.APP_ID || ""
+).trim();
+if (!appId) {
+  console.error(
+    "error: set MEI_APP_ID (or APP_ID) or pass --app <id>; mei-lang has no business app default",
+  );
+  console.error(
+    "hint: from a workspace profile scripts/audit wrapper that exports MEI_APP_ID",
+  );
+  process.exit(2);
+}
 const rawScenarios = Array.isArray(scenarioPayload.scenarios) ? scenarioPayload.scenarios : [];
 const scenarios = rawScenarios
   .map(normalizeScenario)

@@ -12,11 +12,12 @@ const mapPath = path.join(root, "scripts/theme/shell-theme-semantic-map.json");
 const fragmentPath = path.join(root, "scripts/theme/workspace-host-theme.fragment.json");
 const appShellPath = path.join(root, "host-shell/app/assets/app-shell.css");
 const hostShellPath = path.join(root, "host-shell/app/assets/host-shell.css");
-const workspacePaths = [
-  path.join(root, "../workspaces/ws-spbjw/.mei-workspace.json"),
-  path.join(root, "../workspaces/ws-dev/.mei-workspace.json"),
-  path.join(root, "../workspaces/ws-hello/.mei-workspace.json"),
-];
+// Optional: MEI_THEME_WORKSPACE_JSONS=/abs/a/.mei-workspace.json:/abs/b/.mei-workspace.json
+const workspacePaths = String(process.env.MEI_THEME_WORKSPACE_JSONS || "")
+  .split(/[:;,]/)
+  .map((p) => p.trim())
+  .filter(Boolean)
+  .map((p) => path.resolve(p));
 
 const { literal_to_semantic, drop_literals, css_special } = JSON.parse(
   fs.readFileSync(mapPath, "utf8"),
