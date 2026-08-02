@@ -1,12 +1,20 @@
 //! Compile lowered `analysis_expr` trees to controlled DataFusion SQL (0549).
 //! Unsupported ops return `Ok(None)` so callers **fail-fast** (no whole-table JSON hydrate).
 
+mod audit_log;
 mod date_sql;
 mod exec;
 mod lower;
 
 #[cfg(test)]
 mod controlled_sql_tdd_tests;
+
+pub use audit_log::{
+    append_query_audit, build_entry_for_plan, build_fallback_entry, load_query_audit_jsonl,
+    query_audit_dir, query_audit_gate_failures, query_audit_jsonl_path, shape_exceeds_gate,
+    today_yyyymmdd, QueryAuditEntry, QueryAuditResult, QueryAuditShape, QueryAuditTiming,
+};
+pub use lower::{CONTROLLED_SQL_MAX_CHARS, CONTROLLED_SQL_MAX_UNION_ALL};
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -22,6 +30,19 @@ use std::time::Instant;
 
 pub const MAX_PIPELINE_SQL_ROWS: usize = 2000;
 pub use exec::{MAX_COLUMN_FACET_VALUES, MAX_FACET_COLUMNS_PER_QUERY};
+
+/// Lower an analysis_expr and write the full result set to parquet (prebuild derived views).
+pub fn materialize_expr_to_parquet(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    expr: &Value,
+    out_path: &Path,
+) -> Result<()> {
+    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
+        bail!("materialize_expr_to_parquet: expression could not be lowered to SQL");
+    };
+    exec::execute_sql_plan_to_parquet(app_root, &plan, out_path)
+}
 
 static PIPELINE_SQL_HIT: AtomicU64 = AtomicU64::new(0);
 static PIPELINE_SQL_FALLBACK: AtomicU64 = AtomicU64::new(0);
@@ -55,10 +76,47 @@ pub fn try_eval_analysis_expr_via_sql(
     expr: &Value,
 ) -> Result<Option<Vec<Value>>> {
     let started = Instant::now();
-    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
-        record_pipeline_sql_fallback();
-        return Ok(None);
+    let lower_started = Instant::now();
+    let plan = match lower::try_lower_expr(app_root, datasets, expr) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_eval",
+                    None,
+                    elapsed_ms(started),
+                    "lower_unsupported",
+                    None,
+                    None,
+                ),
+            );
+            return Ok(None);
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            let controlled = if msg.contains("uncontrolled_sql_plan") {
+                Some(false)
+            } else {
+                None
+            };
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_eval",
+                    None,
+                    elapsed_ms(started),
+                    "lower_error",
+                    Some(msg),
+                    controlled,
+                ),
+            );
+            return Err(err);
+        }
     };
+    let lower_ms = elapsed_ms(lower_started);
+    let exec_started = Instant::now();
     let rows = match exec::execute_sql_plan(app_root, &plan) {
         Ok(rows) => rows,
         Err(err) => {
@@ -68,11 +126,50 @@ pub fn try_eval_analysis_expr_via_sql(
                 "pipeline_sql DataFusion exec fallback"
             );
             record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_entry_for_plan(
+                    "pipeline_sql_eval",
+                    None,
+                    &plan,
+                    lower_ms,
+                    elapsed_ms(exec_started),
+                    elapsed_ms(started),
+                    0,
+                    None,
+                    None,
+                    None,
+                    app_root,
+                    Some(err.to_string()),
+                ),
+            );
             return Ok(None);
         }
     };
+    let exec_ms = elapsed_ms(exec_started);
     if rows.len() > MAX_PIPELINE_SQL_ROWS {
         record_pipeline_sql_fallback();
+        append_query_audit(
+            app_root,
+            &build_entry_for_plan(
+                "pipeline_sql_eval",
+                None,
+                &plan,
+                lower_ms,
+                exec_ms,
+                elapsed_ms(started),
+                rows.len(),
+                None,
+                None,
+                None,
+                app_root,
+                Some(format!(
+                    "pipeline_sql_row_limit: {} > {}",
+                    rows.len(),
+                    MAX_PIPELINE_SQL_ROWS
+                )),
+            ),
+        );
         bail!(
             "pipeline_sql_row_limit: result has {} rows (max {}); whole-table JSON hydrate is disabled",
             rows.len(),
@@ -82,6 +179,23 @@ pub fn try_eval_analysis_expr_via_sql(
     record_pipeline_sql_hit();
     record_query_engine_ms(elapsed_ms(started));
     record_rows_materialized(rows.len());
+    append_query_audit(
+        app_root,
+        &build_entry_for_plan(
+            "pipeline_sql_eval",
+            None,
+            &plan,
+            lower_ms,
+            exec_ms,
+            elapsed_ms(started),
+            rows.len(),
+            None,
+            None,
+            None,
+            app_root,
+            None,
+        ),
+    );
     Ok(Some(rows))
 }
 
@@ -134,16 +248,63 @@ pub fn try_page_dataframe_metric_via_sql(
     let mut stack = Vec::new();
     let Some(mut inlined) = inline_metric_refs_for_sql(expr, metric_defs, 0, &mut stack) else {
         record_pipeline_sql_fallback();
+        append_query_audit(
+            app_root,
+            &build_fallback_entry(
+                "pipeline_sql_page",
+                Some(metric_id),
+                0,
+                "inline_unsupported",
+                None,
+                None,
+            ),
+        );
         return Ok(None);
     };
     // 024008 / chart cross-filter: push filters into trend/group_by inner rowset
     // (not outer result columns — composition output may lack the filter field).
     let row_filter_pushdown = inject_analysis_expr_row_filters(&mut inlined, filters, search);
     let started = Instant::now();
-    let Some(plan) = lower::try_lower_expr(app_root, datasets, &inlined)? else {
-        record_pipeline_sql_fallback();
-        return Ok(None);
+    let lower_started = Instant::now();
+    let plan = match lower::try_lower_expr(app_root, datasets, &inlined) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_page",
+                    Some(metric_id),
+                    elapsed_ms(started),
+                    "lower_unsupported",
+                    None,
+                    None,
+                ),
+            );
+            return Ok(None);
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            let controlled = if msg.contains("uncontrolled_sql_plan") {
+                Some(false)
+            } else {
+                None
+            };
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_page",
+                    Some(metric_id),
+                    elapsed_ms(started),
+                    "lower_error",
+                    Some(msg),
+                    controlled,
+                ),
+            );
+            return Err(err);
+        }
     };
+    let lower_ms = elapsed_ms(lower_started);
     let columns = if plan.result_columns.is_empty() {
         map.get("schema")
             .and_then(|value| value.as_array())
@@ -177,6 +338,7 @@ pub fn try_page_dataframe_metric_via_sql(
     let order_by_sql = build_order_by_sql(sort)?;
     let page = page.max(1);
     let page_size = page_size.max(1);
+    let exec_started = Instant::now();
     let paged = match exec::execute_sql_plan_page(
         app_root,
         &plan,
@@ -208,6 +370,23 @@ pub fn try_page_dataframe_metric_via_sql(
                 Err(err2) => {
                     tracing::debug!(error = %err2, "pipeline_sql DataFusion page fallback");
                     record_pipeline_sql_fallback();
+                    append_query_audit(
+                        app_root,
+                        &build_entry_for_plan(
+                            "pipeline_sql_page",
+                            Some(metric_id),
+                            &plan,
+                            lower_ms,
+                            elapsed_ms(exec_started),
+                            elapsed_ms(started),
+                            0,
+                            Some(page),
+                            Some(page_size),
+                            None,
+                            app_root,
+                            Some(err2.to_string()),
+                        ),
+                    );
                     return Ok(None);
                 }
             }
@@ -215,9 +394,27 @@ pub fn try_page_dataframe_metric_via_sql(
         Err(err) => {
             tracing::debug!(error = %err, "pipeline_sql DataFusion page fallback");
             record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_entry_for_plan(
+                    "pipeline_sql_page",
+                    Some(metric_id),
+                    &plan,
+                    lower_ms,
+                    elapsed_ms(exec_started),
+                    elapsed_ms(started),
+                    0,
+                    Some(page),
+                    Some(page_size),
+                    None,
+                    app_root,
+                    Some(err.to_string()),
+                ),
+            );
             return Ok(None);
         }
     };
+    let exec_ms = elapsed_ms(exec_started);
     let mut column_facets = BTreeMap::new();
     for column in facet_columns.iter().take(exec::MAX_FACET_COLUMNS_PER_QUERY) {
         let name = column.trim();
@@ -246,6 +443,23 @@ pub fn try_page_dataframe_metric_via_sql(
     record_pipeline_sql_hit();
     record_query_engine_ms(elapsed_ms(started));
     record_rows_materialized(paged.rows.len());
+    append_query_audit(
+        app_root,
+        &build_entry_for_plan(
+            "pipeline_sql_page",
+            Some(metric_id),
+            &plan,
+            lower_ms,
+            exec_ms,
+            elapsed_ms(started),
+            paged.rows.len(),
+            Some(page),
+            Some(page_size),
+            Some(paged.total),
+            app_root,
+            None,
+        ),
+    );
     Ok(Some(PipelineSqlPage {
         total: paged.total,
         rows: paged.rows,
@@ -317,20 +531,92 @@ pub fn try_count_analysis_expr_via_sql(
     expr: &Value,
 ) -> Result<Option<i64>> {
     let started = Instant::now();
-    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
-        record_pipeline_sql_fallback();
-        return Ok(None);
+    let lower_started = Instant::now();
+    let plan = match lower::try_lower_expr(app_root, datasets, expr) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_count",
+                    None,
+                    elapsed_ms(started),
+                    "lower_unsupported",
+                    None,
+                    None,
+                ),
+            );
+            return Ok(None);
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            let controlled = if msg.contains("uncontrolled_sql_plan") {
+                Some(false)
+            } else {
+                None
+            };
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_count",
+                    None,
+                    elapsed_ms(started),
+                    "lower_error",
+                    Some(msg),
+                    controlled,
+                ),
+            );
+            return Err(err);
+        }
     };
+    let lower_ms = elapsed_ms(lower_started);
+    let exec_started = Instant::now();
     let count = match exec::execute_sql_plan_count(app_root, &plan) {
         Ok(n) => n,
         Err(err) => {
             tracing::debug!(error = %err, "pipeline_sql DataFusion count fallback");
             record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_entry_for_plan(
+                    "pipeline_sql_count",
+                    None,
+                    &plan,
+                    lower_ms,
+                    elapsed_ms(exec_started),
+                    elapsed_ms(started),
+                    0,
+                    None,
+                    None,
+                    None,
+                    app_root,
+                    Some(err.to_string()),
+                ),
+            );
             return Ok(None);
         }
     };
+    let exec_ms = elapsed_ms(exec_started);
     record_pipeline_sql_hit();
     record_query_engine_ms(elapsed_ms(started));
+    append_query_audit(
+        app_root,
+        &build_entry_for_plan(
+            "pipeline_sql_count",
+            None,
+            &plan,
+            lower_ms,
+            exec_ms,
+            elapsed_ms(started),
+            0,
+            None,
+            None,
+            Some(count as usize),
+            app_root,
+            None,
+        ),
+    );
     Ok(Some(count))
 }
 
@@ -343,20 +629,92 @@ pub fn try_agg_analysis_expr_via_sql(
     agg: &str,
 ) -> Result<Option<f64>> {
     let started = Instant::now();
-    let Some(plan) = lower::try_lower_expr(app_root, datasets, expr)? else {
-        record_pipeline_sql_fallback();
-        return Ok(None);
+    let lower_started = Instant::now();
+    let plan = match lower::try_lower_expr(app_root, datasets, expr) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_agg",
+                    None,
+                    elapsed_ms(started),
+                    "lower_unsupported",
+                    None,
+                    None,
+                ),
+            );
+            return Ok(None);
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            let controlled = if msg.contains("uncontrolled_sql_plan") {
+                Some(false)
+            } else {
+                None
+            };
+            append_query_audit(
+                app_root,
+                &build_fallback_entry(
+                    "pipeline_sql_agg",
+                    None,
+                    elapsed_ms(started),
+                    "lower_error",
+                    Some(msg),
+                    controlled,
+                ),
+            );
+            return Err(err);
+        }
     };
+    let lower_ms = elapsed_ms(lower_started);
+    let exec_started = Instant::now();
     let value = match exec::execute_sql_plan_agg_f64(app_root, &plan, field, agg) {
         Ok(n) => n,
         Err(err) => {
             tracing::debug!(error = %err, "pipeline_sql DataFusion agg fallback");
             record_pipeline_sql_fallback();
+            append_query_audit(
+                app_root,
+                &build_entry_for_plan(
+                    "pipeline_sql_agg",
+                    None,
+                    &plan,
+                    lower_ms,
+                    elapsed_ms(exec_started),
+                    elapsed_ms(started),
+                    0,
+                    None,
+                    None,
+                    None,
+                    app_root,
+                    Some(err.to_string()),
+                ),
+            );
             return Ok(None);
         }
     };
+    let exec_ms = elapsed_ms(exec_started);
     record_pipeline_sql_hit();
     record_query_engine_ms(elapsed_ms(started));
+    append_query_audit(
+        app_root,
+        &build_entry_for_plan(
+            "pipeline_sql_agg",
+            None,
+            &plan,
+            lower_ms,
+            exec_ms,
+            elapsed_ms(started),
+            1,
+            None,
+            None,
+            None,
+            app_root,
+            None,
+        ),
+    );
     Ok(Some(value))
 }
 

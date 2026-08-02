@@ -96,3 +96,32 @@ pub fn clear_query_engine_session_for_app(app_root: &Path) -> usize {
 pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
     with_app_session(app_root, |_| Ok(())).context("ensure query engine session")
 }
+
+/// Run one SQL statement on the app session and return wall-clock milliseconds.
+pub fn bench_sql_text(app_root: &Path, sql: &str) -> Result<u64> {
+    let started = std::time::Instant::now();
+    let sql = sql.trim().trim_end_matches(';').to_string();
+    with_app_session(app_root, |ctx| {
+        block_on(async {
+            let _batches = ctx
+                .sql(&sql)
+                .await
+                .with_context(|| {
+                    format!(
+                        "replay prepare sql failed (sql_chars={})",
+                        sql.chars().count()
+                    )
+                })?
+                .collect()
+                .await
+                .with_context(|| {
+                    format!(
+                        "replay collect sql failed (sql_chars={})",
+                        sql.chars().count()
+                    )
+                })?;
+            Ok(())
+        })
+    })?;
+    Ok(started.elapsed().as_millis() as u64)
+}

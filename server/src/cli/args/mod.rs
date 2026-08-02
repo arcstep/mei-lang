@@ -32,6 +32,7 @@ pub enum Command {
     Inspect(InspectArgs),
     Export(ExportArgs),
     Query(QueryArgs),
+    QueryAudit(QueryAuditArgs),
     Runtime(RuntimeArgs),
     Mcp(McpArgs),
 }
@@ -43,6 +44,7 @@ mod host_workspace;
 mod inspect_export;
 mod layer_ops;
 mod query_agent;
+mod query_audit;
 pub use block_ops::*;
 pub use common_ops::*;
 pub use graph_ops::*;
@@ -50,3 +52,4 @@ pub use host_workspace::*;
 pub use inspect_export::*;
 pub use layer_ops::*;
 pub use query_agent::*;
+pub use query_audit::*;

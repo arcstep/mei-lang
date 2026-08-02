@@ -34,11 +34,16 @@ pub fn is_geojson_source(view: &DatasetView) -> bool {
     kind == "geojson" || path.ends_with(".geojson")
 }
 
-/// Resolve parquet for SQL: tabular snapshots, or materialized GeoJSON attribute tables.
+/// Resolve parquet for SQL: tabular snapshots, GeoJSON attribute tables, or
+/// prebuild-materialized `dataset_view` derived parquet.
 pub fn resolve_parquet_for_dataset_view(
     app_root: &Path,
     view: &DatasetView,
 ) -> Result<Option<PathBuf>> {
+    if is_prebuild_materialized_view(view) {
+        let path = derived_view_parquet_path(app_root, view.id.as_str());
+        return Ok(path.is_file().then_some(path));
+    }
     if is_postgres_kind(view.source.kind.as_str()) {
         return resolve_or_materialize_postgres_parquet(app_root, view);
     }
@@ -85,6 +90,44 @@ pub fn resolve_parquet_for_dataset_view(
             Ok(None)
         }
     }
+}
+
+/// True when `dataset_view(..., materialize = "prebuild")` was compiled to a derived source.
+pub fn is_prebuild_materialized_view(view: &DatasetView) -> bool {
+    let kind = view.source.kind.trim().to_ascii_lowercase();
+    if kind == "derived" {
+        return true;
+    }
+    if view.source.path.trim().starts_with("dataset_view:") {
+        return view
+            .source
+            .content
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .and_then(|value| {
+                value
+                    .get("materialize")
+                    .and_then(Value::as_str)
+                    .map(|s| s.trim() == "prebuild")
+            })
+            .unwrap_or(false);
+    }
+    false
+}
+
+/// Stable path for prebuild-derived `dataset_view` parquet under data-snapshots.
+pub fn derived_view_parquet_path(app_root: &Path, view_id: &str) -> PathBuf {
+    let safe: String = view_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    data_snapshot_store_root(app_root).join(format!("derived-view-{safe}.parquet"))
 }
 
 /// Materialize postgres/timescale rows into an app-local temp parquet for DataFusion.

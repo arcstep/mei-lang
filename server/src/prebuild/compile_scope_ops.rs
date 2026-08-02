@@ -722,7 +722,7 @@ pub(crate) fn publish_required_data_snapshots(
         )
         .is_some()
     });
-    if all_ready {
+    let mut report = if all_ready {
         let discovered_sources = required_sources
             .iter()
             .map(|(path, sheet, header_row)| {
@@ -734,29 +734,46 @@ pub(crate) fn publish_required_data_snapshots(
                 )
             })
             .collect::<Vec<_>>();
-        return Ok(PublishDataSnapshotsReport {
+        PublishDataSnapshotsReport {
             app_id: app_id.to_string(),
             discovered_sources,
             written: Vec::new(),
             manifest_path: data_snapshot_import_manifest_path(app_root.as_path())
                 .display()
                 .to_string(),
-        });
-    }
-    let refs = required_sources
-        .iter()
-        .map(|(path, sheet, header_row)| (path.as_str(), sheet.as_deref(), *header_row))
-        .collect::<Vec<_>>();
-    let report = toolchain::publish_data_snapshots(source_root, app_id, refs.as_slice())
-        .with_context(|| format!("publish data snapshots for app `{app_id}`"))?;
-    for source_key in &report.written {
-        let _ = crate::graph::mrg::eval_nodes::persist_data_source_node(
-            source_root,
-            app_id,
-            source_key.as_str(),
-            "ds:published",
-            source_key.as_str(),
-        );
+        }
+    } else {
+        let refs = required_sources
+            .iter()
+            .map(|(path, sheet, header_row)| (path.as_str(), sheet.as_deref(), *header_row))
+            .collect::<Vec<_>>();
+        let report = toolchain::publish_data_snapshots(source_root, app_id, refs.as_slice())
+            .with_context(|| format!("publish data snapshots for app `{app_id}`"))?;
+        for source_key in &report.written {
+            let _ = crate::graph::mrg::eval_nodes::persist_data_source_node(
+                source_root,
+                app_id,
+                source_key.as_str(),
+                "ds:published",
+                source_key.as_str(),
+            );
+        }
+        report
+    };
+    // Always refresh materialize=prebuild derived views after physical snapshots exist.
+    match mei_host_graph::publish_derived_dataset_view_snapshots(source_root, app_id) {
+        Ok(derived) => {
+            for path in derived {
+                report.written.push(path);
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                app_id = %app_id,
+                error = %error,
+                "publish derived dataset_view snapshots failed"
+            );
+        }
     }
     Ok(report)
 }

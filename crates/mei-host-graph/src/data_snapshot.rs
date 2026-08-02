@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use mei_host_core::path_for_log;
 use mei_lang_kernel::{
     cell_normalize_rules_from_schema, clear_runtime_compile_caches,
@@ -9,9 +9,10 @@ use mei_lang_kernel::{
     ops_source_entry_to_decl, parse_primary_key_spec, parquet_snapshot_path,
     primary_key_columns_from_schema,
     publish_xlsx_data_snapshots_for_paths_with_ingest_sidecars, resolve_app_root,
-    resolve_data_snapshot_import_entry, source_ingest_sidecar_key,
+    resolve_data_snapshot_import_entry, source_ingest_sidecar_key, DatasetView,
 };
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PublishDataSnapshotsReport {
@@ -103,7 +104,7 @@ pub fn publish_app_data_snapshots(
     let required = collect_app_xlsx_sources(source_root, app_id)?;
     let cell_normalizes_by_source = collect_app_cell_normalize_rules(source_root, app_id)?;
     let primary_key_columns_by_source = collect_app_primary_key_rules(source_root, app_id)?;
-    let discovered_sources = required
+    let mut discovered_sources = required
         .iter()
         .map(|(path, sheet, header_row)| {
             format!(
@@ -142,6 +143,21 @@ pub fn publish_app_data_snapshots(
         }
     }
 
+    match publish_derived_dataset_view_snapshots(source_root, app_id) {
+        Ok(derived) => {
+            for path in derived {
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    total_written_bytes += metadata.len();
+                }
+                written.push(path_for_log(source_root, Path::new(&path)));
+                discovered_sources.push(format!("derived_view|{path}"));
+            }
+        }
+        Err(error) => {
+            skipped.push(format!("derived_views: {error:#}"));
+        }
+    }
+
     if !written.is_empty() {
         clear_runtime_compile_caches();
         let _ = mei_lang_datasets::clear_query_engine_session_for_app(app_root.as_path());
@@ -158,6 +174,87 @@ pub fn publish_app_data_snapshots(
         ),
         total_written_bytes,
     })
+}
+
+/// After physical xlsx/csv snapshots exist, lower `materialize = "prebuild"` views once
+/// and write `derived-view-*.parquet` under data-snapshots.
+pub fn publish_derived_dataset_view_snapshots(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<Vec<String>> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    let resources =
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
+    let mut datasets: BTreeMap<String, DatasetView> = BTreeMap::new();
+    for resource in &resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        datasets.insert(dataset.id.clone(), dataset.clone());
+        datasets.insert(resource.id.clone(), dataset.clone());
+    }
+
+    let mut written = Vec::new();
+    for node in registry.nodes_of_kind(crate::types::GraphNodeKind::MetricDefBundle) {
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Some(artifact) = crate::import::load_block_artifact(app_root.as_path(), pref)? else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        let bundle_datasets = payload
+            .get("datasets")
+            .and_then(Value::as_array)
+            .map(|items| items.as_slice())
+            .unwrap_or(&[]);
+        for item in bundle_datasets {
+            let Some(name) = item.get("__call").and_then(Value::as_str) else {
+                continue;
+            };
+            if name != "dataset_view" {
+                continue;
+            }
+            let Some(args) = item.get("__args").and_then(Value::as_object) else {
+                continue;
+            };
+            if args
+                .get("materialize")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                != Some("prebuild")
+            {
+                continue;
+            }
+            let Some(view_id) = args
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let Some(expr) =
+                crate::v2_metric_lower::V2MetricLowerContext::materialize_rowset_expr(
+                    bundle_datasets,
+                    view_id,
+                )
+            else {
+                anyhow::bail!("materialize view `{view_id}` has no lowered rowset");
+            };
+            let out = mei_lang_datasets::derived_view_parquet_path(app_root.as_path(), view_id);
+            mei_lang_datasets::materialize_expr_to_parquet(
+                app_root.as_path(),
+                &datasets,
+                &expr,
+                out.as_path(),
+            )
+            .with_context(|| format!("materialize dataset_view `{view_id}`"))?;
+            written.push(out.to_string_lossy().into_owned());
+        }
+    }
+    Ok(written)
 }
 
 fn collect_app_cell_normalize_rules(

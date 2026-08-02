@@ -1,7 +1,12 @@
+use std::fs::{self, File};
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use datafusion::arrow::array::{ArrayRef, StringArray};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::SessionContext;
+use parquet::arrow::ArrowWriter;
 use serde_json::Value;
 
 use super::super::arrow_json::batches_to_json_rows;
@@ -74,6 +79,83 @@ pub fn execute_sql_plan(app_root: &Path, plan: &SqlPlan) -> Result<Vec<Value>> {
             Ok(rows)
         })
     })
+}
+
+/// Materialize a lowered plan to parquet without the page-path row limit.
+pub fn execute_sql_plan_to_parquet(app_root: &Path, plan: &SqlPlan, out_path: &Path) -> Result<()> {
+    let inner = plan.final_sql.trim_end_matches(';');
+    let sql = if inner.trim_start().len() >= 4
+        && inner.trim_start()[..4].eq_ignore_ascii_case("with")
+    {
+        inner.to_string()
+    } else {
+        format!("SELECT * FROM ({inner}) AS mei_materialize_result")
+    };
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("mkdir {}", parent.display()))?;
+    }
+    with_app_session(app_root, |ctx| {
+        run_plan_setup_on_ctx(ctx, plan)?;
+        block_on(async {
+            let batches = ctx
+                .sql(&sql)
+                .await
+                .with_context(|| {
+                    format!(
+                        "prepare materialize sql failed (sql_chars={}): {}",
+                        sql.chars().count(),
+                        sql.chars().take(240).collect::<String>()
+                    )
+                })?
+                .collect()
+                .await
+                .with_context(|| {
+                    format!(
+                        "collect materialize sql failed (sql_chars={})",
+                        sql.chars().count()
+                    )
+                })?;
+            write_record_batches_parquet(out_path, &batches, &plan.result_columns)
+                .with_context(|| format!("write materialize parquet {}", out_path.display()))?;
+            Ok(())
+        })
+    })
+}
+
+fn write_record_batches_parquet(
+    out_path: &Path,
+    batches: &[RecordBatch],
+    fallback_columns: &[String],
+) -> Result<()> {
+    let schema = if let Some(first) = batches.first() {
+        first.schema()
+    } else if !fallback_columns.is_empty() {
+        std::sync::Arc::new(Schema::new(
+            fallback_columns
+                .iter()
+                .map(|name| Field::new(name.as_str(), DataType::Utf8, true))
+                .collect::<Vec<_>>(),
+        ))
+    } else {
+        bail!("materialize produced empty batches without result columns");
+    };
+    let file = File::create(out_path).with_context(|| format!("create {}", out_path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), None)
+        .context("ArrowWriter for materialize parquet")?;
+    if batches.is_empty() {
+        let empty_cols: Vec<ArrayRef> = (0..schema.fields().len())
+            .map(|_| std::sync::Arc::new(StringArray::from(Vec::<Option<String>>::new())) as ArrayRef)
+            .collect();
+        let empty = RecordBatch::try_new(schema, empty_cols).context("empty RecordBatch")?;
+        writer.write(&empty).context("write empty batch")?;
+    } else {
+        for batch in batches {
+            writer.write(batch).context("write materialize batch")?;
+        }
+    }
+    writer.close().context("close materialize parquet")?;
+    Ok(())
 }
 
 fn sql_has_trailing_limit(sql: &str) -> bool {

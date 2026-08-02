@@ -232,8 +232,12 @@ pub fn ensure_query_engine_session(app_root: &Path) -> Result<()> {
 }
 
 pub use query_engine::{
-    resolve_parquet_file_for_source, snapshot_query_engine_io_stats, snapshot_pipeline_sql_stats,
-    take_query_engine_io_stats, take_pipeline_sql_stats,
+    append_query_audit, bench_sql_text, derived_view_parquet_path, is_prebuild_materialized_view,
+    load_query_audit_jsonl, materialize_expr_to_parquet, query_audit_dir, query_audit_gate_failures,
+    query_audit_jsonl_path, resolve_parquet_file_for_source, shape_exceeds_gate,
+    snapshot_pipeline_sql_stats, snapshot_query_engine_io_stats, take_pipeline_sql_stats,
+    take_query_engine_io_stats, today_yyyymmdd, QueryAuditEntry, QueryAuditResult, QueryAuditShape,
+    QueryAuditTiming, CONTROLLED_SQL_MAX_CHARS, CONTROLLED_SQL_MAX_UNION_ALL,
 };
 pub use schema_contract::{
     check_schema_physical_sources, ensure_schema_physical_sources, MissingPhysicalSource,

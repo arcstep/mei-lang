@@ -164,17 +164,39 @@ fn lower_bundle_dataset(
         return None;
     }
     let schema = lower_bundle_schema(args.get("schema"));
-    let source = attach_filter_dimensions(
-        attach_schema_normalize(
-            enrich_file_backed_source(
-                args.get("source")
-                    .and_then(|source| resolve_bundle_source(source, ops_sources))
-                    .unwrap_or_else(empty_source_decl),
+    let materialize_prebuild = args
+        .get("materialize")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        == Some("prebuild");
+    let source = if materialize_prebuild {
+        SourceDecl {
+            kind: "derived".to_string(),
+            path: format!("dataset_view:{id}"),
+            sheet: None,
+            header_row: None,
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            primary_key: None,
+            content: Some(r#"{"materialize":"prebuild"}"#.to_string()),
+        }
+    } else {
+        attach_filter_dimensions(
+            attach_schema_normalize(
+                enrich_file_backed_source(
+                    args.get("source")
+                        .and_then(|source| resolve_bundle_source(source, ops_sources))
+                        .unwrap_or_else(empty_source_decl),
+                ),
+                &schema,
             ),
-            &schema,
-        ),
-        args.get("filters"),
-    );
+            args.get("filters"),
+        )
+    };
     Some(DatasetView {
         id,
         title: None,

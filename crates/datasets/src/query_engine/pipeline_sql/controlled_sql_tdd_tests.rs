@@ -341,6 +341,53 @@ fn category_expand_concat_is_factored_and_controlled() {
 }
 
 #[test]
+fn factored_plan_audit_jsonl_records_has_arm() {
+    use super::audit_log::{
+        append_query_audit, build_entry_for_plan, query_audit_jsonl_path, today_yyyymmdd,
+        QueryAuditEntry,
+    };
+    use std::sync::Mutex;
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = ENV_LOCK.lock().expect("env lock");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app_root = dir.path();
+    let view = write_issues_view(app_root);
+    let mut datasets = BTreeMap::new();
+    datasets.insert(view.id.clone(), view);
+
+    let plan = try_lower_expr(app_root, &datasets, &legacy_nested_category_expand_expr())
+        .expect("lower")
+        .expect("plan");
+
+    std::env::set_var("MEI_DF_AUDIT", "1");
+    let entry = build_entry_for_plan(
+        "pipeline_sql_eval",
+        Some("fixture_metric"),
+        &plan,
+        1,
+        2,
+        3,
+        4,
+        None,
+        None,
+        None,
+        app_root,
+        None,
+    );
+    append_query_audit(app_root, &entry);
+    let path = query_audit_jsonl_path(app_root, &today_yyyymmdd());
+    let text = fs::read_to_string(&path).expect("jsonl");
+    let parsed: QueryAuditEntry = serde_json::from_str(text.lines().next().expect("line"))
+        .expect("parse audit");
+    assert_eq!(parsed.shape.as_ref().map(|s| s.has_arm), Some(true));
+    assert!(!super::audit_log::shape_exceeds_gate(
+        parsed.shape.as_ref().expect("shape")
+    ));
+    std::env::remove_var("MEI_DF_AUDIT");
+}
+
+#[test]
 fn effectiveness_like_mixed_first_by_arms_are_factored() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app_root = dir.path();

@@ -27,6 +27,7 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
             Command::Inspect(_) => "inspect",
             Command::Export(_) => "export",
             Command::Query(_) => "query",
+            Command::QueryAudit(_) => "query-audit",
             Command::Runtime(_) => "runtime",
             Command::Mcp(_) => "mcp",
         };
@@ -55,6 +56,7 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
                 | Command::Inspect(_)
                 | Command::Export(_)
                 | Command::Query(_)
+                | Command::QueryAudit(_)
                 | Command::Runtime(_)
                 | Command::Mcp(_)
         ),
@@ -99,6 +101,7 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
         Command::Inspect(_) => "inspect",
         Command::Export(_) => "export",
         Command::Query(_) => "query",
+        Command::QueryAudit(_) => "query-audit",
         Command::Runtime(_) => "runtime",
         Command::Mcp(_) => "mcp",
     };
@@ -169,6 +172,7 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Inspect(args) => inspect_command(args),
         Command::Export(args) => export_command(args),
         Command::Query(args) => query_command(args),
+        Command::QueryAudit(args) => query_audit_command(args),
         Command::Runtime(args) => runtime_command(args),
         Command::Mcp(args) => mcp_command(args),
     }

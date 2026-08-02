@@ -68,6 +68,16 @@ pub struct V2MetricLowerContext {
 
 impl V2MetricLowerContext {
     pub fn from_bundle_datasets(datasets: &[Value]) -> Self {
+        Self::from_bundle_datasets_with_options(datasets, false)
+    }
+
+    /// Fully inline every `dataset_view` (including `materialize = "prebuild"` targets).
+    /// Used when writing derived parquet at prebuild so the expand SQL can run once.
+    pub fn from_bundle_datasets_fully_inlined(datasets: &[Value]) -> Self {
+        Self::from_bundle_datasets_with_options(datasets, true)
+    }
+
+    fn from_bundle_datasets_with_options(datasets: &[Value], inline_materialized: bool) -> Self {
         let mut dataset_rowsets = BTreeMap::new();
         for item in datasets {
             let Some(name) = v2_call_name(item) else {
@@ -89,8 +99,7 @@ impl V2MetricLowerContext {
             };
             dataset_rowsets.insert(id.to_string(), data_ref(id));
         }
-        let ctx = Self { dataset_rowsets };
-        let mut resolved = ctx.dataset_rowsets.clone();
+        let mut resolved = dataset_rowsets;
         for item in datasets {
             let Some(name) = v2_call_name(item) else {
                 continue;
@@ -109,6 +118,17 @@ impl V2MetricLowerContext {
             else {
                 continue;
             };
+            let materialize_prebuild = args
+                .get("materialize")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                == Some("prebuild");
+            // Query-time: keep data_ref so pipeline_sql hits the derived parquet.
+            // Prebuild write path: inline the full tree once.
+            if materialize_prebuild && !inline_materialized {
+                resolved.insert(id.to_string(), data_ref(id));
+                continue;
+            }
             let rowset = args
                 .get("rowset")
                 .map(|value| {
@@ -131,6 +151,12 @@ impl V2MetricLowerContext {
         Self {
             dataset_rowsets: resolved,
         }
+    }
+
+    /// Fully-inlined rowset for a `materialize = "prebuild"` view (prebuild write).
+    pub fn materialize_rowset_expr(datasets: &[Value], view_id: &str) -> Option<Value> {
+        let ctx = Self::from_bundle_datasets_fully_inlined(datasets);
+        ctx.dataset_rowsets.get(view_id).cloned()
     }
 }
 
@@ -325,6 +351,7 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
         ),
         "label_status_pending" => lower_label_status_pending(input, &args),
         "concat_rowsets" => lower_concat_rowsets(&args, ctx),
+        "category_expand" => lower_category_expand(&args, ctx),
         "group_by" => lower_group_by(Some(input), &args, ctx),
         "lookup_value" => lower_lookup_value(Some(input), &args, ctx),
         "lookup_collect" => lower_lookup_collect(Some(input), &args, ctx),
@@ -349,6 +376,108 @@ fn lower_concat_rowsets(args: &Value, ctx: &V2MetricLowerContext) -> Value {
             };
             rowsets.push(lower_rowset(expr, ctx));
         }
+    }
+    aek("concat_rowsets", &[("rowsets", json!(rowsets))])
+}
+
+/// Desugar `category_expand(base, label_field=…, arms=[…] | arm(…), …)` into
+/// `concat_rowsets(mutate(where|rowset, {label_field: lit(label)}), …)`.
+///
+/// Author surface prefers `arm(when=…, label=…)` / `arm(rowset=…, label=…)` call
+/// args because mei list literals do not accept `{ key: … }` objects.
+fn lower_category_expand(args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let base = args
+        .get("rowset")
+        .or_else(|| args.get("arg0"))
+        .map(|value| lower_rowset(value, ctx))
+        .unwrap_or(json!(null));
+    let label_field = args
+        .get("label_field")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            // Optional positional string after base: category_expand(base, "列名", arm(...), …)
+            args.get("arg1")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "监督成效类别".to_string());
+    let mut arms: Vec<Value> = Vec::new();
+    if let Some(arr) = args.get("arms").and_then(Value::as_array) {
+        arms.extend(arr.iter().cloned());
+    }
+    // Collect arm(...) positional args (skip arg0 base; skip arg1 if it was label string).
+    let start = if args.get("arg1").and_then(Value::as_str).is_some()
+        && args.get("label_field").is_none()
+    {
+        2
+    } else {
+        1
+    };
+    for index in start..64 {
+        let key = format!("arg{index}");
+        let Some(expr) = args.get(&key) else {
+            break;
+        };
+        if v2_call_name(expr).as_deref() == Some("arm") || expr.as_object().is_some() {
+            arms.push(expr.clone());
+        }
+    }
+    let mut rowsets = Vec::with_capacity(arms.len());
+    for arm in arms {
+        let arm_obj = if v2_call_name(&arm).as_deref() == Some("arm") {
+            arm.get("__args")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default()
+        } else if let Some(obj) = arm.as_object() {
+            obj.clone()
+        } else {
+            continue;
+        };
+        let label = arm_obj
+            .get("label")
+            .or_else(|| arm_obj.get("arg1"))
+            .and_then(|value| match value {
+                Value::String(s) => Some(s.clone()),
+                other if other.get("__call").and_then(Value::as_str) == Some("lit") => other
+                    .get("__args")
+                    .and_then(|a| a.get("arg0").or_else(|| a.get("value")))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                _ => None,
+            })
+            .unwrap_or_default();
+        if label.is_empty() {
+            continue;
+        }
+        let inner = if let Some(when) = arm_obj.get("when").or_else(|| arm_obj.get("predicate"))
+        {
+            aek(
+                "where",
+                &[
+                    ("rowset", base.clone()),
+                    ("predicate", lower_predicate(when)),
+                ],
+            )
+        } else if let Some(rowset) = arm_obj.get("rowset").or_else(|| arm_obj.get("arg0")) {
+            lower_rowset(rowset, ctx)
+        } else {
+            continue;
+        };
+        let mut updates = Map::new();
+        updates.insert(label_field.clone(), aek("lit", &[("value", json!(label))]));
+        rowsets.push(aek(
+            "mutate",
+            &[
+                ("rowset", inner),
+                ("updates", lower_mutate_updates(&Value::Object(updates))),
+            ],
+        ));
     }
     aek("concat_rowsets", &[("rowsets", json!(rowsets))])
 }
@@ -743,6 +872,7 @@ fn is_rowset_call_name(name: &str) -> bool {
             | "unpivot_columns"
             | "mutate"
             | "concat_rowsets"
+            | "category_expand"
             | "party_gov_sanction_rows"
             | "handled_person_rows"
     )
@@ -1517,6 +1647,7 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                 lower_label_status_pending(&input, &args)
             }
             "concat_rowsets" => lower_concat_rowsets(&args, ctx),
+            "category_expand" => lower_category_expand(&args, ctx),
             "party_gov_sanction_rows" | "handled_person_rows" => {
                 expand_person_rowset(name.as_str(), value, ctx).unwrap_or(json!(null))
             }
@@ -2061,6 +2192,143 @@ mod tests {
             .pointer("/value/rowset/rowset/type")
             .and_then(|v| v.as_str());
         assert_eq!(rowset_type, Some("concat_rowsets"), "got {lowered}");
+    }
+
+    #[test]
+    fn category_expand_desugars_to_concat_mutate_where() {
+        let raw = json!({
+            "__call": "category_expand",
+            "__args": {
+                "arg0": {"__call": "data_ref", "__args": {"arg0": "issue_result_marked"}},
+                "label_field": "监督成效类别",
+                "arg1": {
+                    "__call": "arm",
+                    "__args": {
+                        "when": {
+                            "__call": "in_values",
+                            "__args": {"arg0": "是否转问题线索", "arg1": ["是"]}
+                        },
+                        "label": "转问题线索"
+                    }
+                },
+                "arg2": {
+                    "__call": "arm",
+                    "__args": {
+                        "when": {
+                            "__call": "in_values",
+                            "__args": {"arg0": "是否立案", "arg1": ["是"]}
+                        },
+                        "label": "立案"
+                    }
+                },
+                "arg3": {
+                    "__call": "arm",
+                    "__args": {
+                        "rowset": {
+                            "__call": "party_gov_sanction_rows",
+                            "__args": {
+                                "arg0": {"__call": "data_ref", "__args": {"arg0": "issue_result_marked"}}
+                            }
+                        },
+                        "label": "党纪政务处分"
+                    }
+                }
+            }
+        });
+        let ctx = V2MetricLowerContext::default();
+        let lowered = lower_rowset(&raw, &ctx);
+        assert_eq!(
+            lowered.get("type").and_then(Value::as_str),
+            Some("concat_rowsets"),
+            "got {lowered}"
+        );
+        let arms = lowered
+            .get("rowsets")
+            .and_then(Value::as_array)
+            .expect("rowsets");
+        assert_eq!(arms.len(), 3, "got {lowered}");
+        assert_eq!(
+            arms[0].pointer("/updates/监督成效类别/value").and_then(Value::as_str),
+            Some("转问题线索")
+        );
+        assert_eq!(
+            arms[0].pointer("/rowset/type").and_then(Value::as_str),
+            Some("where")
+        );
+        assert_eq!(
+            arms[1].pointer("/updates/监督成效类别/value").and_then(Value::as_str),
+            Some("立案")
+        );
+        // party_gov_sanction_rows expands; label still applied via mutate
+        assert_eq!(
+            arms[2].pointer("/updates/监督成效类别/value").and_then(Value::as_str),
+            Some("党纪政务处分")
+        );
+    }
+
+    #[test]
+    fn materialize_prebuild_keeps_data_ref_instead_of_inlining() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {"id": "issue_result_list"}
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "effectiveness_analytics_list",
+                    "materialize": "prebuild",
+                    "rowset": {
+                        "__call": "category_expand",
+                        "__args": {
+                            "arg0": {"__call": "data_ref", "__args": {"arg0": "issue_result_list"}},
+                            "label_field": "监督成效类别",
+                            "arms": [
+                                {
+                                    "when": {
+                                        "__call": "in_values",
+                                        "__args": {"arg0": "是否立案", "arg1": ["是"]}
+                                    },
+                                    "label": "立案"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        ]);
+        let datasets = bundle_datasets.as_array().expect("array");
+        let ctx = V2MetricLowerContext::from_bundle_datasets(datasets);
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "m",
+                "rowset": {"__call": "data_ref", "__args": {"arg0": "effectiveness_analytics_list"}},
+                "agg": {"__call": "count", "__args": {}}
+            }
+        });
+        let lowered = lower_v2_metric("m", &raw, &ctx).expect("lower");
+        assert_eq!(
+            lowered.pointer("/values/value/rowset/__ref").and_then(Value::as_str),
+            Some("data"),
+            "materialize view must stay as data_ref, got {lowered}"
+        );
+        assert_eq!(
+            lowered
+                .pointer("/values/value/rowset/from_dataset")
+                .and_then(Value::as_str),
+            Some("effectiveness_analytics_list")
+        );
+        let inlined = V2MetricLowerContext::materialize_rowset_expr(
+            datasets,
+            "effectiveness_analytics_list",
+        )
+        .expect("inlined expr");
+        assert_eq!(
+            inlined.get("type").and_then(Value::as_str),
+            Some("concat_rowsets"),
+            "prebuild write path must inline expand, got {inlined}"
+        );
     }
 
     #[test]
